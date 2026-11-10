@@ -55,6 +55,7 @@ public class FakeChatModel implements ChatModel {
     private final AtomicReference<Prompt> lastPrompt = new AtomicReference<>();
     private final AtomicInteger calls = new AtomicInteger();
     private volatile CompletableFuture<Void> gate = CompletableFuture.completedFuture(null);
+    private final AtomicReference<String> fixedAnswer = new AtomicReference<>();
 
     public void mode(Mode mode) {
         this.mode.set(mode);
@@ -70,7 +71,13 @@ public class FakeChatModel implements ChatModel {
         gate.complete(null);
     }
 
+    /** {@link Mode#TOOL_ANSWER}에서 Tool을 부르지 않고 이 글로 답한다(강의 추천 이유처럼 Tool 없는 요청). {@link #reset()}이 지운다 */
+    public void answerWith(String text) {
+        fixedAnswer.set(text);
+    }
+
     public void reset() {
+        fixedAnswer.set(null);
         mode.set(Mode.TOOL_ANSWER);
         lastPrompt.set(null);
         calls.set(0);
@@ -100,7 +107,7 @@ public class FakeChatModel implements ChatModel {
                 yield response(answer(prompt));
             }
             case EMPTY -> response("");
-            case TOOL_ANSWER -> response(answer(prompt));
+            case TOOL_ANSWER -> response(fixedAnswer.get() != null ? fixedAnswer.get() : answer(prompt));
         };
     }
 

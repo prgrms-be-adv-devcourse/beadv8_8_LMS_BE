@@ -37,6 +37,7 @@ public class FakeEmbeddingModel implements EmbeddingModel {
     private final Map<String, float[]> table = new ConcurrentHashMap<>();
     private final AtomicReference<RuntimeException> failure = new AtomicReference<>();
     private final AtomicInteger embeddedTexts = new AtomicInteger();
+    private final AtomicInteger calls = new AtomicInteger();
 
     /** 이 글(로 시작하는 글)의 벡터를 정한다. 크기 1로 맞춘다 */
     public FakeEmbeddingModel put(String textPrefix, float... vector) {
@@ -75,10 +76,16 @@ public class FakeEmbeddingModel implements EmbeddingModel {
         return embeddedTexts.get();
     }
 
+    /** 지금까지 공급자 호출 수(묶음 임베딩은 한 번) */
+    public int calls() {
+        return calls.get();
+    }
+
     public void reset() {
         table.clear();
         failure.set(null);
         embeddedTexts.set(0);
+        calls.set(0);
     }
 
     @Override
@@ -93,6 +100,7 @@ public class FakeEmbeddingModel implements EmbeddingModel {
             embeddings.add(new Embedding(vectorOf(texts.get(i)), i));
         }
         embeddedTexts.addAndGet(texts.size());
+        calls.incrementAndGet();
         return new EmbeddingResponse(embeddings);
     }
 
