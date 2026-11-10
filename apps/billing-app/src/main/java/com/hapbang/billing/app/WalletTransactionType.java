@@ -55,6 +55,9 @@ public enum WalletTransactionType {
             // 플랫폼 지갑에만 있고, 플랫폼 지갑은 회원 거래 내역에서 조회되지 않는다 (#336)
             case EXCHANGE_FEE -> throw new IllegalStateException("회원 지갑에는 환전 수수료 원장이 없습니다.");
             case REVERSAL -> REVERSAL;
+            // 프로모션 지갑에만 있고, 프로모션 지갑은 회원 거래 내역에서 조회되지 않는다
+            case PROMOTION_FUND, PROMOTION_WITHDRAW, BUDGET_RESERVE, BUDGET_RELEASE ->
+                    throw new IllegalStateException("회원 지갑에는 프로모션 지갑 원장이 없습니다.");
         };
     }
 

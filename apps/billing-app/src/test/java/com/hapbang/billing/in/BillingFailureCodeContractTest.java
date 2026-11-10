@@ -76,6 +76,11 @@ class BillingFailureCodeContractTest {
             case WITHDRAWAL_ALREADY_REOPENED -> BillingFailureCode.WITHDRAWAL_ALREADY_REOPENED;
             // 락 대기 초과
             case HP_LOCK_TIMEOUT -> BillingFailureCode.HP_LOCK_TIMEOUT;
+            // 쿠폰 예산 예약·해제(가용 부족은 관리자 회수에서도 나온다)
+            case PROMOTION_BALANCE_INSUFFICIENT -> BillingFailureCode.PROMOTION_BALANCE_INSUFFICIENT;
+            case BUDGET_RESERVATION_EXISTS -> BillingFailureCode.BUDGET_RESERVATION_EXISTS;
+            case BUDGET_RESERVATION_NOT_FOUND -> BillingFailureCode.BUDGET_RESERVATION_NOT_FOUND;
+            case BUDGET_RELEASE_EXCEEDS_REMAINING -> BillingFailureCode.BUDGET_RELEASE_EXCEEDS_REMAINING;
             // 내부 API에서 나오지 않는다: 역분개, 확정 차감(노출하지 않음), 충전, 환불, 환전, 수익 조회, Backfill,
             // 지갑 회원 확인(사용자 신청에서만, #537), Mock 은행
             case ORIGINAL_LEDGER_NOT_FOUND, INVALID_REVERSAL, CAPTURE_AMOUNT_EXCEEDS_HELD,
