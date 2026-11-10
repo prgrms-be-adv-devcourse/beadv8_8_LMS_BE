@@ -1,0 +1,21 @@
+package com.hapbang.auxiliary.chatbot.app.dto;
+
+import java.util.List;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+/**
+ * 인플루언서 추천 결과 (#719). 후보와 순서는 코드가 정한다(같은 상태면 같은 결과).
+ *
+ * @param fallback LLM 설명 경로에서 LLM 없이 이유 코드 문장으로 답했는지. 위젯 API는 늘 false
+ */
+@Schema(description = "인플루언서 추천 결과")
+public record InfluencerRecommendResDto(
+        @Schema(description = "추천 인플루언서. 보통 5명이고, 추천할 수 있는 인플루언서가 모자라면 그보다 적다")
+        List<InfluencerItemResDto> items,
+        @Schema(description = "내 프로필·함께 출연한 상대가 없어 인기순으로만 골랐다. 대화 화면이 관심사를 물어볼 수 있다")
+        boolean needsInterest,
+        @Schema(description = "LLM 설명 경로에서 LLM 없이 정해진 문장으로 답했다")
+        boolean fallback
+) {
+}
