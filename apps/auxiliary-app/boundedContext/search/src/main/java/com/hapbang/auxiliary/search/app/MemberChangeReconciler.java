@@ -63,24 +63,26 @@ public class MemberChangeReconciler {
     private final MemberChangeSource source;
     private final SyncCursorStore cursorStore;
     private final SearchJobRunner jobRunner;
+    private final SearchSyncMetrics metrics;
     private final Clock clock;
 
     @Autowired
     public MemberChangeReconciler(InfluencerIndexSetup indexSetup, InfluencerDocumentStore documentStore,
             InfluencerMemberIndexer indexer, MemberChangeSource source, SyncCursorStore cursorStore,
-            SearchJobRunner jobRunner) {
-        this(indexSetup, documentStore, indexer, source, cursorStore, jobRunner, Clock.system(ZONE));
+            SearchJobRunner jobRunner, SearchSyncMetrics metrics) {
+        this(indexSetup, documentStore, indexer, source, cursorStore, jobRunner, metrics, Clock.system(ZONE));
     }
 
     MemberChangeReconciler(InfluencerIndexSetup indexSetup, InfluencerDocumentStore documentStore,
             InfluencerMemberIndexer indexer, MemberChangeSource source, SyncCursorStore cursorStore,
-            SearchJobRunner jobRunner, Clock clock) {
+            SearchJobRunner jobRunner, SearchSyncMetrics metrics, Clock clock) {
         this.indexSetup = indexSetup;
         this.documentStore = documentStore;
         this.indexer = indexer;
         this.source = source;
         this.cursorStore = cursorStore;
         this.jobRunner = jobRunner;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -109,6 +111,18 @@ public class MemberChangeReconciler {
      * @throws com.hapbang.shared.member.out.MemberApiCallException 회원 앱을 부르지 못한 경우
      */
     public ReconcileResult reconcile(LocalDateTime from) {
+        long started = System.nanoTime();
+        try {
+            ReconcileResult result = reconcileOnce(from);
+            metrics.reconciled(result, Duration.ofNanos(System.nanoTime() - started));
+            return result;
+        } catch (RuntimeException e) {
+            metrics.reconcileFailed(Duration.ofNanos(System.nanoTime() - started));
+            throw e;
+        }
+    }
+
+    private ReconcileResult reconcileOnce(LocalDateTime from) {
         indexSetup.ensureReady();
         LocalDateTime afterUpdatedAt = startFrom(from);
         long afterId = SyncCursor.READ_FROM_ID;

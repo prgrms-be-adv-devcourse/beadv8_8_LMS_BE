@@ -1,0 +1,100 @@
+package com.hapbang.auxiliary.search.app;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
+import com.hapbang.auxiliary.search.out.SyncCursor;
+import com.hapbang.auxiliary.search.out.SyncCursorStore;
+
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 검색 문서가 원본과 맞는지 보는 지표(#772). 검색 API 지표는 {@link SearchMetrics}다. 태그에 회원 ID를 넣지 않는다.
+ * <ul>
+ *     <li>{@code hapbang.search.reconcile.members{kind}}: 증분 보정이 반영한 회원 수({@link ReconcileKind}). inserted·hidden·overwritten이
+ *     이벤트로 놓친 변경이고, 모든 kind의 합이 읽은 회원 수다.</li>
+ *     <li>{@code hapbang.search.reconcile.duration{outcome}}: 보정 1회 소요 시간. outcome = success·failure</li>
+ *     <li>{@code hapbang.search.reconcile.lag}(초): 지금 − 마지막으로 끝까지 읽은 시각(#772 Q3). 보정이 멈추면 커진다. DB의 커서에서 읽으므로
+ *     어느 pod가 보정을 돌렸든 같은 값이다. 끝까지 읽은 적이 없거나 읽지 못하면 값이 없다(NaN).</li>
+ *     <li>{@code hapbang.search.consistency.difference{target}}: 원본 정상 인플루언서 수 − ES 보이는 문서 수(통계 동기화 때). 양수면 빠진 문서,
+ *     음수면 보이면 안 되는 문서가 있다. 점검한 적이 없으면 값이 없다(NaN). 점검한 pod의 메모리 값이라 pod가 다시 뜨면 다음 점검(최대 10분)까지
+ *     비어 있다. alert는 두지 않는다(#772 Q2, 필요해지면 붙인다).</li>
+ * </ul>
+ */
+@Slf4j
+@Component
+@ConditionalOnSearchEnabled
+public class SearchSyncMetrics {
+
+    static final String TARGET_INFLUENCER = SearchMetrics.TARGET_INFLUENCER;
+
+    private final MeterRegistry registry;
+    private final SyncCursorStore cursorStore;
+    private final Clock clock;
+    private final AtomicReference<Long> consistencyDifference = new AtomicReference<>();
+
+    @Autowired
+    public SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore) {
+        this(registry, cursorStore, Clock.system(MemberChangeReconciler.ZONE));
+    }
+
+    SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore, Clock clock) {
+        this.registry = registry;
+        this.cursorStore = cursorStore;
+        this.clock = clock;
+        Gauge.builder("hapbang.search.reconcile.lag", this, SearchSyncMetrics::reconcileLagSeconds)
+                .description("지금 - 증분 보정이 마지막으로 끝까지 읽은 시각").baseUnit("seconds").strongReference(true)
+                .register(registry);
+        Gauge.builder("hapbang.search.consistency.difference", this, SearchSyncMetrics::consistencyDifference)
+                .tag("target", TARGET_INFLUENCER).description("원본 정상 인플루언서 수 - 검색에 보이는 문서 수")
+                .strongReference(true).register(registry);
+    }
+
+    /** 보정 한 회차가 끝났다 */
+    void reconciled(MemberChangeReconciler.ReconcileResult result, Duration took) {
+        result.counts().forEach((kind, count) ->
+                registry.counter("hapbang.search.reconcile.members", "kind", kind.tag()).increment(count));
+        duration("success").record(took);
+    }
+
+    /** 보정 한 회차가 중간에 실패했다(그때까지 반영한 회원 수는 세지 않는다) */
+    void reconcileFailed(Duration took) {
+        duration("failure").record(took);
+    }
+
+    /** 통계 동기화 때 원본과 index를 비교했다 */
+    void consistencyChecked(long difference) {
+        consistencyDifference.set(difference);
+    }
+
+    private Timer duration(String outcome) {
+        return Timer.builder("hapbang.search.reconcile.duration").tag("outcome", outcome)
+                .description("증분 보정 1회 소요 시간").register(registry);
+    }
+
+    private double reconcileLagSeconds() {
+        try {
+            return cursorStore.find(SyncCursor.MEMBER_CHANGES).map(SyncCursor::caughtUpAt)
+                    .map(caughtUpAt -> (double) Duration.between(caughtUpAt, LocalDateTime.now(clock)).toSeconds())
+                    .orElse(Double.NaN);
+        } catch (RuntimeException e) {
+            // 지표 수집(scrape)을 실패시키지 않는다. 값이 비면 보는 쪽이 안다
+            log.debug("증분 보정 커서를 읽지 못해 지연 지표를 비운다", e);
+            return Double.NaN;
+        }
+    }
+
+    private double consistencyDifference() {
+        Long difference = consistencyDifference.get();
+        return difference == null ? Double.NaN : difference;
+    }
+}

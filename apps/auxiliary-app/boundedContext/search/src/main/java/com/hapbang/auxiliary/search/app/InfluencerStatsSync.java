@@ -43,6 +43,7 @@ public class InfluencerStatsSync {
     private final MemberStatsSource source;
     private final ContentCategoryNames categoryNames;
     private final SearchJobRunner jobRunner;
+    private final SearchSyncMetrics metrics;
 
     /** 한 pod에서만 실행한다. 실패는 다음 회차에 다시 한다 */
     public void run() {
@@ -75,6 +76,9 @@ public class InfluencerStatsSync {
                         + "sourceInfluencers={}, indexVisible={}", result.pages(), result.updated(), result.noop(),
                 result.missing(), result.failed(), result.categoryDocuments(), result.sourceInfluencers(),
                 result.indexVisible());
+        if (result.consistencyChecked()) {
+            metrics.consistencyChecked(result.difference());
+        }
         return result;
     }
 

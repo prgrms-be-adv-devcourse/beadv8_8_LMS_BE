@@ -28,6 +28,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** 증분 보정(#772). 회원 앱·커서는 가짜, ES는 nori 컨테이너다. 이벤트 반영은 실제 {@link InfluencerMemberIndexer}로 흉내 낸다 */
 class MemberChangeReconcilerTest {
@@ -48,8 +49,9 @@ class MemberChangeReconcilerTest {
                     .categories(category("GAME", "게임"), category("MAPLESTORY", "메이플스토리"))), clock);
     private final FakeMemberChangeSource source = new FakeMemberChangeSource();
     private final InMemorySyncCursorStore cursors = new InMemorySyncCursorStore();
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final MemberChangeReconciler reconciler = new MemberChangeReconciler(indexSetup, store, indexer, source,
-            cursors, null, clock);
+            cursors, null, new SearchSyncMetrics(registry, cursors, clock), clock);
 
     @BeforeEach
     void reset() throws Exception {
@@ -84,6 +86,10 @@ class MemberChangeReconcilerTest {
         assertThat(source(1L)).containsEntry("memberVersion", 5).containsEntry("contentCategories",
                 List.of(Map.of("code", "GAME", "name", "게임"), Map.of("code", "MAPLESTORY", "name", "메이플스토리")));
         assertThat(cursors.find(CURSOR)).contains(new SyncCursor(CURSOR, SAVED.plusMinutes(2), 1L, NOW));
+        assertThat(registry.get("hapbang.search.reconcile.members").tag("kind", "overwritten").counter().count())
+                .isEqualTo(1.0);
+        assertThat(registry.get("hapbang.search.reconcile.duration").tag("outcome", "success").timer().count())
+                .isEqualTo(1);
     }
 
     @Test
@@ -179,6 +185,8 @@ class MemberChangeReconcilerTest {
                 .change(SAVED.plusMinutes(3), influencer(3L, 1L, List.of("GAME")));
 
         assertThatThrownBy(() -> reconciler.reconcile(null)).isInstanceOf(IllegalStateException.class);
+        assertThat(registry.get("hapbang.search.reconcile.duration").tag("outcome", "failure").timer().count())
+                .isEqualTo(1);
         assertThat(cursors.find(CURSOR)).contains(new SyncCursor(CURSOR, SAVED.plusMinutes(2), 2L, null));
         assertThat(exists(3L)).isFalse();
 
