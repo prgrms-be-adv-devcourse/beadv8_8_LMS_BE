@@ -85,6 +85,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `reconciliation.interval` | 1m | 대사 배치 주기 |
 | `calculate.max-search-nodes` | 100000 | 추천 탐색에서 시도할 조합 수 상한. 넘으면 찾은 최선을 `optimal=false`로 돌려준다 |
 | `calculate.max-items` | 20 | 계산·예약 한 번의 항목 수 상한. 넘으면 400 `COUPON_TOO_MANY_ITEMS` |
+| `platform-funding-enabled` | false | 플랫폼 쿠폰 재원 처리 활성 여부. false면 추천·usable에서 PLATFORM 제외, 직접 선택 409. billing 프로모션 지갑 계약이 붙으면 true(#811, 2026-11-10) |
 
 코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건.
 

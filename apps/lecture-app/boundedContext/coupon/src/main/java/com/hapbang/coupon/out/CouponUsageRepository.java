@@ -3,12 +3,15 @@ package com.hapbang.coupon.out;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.CouponUsage;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 
 import jakarta.persistence.LockModeType;
 
@@ -45,4 +48,34 @@ public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long> 
             order by u.memberCouponId asc, u.generation asc
             """)
     List<CouponUsage> findForUpdateByOrderItemId(@Param("orderItemId") long orderItemId);
+
+    /**
+     * 회원의 쿠폰 사용 이력. 상태를 주면 그 상태만. 예약 최신순(같은 시각이면 ID 역순)으로 고정하고 {@code pageable}의 정렬은 쓰지 않는다
+     * (정렬 없는 {@code Pageable}을 넘긴다). 쿠폰 정책과의 조인은 같은 쿠폰 스키마 안에서만 한다
+     * ({@code idx_coupon_usage_member_reserved_at}).
+     */
+    default Page<UsedCoupon> findMyUsages(long memberId, CouponUsageStatus status, Pageable pageable) {
+        return status == null ? findAllUsedBy(memberId, pageable) : findUsedByStatus(memberId, status, pageable);
+    }
+
+    @Query(value = """
+            select new com.hapbang.coupon.out.UsedCoupon(u, c)
+            from CouponUsage u join Coupon c on c.id = u.couponId
+            where u.memberId = :memberId
+            order by u.reservedAt desc, u.id desc
+            """, countQuery = """
+            select count(u) from CouponUsage u where u.memberId = :memberId
+            """)
+    Page<UsedCoupon> findAllUsedBy(@Param("memberId") long memberId, Pageable pageable);
+
+    @Query(value = """
+            select new com.hapbang.coupon.out.UsedCoupon(u, c)
+            from CouponUsage u join Coupon c on c.id = u.couponId
+            where u.memberId = :memberId and u.status = :status
+            order by u.reservedAt desc, u.id desc
+            """, countQuery = """
+            select count(u) from CouponUsage u where u.memberId = :memberId and u.status = :status
+            """)
+    Page<UsedCoupon> findUsedByStatus(@Param("memberId") long memberId, @Param("status") CouponUsageStatus status,
+                                      Pageable pageable);
 }

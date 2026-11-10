@@ -68,7 +68,9 @@ import com.jayway.jsonpath.JsonPath;
  */
 @IntegrationTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.jpa.open-in-view=false")
+// 판매자·플랫폼 쿠폰을 함께 추천·예약·해제하는 흐름을 보므로 플랫폼 재원을 켠다(기본값 false면 추천에서 플랫폼 쿠폰이 빠진다).
+// 이 클래스는 원래 자기 Redis 컨테이너·mock으로 컨텍스트를 따로 띄우므로 속성을 더해도 컨텍스트가 늘지 않는다
+@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "hapbang.coupon.platform-funding-enabled=true"})
 @Import(CouponUsageE2eTest.MethodSecurityConfig.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CouponUsageE2eTest {

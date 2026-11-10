@@ -8,6 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -50,6 +51,8 @@ class CouponFacadeSecurityTest {
     private CouponPolicyQuery couponPolicyQuery;
     @MockitoBean
     private CouponCalculateUseCase couponCalculateUseCase;
+    @MockitoBean
+    private CouponUsageHistoryQuery couponUsageHistoryQuery;
 
     private static final CouponCreateCommand COMMAND = new CouponCreateCommand(null, null, null, null, 0, null, 0,
             null, null, null, null, null, false);
@@ -115,6 +118,14 @@ class CouponFacadeSecurityTest {
     void 할인_계산_미리보기는_회원_역할만_쓴다() {
         assertThatThrownBy(() -> issueFacade.quote(1L, List.of(7L), null)).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(couponCalculateUseCase);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 쿠폰_사용_이력은_회원_역할만_본다() {
+        assertThatThrownBy(() -> issueFacade.myUsages(1L, null, PageRequest.of(0, 20)))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(couponUsageHistoryQuery);
     }
 
     @Configuration(proxyBeanMethods = false)
