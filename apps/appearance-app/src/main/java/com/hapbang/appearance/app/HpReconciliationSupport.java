@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +80,12 @@ public class HpReconciliationSupport {
             }
         }
         return abandonedIds;
+    }
+
+    /** 실행 중인 실행이 있는지. 정리한 뒤에도 남아 있으면 다른 pod가 하고 있는 실행이다 */
+    @Transactional(readOnly = true)
+    public boolean isAnyRunning() {
+        return runRepository.existsByStatus(HpReconciliationStatus.RUNNING);
     }
 
     /**
@@ -189,17 +194,13 @@ public class HpReconciliationSupport {
     @Transactional(readOnly = true)
     public Optional<CompletedRun> findLatestCompletedRun() {
         return runRepository.findFirstByStatusOrderByFinishedAtDescIdDesc(HpReconciliationStatus.COMPLETED)
-                .map(run -> {
-                    Map<HpReconciliationRule, Long> counts = new EnumMap<>(HpReconciliationRule.class);
-                    for (HpReconciliationMismatch mismatch : mismatchRepository.findByRunIdOrderByIdAsc(run.getId())) {
-                        counts.merge(mismatch.getRule(), 1L, Long::sum);
-                    }
-                    return new CompletedRun(run.getId(), run.getFinishedAt(), counts);
-                });
+                .map(run -> new CompletedRun(run.getId(), run.getFinishedAt(),
+                        mismatchRepository.findByRunIdOrderByIdAsc(run.getId()).stream()
+                                .map(HpReconciliationMismatch::getRule).toList()));
     }
 
-    /** 끝까지 비교한 실행 하나의 지표 값: 끝난 시각과 규칙별 건수({@code HP_TASK_DEAD} 표시 포함) */
-    record CompletedRun(Long runId, LocalDateTime finishedAt, Map<HpReconciliationRule, Long> counts) {
+    /** 끝까지 비교한 실행 하나의 지표 값: 끝난 시각과 어긋난 건의 규칙({@code HP_TASK_DEAD} 표시 포함, 한 건에 하나) */
+    record CompletedRun(Long runId, LocalDateTime finishedAt, List<HpReconciliationRule> rules) {
     }
 
     /** 남길 어긋남 하나: 대상 + 비교 결과 */

@@ -8,7 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 기동할 때 서비스 간 HP 대사 지표를 DB 기록으로 채운다 (#821, 강의 #805와 같은 방법).
+ * 기동할 때 서비스 간 HP 대사 지표를 DB 기록으로 채운다 (#821). 채우는 방법은 강의 #805와 같고, 남은 실행을 정리하지 않는 점이 다르다.
  * <p>
  * 지표는 앱 메모리에 있어, 새벽 대사에서 어긋난 건이 나와도 그날 앱이 다시 뜨면 다음 대사 전까지 0이 된다. 그러면 Grafana alert
  * "서비스 간 HP 대사 불일치"가 고치지 않았는데도 복구 통보를 보내고 조용해진다. 그래서 DB의 마지막 완료 실행의 규칙별 건수와 끝난 시각으로
@@ -35,10 +35,10 @@ public class HpReconciliationMetricsRestorer {
     public void restore() {
         try {
             hpReconciliationSupport.findLatestCompletedRun().ifPresent(run -> {
-                hpReconciliationMetrics.updateMismatches(run.counts());
+                hpReconciliationMetrics.updateMismatches(run.rules());
                 hpReconciliationMetrics.updateLastCompleted(run.finishedAt());
-                log.info("HP 대사 지표를 마지막 완료 실행으로 채웠다 runId={}, finishedAt={}, counts={}", run.runId(),
-                        run.finishedAt(), run.counts());
+                log.info("HP 대사 지표를 마지막 완료 실행으로 채웠다 runId={}, finishedAt={}, mismatches={}", run.runId(),
+                        run.finishedAt(), run.rules().size());
             });
         } catch (RuntimeException exception) {
             log.warn("HP 대사 지표를 DB에서 채우지 못해 다음 대사까지 0으로 낸다", exception);

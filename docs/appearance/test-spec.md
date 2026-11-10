@@ -1572,10 +1572,11 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
 | `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
 | `AppearanceHpReconciliationTest` | 앱이 멈춰 1시간 넘게 `RUNNING`으로 남은 실행 (#821) | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행), `runs{INCOMPLETE}` +1 |
-| `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 새 실행은 `COMPLETED`, 중단 횟수 그대로 |
+| `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 배치는 건너뜀(null)·관리자 실행은 409 `HP_RECONCILIATION_RUNNING`, 새 실행·지갑 호출 없음, 중단 횟수 그대로 |
 | `AppearanceHpReconciliationTest` | 완료 실행 | `last.completed` = 끝난 시각(epoch 초) (#821) |
 | `AppearanceHpReconciliationTest` | 기동 복원: 완료 2건 + 그 뒤 미완료 1건 (#821) | 마지막 완료 실행의 규칙별 건수(`HP_TASK_DEAD` 포함)와 끝난 시각, 미완료 실행은 보지 않음 |
-| `AppearanceHpReconciliationTest` | 기동 복원: 완료 실행 없음, `RUNNING` 실행 있음 (#821) | 지표 그대로, `RUNNING` 정리 안 함(읽기만) |
+| `AppearanceHpReconciliationTest` | 기동 복원: 실행 기록 없음 (#821) | 지표 그대로 |
+| `AppearanceHpReconciliationTest` | 기동 복원: 완료 실행 없음, 미완료·`RUNNING` 실행 있음 (#821) | 지표 그대로, `RUNNING` 정리 안 함(읽기만) |
 | `HpReconciliationMetricsRestorerTest` | 기동 복원 중 DB 오류 (#821) | 예외 없이 기동, 지표 0 |
 | `AppearanceHpReconciliationHttpTest` | Mock Billing: 목록 GET·조회 POST | 내부 API 키, 쿼리(참조 유형·처음 커서·500건), JSON 본문(참조 유형·ID 목록), 응답 해석, 커서 KST 저장 |
 | `AppearanceHpReconciliationHttpTest` | Mock Billing: 조회 500 | `INCOMPLETE`, 커서 저장 안 함 |

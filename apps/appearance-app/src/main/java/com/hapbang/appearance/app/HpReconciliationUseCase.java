@@ -21,7 +21,6 @@ import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.config.AppearanceHpReconciliationProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
-import com.hapbang.appearance.domain.HpReconciliationRule;
 import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.domain.HpReconciliationTrigger;
@@ -51,10 +50,16 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>지갑 조회가 실패하면(회로 열림·결과 불명·거절) 그 실행을 {@code INCOMPLETE}로 끝내고 커서를 옮기지 않는다.
  *     그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다</li>
  * </ol>
- * 같은 앱에서 동시에 두 번 실행하지 않는다(출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고, 관리자 실행은 409다.
- * 실행 중 표시는 앱 메모리라 배포 중 옛 pod와 새 pod가 겹치면 두 실행이 함께 돌 수 있다. 대사는 고치지 않으므로 같은 범위를 두 번 볼 뿐이다.
- * 앱이 멈춰 실행 중으로 남은 실행은 실행을 시작할 때 정리하되, 옛 pod가 하고 있는 실행을 건드리지 않도록
- * {@code abandon-after}보다 오래된 것만 정리하고 중단 횟수를 올린다(#821). replica를 늘리면 단일 실행 장치를 먼저 둔다.
+ * 동시에 두 번 실행하지 않는다. 배치는 실행 중이면 건너뛰고, 관리자 실행은 409다.
+ * <ul>
+ *     <li>같은 앱: 앱 메모리의 실행 중 표시로 막는다</li>
+ *     <li>배포 중 옛 pod와 새 pod가 겹칠 때(maxSurge 1): DB에 {@code RUNNING} 실행이 있으면 다른 pod가 하고 있는 것으로 보고 시작하지
+ *     않는다. 두 실행이 함께 끝나면 커서 저장이 충돌해 뒤에 끝난 실행을 기록하지 못한다({@code @Version}). 다만 확인과 시작 사이에는
+ *     잠그지 않아, 두 pod의 배치가 같은 순간에 시작하면 함께 돌 수 있다(매일 04:00 한 번이라 드묾)</li>
+ *     <li>앱이 멈춰 {@code RUNNING}으로 남은 실행은 실행을 시작할 때 {@code abandon-after}보다 오래된 것만 정리하고 중단 횟수를 올린다.
+ *     그 안의 실행은 다른 pod가 하고 있을 수 있어 두고, 이번 실행을 시작하지 않는다(#821)</li>
+ * </ul>
+ * replica를 늘리면 단일 실행 장치를 먼저 둔다.
  * 배치는 시스템이 실행하므로 Facade를 거치지 않고 이 UseCase를 직접 부른다.
  */
 @Slf4j
@@ -85,7 +90,11 @@ public class HpReconciliationUseCase {
             return null;
         }
         try {
-            return run(HpReconciliationTrigger.SCHEDULED, null);
+            HpReconciliationRun run = run(HpReconciliationTrigger.SCHEDULED, null);
+            if (run == null) {
+                log.info("다른 pod가 HP 대사를 실행 중이라 이번 배치를 건너뛴다");
+            }
+            return run;
         } finally {
             running.set(false);
         }
@@ -101,15 +110,23 @@ public class HpReconciliationUseCase {
             throw new AppearanceException(AppearanceErrorCode.HP_RECONCILIATION_RUNNING);
         }
         try {
-            return run(HpReconciliationTrigger.MANUAL, adminId);
+            HpReconciliationRun run = run(HpReconciliationTrigger.MANUAL, adminId);
+            if (run == null) {
+                throw new AppearanceException(AppearanceErrorCode.HP_RECONCILIATION_RUNNING);
+            }
+            return run;
         } finally {
             running.set(false);
         }
     }
 
+    /** @return 끝난 실행. 다른 pod가 실행 중이라 시작하지 않았으면 null */
     private HpReconciliationRun run(HpReconciliationTrigger trigger, Long adminId) {
         LocalDateTime startedAt = LocalDateTime.now(clock);
         abandonLeftOverRuns(startedAt);
+        if (hpReconciliationSupport.isAnyRunning()) {
+            return null;
+        }
         Long runId = hpReconciliationSupport.start(trigger, adminId, startedAt);
         Progress progress = new Progress();
         String failureReason = null;
@@ -140,7 +157,7 @@ public class HpReconciliationUseCase {
         List<Long> abandonedIds = hpReconciliationSupport.abandonRunningStartedBefore(
                 now.minus(properties.abandonAfter()), now);
         if (!abandonedIds.isEmpty()) {
-            abandonedIds.forEach(id -> hpReconciliationMetrics.recordRun(HpReconciliationStatus.INCOMPLETE));
+            hpReconciliationMetrics.recordRuns(HpReconciliationStatus.INCOMPLETE, abandonedIds.size());
             log.warn("앱이 멈춰 끝나지 못한 HP 대사를 미완료로 정리했다 runIds={}", abandonedIds);
         }
     }
@@ -283,11 +300,8 @@ public class HpReconciliationUseCase {
         }
         hpReconciliationMetrics.recordRun(run.getStatus());
         if (run.getStatus() == HpReconciliationStatus.COMPLETED) {
-            Map<HpReconciliationRule, Long> counts = new EnumMap<>(HpReconciliationRule.class);
-            for (HpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
-                counts.merge(mismatch.finding().rule(), 1L, Long::sum);
-            }
-            hpReconciliationMetrics.updateMismatches(counts);
+            hpReconciliationMetrics.updateMismatches(
+                    progress.mismatches.stream().map(mismatch -> mismatch.finding().rule()).toList());
             hpReconciliationMetrics.updateLastCompleted(run.getFinishedAt());
             log.info("HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.getId(), run.getCheckedCount(),
                     run.getMismatchCount(), run.getDeadCount());

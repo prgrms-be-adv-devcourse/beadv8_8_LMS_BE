@@ -1520,7 +1520,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - **비교하는 사이의 변경**: 출연 쪽을 읽은 뒤 지갑을 조회하기 전에 다른 배치(HP 작업 재시도 40초·자동 확인 50초)가 작업을 실행하면 거짓 어긋남이 생길 수 있다. 어긋남이 나온 건은 다시 읽어 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
 - **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다.
 - **주기**: 매일 04:00:25(KST, `appearance.batch.hp-reconciliation-cron`). 매분 배치들이 쓰지 않는 25초다.
-- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리하고 `runs{status=INCOMPLETE}`를 올린다. 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있으므로(maxSurge 1) `abandon-after`(1시간)보다 오래된 실행만 정리한다. 그 안에 시작한 실행은 옛 pod가 하고 있는 것으로 보고 두고, 두 실행이 함께 돌아도 고치지 않으므로 같은 범위를 두 번 볼 뿐이다(#821). replica를 늘리면 단일 실행 장치를 먼저 둔다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리하고 `runs{status=INCOMPLETE}`를 올린다. 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있으므로(maxSurge 1) `abandon-after`(1시간)보다 오래된 실행만 정리한다. 그 안에 시작한 `RUNNING` 실행이 남아 있으면 다른 pod가 하고 있는 것으로 보고 이번 실행을 시작하지 않는다(배치는 건너뛰고 관리자 실행은 409). 두 실행이 함께 끝나면 커서 `@Version` 충돌로 뒤의 실행을 기록하지 못하기 때문이다. 확인과 시작 사이는 잠그지 않아 두 pod의 배치가 같은 순간에 시작하면 함께 돌 수 있다(#821). 기동할 때는 정리하지 않으므로 멈춘 실행의 `runs{INCOMPLETE}`는 다음 실행(보통 다음 날 04:00)에 오른다. 그사이 대사가 돌지 않은 것은 `last.completed`로 본다. replica를 늘리면 단일 실행 장치를 먼저 둔다.
 - **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500), `abandon-after` 1h(0보다 커야 기동, #821).
 
 ### 25.4 결과

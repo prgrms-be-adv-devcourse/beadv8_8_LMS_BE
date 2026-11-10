@@ -1,6 +1,7 @@
 package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,8 +57,10 @@ public class HpReconciliationMetrics {
                 .register(meterRegistry);
     }
 
-    /** 끝까지 비교한 실행의 규칙별 건수로 바꾼다 (이번에 없는 규칙은 0) */
-    public void updateMismatches(Map<HpReconciliationRule, Long> counts) {
+    /** 끝까지 비교한 실행의 어긋난 건(규칙 하나에 한 건)을 규칙별로 세어 바꾼다 (이번에 없는 규칙은 0) */
+    public void updateMismatches(Collection<HpReconciliationRule> rules) {
+        Map<HpReconciliationRule, Long> counts = new EnumMap<>(HpReconciliationRule.class);
+        rules.forEach(rule -> counts.merge(rule, 1L, Long::sum));
         mismatchCounts.forEach((rule, count) -> count.set(counts.getOrDefault(rule, 0L)));
     }
 
@@ -67,7 +70,12 @@ public class HpReconciliationMetrics {
     }
 
     public void recordRun(HpReconciliationStatus status) {
-        meterRegistry.counter(RUNS, "status", status.name()).increment();
+        recordRuns(status, 1);
+    }
+
+    /** 이 상태로 끝난 실행 {@code count}개를 센다 */
+    public void recordRuns(HpReconciliationStatus status, int count) {
+        meterRegistry.counter(RUNS, "status", status.name()).increment(count);
     }
 
     /** 마지막으로 바꾼 규칙별 건수 (테스트·확인용) */
