@@ -3,9 +3,11 @@ package com.hapbang.auxiliary.search.out;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -18,7 +20,10 @@ import co.elastic.clients.elasticsearch._types.Conflicts;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.MgetResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+import co.elastic.clients.elasticsearch.core.get.GetResult;
+import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.json.JsonData;
 import lombok.extern.slf4j.Slf4j;
 
@@ -94,6 +99,17 @@ public class InfluencerDocumentStore {
             if (!changed) { ctx.op = 'noop'; }
             """;
 
+    /** 증분 보정이 반영 전에 읽는 회원 이벤트 필드({@link IndexedMember}) */
+    static final List<String> MEMBER_FIELDS = List.of("memberVersion", "hidden", "nickname", "bio", "role",
+            "contentCategories.code");
+
+    /**
+     * 그 회원의 값 때문에 ES가 거절할 때의 오류 종류({@link DocumentRejectedException}, PR #833 리뷰 Q1). 같은 400이라도 script 오류
+     * ({@code illegal_argument_exception} ← {@code script_exception})나 mapping에 없는 칸({@code strict_dynamic_mapping_exception})은 우리 배포
+     * 실수라 모든 회원에게 나므로 여기에 넣지 않는다(ES 9.5.5로 시험해 확인). {@code mapper_parsing_exception}은 예전 이름이다.
+     */
+    static final Set<String> REJECTED_TYPES = Set.of("document_parsing_exception", "mapper_parsing_exception");
+
     /** 부분 갱신할 문서가 없을 때의 오류 종류 */
     static final String DOCUMENT_MISSING = "document_missing_exception";
 
@@ -107,6 +123,8 @@ public class InfluencerDocumentStore {
      * 정상 인플루언서의 프로필을 넣거나 덮는다(숨김을 푼다).
      *
      * @param version 회원 version. 모르면 null
+     * @throws DocumentRejectedException ES가 그 회원의 값 때문에 거절한 경우(다시 써도 같다)
+     * @throws IllegalStateException     그 밖에 쓰지 못한 경우
      */
     public WriteOutcome show(long userId, Long version, MemberProfile profile) {
         Map<String, Object> fields = new HashMap<>();
@@ -131,6 +149,52 @@ public class InfluencerDocumentStore {
      */
     public WriteOutcome hide(long userId, Long version, Instant hiddenAt) {
         return writeMember(userId, version, false, Map.of(), hiddenAt);
+    }
+
+    /**
+     * 회원들의 문서에 지금 들어 있는 회원 이벤트 필드를 한 번에(mget) 읽는다(#772 증분 보정, 페이지마다 1번).
+     *
+     * @return 문서가 있는 회원만 담는다(없는 회원은 빠진다)
+     * @throws IllegalStateException 읽지 못한 경우(alias가 없는 경우 포함)
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public Map<Long, IndexedMember> findMembers(Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            MgetResponse<Map> response = client.mget(m -> m.index(InfluencerIndexDefinition.ALIAS)
+                    .ids(userIds.stream().map(String::valueOf).toList())
+                    .sourceIncludes(MEMBER_FIELDS), Map.class);
+            Map<Long, IndexedMember> found = new HashMap<>();
+            for (MultiGetResponseItem<Map> item : response.docs()) {
+                if (item.isFailure()) {
+                    throw new IllegalStateException("검색 문서를 읽지 못했습니다 userId=" + item.failure().id()
+                            + ", error=" + item.failure().error().type());
+                }
+                GetResult<Map> result = item.result();
+                if (result.found() && result.source() != null) {
+                    found.put(Long.parseLong(result.id()), indexedMember(result.source()));
+                }
+            }
+            return found;
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("검색 문서를 읽지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 검색에 보이는(숨기지 않은) 문서 수(#772 정합성 점검). 원본의 정상 인플루언서 수와 비교한다.
+     *
+     * @throws IllegalStateException 세지 못한 경우
+     */
+    public long countVisible() {
+        try {
+            return client.count(c -> c.index(InfluencerIndexDefinition.ALIAS)
+                    .query(q -> q.term(t -> t.field("hidden").value(false)))).count();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다", e);
+        }
     }
 
     /**
@@ -223,6 +287,18 @@ public class InfluencerDocumentStore {
         }
     }
 
+    private static IndexedMember indexedMember(Map<String, Object> source) {
+        Object version = source.get("memberVersion");
+        Object categories = source.get("contentCategories");
+        List<String> codes = categories instanceof List<?> list
+                ? list.stream().filter(Map.class::isInstance).map(category -> (String) ((Map<?, ?>) category).get("code"))
+                .toList()
+                : List.of();
+        return new IndexedMember(version == null ? null : ((Number) version).longValue(),
+                Boolean.TRUE.equals(source.get("hidden")), (String) source.get("nickname"), (String) source.get("bio"),
+                (String) source.get("role"), codes);
+    }
+
     private static Map<String, Object> statsFields(InfluencerStats stats) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("channelNames", stats.channelNames());
@@ -252,9 +328,20 @@ public class InfluencerDocumentStore {
                     .script(s -> s.source(src -> src.scriptString(MEMBER_SCRIPT)).params(params)), Map.class)
                     .result();
             return outcome(result);
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            if (isRejectedByContent(e)) {
+                throw new DocumentRejectedException("ES가 검색 문서를 거절했습니다 userId=" + userId + ", error="
+                        + e.error().type(), e);
+            }
+            throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
+        } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
         }
+    }
+
+    /** 그 회원의 값 때문에 거절됐는지(다시 써도 같다). 배포 실수·장애는 false다 */
+    static boolean isRejectedByContent(ElasticsearchException e) {
+        return e.status() == 400 && e.error() != null && REJECTED_TYPES.contains(e.error().type());
     }
 
     static WriteOutcome outcome(Result result) {

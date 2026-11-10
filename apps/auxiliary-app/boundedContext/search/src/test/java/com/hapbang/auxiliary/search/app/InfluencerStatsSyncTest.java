@@ -13,11 +13,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.search.app.InfluencerStatsSync.StatsSyncResult;
+import com.hapbang.auxiliary.search.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.MemberProfile;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
+import com.hapbang.auxiliary.search.support.InMemoryConsistencyCheckStore;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -31,8 +33,10 @@ class InfluencerStatsSyncTest {
 
     private final FakeMemberStatsSource source = new FakeMemberStatsSource();
 
+    private final InMemoryConsistencyCheckStore checks = new InMemoryConsistencyCheckStore();
+
     private final InfluencerStatsSync sync = new InfluencerStatsSync(new InfluencerIndexSetup(client), store, source,
-            new ContentCategoryNames(source), null);
+            new ContentCategoryNames(source), null, checks);
 
     @BeforeEach
     void reset() throws Exception {
@@ -157,6 +161,88 @@ class InfluencerStatsSyncTest {
 
         assertThat(sync.sync().categoryDocuments()).isZero();
         assertThat(source(1L).get("contentCategories")).isEqualTo(List.of(Map.of("code", "GAME", "name", "게임")));
+    }
+
+    @Test
+    @DisplayName("정합성 점검: 원본 정상 인플루언서 수와 보이는 문서 수가 같으면 차이 0이다. 숨긴 문서는 세지 않는다")
+    void consistencyMatches() throws Exception {
+        store.show(1L, 1L, profile());
+        store.show(2L, 1L, profile());
+        store.hide(3L, 1L, Instant.parse("2026-11-10T00:00:00Z"));
+        source.influencer(1L, null, 0).influencer(2L, null, 0);
+        refresh();
+
+        StatsSyncResult result = sync.sync();
+
+        assertThat(result.sourceInfluencers()).isEqualTo(2);
+        assertThat(result.indexVisible()).isEqualTo(2);
+        assertThat(result.difference()).isZero();
+    }
+
+    @Test
+    @DisplayName("정합성 점검: index에 빠진 인플루언서가 있으면 차이가 양수, 보이면 안 되는 문서가 있으면 음수다")
+    void consistencyDifference() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, null, 0).influencer(2L, null, 0);
+        refresh();
+        assertThat(sync.sync().difference()).isEqualTo(1);
+        assertThat(savedDifference()).isEqualTo(1);
+
+        store.show(3L, 1L, profile());
+        store.show(4L, 1L, profile());
+        refresh();
+        assertThat(sync.sync().difference()).isEqualTo(-1);
+        assertThat(savedDifference()).isEqualTo(-1);
+    }
+
+    @Test
+    @DisplayName("정합성 점검: 보이는 문서 수를 세지 못해도 통계 동기화는 끝내고 점검만 건너뛴다(-1). 지난 차이는 지표에서 지운다")
+    void consistencySkippedWhenCountFails() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, 4.5, 2);
+        refresh();
+        sync.sync();
+        assertThat(savedDifference()).isZero();
+        source.reset().influencer(1L, 4.0, 3);
+        InfluencerDocumentStore countFails = new InfluencerDocumentStore(client) {
+            @Override
+            public long countVisible() {
+                throw new IllegalStateException("ES 장애");
+            }
+        };
+        InfluencerStatsSync failing = new InfluencerStatsSync(new InfluencerIndexSetup(client), countFails, source,
+                new ContentCategoryNames(source), null, checks);
+
+        StatsSyncResult result = failing.sync();
+
+        assertThat(result.updated()).isEqualTo(1);
+        assertThat(result.consistencyChecked()).isFalse();
+        assertThat(result.indexVisible()).isEqualTo(-1);
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("정합성 점검: 결과를 DB에 남기지 못해도 통계 동기화는 성공으로 끝내고 지난 결과를 지운다")
+    void consistencySaveFailureDoesNotFailSync() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, 4.5, 2);
+        refresh();
+        sync.sync();
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isPresent();
+        checks.failSave();
+
+        StatsSyncResult result = sync.sync();
+
+        assertThat(result.consistencyChecked()).isTrue();
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
+    }
+
+    private long savedDifference() {
+        return checks.find(ConsistencyCheck.INFLUENCER).orElseThrow().difference();
+    }
+
+    private void refresh() throws Exception {
+        client.indices().refresh(r -> r.index(InfluencerIndexDefinition.ALIAS));
     }
 
     private static MemberProfile profile() {

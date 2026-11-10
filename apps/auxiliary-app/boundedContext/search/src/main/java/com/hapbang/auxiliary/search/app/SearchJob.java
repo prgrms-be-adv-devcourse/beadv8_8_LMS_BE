@@ -13,7 +13,9 @@ public enum SearchJob implements JobLockKey {
     /** 7일 지난 tombstone 정리(하루 1번) */
     TOMBSTONE_CLEANUP(771_001L, "search-tombstone-cleanup"),
     /** 통계·분야 이름 동기화(10분마다) */
-    STATS_SYNC(771_002L, "search-stats-sync");
+    STATS_SYNC(771_002L, "search-stats-sync"),
+    /** 회원 변경분 증분 보정(10분마다, #772) */
+    MEMBER_RECONCILE(772_001L, "search-member-reconcile");
 
     private final long lockKey;
     private final String tag;

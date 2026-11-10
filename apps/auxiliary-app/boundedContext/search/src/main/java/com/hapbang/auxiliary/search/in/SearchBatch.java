@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.global.scheduling.ConditionalOnSchedulingEnabled;
 import com.hapbang.auxiliary.search.app.InfluencerStatsSync;
+import com.hapbang.auxiliary.search.app.MemberChangeReconciler;
 import com.hapbang.auxiliary.search.app.TombstoneCleanup;
 import com.hapbang.auxiliary.search.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
@@ -12,7 +13,7 @@ import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 검색 배치(#771). 실행 시각만 정하고 처리는 app 서비스가 한다. 한 pod 실행은 각 서비스가 advisory lock으로 맞춘다.
+ * 검색 배치(#771, 증분 보정 #772). 실행 시각만 정하고 처리는 app 서비스가 한다. 한 pod 실행은 각 서비스가 advisory lock으로 맞춘다.
  */
 @Component
 @ConditionalOnSearchEnabled
@@ -22,6 +23,7 @@ class SearchBatch {
 
     private final TombstoneCleanup tombstoneCleanup;
     private final InfluencerStatsSync statsSync;
+    private final MemberChangeReconciler memberChangeReconciler;
     private final ZeroResultKeywords zeroResultKeywords;
 
     /** 결과 0건 검색어를 모아 로그 한 줄로 남긴다. pod마다 따로 센 것을 각자 남긴다(락 없음) */
@@ -34,6 +36,12 @@ class SearchBatch {
     @Scheduled(fixedDelayString = "${hapbang.search.stats-sync-interval:10m}", initialDelayString = "1m")
     void syncStats() {
         statsSync.run();
+    }
+
+    /** 회원 변경분 증분 보정. 끝난 뒤 10분 쉬고 다시 한다. 통계 동기화와 시작을 1분 어긋나게 2분 뒤에 시작한다 */
+    @Scheduled(fixedDelayString = "${hapbang.search.member-reconcile-interval:10m}", initialDelayString = "2m")
+    void reconcileMemberChanges() {
+        memberChangeReconciler.run();
     }
 
     /** 7일 지난 tombstone 정리. 하루 1번, 사용이 적은 새벽 */
