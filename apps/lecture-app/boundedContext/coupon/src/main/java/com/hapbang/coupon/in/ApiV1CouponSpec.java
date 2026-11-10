@@ -2,10 +2,15 @@ package com.hapbang.coupon.in;
 
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 import com.hapbang.coupon.app.dto.CouponSummaryView;
+import com.hapbang.coupon.app.dto.CouponUsageView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.global.response.RsData;
 import com.hapbang.coupon.in.dto.CouponQuoteRequest;
@@ -17,7 +22,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 회원 쿠폰 API Swagger 명세(쿠폰 조회·발급 접수·발급 요청 상태·보유 쿠폰·계산 미리보기). 매핑은 {@link ApiV1CouponController} */
-@Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회·주문 전 할인 계산 미리보기")
+@Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회·사용 이력·주문 전 할인 계산 미리보기")
 public interface ApiV1CouponSpec {
 
     @Operation(summary = "강의에 받을 수 있는 쿠폰",
@@ -58,6 +63,20 @@ public interface ApiV1CouponSpec {
     RsData<List<MemberCouponView>> usableFor(Long memberId,
                                              @Parameter(description = "쿠폰을 적용할 강의 ID", required = true)
                                              Long lectureId);
+
+    @Operation(summary = "내 쿠폰 사용 이력",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 내 발급 쿠폰을 어느 주문·강의에 썼고 지금 어떻게 됐는지. 로그인 회원의 사용 "
+                    + "시도만 나온다. 예약 최신순(reservedAt 내림차순, 같으면 usageId 내림차순)으로 고정하며 sort는 무시한다. page는 0부터, size "
+                    + "기본 20·최대 100(넘으면 100으로 자른다). 응답은 {content, page{size, number, totalElements, totalPages}}. "
+                    + "상태 표시: RESERVED \"결제 진행 중\"(쿠폰이 이 주문에 잡혀 있음), PAID \"사용함\", RELEASED \"결제되지 않아 "
+                    + "돌려받음\", CANCELED \"구매 취소로 돌려받음\". RELEASED·CANCELED이고 returnedTo=EXPIRED면 \"기한이 지나 만료됨\". "
+                    + "returnedTo·returnedAt은 RELEASED면 해제 결과·시각, CANCELED면 복원 결과·시각, 그 밖에는 null이다. 같은 주문 항목에 "
+                    + "해제 뒤 다시 예약하면 이력이 두 건이다. status가 정해진 값이 아니면 400.")
+    RsData<Page<CouponUsageView>> myUsages(Long memberId,
+                                           @Parameter(description = "사용 상태(RESERVED·PAID·RELEASED·CANCELED). 없으면 전체")
+                                           CouponUsageStatus status,
+                                           @Parameter(description = "page(0부터)·size(기본 20, 최대 100). sort는 무시한다")
+                                           Pageable pageable);
 
     @Operation(summary = "할인 계산 미리보기",
             description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 주문하기 전에 고른 강의의 쿠폰 할인을 계산한다. 상태를 바꾸지 않는다(쿠폰을 "

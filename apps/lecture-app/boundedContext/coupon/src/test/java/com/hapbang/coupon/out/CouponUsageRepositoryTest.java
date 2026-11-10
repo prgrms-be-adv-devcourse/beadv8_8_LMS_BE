@@ -8,6 +8,8 @@ import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponType;
@@ -140,6 +142,40 @@ class CouponUsageRepositoryTest {
                                 "order-item-cancel-completed:901", MemberCouponStatus.EXPIRED));
     }
 
+    @Test
+    void 회원_사용_이력은_본인_행만_예약_최신순_ID_역순으로_쿠폰_정책과_함께_페이지로_읽고_상태로_거른다() {
+        MemberCoupon first = saveMemberCoupon("req-1");
+        MemberCoupon second = saveMemberCoupon("req-2");
+        CouponUsage released = couponUsageRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 0, NOW));
+        released.release("release-1", "결제 실패", null, MemberCouponStatus.AVAILABLE, NOW.plusSeconds(5));
+        entityManager.flush();
+        // 같은 주문 항목에 해제 뒤 다시 예약한 시도(새 generation)와, 같은 시각에 예약한 다른 쿠폰의 시도
+        CouponUsage paid = couponUsageRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 1, NOW.plusSeconds(10)));
+        paid.applyPaid("order-item-paid:901", NOW.plusSeconds(11), MemberCouponStatus.RESERVED, 2, NOW.plusSeconds(11));
+        CouponUsage reserved = couponUsageRepository.save(
+                usageAt(MEMBER_ID, second, ORDER_ITEM_ID + 1, 0, NOW.plusSeconds(10)));
+        couponUsageRepository.save(usageAt(OTHER_MEMBER_ID, second, ORDER_ITEM_ID + 2, 1, NOW.plusSeconds(20)));
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<UsedCoupon> firstPage = couponUsageRepository.findMyUsages(MEMBER_ID, null, PageRequest.of(0, 2));
+        Page<UsedCoupon> secondPage = couponUsageRepository.findMyUsages(MEMBER_ID, null, PageRequest.of(1, 2));
+        Page<UsedCoupon> paidOnly = couponUsageRepository.findMyUsages(MEMBER_ID, CouponUsageStatus.PAID,
+                PageRequest.of(0, 20));
+
+        assertThat(firstPage.getContent()).extracting(used -> used.usage().getId())
+                .containsExactly(reserved.getId(), paid.getId());
+        assertThat(secondPage.getContent()).extracting(used -> used.usage().getId())
+                .containsExactly(released.getId());
+        assertThat(firstPage.getTotalElements()).isEqualTo(3);
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(firstPage.getContent().getFirst().coupon().getId()).isEqualTo(second.getCouponId());
+        assertThat(firstPage.getContent().getFirst().coupon().getName()).isEqualTo(COUPON_NAME);
+        assertThat(paidOnly.getContent()).singleElement()
+                .satisfies(used -> assertThat(used.usage().getId()).isEqualTo(paid.getId()));
+        assertThat(paidOnly.getTotalElements()).isEqualTo(1);
+    }
+
     private MemberCoupon saveMemberCoupon(String requestId) {
         Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
         return memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, requestId, NOW, EXPIRES_AT, NOW));
@@ -152,5 +188,14 @@ class CouponUsageRepositoryTest {
                 1, PRICE, discount, platformAmount, discount - platformAmount, expectedGeneration, 1);
         return CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(orderItemId, LECTURE_ID, SELLER_ID, PRICE),
                 applied, "work-1", NOW);
+    }
+
+    /** 판매자 쿠폰 1,000 HP를 {@code reservedAt}에 예약한 회원 {@code memberId}의 사용 시도 */
+    private static CouponUsage usageAt(long memberId, MemberCoupon memberCoupon, long orderItemId,
+                                       long expectedGeneration, Instant reservedAt) {
+        AppliedCoupon applied = new AppliedCoupon(memberCoupon.getId(), memberCoupon.getCouponId(), CouponType.SELLER,
+                1, PRICE, 1_000, 0, 1_000, expectedGeneration, 1);
+        return CouponUsage.reserve(memberId, ORDER_ID, new UsageItem(orderItemId, LECTURE_ID, SELLER_ID, PRICE),
+                applied, "work-" + orderItemId, reservedAt);
     }
 }

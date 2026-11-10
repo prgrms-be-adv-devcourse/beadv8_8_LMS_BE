@@ -4,6 +4,8 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -21,8 +23,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode;
+import org.springframework.data.web.config.SpringDataWebSettings;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -31,12 +39,14 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
+import com.hapbang.coupon.app.dto.CouponUsageView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponType;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.IssueResponseCode;
@@ -54,7 +64,8 @@ import com.hapbang.testsupport.WebSliceTestConfiguration;
 // 요청 값 오류의 본문(code INVALID_REQUEST)은 같은 JVM의 강의 공통 핸들러가 만들어 이 슬라이스에서는 상태만 확인한다
 @ContextConfiguration(classes = WebSliceTestConfiguration.class)
 @WebMvcTest(controllers = ApiV1CouponController.class)
-@Import({ApiV1CouponController.class, CouponWebMvcConfig.class, CouponExceptionHandler.class})
+@Import({ApiV1CouponController.class, CouponWebMvcConfig.class, CouponExceptionHandler.class,
+        ApiV1CouponControllerTest.PageSerialization.class})
 class ApiV1CouponControllerTest {
 
     private static final long MEMBER_ID = 7L;
@@ -283,7 +294,49 @@ class ApiV1CouponControllerTest {
         verify(couponIssueFacade, never()).quote(anyLong(), any(), any());
     }
 
+    // 사용 이력 ----------------------------------------------------------------------------------------------
+
+    @Test
+    void 사용_이력은_상태와_기본_크기_20_페이지를_Facade에_넘기고_페이지_모양으로_돌려준다() throws Exception {
+        CouponUsageView paid = new CouponUsageView(77L, 31L, 5L, "겨울 특강 할인", CouponType.SELLER, DiscountType.RATE,
+                10, 7L, 900L, 901L, 10_000, 1_000, CouponUsageStatus.PAID, null,
+                Instant.parse("2026-11-10T01:00:00Z"), Instant.parse("2026-11-10T01:00:05Z"), null, null, null);
+        given(couponIssueFacade.myUsages(eq(MEMBER_ID), eq(CouponUsageStatus.PAID), any()))
+                .willReturn(new PageImpl<>(List.of(paid), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/v1/coupons/me/usages").param("status", "PAID").with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].usageId").value(77))
+                .andExpect(jsonPath("$.data.content[0].status").value("PAID"))
+                .andExpect(jsonPath("$.data.content[0].returnedTo").value(nullValue()))
+                .andExpect(jsonPath("$.data.page.size").value(20))
+                .andExpect(jsonPath("$.data.page.number").value(0))
+                .andExpect(jsonPath("$.data.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data.page.totalPages").value(1));
+
+        verify(couponIssueFacade).myUsages(eq(MEMBER_ID), eq(CouponUsageStatus.PAID),
+                argThat(pageable -> pageable.getPageNumber() == 0 && pageable.getPageSize() == 20));
+    }
+
+    @Test
+    void 사용_이력_status가_정해진_값이_아니면_400이고_Facade를_부르지_않는다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/me/usages").param("status", "USED").with(member()))
+                .andExpect(status().isBadRequest());
+
+        verify(couponIssueFacade, never()).myUsages(anyLong(), any(), any());
+    }
+
     private static RequestPostProcessor member() {
         return user(String.valueOf(MEMBER_ID)).roles("USER");
+    }
+
+    /** 운영에서 강의 앱 PageConfig가 켜는 Page 직렬화(VIA_DTO: content, page). 이 모듈 슬라이스에는 그 설정이 없어 같은 모양으로 둔다 */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class PageSerialization {
+
+        @Bean
+        SpringDataWebSettings springDataWebSettings() {
+            return new SpringDataWebSettings(PageSerializationMode.VIA_DTO);
+        }
     }
 }
