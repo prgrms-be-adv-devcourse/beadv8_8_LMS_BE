@@ -13,7 +13,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
-import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
 
 /**
  * 출연 취소 요청 규칙: 요청(게스트·성립 상태·방송 예정 일시 전·횟수·사유), 응답(호스트·처리 중·방송 예정 일시 전),
@@ -219,22 +218,6 @@ class AppearanceCancelRequestTest {
             assertErrorCode(() -> cancelRequest.reject(null, NOW), AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING);
             assertErrorCode(() -> cancelRequest.autoReject(NOW), AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING);
         }
-    }
-
-    @Test
-    @DisplayName("다른 모듈에 넘기는 정보: 취소 요청 ID·출연 ID·제목·호스트·게스트·순번·방송 예정 일시 (사유는 담지 않음)")
-    void toDto() {
-        Appearance appearance = established();
-        AppearanceCancelRequest cancelRequest = newRequest(appearance, 0);
-
-        AppearanceCancelRequestDto dto = cancelRequest.toDto("주말 합방", appearance.getScheduledAt());
-
-        assertThat(dto.appearanceId()).isEqualTo(30L);
-        assertThat(dto.title()).isEqualTo("주말 합방");
-        assertThat(dto.hostId()).isEqualTo(HOST);
-        assertThat(dto.guestId()).isEqualTo(GUEST);
-        assertThat(dto.sequence()).isEqualTo(1);
-        assertThat(dto.scheduledAt()).isEqualTo(appearance.getScheduledAt());
     }
 
     @Test

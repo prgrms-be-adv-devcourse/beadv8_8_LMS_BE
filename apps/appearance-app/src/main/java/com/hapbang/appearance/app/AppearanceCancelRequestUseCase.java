@@ -54,7 +54,7 @@ public class AppearanceCancelRequestUseCase {
                 previousCount, appearancePolicy, now);
         AppearanceCancelRequest saved = appearanceCancelRequestSupport.save(cancelRequest);
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
             log.info("출연 취소를 요청했다 appearanceId={}, cancelRequestId={}, guestId={}", appearanceId, saved.getId(),
                     guestId);
@@ -62,6 +62,7 @@ public class AppearanceCancelRequestUseCase {
 
         // 호스트에게 취소 요청 도착을 알린다. 커밋 뒤에 Kafka로 나가 알림센터가 받는다 (#817)
         eventPublisher.publishEvent(new AppearanceCancelRequestedEvent(
-                saved.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), now));
+                AppearanceContractMapper.toCancelRequestDto(saved, appearanceTitleSupport.titleOf(appearance),
+                        appearance.getScheduledAt()), now));
     }
 }
