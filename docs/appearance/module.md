@@ -864,7 +864,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
-  - 출연 취소 요청 3종(#817)은 예외로 출연 앱을 먼저 배포해도 된다. 알림센터는 아직 이 이벤트를 읽지 않고, 이미 이 토픽을 읽는 소비 그룹 3곳(채팅·회원·AI 추천)은 모르는 타입을 기본 처리기에서 건너뛰기 때문이다(각 앱 테스트로 확인). 알림 소비자는 그 뒤에 배포해도 새 그룹이 처음부터 읽으므로(`auto-offset-reset=earliest`) 토픽 보존 기간 안의 메시지를 받는다.
+  - 출연 취소 요청 3종(#817)은 예외로 출연 앱을 먼저 배포했다. 알림센터는 아직 이 이벤트를 읽지 않고, 이미 이 토픽을 읽는 소비 그룹 3곳(채팅·회원·AI 추천)은 모르는 타입을 기본 처리기에서 건너뛰기 때문이다(각 앱 테스트로 확인). 옛 shared 클래스를 가진 소비 앱이 사건 시각 필드가 붙은 메시지를 받아도, 세 앱 모두 기본 `JacksonJsonDeserializer`라 모르는 필드를 무시한다(chat-app `ChatKafkaConfig`·chatbot `ChatbotKafkaConfig`는 `new JacksonJsonDeserializer<>()`, member-app `AppearanceReviewEventListener`는 properties로 delegate 지정, #817 때 임시 테스트로 확인). shared 변경은 모든 앱을 다시 배포하므로(`.github/scripts/apps.sh`) 옛 클래스로 받는 것은 롤링 배포 중 잠깐뿐이다. 알림 소비자는 그 뒤에 배포해도 새 그룹이 처음부터 읽으므로(`auto-offset-reset=earliest`) 토픽 보존 기간 안의 메시지를 받는다.
 - 같은 JVM 안의 리스너(11.2)는 그대로 받는다. Kafka는 다른 앱으로 보내는 통로다.
 
 ---
