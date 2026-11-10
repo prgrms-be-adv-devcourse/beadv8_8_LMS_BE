@@ -167,6 +167,7 @@ class CouponIssueRequestUseCaseTest {
 
         verify(issueStore, times(1)).isSoldOut(COUPON_ID);
         verify(issueStore, never()).tryIssue(any());
+        assertThat(meterRegistry.get(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter().count()).isEqualTo(2);
     }
 
     @Test
@@ -178,6 +179,8 @@ class CouponIssueRequestUseCaseTest {
                 CouponErrorCode.COUPON_SOLD_OUT);
 
         verify(issueStore, times(1)).tryIssue(any());
+        // Lua가 돌려준 매진 1건과 매진 표시 캐시로 막은 1건
+        assertThat(meterRegistry.get(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter().count()).isEqualTo(2);
     }
 
     @Test

@@ -8,8 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -35,10 +38,20 @@ import jakarta.servlet.ServletException;
 @WebMvcTest(controllers = CouponExceptionHandlerTest.SampleController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import({CouponExceptionHandler.class, CouponExceptionHandlerTest.SampleController.class})
+@ExtendWith(OutputCaptureExtension.class)
 class CouponExceptionHandlerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    void 매진은_INFO가_아니라_DEBUG로_남기고_다른_4xx는_INFO로_남긴다(CapturedOutput output) throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/samples/sold-out")).andExpect(status().isConflict());
+        mockMvc.perform(get("/api/v1/coupons/samples/invalid-policy")).andExpect(status().isBadRequest());
+
+        assertThat(output.getOut()).doesNotContain("code=COUPON_SOLD_OUT")
+                .contains("INFO").contains("쿠폰 업무 예외로 응답했다 code=");
+    }
 
     @Test
     void 쿠폰_예외는_오류_코드의_상태_기본_메시지_code로_응답한다() throws Exception {

@@ -97,7 +97,9 @@ public class CouponExceptionHandler {
 
     /**
      * 오류 코드의 상태로 응답한다. 5xx는 원인과 함께 ERROR, 4xx는 사용자 입력·정책상 거절한 정상 응답이라 INFO로 남긴다
-     * (docs/dev/logging.md "레벨", 강의 공통 핸들러와 같다).
+     * (docs/dev/logging.md "레벨", 강의 공통 핸들러와 같다). 매진(409 {@code COUPON_SOLD_OUT})만 DEBUG다. 선착순 발급에서 매진은 한꺼번에
+     * 몰리고(1초에 수백 건), 줄마다 동기로 쓰면 로그 쓰기 lock에서 요청 스레드가 기다린다. 건수는 지표 {@code coupon.issue.sold_out}이
+     * 센다.
      *
      * @param detail     응답의 detail. {@code null}이면 오류 코드의 기본 메시지
      * @param properties 응답에 더할 속성
@@ -110,6 +112,8 @@ public class CouponExceptionHandler {
         properties.forEach(problemDetail::setProperty);
         if (errorCode.getStatus().is5xxServerError()) {
             log.error("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message, exception);
+        } else if (errorCode == CouponErrorCode.COUPON_SOLD_OUT) {
+            log.debug("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message);
         } else {
             log.info("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message);
         }

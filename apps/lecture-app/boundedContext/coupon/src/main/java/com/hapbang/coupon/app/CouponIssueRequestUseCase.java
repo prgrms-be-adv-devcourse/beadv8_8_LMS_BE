@@ -53,6 +53,9 @@ public class CouponIssueRequestUseCase {
     /** 접수 직후 전송에 실패한 수. {@code result} 태그: failed·timed_out */
     static final String PUBLISH_FAILURE_METRIC = "coupon.issue.publish.failures";
 
+    /** 매진(409 {@code COUPON_SOLD_OUT})으로 거절한 접수 수. 매진 표시 캐시로 막은 것과 Lua가 매진을 돌려준 것을 함께 센다 */
+    static final String SOLD_OUT_METRIC = "coupon.issue.sold_out";
+
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
     private final CouponSoldOutCache couponSoldOutCache;
@@ -79,6 +82,7 @@ public class CouponIssueRequestUseCase {
     public IssueRequestResult requestIssue(long couponId, long memberId, String issueRequestId) {
         IssueRequestIds.requireValid(issueRequestId);
         if (couponSoldOutCache.isSoldOut(couponId)) {
+            meterRegistry.counter(SOLD_OUT_METRIC).increment();
             throw new CouponException(CouponErrorCode.COUPON_SOLD_OUT);
         }
         // Redis 접수 기록은 밀리초까지만 남으므로 접수 시각도 밀리초로 자른다
@@ -87,6 +91,7 @@ public class CouponIssueRequestUseCase {
         IssueResponseCode code = IssueResponseCode.fromLua(outcome.code());
         if (code == IssueResponseCode.SOLD_OUT) {
             couponSoldOutCache.markSoldOut(couponId);
+            meterRegistry.counter(SOLD_OUT_METRIC).increment();
         }
         if (!code.isAccepted()) {
             throw new CouponException(errorCodeOf(code));
