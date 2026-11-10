@@ -280,7 +280,7 @@
 | NT-RT-04 | `in.NotificationRealtimeIntegrationTest`(Redis를 멈춘 채 저장: CREATED·행 유지·저장이 Redis를 기다리지 않음, 재접속 뒤 REST 목록) | 전부 |
 | NT-RT-05 | `app.NotificationConnectionTicketServiceTest`, `in.NotificationRealtimeIntegrationTest`(티켓 없음·틀림·재사용 401, 비로그인 401·관리자 403), `in.NotificationConnectionExpiryTest`(지난 티켓 401, 11번째 429) | 전부 |
 | NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 NT-RT-09(N4) |
-| NT-RT-07 | `in.NotificationHeartbeatTest`(CONNECTED heart-beat 값, 알림 없이 서버 heart-beat·연결 유지, 클라이언트 받기 0이면 서버 heart-beat 없음, 클라이언트 heart-beat가 끊기면 서버가 닫음, heart-beat 중에도 만료 4401), `in.websocket.NotificationWebSocketConfigTest`(heart-beat 스케줄러 종료) | 앱 쪽 전부. Gateway stream idle을 넘는 유지는 로컬 k3d E2E(regression-log, 레포 밖 스크립트) |
+| NT-RT-07 | `in.NotificationHeartbeatTest`(CONNECTED heart-beat 값, 알림 없이 서버 heart-beat·연결 유지, 클라이언트 받기 0이면 서버 heart-beat 없음, 클라이언트 heart-beat가 끊기면 서버가 닫음, heart-beat 중에도 만료 4401), `in.websocket.NotificationWebSocketConfigTest`(heart-beat 스케줄러 종료, 설정값 0 이하·5분 이상이면 기동 실패, ND-068) | 앱 쪽 전부. Gateway stream idle을 넘는 유지는 로컬 k3d E2E(regression-log, 레포 밖 스크립트) |
 | NT-RT-09 | 테스트 코드 없음. 로컬 k3d E2E(regression-log, 레포 밖 스크립트·시험 backend) | Gateway 동작만. 실제 앱의 티켓 거절은 NT-RT-05 |
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |

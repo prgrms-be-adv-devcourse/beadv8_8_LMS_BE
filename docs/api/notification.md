@@ -50,7 +50,7 @@
 | --- | --- |
 | 채팅 연결과의 관계 | 알림 모듈 자체 STOMP. chat-app 연결을 빌리지 않는다(ND-027). 채팅의 `/user/queue/chats/notifications`는 채팅 소유이며 이 API가 아니다(ND-004) |
 | 연결 만료 | 연결 티켓 API가 `X-User-Token-Exp`를 읽어 `min(exp, 발급 + 15분)`에 서버가 끊는다(ND-056). 정책상 종료(로그아웃·탈퇴 등)는 하지 않는다(ND-057). STOMP 규칙 위반(SEND, 다른 목적지 구독)과 전송 상한 초과(ND-058)는 Spring이 연결을 닫는다(ND-061). 받은 `connectionExpiresAt`이 이미 지났으면 연결 직후 4401로 닫히므로 FE는 토큰을 새로 받은 뒤 티켓을 다시 받는다. Gateway `claimToHeaders`의 `exp`는 ND-064(N4) |
-| Gateway WebSocket 시간 제한·heart-beat | 전체 시간 제한 없음, stream idle 5분. 서버 STOMP heart-beat 25초(보내기·받기)로 알림이 없어도 연결 만료까지 유지한다. STOMP 협상 규칙상 FE가 CONNECT의 받기 heart-beat를 0으로 두면 서버 heart-beat도 나가지 않으므로 FE는 끄지 않는다(stompjs 기본 10초면 25초로 맞춰진다). 클라이언트 heart-beat가 받기 간격의 3배(운영 75초) 동안 없으면 서버가 닫는다. 이때 종료 코드는 4401이 아니므로 FE는 4401이 아닌 종료에도 새 티켓으로 다시 연결한다 (ND-063) |
+| Gateway WebSocket 시간 제한·heart-beat | 전체 시간 제한 없음, stream idle 5분. 서버 STOMP heart-beat 25초(보내기·받기)로 알림이 없어도 연결 만료까지 유지한다. **FE 계약(ND-068)**: (1) CONNECT에서 heart-beat를 켠다(보내기 0이 아님) (2) 서버 heart-beat를 받을 수 있게 받기 간격을 0이 아닌 값으로 둔다. STOMP 협상상 받기가 0이면 서버도 보내지 않아 알림이 없을 때 5분마다 끊긴다(stompjs 기본 10초면 25초로 맞춰진다) (3) 비정상 종료(4401이 아닌 종료 포함)에는 새 티켓으로 다시 연결한다. 클라이언트 heart-beat가 받기 간격의 3배(운영 75초) 동안 없으면 서버가 4401이 아닌 코드로 닫는다. 서버는 받기 0인 CONNECT를 거절하지 않는다 (ND-063·ND-068) |
 | 연결 종료 사유 표기·재연결 간격 | 연결 만료는 종료 코드 4401 `TOKEN_EXPIRED`(채팅과 같음). 만료로 끊기면 FE가 새 티켓으로 다시 연결한다(ND-056). 재연결 간격은 FE가 정한다 |
 
 ## 4. 변경 이력

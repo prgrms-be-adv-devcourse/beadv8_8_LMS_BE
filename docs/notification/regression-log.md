@@ -86,6 +86,75 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-035 · 2026-11-10 · 통과 (#847 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-035 |
+| 실행 날짜 | 2026-11-10 20:58~21:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리(NR-034 뒤 시험 1개 변경) |
+| 작업 트리 변경 | NR-034 목록 + `NotificationWebSocketConfigTest`(스레드 스냅샷을 이 설정의 접두사 `notification-ws-in-`·`-out-`·`-heartbeat-`로만 셈, 생성 도우미로 중복 제거) |
+| 대상 기능 | 재리뷰(S6) 지적: 연결 만료 스케줄러(`notification-ws-expiry-`)가 스냅샷에 섞여 거짓 실패할 위험 |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123, 실패 0(새로 실행). `:auxiliary-app:check`의 test 태스크는 모두 `UP-TO-DATE` |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+#### NR-034 · 2026-11-10 · 통과 (#847 Bot 리뷰 반영 뒤 자체 리뷰)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-034 |
+| 실행 날짜 | 2026-11-10 20:50~20:53 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리 |
+| 작업 트리 변경 | NR-033 목록 + `NotificationWebSocketConfigTest`(잘못된 값이면 스레드를 만들지 않음 단정, 올바른 값 시험의 정리를 try/finally로), `NotificationWebSocketConfig` Javadoc |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123, 실패 0(새로 실행). `:auxiliary-app:check`의 test 태스크는 모두 `UP-TO-DATE`(운영 코드 변경은 Javadoc뿐, 마지막 실행 NR-033·NR-032) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+#### NR-033 · 2026-11-10 · 통과 (#847 PR Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-033 |
+| 실행 날짜 | 2026-11-10 20:45~20:49 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리 |
+| 작업 트리 변경 | `NotificationWebSocketConfig`(heart-beat 설정값 0 이하·5분 이상이면 생성자에서 `IllegalArgumentException`, 실행기 생성 전 검사, `MAX_HEARTBEAT`), `NotificationWebSocketConfigTest`(2건 추가), `gateway.yaml` 주석, decisions(ND-068)·api·module·test-spec·이 문서·PROGRESS |
+| 대상 기능 | heart-beat 설정값 검증(ND-068) |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | RED: `./gradlew :notification:test --tests "*NotificationWebSocketConfigTest"`. 회귀: `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123(2건 추가), 실패 0. `:auxiliary-app:check`에서 `:auxiliary-app:test` 새로 실행 12, 실패 0. `:auxiliary-global`·`:chatbot`·`:search`는 `UP-TO-DATE`(마지막 실행 NR-032), `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+**메모**
+- RED: 잘못된 값(0s·-1s·5m·10m) 시험이 "Expecting code to raise a throwable"로 실패했다. 올바른 값(1ms·25s·5분-1ms) 시험은 기존 동작이라 처음부터 통과했다.
+
 #### NR-032 · 2026-11-10 · 통과 (#847 origin/dev 병합 뒤)
 
 | 항목 | 값 |

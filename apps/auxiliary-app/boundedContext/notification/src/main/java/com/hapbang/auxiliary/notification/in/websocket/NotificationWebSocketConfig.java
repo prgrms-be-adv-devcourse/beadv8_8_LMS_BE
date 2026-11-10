@@ -30,7 +30,8 @@ import com.hapbang.auxiliary.notification.app.ConditionalOnNotificationRealtime;
  *     <li>수신·송신 채널 실행기는 스레드 수를 작게 고정한다(기본 각 2, U13 측정 대상). 여러 연결의 프레임을 줄로 처리하므로 trace
  *     decorator를 붙이지 않는다(docs/dev/logging.md).</li>
  *     <li>heart-beat: 서버가 보내기·받기 모두 25초(ND-063). 알림이 없어도 프레임이 오가 Gateway stream idle(5분)에 끊기지 않고,
- *     응답 없는 클라이언트는 일찍 닫는다. STOMP 협상이라 클라이언트가 받기를 0으로 두면 서버도 보내지 않는다. 스케줄러는 스레드 1개다.</li>
+ *     응답 없는 클라이언트는 일찍 닫는다. STOMP 협상이라 클라이언트가 받기를 0으로 두면 서버도 보내지 않는다(FE 계약, ND-068). 설정값은 0 초과 5분 미만이어야
+ *     기동한다. 스케줄러는 스레드 1개다.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -41,6 +42,11 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     public static final String ENDPOINT = "/api/v1/notifications/ws";
     public static final String QUEUE_PREFIX = "/queue";
     public static final String USER_PREFIX = "/user";
+    /**
+     * heart-beat 상한(ND-068). Gateway 알림 웹소켓 route의 stream idle(`apps/auxiliary-app/k8s/base/gateway.yaml`, 5분)과
+     * 같은 값이다. Gateway 값을 바꾸면 함께 바꾼다
+     */
+    static final Duration MAX_HEARTBEAT = Duration.ofMinutes(5);
 
     private final NotificationTicketHandshakeInterceptor ticketInterceptor;
     private final NotificationWebSocketSessions sessions;
@@ -63,6 +69,11 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
             @Value("${hapbang.notification.realtime.websocket.inbound-threads:2}") int inboundThreads,
             @Value("${hapbang.notification.realtime.websocket.outbound-threads:2}") int outboundThreads,
             @Value("${hapbang.notification.realtime.websocket.heartbeat:25s}") Duration heartbeat) {
+        // 실행기를 만들기 전에 검사해 실패해도 스레드가 남지 않게 한다
+        if (heartbeat.isNegative() || heartbeat.isZero() || heartbeat.compareTo(MAX_HEARTBEAT) >= 0) {
+            throw new IllegalArgumentException("hapbang.notification.realtime.websocket.heartbeat는 0보다 크고 "
+                    + MAX_HEARTBEAT + "보다 작아야 한다(권장 25s, ND-063·ND-068): " + heartbeat);
+        }
         this.ticketInterceptor = ticketInterceptor;
         this.sessions = sessions;
         this.stompInterceptor = stompInterceptor;
