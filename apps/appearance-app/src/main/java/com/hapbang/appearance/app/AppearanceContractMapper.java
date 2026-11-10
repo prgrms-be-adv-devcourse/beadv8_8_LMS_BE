@@ -74,9 +74,7 @@ public final class AppearanceContractMapper {
      * @throws IllegalStateException 아직 공개되지 않은 리뷰
      */
     public static AppearanceReviewPublishedEvent toPublishedEvent(AppearanceReview review) {
-        if (!review.isPublished()) {
-            throw new IllegalStateException("공개된 리뷰만 공개 이벤트로 알릴 수 있습니다: " + review.getId());
-        }
+        requirePublished(review, "공개된 리뷰만 공개 이벤트로 알릴 수 있습니다: ");
         return new AppearanceReviewPublishedEvent(review.getId(), review.getAppearanceId(), review.getReviewerId(),
                 review.getRevieweeId(), AppearanceParticipantRole.valueOf(review.getRevieweeRole().name()),
                 review.getRating(), review.getPublishedAt());
@@ -89,15 +87,13 @@ public final class AppearanceContractMapper {
      * @throws IllegalStateException 아직 공개되지 않은 리뷰
      */
     public static AppearanceReviewSyncDto toSyncDto(AppearanceReview review) {
-        if (!review.isPublished()) {
-            throw new IllegalStateException("공개된 리뷰만 동기화 사본으로 만들 수 있습니다: " + review.getId());
-        }
+        requirePublished(review, "공개된 리뷰만 동기화 사본으로 만들 수 있습니다: ");
         return new AppearanceReviewSyncDto(review.getId(), review.getAppearanceId(), review.getRevieweeId(),
                 review.getRating());
     }
 
     /** 다른 모듈에 넘기는 요청서 정보 (요청 도착 이벤트) */
-    public static AppearanceRequestDto toDto(AppearanceRequest request) {
+    public static AppearanceRequestDto toRequestDto(AppearanceRequest request) {
         return new AppearanceRequestDto(request.getId(), request.getHostId(), request.getGuestId(), request.getTitle(),
                 request.getFee(), request.getScheduledAt(), request.getAcceptDeadline());
     }
@@ -108,7 +104,8 @@ public final class AppearanceContractMapper {
      * @param recruit 이 지원의 모집글 (제목·호스트를 함께 담는다)
      * @throws IllegalArgumentException 이 지원의 모집글이 아님
      */
-    public static AppearanceApplicationDto toDto(AppearanceApplication application, AppearanceRecruit recruit) {
+    public static AppearanceApplicationDto toApplicationDto(AppearanceApplication application,
+                                                        AppearanceRecruit recruit) {
         if (!Objects.equals(recruit.getId(), application.getRecruitId())) {
             throw new IllegalArgumentException("지원한 모집글이 아닙니다: recruitId=%d, 받은 모집글=%d"
                     .formatted(application.getRecruitId(), recruit.getId()));
@@ -123,9 +120,15 @@ public final class AppearanceContractMapper {
      * @param title       출처 요청서·모집글의 제목
      * @param scheduledAt 출연 방송 예정 일시
      */
-    public static AppearanceCancelRequestDto toDto(AppearanceCancelRequest cancelRequest, String title,
-                                                   LocalDateTime scheduledAt) {
+    public static AppearanceCancelRequestDto toCancelRequestDto(AppearanceCancelRequest cancelRequest, String title,
+                                                                LocalDateTime scheduledAt) {
         return new AppearanceCancelRequestDto(cancelRequest.getId(), cancelRequest.getAppearanceId(), title,
                 cancelRequest.getHostId(), cancelRequest.getGuestId(), cancelRequest.getSequence(), scheduledAt);
+    }
+
+    private static void requirePublished(AppearanceReview review, String message) {
+        if (!review.isPublished()) {
+            throw new IllegalStateException(message + review.getId());
+        }
     }
 }

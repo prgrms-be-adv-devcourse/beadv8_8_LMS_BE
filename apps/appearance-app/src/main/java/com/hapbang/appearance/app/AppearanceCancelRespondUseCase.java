@@ -86,7 +86,7 @@ public class AppearanceCancelRespondUseCase {
                     appearanceId, cancelRequest.getId(), hostId, releaseTaskId);
         });
         eventPublisher.publishEvent(new AppearanceCancelRequestAcceptedEvent(
-                AppearanceContractMapper.toDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
+                AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
                         appearance.getScheduledAt())));
         return releaseTaskId;
     }
@@ -114,7 +114,7 @@ public class AppearanceCancelRespondUseCase {
         });
 
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
-                AppearanceContractMapper.toDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
+                AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
                         appearance.getScheduledAt()), false));
     }
 

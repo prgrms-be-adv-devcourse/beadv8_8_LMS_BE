@@ -684,8 +684,8 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 | 종류 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|---|
 | 단위 | `AppearanceBatchRulesTest` | 보류 성공 반영: 처음 / 이미 `REQUESTED` | true(바뀜) / false(그대로) |
-| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceRequestTest`) | 요청서 `toDto(요청서)` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
-| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceApplicationTest`) | 지원 `toDto(지원, 모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceRequestTest`) | 요청서 `toRequestDto` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceApplicationTest`) | 지원 `toApplicationDto(지원, 모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
 | 통합 | `AppearanceEventPublishTest` | 요청서 보내기 성공 | `AppearanceRequestSentEvent` 1건, 내용 일치 |
 | 통합 | 〃 | Billing 보류 거절 | 0건 |
 | 통합 | 〃 | 보류 결과 모름 → 보류 재확인 배치 | 0건 → 1건 (같은 요청서 ID) |
@@ -1655,13 +1655,13 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 ## 40. 다른 앱에 보내는 계약 변환 분리 (#825)
 
-도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 각 행은 위 장(9·33·39장 등)에 클래스 이름을 바꿔 적었다.
+도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 위 장(9·33·39장 등)에 있던 행은 클래스 이름을 바꿔 적었고, 취소 요청 DTO 행은 여기에만 있다.
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
 | `AppearanceContractMapperTest` | 출연 동기화 사본·변경 이벤트 / 나노초 / ID·version 없음 | 값 그대로 / 마이크로초까지 / `IllegalStateException` |
 | `AppearanceContractMapperTest` | 출연 상태 6개 → 공개 결과 | 4개로 매핑, 모두 쓰임 |
 | `AppearanceContractMapperTest` | 리뷰 공개 이벤트·동기화 사본 / 공개 전 | 값 그대로, 같은 이름 필드 같음 / `IllegalStateException` |
-| `AppearanceContractMapperTest` | 요청서·지원(다른 모집글)·취소 요청 DTO | 값 그대로 / `IllegalArgumentException` |
+| `AppearanceContractMapperTest` | `toRequestDto`·`toApplicationDto`(다른 모집글)·`toCancelRequestDto` | 값 그대로 / `IllegalArgumentException` |
 
 - 이벤트·내부 API 값이 바뀌지 않은 것은 기존 통합 테스트(`AppearanceChangedEventTest`, `AppearanceEventKafkaTest`, `AppearanceSyncInternalApiE2ETest`, 알림 이벤트 테스트)가 그대로 통과해 확인했다.

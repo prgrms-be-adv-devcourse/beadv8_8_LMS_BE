@@ -61,7 +61,7 @@ public class AppearanceCancelRequestUseCase {
 
         // 호스트에게 취소 요청 도착을 알린다. 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener)
         eventPublisher.publishEvent(new AppearanceCancelRequestedEvent(
-                AppearanceContractMapper.toDto(saved, appearanceTitleSupport.titleOf(appearance),
+                AppearanceContractMapper.toCancelRequestDto(saved, appearanceTitleSupport.titleOf(appearance),
                         appearance.getScheduledAt())));
     }
 }

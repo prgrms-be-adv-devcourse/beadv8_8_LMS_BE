@@ -1,5 +1,6 @@
 package com.hapbang.appearance.app;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
@@ -9,7 +10,9 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceReview;
 import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.AppearanceReviewRepository;
+import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncPageDto;
+import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncPageDto;
 
 import lombok.RequiredArgsConstructor;
@@ -34,8 +37,11 @@ public class AppearanceSyncQueryUseCase {
                 Limit.of(size + 1));
         boolean hasNext = found.size() > size;
         List<Appearance> page = hasNext ? found.subList(0, size) : found;
-        return new AppearanceSyncPageDto(page.stream().map(AppearanceContractMapper::toSyncDto).toList(),
-                hasNext ? page.getLast().getId() : null);
+        List<AppearanceSyncDto> items = new ArrayList<>();
+        for (Appearance appearance : page) {
+            items.add(AppearanceContractMapper.toSyncDto(appearance));
+        }
+        return new AppearanceSyncPageDto(items, hasNext ? page.getLast().getId() : null);
     }
 
     /** 공개된 리뷰만. 공개 전 리뷰는 DB에서 걸러 키셋을 잇는다 */
@@ -44,8 +50,11 @@ public class AppearanceSyncQueryUseCase {
                 .findByIdGreaterThanAndPublishedAtIsNotNullOrderByIdAsc(start(afterId), Limit.of(size + 1));
         boolean hasNext = found.size() > size;
         List<AppearanceReview> page = hasNext ? found.subList(0, size) : found;
-        return new AppearanceReviewSyncPageDto(page.stream().map(AppearanceContractMapper::toSyncDto).toList(),
-                hasNext ? page.getLast().getId() : null);
+        List<AppearanceReviewSyncDto> items = new ArrayList<>();
+        for (AppearanceReview review : page) {
+            items.add(AppearanceContractMapper.toSyncDto(review));
+        }
+        return new AppearanceReviewSyncPageDto(items, hasNext ? page.getLast().getId() : null);
     }
 
     private static long start(Long afterId) {

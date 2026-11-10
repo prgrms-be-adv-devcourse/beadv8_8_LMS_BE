@@ -203,7 +203,7 @@ class AppearanceContractMapperTest {
         void request() {
             AppearanceRequest request = requested();
 
-            AppearanceRequestDto dto = AppearanceContractMapper.toDto(request);
+            AppearanceRequestDto dto = AppearanceContractMapper.toRequestDto(request);
 
             assertThat(dto.requestId()).isEqualTo(12L);
             assertThat(dto.hostId()).isEqualTo(HOST);
@@ -220,14 +220,14 @@ class AppearanceContractMapperTest {
             AppearanceRecruit recruit = recruiting();
             AppearanceApplication application = AppearanceApplication.apply(recruit, GUEST, "지원합니다.", SENT_AT);
 
-            AppearanceApplicationDto dto = AppearanceContractMapper.toDto(application, recruit);
+            AppearanceApplicationDto dto = AppearanceContractMapper.toApplicationDto(application, recruit);
 
             assertThat(dto.recruitTitle()).isEqualTo(recruit.getTitle());
             assertThat(dto.hostId()).isEqualTo(HOST);
             assertThat(dto.guestId()).isEqualTo(GUEST);
             AppearanceRecruit other = recruiting();
             ReflectionTestUtils.setField(other, "id", 999L);
-            assertThatThrownBy(() -> AppearanceContractMapper.toDto(application, other))
+            assertThatThrownBy(() -> AppearanceContractMapper.toApplicationDto(application, other))
                     .isInstanceOf(IllegalArgumentException.class);
         }
 
@@ -239,7 +239,7 @@ class AppearanceContractMapperTest {
             AppearanceCancelRequest cancelRequest = AppearanceCancelRequest.request(appearance, GUEST, "일정이 생겼습니다.",
                     0, POLICY, ACCEPTED_AT);
 
-            AppearanceCancelRequestDto dto = AppearanceContractMapper.toDto(cancelRequest, "주말 합방",
+            AppearanceCancelRequestDto dto = AppearanceContractMapper.toCancelRequestDto(cancelRequest, "주말 합방",
                     appearance.getScheduledAt());
 
             assertThat(dto.appearanceId()).isEqualTo(30L);

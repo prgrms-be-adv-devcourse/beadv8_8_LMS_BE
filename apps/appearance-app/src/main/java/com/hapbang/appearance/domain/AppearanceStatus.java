@@ -1,6 +1,5 @@
 package com.hapbang.appearance.domain;
 
-
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 

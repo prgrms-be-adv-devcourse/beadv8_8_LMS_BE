@@ -78,7 +78,7 @@ public class AppearanceCancelAutoRejectUseCase {
         appearanceSupport.flushOrConflict();
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
-                AppearanceContractMapper.toDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
+                AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
                         appearance.getScheduledAt()), true));
         return true;
     }

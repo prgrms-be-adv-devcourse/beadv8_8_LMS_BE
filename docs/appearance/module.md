@@ -816,7 +816,7 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `AppearanceCancelRequestRejectedEvent(AppearanceCancelRequestDto cancelRequest, boolean autoRejected)` | 〃 + `autoRejected` | 호스트가 거절했을 때(`false`), 방송 예정 일시까지 응답이 없어 자동 거절됐을 때(`true`) | 게스트 (`guestId`) |
 
 - 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 트랜잭션 안에서 발행한다.
-- DTO는 app 계층 `AppearanceContractMapper.toDto(...)`로 만든다(#825, 도메인 엔티티는 shared 계약을 모른다). 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
+- DTO는 app 계층 `AppearanceContractMapper.toRequestDto`·`toApplicationDto`·`toCancelRequestDto`로 만든다(#825, 도메인 엔티티는 shared 계약을 모른다). 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
 - 보류가 실패한 요청서(`HOLD_FAILED`)·결과를 모르는 요청서(`HOLD_PENDING`)·막힌 지원은 발행하지 않는다.
 
 ### 11.2 받는 쪽 예시 (참고)
@@ -1735,9 +1735,9 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 | `Appearance.toSyncDto()`·`toChangedEvent()` | `toSyncDto(appearance)`·`toChangedEvent(appearance)` (ID·version 없으면 `IllegalStateException`) |
 | `AppearanceStatus.result()` | `toResult(status)` (전수 `switch`) |
 | `AppearanceReview.toSyncDto()`·`toPublishedEvent()` | `toSyncDto(review)`·`toPublishedEvent(review)` (공개 전이면 `IllegalStateException`) |
-| `AppearanceRequest.toDto()` | `toDto(request)` |
-| `AppearanceApplication.toDto(recruit)` | `toDto(application, recruit)` |
-| `AppearanceCancelRequest.toDto(title, scheduledAt)` | `toDto(cancelRequest, title, scheduledAt)` |
+| `AppearanceRequest.toDto()` | `toRequestDto(request)` |
+| `AppearanceApplication.toDto(recruit)` | `toApplicationDto(application, recruit)` |
+| `AppearanceCancelRequest.toDto(title, scheduledAt)` | `toCancelRequestDto(cancelRequest, title, scheduledAt)` |
 
 - 남긴 것: `AppearanceUser.from(UserDto)`(팀 공통 부모 `ReplicaUser` 생성자가 `UserDto`를 받음), `AppearanceEarningRule`의 shared 수익 enum(지갑과 같이 쓰는 값 타입).
 - HP 대사 enum 3개(`HpReconciliationRule`·`Status`·`Trigger`)에 다른 출연 enum과 같은 모양의 `description`을 더했다. `AppearanceWithdrawalBlock`은 `messageFormat`이 있어 제외.
