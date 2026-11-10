@@ -221,7 +221,8 @@ class CouponUsageE2eTest {
                             .content("{\"issueRequestId\":\"redis-down-1\"}"))
                     .andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.code").value("COUPON_ISSUE_STORE_UNAVAILABLE"));
-            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(6));
+            // 확인할 것은 기본값(60초 × 2)이 아니라는 것이다. CI 기계 차이로 흔들리지 않게 상한은 넉넉히 둔다
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(15));
         }));
     }
 

@@ -8,11 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -30,6 +28,10 @@ import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.ServletException;
 
 // 쿠폰 업무 예외가 강의 공통 핸들러와 같은 ProblemDetail + code로 응답하는지, 다른 예외는 고르지 않는지 본다.
@@ -38,19 +40,32 @@ import jakarta.servlet.ServletException;
 @WebMvcTest(controllers = CouponExceptionHandlerTest.SampleController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import({CouponExceptionHandler.class, CouponExceptionHandlerTest.SampleController.class})
-@ExtendWith(OutputCaptureExtension.class)
 class CouponExceptionHandlerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Test
-    void 매진은_INFO가_아니라_DEBUG로_남기고_다른_4xx는_INFO로_남긴다(CapturedOutput output) throws Exception {
-        mockMvc.perform(get("/api/v1/coupons/samples/sold-out")).andExpect(status().isConflict());
-        mockMvc.perform(get("/api/v1/coupons/samples/invalid-policy")).andExpect(status().isBadRequest());
+    void 매진은_DEBUG로_남기고_다른_4xx는_INFO로_남긴다() throws Exception {
+        // 테스트 로그 수준(INFO)에서는 DEBUG가 보이지 않으므로 로거를 DEBUG로 낮추고 남긴 이벤트의 수준을 직접 본다
+        Logger logger = (Logger) LoggerFactory.getLogger(CouponExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        Level previousLevel = logger.getLevel();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            mockMvc.perform(get("/api/v1/coupons/samples/sold-out")).andExpect(status().isConflict());
+            mockMvc.perform(get("/api/v1/coupons/samples/invalid-policy")).andExpect(status().isBadRequest());
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+        }
 
-        assertThat(output.getOut()).doesNotContain("code=COUPON_SOLD_OUT")
-                .contains("INFO").contains("쿠폰 업무 예외로 응답했다 code=");
+        assertThat(appender.list).filteredOn(event -> event.getFormattedMessage().contains("code=COUPON_SOLD_OUT"))
+                .singleElement().satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.DEBUG));
+        assertThat(appender.list).filteredOn(event -> event.getFormattedMessage().contains("code=INVALID_COUPON_POLICY"))
+                .singleElement().satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.INFO));
     }
 
     @Test
