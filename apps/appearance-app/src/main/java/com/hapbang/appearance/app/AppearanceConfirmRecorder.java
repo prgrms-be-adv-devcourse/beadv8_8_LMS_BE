@@ -2,11 +2,14 @@ package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.shared.appearance.event.AppearanceAbsentEvent;
+import com.hapbang.shared.appearance.event.AppearanceConfirmedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -18,25 +21,40 @@ import lombok.RequiredArgsConstructor;
  *     <li>불참 → 반환 작업: 보류에서 출연료를 호스트에게 (요청 ID {@code …-RELEASE-APPEARANCE-{출연 ID}}, 합의 취소와 같은 형식)</li>
  * </ul>
  * 출연 하나는 확인·불참·취소 중 하나로만 끝나므로 같은 출연에 지급과 반환이 함께 생기지 않는다.
+ * 기록과 함께 확인·불참 알림 이벤트를 낸다 (#871). 지급 작업에는 지급 알림용 출처 제목을 남긴다.
+ * 롤백되면 이벤트는 나가지 않는다.
  */
 @Service
 @RequiredArgsConstructor
 public class AppearanceConfirmRecorder {
 
     private final HpTaskSupport hpTaskSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
-    /** @return 기록한 지급 작업 ID (커밋 후 실행한다) */
-    public Long recordPayout(Appearance appearance, LocalDateTime now) {
+    /**
+     * @param title 출처 요청서·모집글의 제목
+     * @return 기록한 지급 작업 ID (커밋 후 실행한다)
+     */
+    public Long recordPayout(Appearance appearance, String title, LocalDateTime now) {
         HpTask task = HpTask.payout(appearance.holdRefType(), appearance.holdRefId(), appearance.getHostId(),
-                appearance.getFee(), appearance.getGuestId(), appearance.getId(), HpTaskReason.APPEARANCE_CONFIRMED,
-                HpTaskSupport.payoutRequestId(appearance), now);
-        return hpTaskSupport.save(task).getId();
+                appearance.getFee(), appearance.getGuestId(), appearance.getId(), title,
+                HpTaskReason.APPEARANCE_CONFIRMED, HpTaskSupport.payoutRequestId(appearance), now);
+        Long taskId = hpTaskSupport.save(task).getId();
+        eventPublisher.publishEvent(new AppearanceConfirmedEvent(AppearanceContractMapper.toAppearanceDto(appearance,
+                title), AppearanceContractMapper.toConfirmType(appearance), now));
+        return taskId;
     }
 
-    /** @return 기록한 반환 작업 ID (커밋 후 실행한다) */
-    public Long recordAbsentRelease(Appearance appearance, LocalDateTime now) {
+    /**
+     * @param title 출처 요청서·모집글의 제목
+     * @return 기록한 반환 작업 ID (커밋 후 실행한다)
+     */
+    public Long recordAbsentRelease(Appearance appearance, String title, LocalDateTime now) {
         HpTask task = HpTask.release(appearance.holdRefType(), appearance.holdRefId(), appearance.getHostId(),
                 appearance.getFee(), HpTaskReason.APPEARANCE_ABSENT, HpTaskSupport.releaseRequestId(appearance), now);
-        return hpTaskSupport.save(task).getId();
+        Long taskId = hpTaskSupport.save(task).getId();
+        eventPublisher.publishEvent(new AppearanceAbsentEvent(AppearanceContractMapper.toAppearanceDto(appearance,
+                title), now));
+        return taskId;
     }
 }

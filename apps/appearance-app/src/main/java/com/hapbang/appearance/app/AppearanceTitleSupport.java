@@ -22,12 +22,24 @@ public class AppearanceTitleSupport {
 
     private final AppearanceRequestSupport appearanceRequestSupport;
     private final AppearanceRecruitSupport appearanceRecruitSupport;
+    private final AppearanceSupport appearanceSupport;
 
     public String titleOf(Appearance appearance) {
         if (appearance.isFromRecruit()) {
             return appearanceRecruitSupport.getById(appearance.getRecruitId()).getTitle();
         }
         return appearanceRequestSupport.getById(appearance.getRequestId()).getTitle();
+    }
+
+    /**
+     * 출연 ID별 제목 (배치용, #871). 출연과 출처를 묶어서 읽으므로 건수와 관계없이 조회는 세 번 이하다.
+     * 성립한 출연의 출처 제목은 배치가 처리할 때(요청서는 수락 뒤, 모집글은 마감 뒤) 더 바뀌지 않으므로 미리 읽어도 된다.
+     */
+    public Map<Long, String> titlesByAppearanceIds(Collection<Long> appearanceIds) {
+        if (appearanceIds.isEmpty()) {
+            return Map.of();
+        }
+        return titlesOf(appearanceSupport.findAllByIds(appearanceIds));
     }
 
     /** 출연 ID별 제목 (목록 응답용). 출처마다 한 번씩 묶어서 조회한다 */

@@ -19,6 +19,7 @@ import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.shared.appearance.event.AppearanceRecruitCanceledEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -72,11 +73,13 @@ public class AppearanceRecruitCancelUseCase {
 
         long vacancyFee = recruit.cancel(hostId, reason, now);
         List<Long> taskIds = new ArrayList<>();
+        // 성립한 출연은 모두 이 모집글에서 나와 제목이 모집글 제목이다
         for (Appearance appearance : appearances) {
-            taskIds.add(appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, hostId,
+            taskIds.add(appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, recruit.getTitle(), hostId,
                     confirmPendingCancelRequest, recruit.getCancelReason(), now));
         }
-        for (AppearanceApplication application : appearanceApplicationSupport.findPendingByRecruit(recruitId)) {
+        List<AppearanceApplication> pending = appearanceApplicationSupport.findPendingByRecruit(recruitId);
+        for (AppearanceApplication application : pending) {
             application.closeUnselected();
         }
         if (vacancyFee > 0) {
@@ -86,6 +89,12 @@ public class AppearanceRecruitCancelUseCase {
         // 출연 변경 이벤트는 flush 뒤에 만든다(AppearanceContractMapper.toChangedEvent). 출연도 위 모집글 flush로 함께 반영됐다
         for (Appearance appearance : appearances) {
             eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
+        }
+        // 알림센터가 모집 마감 임박 예약을 지운다. 성립한 출연의 일방 취소 이벤트는 위 Recorder가 출연마다 냈다 (#871)
+        eventPublisher.publishEvent(new AppearanceRecruitCanceledEvent(AppearanceContractMapper.toRecruitDto(recruit),
+                now));
+        for (AppearanceApplication application : pending) {
+            eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
         }
         AfterCommit.run(() -> {
             log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,

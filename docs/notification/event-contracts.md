@@ -61,20 +61,21 @@
 | `AppearanceCancelRequestedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 지금 값(`AppearanceCancelRequestDto`: 취소 요청 ID, 출연 ID, 제목, 호스트·게스트 ID, 차수, 방송 예정 일시) + 사건 시각 | 취소 요청 ID | 요청 시각(추가) | 호스트 | `APPEARANCE_CANCEL_REQUESTED` | 구현됨(#817) |
 | `AppearanceCancelRequestAcceptedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + 사건 시각 | 취소 요청 ID | 수락 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_ACCEPTED`, 예약 취소 입력(합의 취소) | 구현됨(#817) |
 | `AppearanceCancelRequestRejectedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + `autoRejected` + 사건 시각 | 취소 요청 ID | 거절 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_REJECTED` | 구현됨(#817) |
-| `AppearanceRequestAcceptedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 출연 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 수락 시각 | 요청서 ID | 수락 시각 | 호스트 | `APPEARANCE_REQUEST_ACCEPTED`, 예약 생성 입력(출연 시작·확인 기간), 예약 취소 입력(요청 만료 임박) | 확정 |
-| `AppearanceRequestRejectedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 거절 시각 | 요청서 ID | 거절 시각 | 호스트 | `APPEARANCE_REQUEST_REJECTED`, 예약 취소 입력 | 확정 |
-| `AppearanceRequestCanceledEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 취소 시각 | 요청서 ID | 취소 시각 | 게스트 | `APPEARANCE_REQUEST_CANCELED`, 예약 취소 입력 | 확정 |
-| `AppearanceRequestExpiredEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 만료 시각 | 요청서 ID | 만료 시각 | 호스트, 게스트 | `APPEARANCE_REQUEST_EXPIRED` | 확정 |
-| `AppearanceApplicationSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 출연 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 선정 시각 | 지원 ID | 선정 시각 | 게스트 | `APPEARANCE_APPLICATION_SELECTED`, 예약 생성 입력(출연 시작·확인 기간) | 확정 |
-| `AppearanceApplicationNotSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 미선정 시각 | 지원 ID | 미선정 시각 | 게스트 | `APPEARANCE_APPLICATION_NOT_SELECTED` | 확정 |
-| `AppearanceRecruitOpenedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, 모집 시작 시각 | 모집글 ID | 모집 시작 시각 | 호스트 | 예약 생성 입력(`APPEARANCE_RECRUIT_CLOSING`) | 확정 |
-| `AppearanceRecruitClosedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, `closeType`, 마감 시각 | 모집글 ID | 마감 시각 | 호스트 | `APPEARANCE_RECRUIT_CLOSED`, 예약 취소 입력 | 확정 |
-| `AppearanceRecruitCanceledEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 취소 시각 | 모집글 ID | 취소 시각 | 호스트(예약 취소 키) | 예약 취소 입력만(ND-041). 알림 종류 없음 | 확정 |
-| `AppearanceCanceledByHostEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 위약금, 취소 시각 | 출연 ID | 취소 시각 | 게스트 | `APPEARANCE_CANCELED_BY_HOST`, 예약 취소 입력 | 확정 |
-| `AppearanceConfirmedEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, `confirmType`, 확인 시각 | 출연 ID | 확인 시각 | 호스트 | `APPEARANCE_CONFIRMED`, 예약 취소 입력 | 확정 |
-| `AppearanceAbsentEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 불참 처리 시각 | 출연 ID | 불참 처리 시각 | 게스트 | `APPEARANCE_ABSENT`, 예약 취소 입력 | 확정 |
+| `AppearanceRequestAcceptedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 출연 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 수락 시각 | 요청서 ID | 수락 시각 | 호스트 | `APPEARANCE_REQUEST_ACCEPTED`, 예약 생성 입력(출연 시작·확인 기간), 예약 취소 입력(요청 만료 임박) | 구현됨(#871) |
+| `AppearanceRequestRejectedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 거절 시각 | 요청서 ID | 거절 시각 | 호스트 | `APPEARANCE_REQUEST_REJECTED`, 예약 취소 입력 | 구현됨(#871) |
+| `AppearanceRequestCanceledEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 취소 시각 | 요청서 ID | 취소 시각 | 게스트 | `APPEARANCE_REQUEST_CANCELED`, 예약 취소 입력 | 구현됨(#871) |
+| `AppearanceRequestExpiredEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 만료 시각 | 요청서 ID | 만료 시각 | 호스트, 게스트 | `APPEARANCE_REQUEST_EXPIRED` | 구현됨(#871) |
+| `AppearanceApplicationSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 출연 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 선정 시각 | 지원 ID | 선정 시각 | 게스트 | `APPEARANCE_APPLICATION_SELECTED`, 예약 생성 입력(출연 시작·확인 기간) | 구현됨(#871) |
+| `AppearanceApplicationNotSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 미선정 시각 | 지원 ID | 미선정 시각 | 게스트 | `APPEARANCE_APPLICATION_NOT_SELECTED` | 구현됨(#871) |
+| `AppearanceRecruitOpenedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, 모집 시작 시각 | 모집글 ID | 모집 시작 시각 | 호스트 | 예약 생성 입력(`APPEARANCE_RECRUIT_CLOSING`) | 구현됨(#871) |
+| `AppearanceRecruitClosedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, `closeType`, 마감 시각 | 모집글 ID | 마감 시각 | 호스트 | `APPEARANCE_RECRUIT_CLOSED`, 예약 취소 입력 | 구현됨(#871) |
+| `AppearanceRecruitCanceledEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 취소 시각 | 모집글 ID | 취소 시각 | 호스트(예약 취소 키) | 예약 취소 입력만(ND-041). 알림 종류 없음 | 구현됨(#871) |
+| `AppearanceCanceledByHostEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 위약금, 취소 시각 | 출연 ID | 취소 시각 | 게스트 | `APPEARANCE_CANCELED_BY_HOST`, 예약 취소 입력 | 구현됨(#871) |
+| `AppearanceConfirmedEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, `confirmType`, 확인 시각 | 출연 ID | 확인 시각 | 호스트 | `APPEARANCE_CONFIRMED`, 예약 취소 입력 | 구현됨(#871) |
+| `AppearanceAbsentEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 불참 처리 시각 | 출연 ID | 불참 처리 시각 | 게스트 | `APPEARANCE_ABSENT`, 예약 취소 입력 | 구현됨(#871) |
 
 - M1 구현(#817, 출연): 3종 모두 `@Externalized`로 key `appearance:<출연 ID>`에 나간다. `eventType` 헤더는 레코드 이름과 같다. 기존 필드(`cancelRequest`: `AppearanceCancelRequestDto` 7개 값, 거절의 `autoRejected`) 뒤에 사건 시각(`LocalDateTime`, KST)을 붙였다. 요청 `requestedAt`, 수락 `acceptedAt`, 거절 `rejectedAt`(자동 거절이면 자동 거절을 처리한 시각)이다. 값은 상태를 바꾼 처리의 시각이다(수락·거절은 이력의 응답 시각과 같고, 요청은 이력의 요청 시각과 몇 ms 다를 수 있다. 운영 서버 시간대가 `Asia/Seoul`이라 둘 다 KST다). 한 취소 요청에 결과 이벤트(수락 또는 거절)는 많아야 하나다.
+- M3 구현(#871, 출연): 12종 모두 `@Externalized`로 위 key에 나가고 `eventType` 헤더는 레코드 이름과 같다. 필드는 출연 DTO 관례를 따른다. 요청서 4종은 `request`(`AppearanceRequestDto`: `requestId`·`hostId`·`guestId`·`title`·`fee`·`scheduledAt`·`acceptDeadline`) + 수락만 `appearanceId` + 사건 시각 `acceptedAt`·`rejectedAt`·`canceledAt`·`expiredAt`. 지원 2종은 `application`(`AppearanceApplicationDto`: `applicationId`·`recruitId`·`recruitTitle`·`hostId`·`guestId`·`appliedAt`) + 선정만 `appearanceId` + `scheduledAt` + `selectedAt`·`notSelectedAt`. 모집글 3종은 `recruit`(`AppearanceRecruitDto`: `recruitId`·`hostId`·`title`·`recruitDeadline`) + `openedAt`, 마감은 `closeType`(`DEADLINE`·`EARLY`) + `closedAt`, 취소는 `canceledAt`. 출연 3종은 `appearance`(`AppearanceDto`: `appearanceId`·`title`(출처 제목)·`hostId`·`guestId`·`scheduledAt`) + 일방 취소 `penaltyAmount`·`canceledAt`, 확인 `confirmType`(`HOST`·`AUTO`)·`confirmedAt`, 불참 `absentAt`. 사건 시각은 상태를 바꾼 처리의 시각(KST)이다. 미선정은 지원 거절, 마감 때 대기 지원, 모집 전체 취소 때 대기 지원마다 한 번 나간다(마감 뒤 취소에서는 다시 나가지 않는다). 발행 위치는 출연 문서([module.md](../appearance/module.md) 11.1.1)에 있다.
 
 예약을 만들고 취소하는 짝은 [알림 종류](notification-catalog.md) 7장이 원본이다. 짝을 이루는 이벤트는 같은 (대상 ID, 받는 사람)을 준다(ND-034).
 
@@ -179,7 +180,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | --- | --- | --- | --- | --- |
 | M1 | 출연 | 취소 요청 3종 Kafka 발행 | #817 | 구현됨 |
 | M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | #818 | 구현됨 |
-| M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
+| M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | #871 | 12종 구현됨. 출처 제목은 출연 HP 작업에 보관하고, 지갑 요청에 싣는 것은 #873(shared 필드) 뒤 |
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | — | 계약 확정, Issue 발송 전 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | — | 계약 확정, Issue 발송 전 |

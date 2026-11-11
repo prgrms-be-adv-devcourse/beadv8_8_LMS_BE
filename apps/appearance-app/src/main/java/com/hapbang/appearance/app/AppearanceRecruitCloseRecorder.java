@@ -1,7 +1,9 @@
 package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceApplication;
@@ -11,6 +13,7 @@ import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.shared.appearance.event.AppearanceRecruitClosedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -19,6 +22,7 @@ import lombok.RequiredArgsConstructor;
  * <ol>
  *     <li>대기 중인 지원을 모두 미선정({@code NOT_SELECTED})으로 (ISSUE.md APR-28 C2)</li>
  *     <li>모집글·지원 변경을 바로 반영해 동시 수락·지원 취소와의 충돌을 여기서 확인</li>
+ *     <li>모집 마감과 미선정된 지원마다 알림 이벤트 발행 (#871). 롤백되면 나가지 않는다</li>
  *     <li>성립하지 못한 인원분 반환 작업 기록. 정원이 다 찼으면(반환 0) 기록하지 않는다 (C3, C7)</li>
  * </ol>
  */
@@ -29,16 +33,23 @@ public class AppearanceRecruitCloseRecorder {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceApplicationSupport appearanceApplicationSupport;
     private final HpTaskSupport hpTaskSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * @return 기록한 반환 작업 ID. 돌려줄 금액이 없으면 null
      * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
      */
     public Long closeApplicationsAndRecordRelease(AppearanceRecruit recruit, LocalDateTime now) {
-        for (AppearanceApplication application : appearanceApplicationSupport.findPendingByRecruit(recruit.getId())) {
+        List<AppearanceApplication> pending = appearanceApplicationSupport.findPendingByRecruit(recruit.getId());
+        for (AppearanceApplication application : pending) {
             application.closeUnselected();
         }
         appearanceRecruitSupport.flushOrConflict();
+        eventPublisher.publishEvent(new AppearanceRecruitClosedEvent(AppearanceContractMapper.toRecruitDto(recruit),
+                AppearanceContractMapper.toCloseType(recruit), now));
+        for (AppearanceApplication application : pending) {
+            eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
+        }
 
         long unfilledFee = recruit.unfilledFee();
         if (unfilledFee == 0) {
