@@ -111,6 +111,11 @@ public class InfluencerDocumentStore {
         this.writes = new DocumentWrites(client, InfluencerIndexDefinition.ALIAS);
     }
 
+    /** 대상과 상관없는 문서 쓰기 도우미(공통 재색인이 새 index의 보이는 문서를 셀 때 쓴다) */
+    public DocumentWrites writes() {
+        return writes;
+    }
+
     /**
      * 정상 인플루언서의 프로필을 넣거나 덮는다(숨김을 푼다).
      *

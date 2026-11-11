@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.search.common.app.IndexCatchUp;
 import com.hapbang.auxiliary.search.common.app.SearchJob;
 import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerMemberIndexer.MemberIndexResult;
@@ -41,14 +42,14 @@ import lombok.extern.slf4j.Slf4j;
  *     <li><b>처음</b>: 커서가 없으면 지금 시각부터 읽는다. 이전 회원은 #773 처음 적재가 맡는다.</li>
  *     <li><b>보정 건수</b>(#772 Q1): 반영 전에 그 페이지 문서를 한 번에 읽어 보이는 내용이 실제로 다른지로 가른다({@link ReconcileKind}).
  *     보정한 회원은 INFO 한 줄을 남긴다.</li>
- *     <li><b>바깥에서 시작 시각 정하기</b>: {@link #runFrom}(#773 재색인 뒤 따라잡기).</li>
+ *     <li><b>바깥에서 시작 시각 정하기</b>: {@link #runFrom}(#773 재색인 뒤 따라잡기). 공통 재색인의 따라잡기 부품({@link IndexCatchUp})이다(#868).</li>
  * </ul>
  * 한계: 보정 건수는 페이지 앞에서 한 번 읽은 문서와 비교한다. 그 페이지를 반영하는 몇 초 사이에 같은 회원의 이벤트가 먼저 반영되면(이벤트 도착 직전에
  * 보정이 읽었거나, 같은 회원이 몇 초 안에 두 번 바뀜) 놓친 이벤트가 아닌데도 보정으로 셀 수 있다.
  */
 @Slf4j
 @Service
-public class MemberChangeReconciler {
+public class MemberChangeReconciler implements IndexCatchUp {
 
     /** 변경분 한 페이지 크기(회원 API 상한) */
     static final int PAGE_SIZE = MemberChangePageDto.MAX_SIZE;
@@ -103,6 +104,7 @@ public class MemberChangeReconciler {
      * @return 끝까지 따라잡았으면 {@link CatchUp#CAUGHT_UP}. 다른 회차가 락을 쥐고 있어 돌지 못했으면 {@link CatchUp#BUSY}(커서 그대로라 부르는
      * 쪽이 다시 부른다). 중간에 실패했으면 {@link CatchUp#FAILED}(WARN, 커서는 그 시각 또는 마지막으로 끝낸 페이지에 있어 다음 정기 회차가 이어 간다)
      */
+    @Override
     public CatchUp runFrom(LocalDateTime from) {
         Objects.requireNonNull(from, "from은 필수입니다.");
         AtomicBoolean caughtUp = new AtomicBoolean();
@@ -259,16 +261,6 @@ public class MemberChangeReconciler {
                 && Objects.equals(user.bio(), before.bio())
                 && Objects.equals(user.role().name(), before.role())
                 && user.contentCategories().equals(before.categoryCodes());
-    }
-
-    /** {@link #runFrom} 결과 */
-    public enum CatchUp {
-        /** 끝까지 따라잡았다 */
-        CAUGHT_UP,
-        /** 다른 회차가 락을 쥐고 있어 돌지 못했다. 커서를 옮기지 않았다 */
-        BUSY,
-        /** 돌다가 실패했다. 커서는 옮긴 시각 이후에 있어 다음 정기 회차가 이어 간다 */
-        FAILED
     }
 
     /**

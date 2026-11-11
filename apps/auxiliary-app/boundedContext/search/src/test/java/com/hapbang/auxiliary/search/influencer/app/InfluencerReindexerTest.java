@@ -26,9 +26,10 @@ import com.hapbang.auxiliary.global.scheduling.JobLock;
 import com.hapbang.auxiliary.search.common.app.SearchJob;
 import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import com.hapbang.auxiliary.search.common.out.IndexDefinition;
-import com.hapbang.auxiliary.search.influencer.app.InfluencerReindexer.ReindexReason;
-import com.hapbang.auxiliary.search.influencer.app.InfluencerReindexer.ReindexResult;
-import com.hapbang.auxiliary.search.influencer.app.MemberChangeReconciler.CatchUp;
+import com.hapbang.auxiliary.search.common.app.Reindexer.ReindexReason;
+import com.hapbang.auxiliary.search.common.app.Reindexer.ReindexResult;
+import com.hapbang.auxiliary.search.common.app.IndexCatchUp.CatchUp;
+import com.hapbang.auxiliary.search.common.app.Reindexer;
 import com.hapbang.auxiliary.search.influencer.config.SearchRankingProperties;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
@@ -97,7 +98,7 @@ class InfluencerReindexerTest {
 
         assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
         assertThat(result.loaded().read()).isEqualTo(4);
-        assertThat(result.loaded().influencers()).isEqualTo(2);
+        assertThat(result.loaded().visible()).isEqualTo(2);
         assertThat(result.loaded().hidden()).isEqualTo(2);
         assertThat(result.catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
         assertThat(aliasTargets()).containsExactly(expected);
@@ -344,7 +345,7 @@ class InfluencerReindexerTest {
         ReindexResult result = rejectingPod.reindexer.reindexIfNeeded();
 
         assertThat(result.done()).isTrue();
-        assertThat(result.loaded().influencers()).isEqualTo(1);
+        assertThat(result.loaded().visible()).isEqualTo(1);
         assertThat(result.loaded().skipped()).isEqualTo(1);
         assertThat(aliasTargets()).containsExactly(expected);
     }
@@ -393,7 +394,7 @@ class InfluencerReindexerTest {
     @DisplayName("롤링 배포 중 옛 pod는 자기가 뜬 뒤에 만들어진(더 새 배포의) index를 옛 설정으로 되돌리지 않는다. 롤백(나중에 뜬 pod)은 되돌린다")
     void oldPodSkipsNewerIndex() throws Exception {
         // 시계 차이 여유(1분)보다 앞서 뜬 옛 pod
-        Instant oldPodStartedAt = Instant.now().minus(InfluencerReindexer.CLOCK_SKEW_MARGIN).minusSeconds(60);
+        Instant oldPodStartedAt = Instant.now().minus(Reindexer.CLOCK_SKEW_MARGIN).minusSeconds(60);
         // 새 배포가 다른 설정(OLD를 새 설정 index로 본다)으로 alias를 옮겼다
         createOldIndex();
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
@@ -465,7 +466,7 @@ class InfluencerReindexerTest {
             InfluencerStatsSync statsSync = new InfluencerStatsSync(indexSetup, store, stats, categoryNames,
                     reindexRunner, consistencyChecks, clock);
             this.reindexer = new InfluencerReindexer(indexSetup, store, indexer, categoryNames, members, statsSync,
-                    reconciler, reindexRunner, metrics, clock, Duration.ofMillis(10), Duration.ofMillis(200), startedAt);
+                    reconciler, reindexRunner, registry, clock, Duration.ofMillis(10), Duration.ofMillis(200), startedAt);
         }
     }
 
