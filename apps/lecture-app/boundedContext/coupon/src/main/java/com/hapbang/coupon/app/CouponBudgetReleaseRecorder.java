@@ -37,6 +37,22 @@ public class CouponBudgetReleaseRecorder {
         if (coupon.getType() != CouponType.PLATFORM || coupon.getStatus() != CouponStatus.CLOSED) {
             return;
         }
+        recordUnissued(coupon, now);
+    }
+
+    /** DRAFT는 OPEN 커밋 전이라 접수 이력이 없다. 예약이 확정된 무발급 만료 DRAFT의 전액 해제를 같은 행 잠금 아래 등록한다. */
+    @Transactional
+    public void recordExpiredDraft(long couponId, Instant now) {
+        Coupon coupon = couponRepository.findForBudgetRelease(couponId).orElseThrow();
+        if (coupon.getType() != CouponType.PLATFORM || coupon.getStatus() != CouponStatus.DRAFT
+                || coupon.getIssueEndAt().isAfter(now) || coupon.getIssuedCount() != 0
+                || coupon.getBudgetReservationId() == null) {
+            return;
+        }
+        recordUnissued(coupon, now);
+    }
+
+    private void recordUnissued(Coupon coupon, Instant now) {
         long quantity = Math.subtractExact(coupon.getQuantity(), coupon.getIssuedCount());
         long amount = Math.multiplyExact(quantity, maximum(coupon));
         if (amount <= 0) {

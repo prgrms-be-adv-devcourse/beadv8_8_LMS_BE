@@ -75,6 +75,38 @@ class CouponRepositoryTest {
     }
 
     @Test
+    void 만료_DRAFT_예산_수집은_예약확정_무발급_플랫폼만_ID순_묶음으로_고른다() {
+        Coupon first = expiredBudgetDraft();
+        Coupon second = expiredBudgetDraft();
+        Coupon unknown = Coupon.createPlatform(ADMIN_ID, anyLectureAmount()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60));
+        couponRepository.save(unknown);
+        Coupon future = Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW);
+        future.recordBudgetReserved("PB-future", NOW);
+        couponRepository.save(future);
+        Coupon opened = expiredBudgetDraft();
+        ReflectionTestUtils.setField(opened, "status", CouponStatus.OPEN);
+        Coupon issued = expiredBudgetDraft();
+        couponRepository.incrementIssuedCount(issued.getId(), issued.getEpoch());
+        couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60)));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(couponRepository.findExpiredDraftBudgetIds(NOW, 0, Limit.of(1)))
+                .containsExactly(first.getId());
+        assertThat(couponRepository.findExpiredDraftBudgetIds(NOW, first.getId(), Limit.of(10)))
+                .containsExactly(second.getId());
+    }
+
+    private Coupon expiredBudgetDraft() {
+        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureAmount()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60));
+        coupon.recordBudgetReserved("PB-expired", NOW);
+        return couponRepository.saveAndFlush(coupon);
+    }
+
+    @Test
     void 확정_발급_수는_총수량까지만_조건부로_오르고_그다음은_0행이다() {
         Coupon coupon = Coupon.createSeller(SELLER_ID, lectureRate().quantity(2).build(), NOW);
         Long id = couponRepository.saveAndFlush(coupon).getId();

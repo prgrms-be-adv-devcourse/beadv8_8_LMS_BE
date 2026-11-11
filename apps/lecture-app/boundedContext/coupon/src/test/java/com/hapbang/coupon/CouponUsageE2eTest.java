@@ -1,8 +1,12 @@
 package com.hapbang.coupon;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,6 +25,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,9 +44,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.hapbang.coupon.app.CouponBudgetWorkUseCase;
+import com.hapbang.coupon.app.CouponCapacitySupport;
+import com.hapbang.coupon.app.CouponOpenUseCase;
+import com.hapbang.coupon.app.CouponSupport;
+import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
+import com.hapbang.coupon.domain.BudgetWork;
+import com.hapbang.coupon.domain.BudgetWorkKind;
+import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponTerms;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -50,6 +70,9 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.coupon.out.redis.CouponRedisProperties;
+import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
@@ -107,6 +130,202 @@ class CouponUsageE2eTest {
     @Autowired private com.hapbang.coupon.out.BudgetWorkRepository budgetWorkRepository;
     @Autowired private org.springframework.transaction.PlatformTransactionManager budgetTransactionManager;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate budgetJdbc;
+    @Autowired private CouponIssueStore couponIssueStore;
+    @Autowired private CouponCapacitySupport capacitySupport;
+    @Autowired private CouponRedisProperties redisProperties;
+
+    @Test
+    void foreground의_늦은_거절은_재선점한_배치의_성공을_덮지_못하며_같은_작업으로_발급을_연다() throws Exception {
+        Instant now = Instant.now();
+        long couponId = budgetCoupon(now, false);
+        String workId = couponRepository.findById(couponId).orElseThrow().budgetReserveWorkId();
+        CountDownLatch foregroundEntered = new CountDownLatch(1);
+        CountDownLatch finishForeground = new CountDownLatch(1);
+        CountDownLatch batchEntered = new CountDownLatch(1);
+        CountDownLatch finishBatch = new CountDownLatch(1);
+        AtomicInteger reserves = new AtomicInteger();
+        PromotionBudget budget = new PromotionBudget() {
+            public BudgetResult reserve(String id, long policyId, int version, long amount) {
+                assertBudgetHttpOutsideTransaction();
+                assertThat(id).isEqualTo(workId);
+                if (reserves.incrementAndGet() == 1) {
+                    foregroundEntered.countDown();
+                    awaitBudgetGate(finishForeground);
+                    return new BudgetResult(Outcome.REJECTED, null, "예산 부족");
+                }
+                batchEntered.countDown();
+                awaitBudgetGate(finishBatch);
+                return new BudgetResult(Outcome.SUCCEEDED, "PB-race", null);
+            }
+            public BudgetResult release(String id, String reservationId, long amount, String target, String reason) {
+                throw new AssertionError("발급 기간 안에는 해제하지 않는다");
+            }
+            public BudgetResult status(String id) {
+                assertBudgetHttpOutsideTransaction();
+                return new BudgetResult(Outcome.UNKNOWN, null, null);
+            }
+        };
+        CouponOpenUseCase opener = budgetOpener(budget, now, couponIssueStore);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<CouponException> foreground = workers.submit(() -> {
+                try {
+                    opener.open(ADMIN_ID, couponId);
+                    throw new AssertionError("재선점된 PENDING 작업은 503이어야 한다");
+                } catch (CouponException exception) {
+                    return exception;
+                }
+            });
+            assertThat(foregroundEntered.await(10, TimeUnit.SECONDS)).isTrue();
+            budgetJdbc.update("update coupon.budget_work set lease_until = ? where work_id = ?",
+                    java.sql.Timestamp.from(now.minusSeconds(1)), workId);
+            Future<?> batch = workers.submit(() -> budgetWorker(budget, now).runDue());
+            assertThat(batchEntered.await(10, TimeUnit.SECONDS)).isTrue();
+
+            finishForeground.countDown();
+            assertThat(foreground.get(10, TimeUnit.SECONDS).getErrorCode())
+                    .isEqualTo(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
+            assertThat(budgetWorkRepository.findById(workId).orElseThrow()).satisfies(work -> {
+                assertThat(work.getAttempt()).isEqualTo(2);
+                assertThat(work.getStatus()).isEqualTo(BudgetWorkStatus.PENDING);
+            });
+
+            finishBatch.countDown();
+            batch.get(10, TimeUnit.SECONDS);
+            assertThat(budgetWorkRepository.findById(workId).orElseThrow().getStatus()).isEqualTo(BudgetWorkStatus.DONE);
+            assertThat(opener.open(ADMIN_ID, couponId).status()).isEqualTo(CouponStatus.OPEN);
+            assertThat(reserves).hasValue(2);
+            assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getWorkId).isEqualTo(workId);
+            assertThat(couponRepository.findById(couponId).orElseThrow().getBudgetReservationId()).isEqualTo("PB-race");
+        } finally {
+            finishForeground.countDown();
+            finishBatch.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    void UNKNOWN_예약이_발급기한_뒤_확정되면_DRAFT의_전액_해제를_같은_커밋에_남긴다() {
+        Instant now = Instant.now();
+        long couponId = budgetCoupon(now, false);
+        Coupon coupon = couponRepository.findById(couponId).orElseThrow();
+        String workId = coupon.budgetReserveWorkId();
+        budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, 1, now));
+        AtomicBoolean confirmed = new AtomicBoolean();
+        AtomicInteger releases = new AtomicInteger();
+        PromotionBudget budget = new PromotionBudget() {
+            public BudgetResult reserve(String id, long policyId, int version, long amount) {
+                assertBudgetHttpOutsideTransaction();
+                return new BudgetResult(Outcome.UNKNOWN, null, null);
+            }
+            public BudgetResult release(String id, String reservationId, long amount, String target, String reason) {
+                assertBudgetHttpOutsideTransaction();
+                releases.incrementAndGet();
+                return new BudgetResult(Outcome.SUCCEEDED, reservationId, null);
+            }
+            public BudgetResult status(String id) {
+                assertBudgetHttpOutsideTransaction();
+                return new BudgetResult(confirmed.get() && id.equals(workId) ? Outcome.SUCCEEDED : Outcome.UNKNOWN,
+                        confirmed.get() && id.equals(workId) ? "PB-late" : null, null);
+            }
+        };
+        budgetWorker(budget, now).execute(workId);
+        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getStatus)
+                .isEqualTo(BudgetWorkStatus.PENDING);
+
+        confirmed.set(true);
+        Instant afterEnd = coupon.getIssueEndAt().plusSeconds(1);
+        budgetWorker(budget, afterEnd).runDue();
+
+        assertThat(budgetWorkRepository.findById(workId).orElseThrow().getStatus()).isEqualTo(BudgetWorkStatus.DONE);
+        assertThat(couponRepository.findById(couponId).orElseThrow()).satisfies(expiredDraft -> {
+            assertThat(expiredDraft.getStatus()).isEqualTo(CouponStatus.DRAFT);
+            assertThat(expiredDraft.getBudgetReservationId()).isEqualTo("PB-late");
+        });
+        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
+                .singleElement().satisfies(release -> {
+                    assertThat(release.getWorkId()).isEqualTo("coupon-" + couponId + "-release-unissued-v1");
+                    assertThat(release.getStatus()).isEqualTo(BudgetWorkStatus.PENDING);
+                    assertThat(release.getAmount()).isEqualTo(7_500);
+                    assertThat(release.getTarget()).isEqualTo("UNISSUED:5");
+                });
+        assertThat(releases).hasValue(0);
+        budgetWorker(budget, afterEnd).runDue();
+        budgetWorker(budget, afterEnd.plusSeconds(1)).runDue();
+        assertThat(releases).hasValue(1);
+        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
+                .hasSize(1);
+    }
+
+    @Test
+    void 예약_DONE뒤_Redis준비가_실패한_DRAFT도_기한뒤_스캔하여_한번만_전액_해제한다() {
+        Instant now = Instant.now();
+        long couponId = budgetCoupon(now, false);
+        AtomicInteger reserves = new AtomicInteger();
+        AtomicInteger releases = new AtomicInteger();
+        PromotionBudget budget = new PromotionBudget() {
+            public BudgetResult reserve(String id, long policyId, int version, long amount) {
+                assertBudgetHttpOutsideTransaction();
+                reserves.incrementAndGet();
+                return new BudgetResult(Outcome.SUCCEEDED, "PB-redis", null);
+            }
+            public BudgetResult release(String id, String reservationId, long amount, String target, String reason) {
+                assertBudgetHttpOutsideTransaction();
+                releases.incrementAndGet();
+                return new BudgetResult(Outcome.SUCCEEDED, reservationId, null);
+            }
+            public BudgetResult status(String id) {
+                assertBudgetHttpOutsideTransaction();
+                return new BudgetResult(Outcome.UNKNOWN, null, null);
+            }
+        };
+        CouponIssueStore failedRedis = mock(CouponIssueStore.class);
+        doThrow(new CouponIssueStoreUnavailableException("Redis 준비 실패", null)).when(failedRedis).prepare(any());
+
+        assertThatThrownBy(() -> budgetOpener(budget, now, failedRedis).open(ADMIN_ID, couponId))
+                .isInstanceOf(CouponIssueStoreUnavailableException.class);
+        Coupon draft = couponRepository.findById(couponId).orElseThrow();
+        assertThat(draft.getStatus()).isEqualTo(CouponStatus.DRAFT);
+        assertThat(budgetWorkRepository.findById(draft.budgetReserveWorkId()).orElseThrow().getStatus())
+                .isEqualTo(BudgetWorkStatus.DONE);
+        Instant afterEnd = draft.getIssueEndAt().plusSeconds(1);
+        budgetWorker(budget, afterEnd).runDue();
+        budgetWorker(budget, afterEnd.plusSeconds(1)).runDue();
+
+        assertThat(reserves).hasValue(1);
+        assertThat(releases).hasValue(1);
+        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
+                .singleElement().satisfies(release -> {
+                    assertThat(release.getWorkId()).isEqualTo("coupon-" + couponId + "-release-unissued-v1");
+                    assertThat(release.getAmount()).isEqualTo(7_500);
+                    assertThat(release.getTarget()).isEqualTo("UNISSUED:5");
+                    assertThat(release.getStatus()).isEqualTo(BudgetWorkStatus.DONE);
+                });
+    }
+
+    private CouponOpenUseCase budgetOpener(PromotionBudget budget, Instant now, CouponIssueStore issueStore) {
+        org.springframework.beans.factory.support.StaticListableBeanFactory beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("budget", budget);
+        return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
+                budgetWorkRepository, budgetWorker(budget, now), issueStore, capacitySupport,
+                beans.getBeanProvider(PromotionBudget.class), redisProperties, budgetTransactionManager,
+                java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+    }
+
+    private static void assertBudgetHttpOutsideTransaction() {
+        assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+    }
+
+    private static void awaitBudgetGate(CountDownLatch gate) {
+        try {
+            if (!gate.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("예산 HTTP 제어 latch 시간 초과");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
 
     @Test
     void 플랫폼_미사용_만료는_상태와_해제_작업을_함께_기록하고_재실행해도_한번이다() {

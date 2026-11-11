@@ -92,6 +92,8 @@ billing 코드·공통 DTO는 billing이 소유한다. 쿠폰은 `CouponBillingI
 
 쿠폰의 예산 workId는 `[A-Za-z0-9_-]{1,100}`이며 `:`를 쓰지 않는다(billing 계약은 최대 200자). 예약은 `coupon-{쿠폰ID}-reserve-v{정책버전}`, 확정 거절 뒤 새 시도는 `-a{번호}`를 붙인다. 해제는 `coupon-{쿠폰ID}-release-unissued-v{정책버전}` 또는 `coupon-{쿠폰ID}-release-member-{발급쿠폰ID}-to-{해제누적HP}`다. 같은 workId에는 예약·해제 대상과 금액·사유가 같은 내용을 다시 보낸다.
 
+관리자 열기와 예산 배치는 모두 `CouponBudgetWorkUseCase.execute(workId)`의 같은 lease·attempt fence를 사용한다. 이미 선점된 PENDING 작업은 HTTP를 중복 호출하지 않는다. 관리자는 실행 뒤 DB의 최신 결과를 읽어 DONE일 때만 열기를 이어 가고, FAILED는 409, PENDING은 503으로 응답한다. 늦은 성공·거절 응답이 다른 attempt의 확정 결과를 덮지 않는다. 예약 성공이 발급 기한 뒤에 확정되면 쿠폰 행 잠금 아래 만료 DRAFT의 무발급 조건을 확인해, 예약 DONE·쿠폰 예약 ID와 미발급 전액 해제 작업을 같은 트랜잭션에 기록한다. 이미 DONE인 만료 DRAFT도 주기적으로 수집하며 CLOSED와 같은 `release-unissued-v{정책버전}` workId·`UNISSUED:{수량}` target을 재사용한다. 확정 예약 ID·DRAFT·`issueEndAt <= now`·`issuedCount = 0`을 모두 확인해야 하며 불명 결과를 실패로 바꾸지 않는다.
+
 ### 예산 HTTP 결과 분류
 
 | HTTP·업무 결과 | 쿠폰 결과·처리 |

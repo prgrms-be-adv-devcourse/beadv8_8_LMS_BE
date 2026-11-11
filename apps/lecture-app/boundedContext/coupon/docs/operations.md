@@ -34,8 +34,9 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 | 재발행 | OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 HSCAN(묶음 `republish.scan-count`)해 접수 뒤 `republish-after`가 지났는데 DB에 없는 요청을 같은 ID로 Kafka에 다시 발행. PUBLISHED 표식이 있어도 DB에 없으면 재발행. COMPENSATED·DLT PENDING·REPLAYING·현재 epoch보다 작은 기록은 보내지 않음. 매 전송 직전에 issue-control의 ready·epoch를 다시 확인(복구 중이면 건너뜀). 한 쿠폰에서 연속 실패가 `republish.max-consecutive-failures`에 이르면 그 쿠폰의 남은 전송을 멈추고 다음 쿠폰으로(쿠폰별 RepublishSummary에 끝난 이유, WARN). DB 미확정 요청이 남은 쿠폰은 `extend-keys.lua`로 key 만료를 지금 + `keys-expire-margin`까지 늦춤(실패는 WARN만) |
 | 사용 가능 쿠폰 만료 | `MemberCouponExpiryBatch`가 `expiry.interval`(10m, `fixedDelay`)마다 expiresAt ≤ now인 SELLER·PLATFORM 쿠폰의 AVAILABLE을 `expires_at, id` 순으로 `expiry.batch-size`(500)씩 골라 조건부 UPDATE(`status = AVAILABLE and expires_at <= :now`)로 EXPIRED로 바꾼다(묶음마다 짧은 트랜잭션, replica 1). PLATFORM은 같은 트랜잭션에서 장당 최대 예산 M의 해제 작업을 등록한다. generation은 그대로이고 두 번 돌아도 같다. 지표 `coupon.expiry.expired`, 회차마다 INFO 요약(0건이어도). 사용 경로도 `expiresAt > now`로 검사한다 |
 | 사용/예약 중 기한 경과 | 예산 배치가 기한 지난 PLATFORM의 USED·EXPIRED를 ID 순서로 조회한다. USED는 PAID 사용 이력의 실제 플랫폼 부담 F를 남겨 M-F까지, EXPIRED는 M까지 해제 작업으로 등록한다. RESERVED는 대상이 아니며 주문 결과 없이 상태나 보류 재원을 바꾸지 않는다 |
-| 예산 작업 재시도 | `CouponBudgetWorkBatch`가 `budget-work.interval`마다 PENDING이면서 lease가 없거나 지난 작업을 `updated_at, work_id` 순으로 `budget-work.batch-size`개 고른다. 짧은 트랜잭션으로 attempt·version을 올리고 `budget-work.lease` 동안 선점한 뒤 트랜잭션 밖에서 결과를 조회한다. 불명·NOT_FOUND면 같은 workId의 원래 명령을 재전송한다. 성공은 DONE, 확정 업무 거절은 FAILED, 불명은 PENDING을 유지한다. 결과 저장은 아직 PENDING이고 같은 attempt일 때만 한다 |
+| 예산 작업 재시도 | `CouponBudgetWorkBatch`가 `budget-work.interval`마다 PENDING이면서 lease가 없거나 지난 작업을 `updated_at, work_id` 순으로 `budget-work.batch-size`개 고른다. 짧은 트랜잭션으로 attempt·version을 올리고 `budget-work.lease` 동안 선점한 뒤 트랜잭션 밖에서 결과를 조회한다. 불명·NOT_FOUND면 같은 workId의 원래 명령을 재전송한다. 성공은 DONE, 확정 업무 거절은 FAILED, 불명은 PENDING을 유지한다. 결과 저장은 아직 PENDING이고 같은 attempt일 때만 한다 관리자 열기도 같은 `execute(workId)` 선점을 사용하며 이미 선점됐으면 추가 HTTP 없이 PENDING으로 남긴다. 최신 작업이 DONE일 때만 열기를 이어 가고 FAILED는 409, PENDING은 503이다 |
 | 발급 종료 | CLOSED라는 상태만으로 예산을 해제하지 않는다. 정상 대사가 수량 일치와 requestsLeft·inProgress·pendingCompensation 모두 0임을 확인한 뒤 `(수량 - issued_count) × M`의 해제 작업을 등록하고 Redis 키·용량을 최종 정리한다. issue-control 유실·고아 용량 정리 경로는 해제를 등록하지 않는다 |
+| 만료된 미개방 쿠폰 예산 | 확정 예산 예약 ID가 있는 PLATFORM DRAFT 중 `issueEndAt <= now`, `issuedCount = 0`을 쿠폰 행 잠금 아래 확인한 뒤 미발급 전액 해제를 등록한다. 예약이 늦게 성공하면 DONE·쿠폰 예약 ID와 해제 작업을 같은 트랜잭션에 저장한다. 이미 DONE이지만 Redis 준비 실패로 DRAFT에 남은 경우도 배치가 ID 순서로 수집한다. CLOSED와 같은 `release-unissued-v{정책버전}` workId·`UNISSUED:{수량}` target으로 중복 등록을 막는다. 한 번도 OPEN되지 않았고 Redis 접수는 OPEN 커밋 뒤에만 허용하므로 무발급 근거가 있으며, 결과 불명 예약이나 Redis가 유실된 CLOSED를 이 조건으로 해제하지 않는다 |
 | 오래된 예약 | 강의 주문/예약 작업·billing 결과를 제공 API로 확인한다. 단순 시간 경과로 해제하지 않음 |
 | 대사 | 발급 수량, 중복 인덱스, 사용 시도, 재원, 작업 적체를 비교. 원인을 모르는 재고를 임의 INCR하지 않음. DB 미확정 요청이 남은 쿠폰은 재발행과 같이 key 만료를 늦춤 |
 | 기록 정리 | 쿠폰이 접수될 수 있는 동안(OPEN·SUSPENDED이고 발급 종료 + 여유 전)은 DB ISSUED 기록만 HDEL. REJECTED 기록은 접수가 끝난 뒤 지운다(지우면 재고 누수). 이전 epoch 기록은 DB 최종 결과가 있으면 보상 표식과 무관하게 정리. 쿠폰의 Redis 기록이 전부 정리되면 용량 예약 해제 |
@@ -56,7 +57,7 @@ DEAD가 될 때 강의가 기다리는 예약 요청은 없다. 작업은 보낼
 
 PLATFORM의 AVAILABLE 만료는 M, USED 만료는 M-F가 목표 누적액이다. 기한 지난 예약 해제나 취소 복원이 EXPIRED로 끝나면 상태 전이와 같은 트랜잭션에서 목표를 M으로 올린다. 이미 M-F를 등록했다면 차액 F만 추가하며, 먼저 등록한 작업이 PENDING이어도 중복 등록하지 않는다. 취소는 잠근 PLATFORM·F > 0 사용 스냅샷과 이벤트의 쿠폰별 복구 결과가 ID·generation·금액으로 1:1 일치한 뒤 처리한다. 누락·추가·중복·불일치는 쿠폰을 복원하지 않고 주문 DLT로 격리한다. SELLER/F = 0에는 복구 결과가 없어야 한다. RESERVED의 단순 기한 경과는 해제 근거가 아니다.
 
-예약·해제 작업이 UNKNOWN이면 같은 workId로 조회·재전송하며 새 ID를 만들거나 완료로 추정하지 않는다. FAILED는 확정 업무 거절이므로 자동 재전송하지 않고 사유와 재원을 확인한다. 예약 거절 뒤 관리자가 다시 여는 경우에만 새 예약 시도 ID를 발급한다. 배치의 예약 성공은 작업·쿠폰의 예산 예약 ID를 기록할 뿐 Redis 접수나 쿠폰 OPEN을 자동으로 진행하지 않는다.
+예약·해제 작업이 UNKNOWN이면 같은 workId로 조회·재전송하며 새 ID를 만들거나 완료로 추정하지 않는다. FAILED는 확정 업무 거절이므로 자동 재전송하지 않고 사유와 재원을 확인한다. 예약 거절 뒤 관리자가 다시 여는 경우에만 새 예약 시도 ID를 발급한다. 관리자와 배치는 동일한 lease·attempt fence로 결과를 저장하며, 배치의 예약 성공은 Redis 접수나 쿠폰 OPEN을 자동으로 진행하지 않는다. 기한 지난 미개방 DRAFT는 확정 예약 결과를 기록한 뒤 같은 트랜잭션에서 해제 작업을 남긴다.
 
 ## 용량과 캐시
 

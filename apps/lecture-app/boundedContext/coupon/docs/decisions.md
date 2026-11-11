@@ -74,7 +74,8 @@
 - PLATFORM의 AVAILABLE 만료는 EXPIRED 전이와 예산 해제 작업을 같은 트랜잭션에 저장한다. USED는 상태를 바꾸지 않고 기한 뒤 M-F를 해제 대상으로 등록한다. RESERVED는 시간만으로 해제하지 않는다. 기한 지난 예약 해제·취소 복원이 EXPIRED로 끝나면 M까지의 차액을 등록한다.
 - `member_coupon.budget_release_planned_hp`에 PENDING까지 포함한 해제 등록 누적액을 남긴다. 현재 generation·상태·누적액의 CAS와 작업 저장을 함께 수행하므로 USED 만료의 M-F 작업이 아직 불명이어도 뒤이은 취소는 차액 F만 등록한다. 완료 응답을 받은 금액만 누적하면 응답 유실 중 같은 금액을 다른 작업으로 다시 해제할 수 있어 등록 시점을 기준으로 삼는다.
 - CLOSED 미발급 예산은 정상 대사가 발급 수량 일치와 requestsLeft·inProgress·pendingCompensation 0을 확인한 뒤에만 `(수량 - issued_count) × M`을 등록한다. 등록을 Redis 키의 최종 정리보다 먼저 커밋한다. issue-control 유실이나 고아 용량 정리만으로 발급 요청의 정리가 증명되지는 않으므로 해당 경로에서 예산을 해제하지 않는다.
-- `budget_work`에 예약 ID·target·attempt·leaseUntil·version을 영속화한다. PENDING 선점은 짧은 DB 트랜잭션에서 attempt·version을 올리고, HTTP는 트랜잭션 밖에서 수행하며, 결과는 같은 attempt에만 반영한다. 작업 ID에는 `:`를 쓰지 않고 해제 target에는 미발급 수량 또는 발급 쿠폰 ID를 남긴다. 주기·lease·묶음 크기는 운영 측정 전 기본값이며 operations.md에 기록한다.
+- 만료된 미개방 PLATFORM DRAFT는 확정 예약 ID·`issueEndAt <= now`·`issuedCount = 0`을 쿠폰 행 잠금 아래 확인해 전액 해제한다. OPEN 이력이 없고 Redis 접수 허용은 OPEN 커밋 뒤이므로 정상 CLOSED의 발급 대사와 다른 무발급 근거가 있다. 예약이 늦게 성공하면 DONE·쿠폰 예약 ID·해제 작업을 같은 트랜잭션에 남기고, 이미 DONE이지만 Redis 준비 실패로 남은 만료 DRAFT도 배치가 수집한다. 기존 `release-unissued-v{정책버전}`·`UNISSUED:{수량}`을 사용하며 불명 예약을 추정 실패로 바꾸지 않는다. 정상 CLOSED의 대사 조건과 Redis 유실 보류는 유지한다.
+- `budget_work`에 예약 ID·target·attempt·leaseUntil·version을 영속화한다. PENDING 선점은 짧은 DB 트랜잭션에서 attempt·version을 올리고, HTTP는 트랜잭션 밖에서 수행하며, 결과는 같은 attempt에만 반영한다. 작업 ID에는 `:`를 쓰지 않고 해제 target에는 미발급 수량 또는 발급 쿠폰 ID를 남긴다. 주기·lease·묶음 크기는 운영 측정 전 기본값이며 operations.md에 기록한다. 관리자 열기도 배치와 같은 `CouponBudgetWorkUseCase.execute(workId)`를 사용해 별도 HTTP·결과 기록 경로를 두지 않는다. 이미 선점된 PENDING은 503으로 두고 최신 DB 작업이 DONE일 때만 열기를 이어 간다. 같은 lease·attempt fence가 늦은 성공·거절의 덮어쓰기를 막는다.
 - 강의 HP 작업은 구매자 금액과 양수 플랫폼 재원을 함께 보류·지급·반환하고, 반환 시 billing이 확인한 쿠폰별 복구 결과를 취소 완료 이벤트에 싣는다. 구매자 금액이 0이어도 플랫폼 재원이 양수면 billing 작업과 조회 기준을 남긴다. 양수 재원 처리를 생략하지 않는 F7과 반환 완료 뒤 쿠폰을 복원하는 원칙은 유지한다.
 
 ## 구현 순서와 담당 경계

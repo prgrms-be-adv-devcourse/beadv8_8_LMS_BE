@@ -53,6 +53,7 @@ public class CouponBudgetWorkUseCase {
 
     public void runDue() {
         registerExpiredRemainders();
+        registerExpiredDrafts();
         PromotionBudget budget = budgetProvider.getIfAvailable();
         if (budget == null) {
             return;
@@ -61,11 +62,40 @@ public class CouponBudgetWorkUseCase {
                 Limit.of(properties.batchSize())));
         for (String id : ids) {
             try {
-                retry(id, budget);
+                execute(id, budget);
             } catch (RuntimeException exception) {
                 // 결과 불명·기록 실패도 같은 작업 ID를 다음 lease 뒤에 다시 확인한다.
                 log.warn("프로모션 예산 작업을 완료하지 못해 다음 회차로 넘긴다 workId={}", id, exception);
             }
+        }
+    }
+
+    /** 발급 열기의 즉시 실행도 배치와 같은 lease·결과 fence를 사용한다. 이미 선점됐으면 아무것도 호출하지 않는다. */
+    public void execute(String id) {
+        PromotionBudget budget = budgetProvider.getIfAvailable();
+        if (budget != null) {
+            execute(id, budget);
+        }
+    }
+
+    private void registerExpiredDrafts() {
+        Instant now = clock.instant();
+        long afterId = 0;
+        while (true) {
+            long cursor = afterId;
+            List<Long> ids = transaction.execute(status -> couponRepository.findExpiredDraftBudgetIds(now,
+                    cursor, Limit.of(properties.batchSize())));
+            for (Long id : ids) {
+                try {
+                    releaseRecorder.recordExpiredDraft(id, now);
+                } catch (RuntimeException exception) {
+                    log.warn("발급하지 못한 플랫폼 쿠폰 예산 해제를 등록하지 못해 다음 회차로 넘긴다 couponId={}", id, exception);
+                }
+            }
+            if (ids.size() < properties.batchSize()) {
+                return;
+            }
+            afterId = ids.getLast();
         }
     }
 
@@ -90,10 +120,15 @@ public class CouponBudgetWorkUseCase {
         }
     }
 
-    private void retry(String id, PromotionBudget budget) {
+    private void execute(String id, PromotionBudget budget) {
         BudgetWork work = transaction.execute(status -> {
             Instant now = clock.instant();
             if (budgetWorkRepository.claim(id, now, now.plus(properties.lease())) == 0) {
+                // 이전 버전에서 DONE만 남기고 쿠폰 기록을 놓친 경우도 확정 결과로 복구한다. HTTP는 다시 부르지 않는다.
+                budgetWorkRepository.findForUpdateById(id)
+                        .filter(current -> current.getKind() == BudgetWorkKind.RESERVE
+                                && current.getStatus() == BudgetWorkStatus.DONE)
+                        .ifPresent(current -> recordReservation(current, current.getResult(), now));
                 return null;
             }
             return budgetWorkRepository.findById(id).orElseThrow();
@@ -126,8 +161,7 @@ public class CouponBudgetWorkUseCase {
                         ? confirmed.reservationId() : work.getReservationId();
                 current.markDone(reservationId, clock.instant());
                 if (work.getKind() == BudgetWorkKind.RESERVE) {
-                    couponRepository.findById(work.getCouponId()).orElseThrow()
-                            .recordBudgetReserved(reservationId, clock.instant());
+                    recordReservation(current, reservationId, clock.instant());
                 }
             } else {
                 current.markFailed(confirmed.reason(), clock.instant());
@@ -135,5 +169,12 @@ public class CouponBudgetWorkUseCase {
                         work.getCouponId(), confirmed.reason());
             }
         });
+    }
+
+    private void recordReservation(BudgetWork work, String reservationId, Instant now) {
+        Coupon coupon = couponRepository.findForBudgetRelease(work.getCouponId()).orElseThrow();
+        coupon.recordBudgetReserved(reservationId, now);
+        // DRAFT는 접수를 연 적이 없다. 예약이 뒤늦게 확정됐어도 발급 기한이 끝났으면 같은 커밋에 전액 해제를 남긴다.
+        releaseRecorder.recordExpiredDraft(coupon.getId(), now);
     }
 }
