@@ -27,6 +27,26 @@ import jakarta.servlet.http.HttpServletResponse;
 public class BillingE2eServerConfiguration {
 
     @Bean
+    RequestObservation billingE2eRequestObservation() {
+        return new RequestObservation();
+    }
+
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE + 1)
+    OncePerRequestFilter billingE2eTraceHeaderFilter(RequestObservation requests) {
+        return new OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                    throws ServletException, IOException {
+                if (request.getRequestURI().startsWith("/api/v1/internal/billing/")) {
+                    requests.record(request.getMethod(), request.getRequestURI(), request.getHeader("traceparent"));
+                }
+                chain.doFilter(request, response);
+            }
+        };
+    }
+
+    @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     SecurityFilterChain billingE2eSecurity(HttpSecurity http, @Value("${hapbang.e2e.key}") String key) throws Exception {
         byte[] expected = key.getBytes(StandardCharsets.UTF_8);
@@ -50,4 +70,25 @@ public class BillingE2eServerConfiguration {
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }
+
+    /** 본문·인증 키를 수집하지 않고 실제 내부 API가 받은 traceparent만 관측한다. */
+    public static final class RequestObservation {
+        private long count;
+        private RequestHeaders last;
+
+        synchronized void record(String method, String path, String traceparent) {
+            last = new RequestHeaders(++count, method, path, traceparent);
+        }
+
+        synchronized RequestHeaders last() {
+            return last;
+        }
+
+        synchronized void clear() {
+            count = 0;
+            last = null;
+        }
+    }
+
+    public record RequestHeaders(long count, String method, String path, String traceparent) { }
 }

@@ -4,6 +4,7 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,10 @@ import com.hapbang.lecture.domain.ProcessingStatus;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
+import com.hapbang.shared.billing.dto.HoldStateDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
@@ -112,6 +116,56 @@ class OrderHoldVoidTest {
         OrderResponse failed = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(failed.status()).isEqualTo(LectureOrderStatus.HOLD_FAILED);
         assertThat(failed.processingStatus()).isNull();
+        assertThat(lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId())).status())
+                .isEqualTo(LectureOrderStatus.PAID);
+    }
+
+    @Test
+    void 지갑에_도달하지_않은_DEAD_보류는_0_HP로_무효화하고_원장을_바꾸지_않으며_다시_살_수_있다() {
+        Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
+        Map<String, Object> before = billing.snapshot(BUYER_ID);
+        billing.disconnect();
+        OrderResponse order;
+        try {
+            order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
+        } finally {
+            billing.reconnect();
+        }
+        assertThat(order.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
+        LectureHpTask hold = task(order.orderId(), LectureHpTaskPurpose.ORDER_HOLD);
+        assertThat(hold.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(hold.getLastErrorCode()).isEqualTo("RETRYABLE");
+        // 실제 연결 거부로 보류가 도달하지 않은 상태에서 자동 재시도 한도를 다 쓴 전제를 만든다.
+        jdbcTemplate.update("update lectures.lecture_hp_task set status = 'DEAD', attempt_count = 10 where id = ?",
+                hold.getId());
+
+        LectureHpTaskResponse voidTask = lectureHpTaskAdminFacade.voidHold(ADMIN_ID, hold.getId());
+        runDueTasks();
+
+        BillingCallResult<List<HoldStateDto>> queried = billing.client().queryHolds(new HoldQueryCommand(
+                BillingReferenceType.LECTURE_ORDER_ITEM, List.of(hold.getOrderItemId())));
+        assertThat(queried).isInstanceOf(BillingCallResult.Succeeded.class);
+        assertThat(((BillingCallResult.Succeeded<List<HoldStateDto>>) queried).value()).singleElement()
+                .satisfies(state -> {
+                    assertThat(state.hold()).isNull();
+                    assertThat(state.voided()).isNotNull().satisfies(voided -> {
+                        assertThat(voided.outcome()).isEqualTo(HoldVoidOutcome.VOIDED);
+                        assertThat(voided.releasedHp()).isZero();
+                    });
+                    assertThat(state.settlements()).isEmpty();
+                });
+        assertThat(lectureHpTaskRepository.findById(voidTask.id())).hasValueSatisfying(completed -> {
+            assertThat(completed.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+            assertThat(completed.getOutcome()).isEqualTo(LectureHpTaskOutcome.SUCCEEDED);
+        });
+        OrderResponse failed = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
+        assertThat(failed.status()).isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(failed.processingStatus()).isNull();
+        assertThat(billing.snapshot(BUYER_ID))
+                .containsEntry("wallet", before.get("wallet"))
+                .containsEntry("ledgers", before.get("ledgers"))
+                .containsEntry("charges", before.get("charges"))
+                .containsEntry("chargePrincipalHp", before.get("chargePrincipalHp"));
         assertThat(lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId())).status())
                 .isEqualTo(LectureOrderStatus.PAID);
     }

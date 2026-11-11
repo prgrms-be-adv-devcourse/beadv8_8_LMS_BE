@@ -32,5 +32,7 @@ tasks.withType<Test>().configureEach {
     dependsOn(":billing-app:e2eServerJar")
     systemProperty("hapbang.billing.e2e.enabled", "true")
     systemProperty("hapbang.billing.e2e.jar", rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar").absolutePath)
+    inputs.file(rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar"))
+        .withPropertyName("billingE2eServerJar")
     systemProperty("sun.net.http.retryPost", "false")
 }

@@ -3,6 +3,7 @@ package com.hapbang.billing.e2e;
 import java.util.Map;
 
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,14 +24,17 @@ import jakarta.validation.constraints.PositiveOrZero;
 public class BillingE2eController {
 
     private final BillingE2eFixtures fixtures;
+    private final BillingE2eServerConfiguration.RequestObservation requests;
 
-    public BillingE2eController(BillingE2eFixtures fixtures) {
+    public BillingE2eController(BillingE2eFixtures fixtures, BillingE2eServerConfiguration.RequestObservation requests) {
         this.fixtures = fixtures;
+        this.requests = requests;
     }
 
     @PostMapping("/reset")
     public Map<String, Boolean> reset() {
         fixtures.reset();
+        requests.clear();
         return Map.of("reset", true);
     }
 
@@ -47,6 +51,11 @@ public class BillingE2eController {
     @GetMapping("/snapshot")
     public BillingE2eFixtures.Snapshot snapshot(@RequestParam("userId") long userId) {
         return fixtures.snapshot(userId);
+    }
+
+    @GetMapping("/requests/last")
+    public ResponseEntity<BillingE2eServerConfiguration.RequestHeaders> lastRequest() {
+        return ResponseEntity.ofNullable(requests.last());
     }
 
     public record WalletSeed(@NotNull @Positive Long userId, @PositiveOrZero long chargeHp,

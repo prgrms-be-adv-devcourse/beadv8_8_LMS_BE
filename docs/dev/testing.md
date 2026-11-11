@@ -21,7 +21,7 @@
 
 강의 앱의 Spring 통합 테스트는 `RealBillingTestFixture`로 실제 billing 서버에 연결한다. `:lecture-app:test`가 먼저 `:billing-app:e2eServerJar`를 만들고, 공통 하네스가 테스트 JVM당 billing 프로세스와 전용 PostgreSQL 컨테이너(database `billing_e2e`)를 한 번 시작한다. 강의 DB와 billing DB는 분리하며, 강의 테스트 클래스패스에 billing 앱·엔티티·Repository를 추가하지 않는다. HTTP Client 자체의 응답 해석 단위 테스트와는 검증 범위가 다르다.
 
-- 실행은 `./gradlew :lecture-app:test`로 한다. 다른 앱의 테스트를 직접 실행할 때 실제 billing이 필요한 경우에는 해당 Gradle 테스트 태스크에도 E2E Jar 의존과 하네스 활성화가 필요하다.
+- 실행은 `./gradlew :lecture-app:test :coupon:test`로 한다. 두 프로젝트의 테스트는 billing E2E Jar를 빌드 의존과 파일 입력으로 등록하므로 서버 코드·설정이 바뀌면 다시 실행한다. 다른 앱에도 실제 billing을 연결할 때는 같은 연결이 필요하다. PR CI는 billing 변경 시 실제 소비자인 lecture-app 검사도 포함한다.
 - 서버는 `apps/billing-app/src/e2eServer`만 fixture로 더한 실제 `BillingApplication`이다. 일반 billing 테스트 클래스는 포함하지 않고, 운영 `app.jar`에는 fixture를 포함하지 않는다. 독립 `billing-e2e.yml`·`e2e` 프로필로 실행해 로컬 `.env`·운영 앱 설정을 읽지 않는다. Flyway 마이그레이션과 JPA 검증은 실제 DB에 적용한다.
 - 하네스가 임시 DB 자격·내부 API 키를 전달하고 서버는 loopback 임의 포트에 바인딩한다. 서버가 준비되면 `hapbang.e2e.ready-file`에 `{port, baseUrl, pid}` JSON을 원자적으로 쓴다. 기동 로그는 임시 디렉터리의 `billing.log`에 남는다. Jar 누락·컨테이너 실패·서버 종료·준비 시간 초과는 테스트 실패다. Fake 대체나 자동 건너뛰기를 하지 않는다.
 - 지갑 조회·관리자 프로모션 충전/조회·예산 예약/해제·HP 보류/반환/지급/보류 취소/조회는 실제 운영 Controller와 내부 HTTP Client를 지난다. billing의 Kafka 소비·외부화·배치는 이 하네스에서 끈다. 따라서 이 테스트의 성공은 billing 이벤트의 Kafka 전달이나 Toss 결제 승인을 검증했다는 뜻이 아니다.
