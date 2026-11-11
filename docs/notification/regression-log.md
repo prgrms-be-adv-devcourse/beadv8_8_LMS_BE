@@ -86,6 +86,94 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-047 · 2026-11-11 · 통과 (N6 #862 S6 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-047 |
+| 실행 날짜 | 2026-11-11 16:32~16:42 (KST). red(16:28)·대상 시험 green(16:31)은 그 전 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree) |
+| 커밋 | `6a11400d` + 작업 트리 |
+| 작업 트리 변경 | NR-046에 더해: `ObjectionLegacyFormat`이 JSON 객체가 아닌 본문을 판별 불가로 봄, 검증 실패 → DLT 변환을 초안 만드는 단계로 좁힘(출연·강의 리스너, `NotificationAlertService.cancelRequested(event, checked)`), #818 이전 형식 로그를 종류마다 1·2·4…번째만 INFO. 시험: 객체가 아닌 본문(단위·통합), 파기된 게스트 닉네임 |
+| 대상 기능 | S6 리뷰 반영 |
+| 관련 NT ID | NT-GEN-17(파기 닉네임 경계), NT-KAF-08 |
+| 명령 | red: `./gradlew :notification:test --tests '*ObjectionLegacyFormatTest' --tests '*NotificationCancelRequestAndObjectionAlertTest'`(객체가 아닌 본문 2건 실패: LEGACY로 판정, DLT 없음. 파기 닉네임은 기존 동작이라 처음부터 통과). green: 같은 명령 21건 통과. 회귀: `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | 새로 실행: `:notification` 210, `:auxiliary-app` 13. 실패 0·건너뜀 0. `:chatbot` 188·`:search` 159·`:auxiliary-global` 108은 UP-TO-DATE(새 실행 아님, NR-045 결과) |
+| 실패 원인 분류 | 실패 없음(red는 의도한 실패) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-046과 같다(파기 닉네임은 이번에 시험함) |
+| 관련 변경 | #862 |
+
+#### NR-046 · 2026-11-11 · 통과 (N6 #862 B단계: 소비 연결)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-046 |
+| 실행 날짜 | 2026-11-11 16:05~16:14 (KST). red(15:53)·대상 시험 green(16:02)은 그 전 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree) |
+| 커밋 | `6a11400d` + 작업 트리 |
+| 작업 트리 변경 | 출연 리스너 처리기 3개, `NotificationLectureEventListener`(새), Kafka 설정·오류 처리·DLT 토픽·상수(강의), `NotificationAlertListenerStarter`, `NotificationAlertService.cancelRequested`, `NotificationTemplates` N6 등록. 시험 `NotificationCancelRequestAndObjectionAlertTest`(새), `NotificationAlertListenerStarterTest`, `AlertEventKafka.sendRaw` |
+| 대상 기능 | N6 7종 소비·저장, #818 이전 형식 판별 연결(ND-086·ND-096), 리스너 재사용(ND-087) |
+| 관련 NT ID | NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06 |
+| 명령 | red·green: `./gradlew :notification:test --tests '*NotificationCancelRequestAndObjectionAlertTest' --tests '*NotificationAlertListenerStarterTest'`(red 13건 실패: 강의 리스너 컨테이너 없음. green 13건 통과). 회귀: `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | 새로 실행: `:notification` 207, `:auxiliary-app` 13. 실패 0·건너뜀 0. `:chatbot` 188·`:search` 159·`:auxiliary-global` 108은 UP-TO-DATE(새 실행 아님, NR-045 결과) |
+| 실패 원인 분류 | 실패 없음(red는 의도한 실패) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 지표 `hapbang.notification.alert.legacy.skipped` 값, 운영 Kafka의 새 그룹·DLT 생성(배포 뒤 확인), 취소 요청 도착에서 받을 수 없는 호스트·게스트 복제본 없음 경로(N5와 같은 코드 모양, 전용 시험 없음) |
+| 관련 변경 | #862 |
+
+#### NR-045 · 2026-11-11 · 통과 (N6 #862 origin/dev(N5 #859) 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-045 |
+| 실행 날짜 | 2026-11-11 15:33~15:41 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree, origin/dev `6a11400d`로 fast-forward) |
+| 커밋 | `6a11400d` + 작업 트리 |
+| 작업 트리 변경 | NR-044의 새 파일과 같다. 문서는 N5 변경과 합쳤다(ND·NR 번호 정리, N5 완료 상태) |
+| 대상 기능 | N6 A단계 코드가 N5 코드 위에서 그대로 컴파일·통과하는지 |
+| 관련 NT ID | NR-044와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | 새로 실행: `:notification` 195, `:chatbot` 188, `:search` 159, `:auxiliary-app` 13. 모두 실패 0·건너뜀 0. `:auxiliary-global` 108은 UP-TO-DATE(새 실행 아님, 이전 결과) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-044와 같다(소비 연결은 B단계) |
+| 관련 변경 | #862 |
+
+#### NR-044 · 2026-11-11 · 통과 (N6 #862 A단계: 변환·문구·이전 형식 판별)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-044 (작성 때는 NR-038이었다. N5 #859가 NR-036~NR-043을 써서 병합 때 다시 매겼다) |
+| 실행 날짜 | 2026-11-11 13:31~13:39 (KST). red 확인과 대상 시험 green은 그 전(13:24~13:31) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree, origin/dev `e9a37bbd` 기준) |
+| 커밋 | `e9a37bbd` + 작업 트리 |
+| 작업 트리 변경 | 새 파일: `app/AppearanceCancelRequestAlerts`·`AppearanceCancelRequestTemplates`·`LectureObjectionAlerts`·`LectureObjectionTemplates`, `in/event/kafka/ObjectionLegacyFormat`과 시험 3개(`AppearanceCancelRequestAlertsTest`·`LectureObjectionAlertsTest`·`ObjectionLegacyFormatTest`). 문서(ND-082~ND-087 반영) |
+| 대상 기능 | N6 변환(받는 사람·원본 대상 ID·이동 대상·발생 시각·필수 값 검증), 문구 0.6, #818 이전 형식 판별. 리스너 연결 전 |
+| 관련 NT ID | NT-GEN-17·18(변환·문구 부분), NT-IDEM-06(원본 대상 ID 부분), NT-KAF-08(판별 부분, (4) 출연 필수 값) |
+| 명령 | red: `./gradlew :notification:test --tests '*AppearanceCancelRequestAlertsTest' --tests '*LectureObjectionAlertsTest' --tests '*ObjectionLegacyFormatTest'`(빈 껍데기에서 17건 모두 실패, 기능 없음·예외 타입 다름). green: 같은 명령 17건 통과. 회귀: `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(회귀 명령 종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | `:notification` 140, `:chatbot` 135, `:search` 160, `:auxiliary-global` 108, `:auxiliary-app` 12. 모두 실패 0·건너뜀 0(이 worktree의 첫 실행이라 모두 새로 실행) |
+| 실패 원인 분류 | 실패 없음(red는 의도한 실패) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | Kafka 소비·DLT·알림 저장·실시간 전달(NT-GEN-17·18 통합, NT-KAF-08 (1)~(3)의 커밋·DLT 동작, NT-KAF-09, NT-IDEM-06 저장 중복), 게스트 닉네임을 복제본에서 읽는 부분. 모두 N5 병합 뒤 B단계 |
+| 관련 변경 | #862 |
+
 #### NR-043 · 2026-11-11 · 통과 (#859 PR CI 실패 원인 수정)
 
 | 항목 | 값 |
