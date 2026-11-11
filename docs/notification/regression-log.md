@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-042 · 2026-11-11 · 통과 (#859 ND-095 알림 시작 시각 첫 기동 기록, 두 번째 실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-042 |
+| 실행 날짜 | 2026-11-11 14:49~14:51(1차, 실패), 14:51~14:54(2차, 통과) (KST, 끝 시각은 실행 로그 파일 기준) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `01fbac8b` + 작업 트리 |
+| 작업 트리 변경 | Flyway `V202611111530__create_notification_runtime_setting.sql`, 새 `AlertStartStore`·`JdbcAlertStartStore`, `AlertStartPolicy`(설정 우선, 없으면 빈 초기화 때 DB 기록), `application-prod.yaml`(임시 값 제거). 시험: `AlertStartPolicyConfigTest`(4), 새 `JdbcAlertStartStoreTest`(2), `AlertStartPolicyTest`, `NotificationModuleIntegrationTest`(테이블 목록), `AuxiliaryApplicationTest`(설정 없이 기동·기록 행). 문서 |
+| 대상 기능 | ND-095(U20 해소) |
+| 관련 NT ID | NT-KAF-04 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 1차 실패(Gradle 종료 코드 1), 2차 통과(종료 코드 0, 2분 41초) |
+| 건수 | 2차: `:notification` 178, `:auxiliary-app` 13(첫 기동 기록 시험 포함), 실패 0(새로 실행). `:auxiliary-global`·`:chatbot`·`:search` test는 `UP-TO-DATE` |
+| 실패 원인 분류 | 1차: `NotificationModuleIntegrationTest#테이블은 처음 쓰는 작업에서 만든다`가 notification schema 테이블 목록을 둘(`notification`, `notification_user`)로 단정해, ND-095로 생긴 `notification_runtime_setting` 때문에 실패(결정이 바꾼 기대값, 시험 갱신 누락) |
+| 수정 내용 | 그 시험의 기대값에 `notification_runtime_setting`을 더하고 이름을 N5 기준으로 고쳤다 |
+| 재실행 결과 | 위 명령 2차 통과 |
+| 미검증 항목 | 운영 첫 배포에서 실제로 행이 생기는지(E2E). 여러 pod 동시 첫 기동은 같은 DB에 8개 스레드로 흉내 냈다. NR-040의 미검증 항목은 그대로 |
+| 관련 변경 | #859 |
+
 #### NR-041 · 2026-11-11 · 통과 (#859 PR 리뷰 반영 뒤 origin/dev 병합)
 
 | 항목 | 값 |

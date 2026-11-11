@@ -58,8 +58,6 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.notification.appearance-events.enabled=false",
                 "hapbang.notification.billing-events.enabled=false",
                 "hapbang.notification.user-backfill.on-startup=false",
-                // 알림 시작 시각(ND-076)은 기본값이 없는 필수 설정이다. 운영은 application-prod.yaml
-                "hapbang.notification.alert.start-at=2000-01-01T00:00:00Z",
                 // 챗봇 사본 이벤트 소비(출연·회원·강의, #716·#717)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
                 "hapbang.chatbot.copy-events.enabled=false",
                 // 검색 회원 이벤트 소비(#771)도 끈다. 소비는 검색 모듈 Kafka 테스트가 본다
@@ -135,6 +133,14 @@ class AuxiliaryApplicationTest {
                 "select table_name from information_schema.tables "
                         + "where table_schema = 'notification' and table_name = 'notification_user'",
                 String.class)).containsExactly("notification_user");
+    }
+
+    @Test
+    @DisplayName("운영처럼 알림 시작 시각 설정 없이 뜨면 처음 뜬 시각을 notification_runtime_setting에 한 번 기록한다(ND-095)")
+    void alertStartRecordedOnFirstStartup() {
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from notification.notification_runtime_setting where setting_key = 'alert.start-at'",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test

@@ -27,6 +27,5 @@ class AlertStartPolicyTest {
     @Test
     void 시작_시각이_없으면_만들_수_없다() {
         assertThatThrownBy(() -> new AlertStartPolicy((Instant) null)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AlertStartPolicy((String) null)).isInstanceOf(IllegalArgumentException.class);
     }
 }
