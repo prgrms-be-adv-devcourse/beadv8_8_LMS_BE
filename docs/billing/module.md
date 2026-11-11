@@ -183,7 +183,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 지갑 생성·탈퇴 닫기·다시 열기·파기 | 회원 락(`WalletUserLock`, `pg_advisory_xact_lock(int, int)`, 배치 실행 락과 키 공간 분리) → 지갑. 지갑이 아직 없는 회원의 닫기와 지갑 생성을 직렬화한다 |
 | 프로모션 지갑 충전·회수·예산 예약 | 프로모션 지갑만 (#841, `BD-155`) |
 | 쿠폰 예산 해제 | 프로모션 지갑 → 예약 행(`findByIdForUpdate`) |
-| 예산 예약 행이 걸린 흐름 공통 | 관련 지갑 전부(구매자·프로모션·판매자 지갑)를 지갑 ID 오름차순(`lockWallets`)으로 먼저 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다. 주문 항목 보류·지급·반환·무효화(#842)도 이 규칙을 따른다. 지갑 유형별 고정 순서(구매자 → 프로모션)는 쓰지 않는다: 판매자 지급(프로모션 → 판매자)과 그 판매자의 구매 보류(판매자 → 프로모션)가 겹치면 교착이 생긴다 (`BD-155`) |
+| 예산 예약 행이 걸린 흐름 공통 | 관련 지갑 전부(구매자·프로모션·판매자 지갑)를 지갑 ID 오름차순(`lockWallets`)으로 먼저 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다. 주문 항목 보류·지급·반환·무효화(#842)도 이 규칙을 따른다. `HoldWalletLocking`은 기존 비프로모션 보류에는 회원 지갑만 잠그며, 아직 안 보이는 보류에는 생성 중인 프로모션까지 고려해 락 집합을 미리 정한다(구성은 불변, 상태는 락 뒤 재확인). 지갑 유형별 고정 순서(구매자 → 프로모션)는 쓰지 않는다: 판매자 지급(프로모션 → 판매자)과 그 판매자의 구매 보류(판매자 → 프로모션)가 겹치면 교착이 생긴다 (`BD-155`) |
 | 모듈 간 | 없다. database가 나뉘어 한 트랜잭션 안에 다른 모듈 락이 없다(`BD-72` 폐기 → `BD-142`) |
 
 `lock_timeout`은 3초다(연결마다 `SET lock_timeout = '3s'`, `billing.yml`, `BD-108`).
@@ -369,7 +369,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | (`ck_wallet_closed`를 "탈퇴 작업 ID가 있으면 닫은 시각도 있다"로, `idx_wallet_2`를 `closed_at` 기준으로) | `V202611041200` (#674, `BD-145`) |
 | `wallet_reconciliation_run` (잔액 대사 실행 기록, `idx_wallet_reconciliation_run_1 (started_at)`), `wallet_reconciliation_run_wallet` (문제 지갑, FK `run_id`, UNIQUE `(run_id, wallet_id)`, `ck_wallet_reconciliation_run_wallet_result`) | `V202611101530` (#822, `BD-146`) |
 | `promotion_funding`, `promotion_withdrawal`, `budget_reservation`, `budget_release`, (`wallet.promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`, 프로모션 지갑 행, `uk_wallet_promotion`, 지갑 유형·원장 HP 종류·칸·거래 유형·참조 유형 CHECK 확장, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`) | `V202611101700` (#841, `BD-147`·`BD-148`) |
-| `promotion_hold`, (`restoration_request_id`, `settlement.buyer_paid_hp`·`promotion_paid_hp`, `hold_void.promotion_restored_hp`, 프로모션 원장 유형·복구·재원 합 CHECK) | `V202611101800` (#842, `BD-157`~`BD-161`). 기존 지급 행은 구매자 몫 = 총액·플랫폼 몫 0으로 채움 |
+| `promotion_hold`, (`restoration_request_id`, `settlement.buyer_paid_hp`·`promotion_paid_hp`, `hold_void.promotion_restored_hp`, 프로모션 원장 유형·복구·재원 합 CHECK) | `V202611101800` (#842, `BD-157`~`BD-161`). 기존 지급 행은 구매자 몫 = 총액·플랫폼 몫 0으로 채움. 이전 앱 INSERT 호환 트리거는 writer 전환·구버전 rollback 종료 확인 뒤 다음 신규 Flyway에서 제거(BD-159). backfill의 테이블 락 지속 시간은 배포 전 복제본에서 확인 |
 | `event_publication`, `event_publication_archive` (Modulith 발행 기록) | #471(`V202610301400`)에서 지웠다가 #497에서 다시 쓴다. Flyway가 아니라 Modulith 스키마 초기화가 만든다(엔티티 아님). `V202610301400`의 첫 줄 주석("지갑은 Spring Event를 발행하지도 받지도 않는다")은 #471 당시 기준이다. 적용된 Flyway는 주석도 체크섬에 들어가므로 고치지 않는다(#564, `BD-130`) |
 
 - 나머지 마이그레이션(`V202610131930`~`V202610162100`)은 기존 테이블의 제약·컬럼 변경이다.

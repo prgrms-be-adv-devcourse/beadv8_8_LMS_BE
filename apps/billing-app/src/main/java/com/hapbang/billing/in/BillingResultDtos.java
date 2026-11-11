@@ -21,6 +21,7 @@ import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 
@@ -79,7 +80,8 @@ final class BillingResultDtos {
                         BillingSettlementStatus.valueOf(settlement.status().name()), settlement.buyerPaidHp(),
                         settlement.promotionPaidHp())).toList(),
                 state.promotions().stream().map(p -> new HoldStateDto.Promotion(p.couponId(), p.memberCouponId(),
-                        p.generation(), p.reservationId(), p.amountHp(), p.status())).toList(),
+                        p.generation(), PromotionBudgetRequests.reservationId(p.reservationId()), p.amountHp(),
+                        p.status())).toList(),
                 state.promotion() == null ? null : new HoldStateDto.PromotionAmount(state.promotion().held(),
                         state.promotion().paid(), state.promotion().restored()));
     }

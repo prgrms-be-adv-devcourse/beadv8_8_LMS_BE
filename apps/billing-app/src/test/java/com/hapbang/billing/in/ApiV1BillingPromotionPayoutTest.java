@@ -35,6 +35,9 @@ import com.hapbang.billing.app.BudgetReserveCommand;
 import com.hapbang.billing.app.HoldCreateUseCase;
 import com.hapbang.billing.app.HoldPayoutUseCase;
 import com.hapbang.billing.app.HoldReleaseUseCase;
+import com.hapbang.billing.app.HoldVoidUseCase;
+import com.hapbang.billing.app.HoldVoidResult;
+import com.hapbang.billing.app.PaymentHoldVoidCommand;
 import com.hapbang.billing.app.PaymentPayoutCommand;
 import com.hapbang.billing.app.PaymentReleaseCommand;
 import com.hapbang.billing.app.PayoutResult;
@@ -79,6 +82,7 @@ class ApiV1BillingPromotionPayoutTest {
     @Autowired HoldCreateUseCase holdCreateUseCase;
     @Autowired HoldPayoutUseCase holdPayoutUseCase;
     @Autowired HoldReleaseUseCase holdReleaseUseCase;
+    @Autowired HoldVoidUseCase holdVoidUseCase;
     @Autowired WalletReconciliationUseCase walletReconciliationUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired PlatformTransactionManager transactionManager;
@@ -272,6 +276,63 @@ class ApiV1BillingPromotionPayoutTest {
                 .isEqualTo(paid ? 2_000L : 10_000L);
         assertThat(reservation()).containsEntry("held_hp", 0L).containsEntry("paid_hp", paid ? 1_000L : 0L)
                 .containsEntry("remaining_hp", paid ? 4_000L : 5_000L);
+        assertBalanced(buyerWalletId, sellerWalletId);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"payout", "release", "void"})
+    @DisplayName("기존 비프로모션 강의 보류의 지급·반환·무효화는 프로모션 지갑 락에 막히지 않는다")
+    void legacyProcessingDoesNotWaitForPromotionWallet(String operation) throws Exception {
+        Long buyerWalletId = member(BUYER, 10_000L);
+        Long sellerWalletId = member(SELLER, 0L);
+        holdCreateUseCase.hold(new PaymentHoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 8_000L));
+        Long promotionWalletId = walletRepository.findByWalletType(WalletType.PROMOTION).orElseThrow().getId();
+        CountDownLatch promotionLocked = new CountDownLatch(1);
+        CountDownLatch releasePromotion = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> locking = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        jdbcTemplate.queryForObject("SELECT id FROM billing.wallet WHERE id = ? FOR UPDATE",
+                                Long.class, promotionWalletId);
+                        promotionLocked.countDown();
+                        await(releasePromotion);
+                    }));
+            assertThat(promotionLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<Object> processing = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .execute(status -> {
+                        // 잘못 전역 지갑을 잠그면 테스트 자체의 대기 시간보다 먼저 DB 락 오류로 드러난다.
+                        jdbcTemplate.execute("SET LOCAL lock_timeout = '500ms'");
+                        return switch (operation) {
+                            case "payout" -> holdPayoutUseCase.payout(PaymentPayoutCommand.full(BUYER,
+                                    BillingReferenceType.LECTURE_ORDER_ITEM, 31L, "pay-31", SELLER,
+                                    SettlementSourceType.LECTURE_ORDER_ITEM, 31L));
+                            case "release" -> holdReleaseUseCase.release(PaymentReleaseCommand.full(BUYER,
+                                    BillingReferenceType.LECTURE_ORDER_ITEM, 31L, "release-31"));
+                            case "void" -> holdVoidUseCase.voidHold(new PaymentHoldVoidCommand(BUYER,
+                                    BillingReferenceType.LECTURE_ORDER_ITEM, 31L));
+                            default -> throw new AssertionError(operation);
+                        };
+                    }));
+
+            Object result = processing.get(10, TimeUnit.SECONDS);
+            assertThat(locking.isDone()).isFalse();
+            switch (operation) {
+                case "payout" -> assertThat(((PayoutResult) result).paidHp()).isEqualTo(8_000L);
+                case "release" -> assertThat(((ReleaseResult) result).releasedHp()).isEqualTo(8_000L);
+                case "void" -> assertThat(((HoldVoidResult) result).releasedHp()).isEqualTo(8_000L);
+                default -> throw new AssertionError(operation);
+            }
+            releasePromotion.countDown();
+            locking.get(30, TimeUnit.SECONDS);
+        } finally {
+            releasePromotion.countDown();
+            executor.shutdownNow();
+        }
+        assertThat(walletRepository.findById(buyerWalletId).orElseThrow().getRevenueBalanceHp())
+                .isEqualTo(operation.equals("payout") ? 2_000L : 10_000L);
+        assertThat(walletRepository.findById(sellerWalletId).orElseThrow().getRevenueBalanceHp())
+                .isEqualTo(operation.equals("payout") ? 8_000L : 0L);
         assertBalanced(buyerWalletId, sellerWalletId);
     }
 

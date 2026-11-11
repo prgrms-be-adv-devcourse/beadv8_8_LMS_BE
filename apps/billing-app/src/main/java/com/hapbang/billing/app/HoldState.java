@@ -31,7 +31,7 @@ public record HoldState(
         this(referenceType, referenceId, hold, voided, settlements, List.of(), null);
     }
 
-    public record Promotion(Long couponId, Long memberCouponId, long generation, String reservationId,
+    public record Promotion(Long couponId, Long memberCouponId, long generation, Long reservationId,
             long amountHp, String status) {
     }
 

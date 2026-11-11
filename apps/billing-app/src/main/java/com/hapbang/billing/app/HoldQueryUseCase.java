@@ -132,7 +132,7 @@ public class HoldQueryUseCase {
                     hold == null ? List.of() : settlements.getOrDefault(hold.getId(), List.of()).stream()
                             .map(HoldQueryUseCase::settlement).toList(),
                     funding.stream().map(p -> new HoldState.Promotion(p.getCouponId(), p.getMemberCouponId(),
-                            p.getGeneration(), "PB-" + p.getBudgetReservationId(), p.getAmountHp(), p.getStatus().name()))
+                            p.getGeneration(), p.getBudgetReservationId(), p.getAmountHp(), p.getStatus().name()))
                             .toList(), funding.isEmpty() ? null : new HoldState.PromotionAmount(
                                     sum(funding, PromotionHoldStatus.HELD), sum(funding, PromotionHoldStatus.PAID),
                                     sum(funding, PromotionHoldStatus.RESTORED))));

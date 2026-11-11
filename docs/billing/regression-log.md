@@ -88,6 +88,7 @@
 
 | ID | 날짜 | 커밋 | 명령 | 단계 | 결과 | 실패 원인 분류 | 기록 목적 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| R-014 | 2026-11-11 | d60d9410 + PR #856 리뷰 반영 작업 트리 | 관련 8개 클래스(아래) | C·U·I | 통과, 216건 | 실패 없음 | #842 PR 리뷰 반영 |
 | R-013 | 2026-11-11 | f9a812bf | 전체 완료 명령(아래) | C·U·S·I | 통과, billing 1,513건(전체 4,652건) | 실패 없음 | #842 최종 회귀 |
 | R-012 | 2026-11-11 | f9a812bf와 같은 소스 + 조기404 임시 재현 | 지급 생성경합 테스트만 | I | 의도한 2건 실패, 소스 복원 | F-CODE(결함 재현) | 새 테스트 감지력 확인 |
 | R-011 | 2026-11-11 | 9bc029df + #842 작업 트리 | 첫 전체 완료 명령(아래) | C·U·S·I | 실패 | F-TEST | Enum CHECK 업무 규칙 분류 보완 |
@@ -108,6 +109,14 @@
 ### 3.2 직접 실행한 기록 (R)
 
 _새 기록은 3.4 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙이고, 3.1 요약 표에도 한 줄 더한다._
+
+#### R-014 · 2026-11-11 · PR #856 리뷰 반영 · 통과
+
+- **소스:** d60d9410 뒤 리뷰 반영 변경. `HoldWalletLocking` 추가, 지급·반환·무효화 락 계획, 조회 내부 예약 ID/응답 변환, 오류 주석, 기존 테스트 두 클래스 및 관련 문서.
+- **명령:** `./gradlew :billing-app:test --tests '*ApiV1BillingPromotionPayoutTest' --tests '*ApiV1BillingPromotionReleaseTest' --tests '*HoldPayoutIntegrationTest' --tests '*HoldReleaseIntegrationTest' --tests '*HoldVoidIntegrationTest' --tests '*HoldQueryApiTest' --tests '*ApiV1BillingPromotionBudgetInternalControllerTest' --tests '*BillingFailureCodeContractTest'`
+- **결과:** XML 기준 216건, 실패·오류·건너뜀 0, 24초. 로컬 PostgreSQL Testcontainers, 운영 요청 없음.
+- **검증:** 프로모션 지갑이 실제 다른 트랜잭션에 잠겨 있어도 기존 비프로모션 지급·반환·무효화가 그 락 해제 전에 끝나는 3건 추가. 미커밋 생성 중 지급 대기 2건, 이전 지급·반환·무효화, 예산 API와 보류 조회의 예약 ID 일치도 재검증했다.
+- **리뷰 결정:** 전역 지갑의 불필요한 직렬화 제거, 기존 공용 ID helper로 in 계층에서만 포맷, 오류 주석 정정. 호환 트리거는 기존 writer 전환 및 구버전 rollback 종료 확인 후 다음 신규 Flyway에서 제거하도록 BD-159/PROGRESS에 시점과 선행 조건을 남겼다. 운영 backfill 소요 시간은 측정하지 않았다.
 
 #### R-008~R-013 · 2026-11-11 · #842 인수·완료 검증
 

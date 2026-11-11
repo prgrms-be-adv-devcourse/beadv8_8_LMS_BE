@@ -2,7 +2,6 @@ package com.hapbang.billing.app;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
@@ -31,15 +30,11 @@ class PromotionReleaseProcessing {
     private final LedgerRecordUseCase ledgerRecordUseCase;
     private final HoldProcessing holdProcessing;
     private final EntityManager entityManager;
+    private final HoldWalletLocking holdWalletLocking;
 
-    // 강의 보류가 생성 중일 수도 있으므로 아직 프로모션 행이 안 보여도 두 지갑을 처음부터 ID순으로 잠근다.
-    Wallet lockWallets(Long buyerWalletId, BillingReferenceType referenceType) {
-        if (referenceType != BillingReferenceType.LECTURE_ORDER_ITEM) {
-            return ledgerRecordUseCase.lockWallet(buyerWalletId);
-        }
-        Long promotionWalletId = PromotionWalletQueryUseCase.promotionWallet(walletRepository).getId();
-        Map<Long, Wallet> wallets = ledgerRecordUseCase.lockWallets(List.of(buyerWalletId, promotionWalletId));
-        return wallets.get(buyerWalletId);
+    // 지갑 집합은 보류의 불변 재원 구성으로 먼저 정하고, 보류 상태는 지갑 락 뒤에 다시 읽는다.
+    Wallet lockWallets(Long buyerWalletId, BillingReferenceType referenceType, Long referenceId) {
+        return holdWalletLocking.lockWallets(List.of(buyerWalletId), referenceType, referenceId).get(buyerWalletId);
     }
 
     List<PromotionHold> promotions(PointHold hold) {

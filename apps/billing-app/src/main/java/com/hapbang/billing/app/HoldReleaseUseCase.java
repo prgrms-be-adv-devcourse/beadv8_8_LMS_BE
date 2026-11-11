@@ -63,7 +63,7 @@ public class HoldReleaseUseCase {
         Long walletId = holdProcessing.walletIdOf(userId);
         // 보류·배분·충전 원금은 소유 지갑의 락 아래에서만 바뀌므로, 이 락으로 같은 지갑의 보류·반환·지급이 직렬화된다.
         // lockWallet이 먼저 flush하므로 이후 refresh가 같은 트랜잭션의 미반영 변경을 지우지 않는다.
-        Wallet wallet = promotionReleaseProcessing.lockWallets(walletId, referenceType);
+        Wallet wallet = promotionReleaseProcessing.lockWallets(walletId, referenceType, referenceId);
         PointHold hold = holdProcessing.lockHold(BillingKeys.hold(referenceType, referenceId), walletId);
 
         List<PromotionHold> promotions = promotionReleaseProcessing.promotions(hold);

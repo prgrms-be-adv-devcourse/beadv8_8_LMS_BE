@@ -25,11 +25,10 @@ import com.hapbang.billing.domain.BudgetReservation;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.PromotionHold;
 import com.hapbang.billing.domain.PromotionHoldStatus;
+import com.hapbang.billing.domain.WalletType;
 import com.hapbang.billing.out.BudgetReservationRepository;
 import com.hapbang.billing.out.PromotionHoldRepository;
-import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.PayoutType;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +47,7 @@ public class HoldPayoutUseCase {
     private final BillingEventPublisher billingEventPublisher;
     private final PromotionHoldRepository promotionHoldRepository;
     private final BudgetReservationRepository budgetReservationRepository;
-    private final WalletRepository walletRepository;
+    private final HoldWalletLocking holdWalletLocking;
     private final EntityManager entityManager;
 
     // 두 지갑 ID 오름차순 락 → 보류 락·소유·지급 원천 확인 → 처리 이력 재생·대조 → (재요청이면 처음 결과) → 지급 배분 계산
@@ -63,15 +62,10 @@ public class HoldPayoutUseCase {
         if (payerWalletId.equals(receiverWalletId)) {
             throw new BillingException(BillingErrorCode.PAYOUT_TO_PAYER);
         }
-        // 생성 중인 보류가 아직 보이지 않아도 관련 지갑을 먼저 ID순으로 잠근 뒤 보류를 찾는다.
-        // 그러면 보류 생성이 커밋되기를 기다려 기존과 같이 지급하며, 잠근 뒤 프로모션 지갑 락을 추가하지 않는다.
-        List<Long> walletIds = new ArrayList<>(List.of(payerWalletId, receiverWalletId));
-        Long promotionWalletId = null;
-        if (command.referenceType() == BillingReferenceType.LECTURE_ORDER_ITEM) {
-            promotionWalletId = PromotionWalletQueryUseCase.promotionWallet(walletRepository).getId();
-            walletIds.add(promotionWalletId);
-        }
-        Map<Long, Wallet> wallets = ledgerRecordUseCase.lockWallets(walletIds);
+        // 보류의 불변 재원 구성으로 잠글 지갑을 계획한다. 보류가 아직 안 보이면 프로모션 지갑도 포함해
+        // 생성 커밋을 기다리고, 이미 존재하는 비프로모션 보류는 회원 지갑끼리만 직렬화한다.
+        Map<Long, Wallet> wallets = holdWalletLocking.lockWallets(List.of(payerWalletId, receiverWalletId),
+                command.referenceType(), command.referenceId());
         PointHold hold = holdProcessing.lockHold(BillingKeys.hold(command), payerWalletId);
         List<PromotionHold> promotions = promotionHoldRepository.findAllByPointHoldIdOrderByCouponIdAsc(hold.getId());
         HoldProcessing.verifySource(hold, command.sourceType(), command.sourceId());
@@ -80,6 +74,9 @@ public class HoldPayoutUseCase {
         HoldState state = holdProcessing.load(hold);
         if (!promotions.isEmpty()) {
             promotions.forEach(entityManager::refresh);
+            Long promotionWalletId = wallets.values().stream()
+                    .filter(wallet -> wallet.getWalletType() == WalletType.PROMOTION).map(Wallet::getId)
+                    .findFirst().orElseThrow(() -> new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT));
             return payoutPromotion(command, state, promotions, wallets, promotionWalletId, receiverWalletId, key);
         }
 

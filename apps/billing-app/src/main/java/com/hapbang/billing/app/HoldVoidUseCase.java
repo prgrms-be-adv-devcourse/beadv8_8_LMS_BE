@@ -45,7 +45,7 @@ public class HoldVoidUseCase {
     public HoldVoidResult voidHold(PaymentHoldVoidCommand command) {
         Long walletId = holdProcessing.walletIdOf(command.userId());
         // 보류(HoldCreateUseCase)와 같은 지갑 락으로 직렬화한다. 락 뒤의 조회는 먼저 커밋된 보류·무효화 기록을 본다.
-        promotionReleaseProcessing.lockWallets(walletId, command.referenceType());
+        promotionReleaseProcessing.lockWallets(walletId, command.referenceType(), command.referenceId());
 
         Optional<HoldVoid> existing = holdVoidRepository.findByReferenceTypeAndReferenceId(command.referenceType(),
                 command.referenceId());

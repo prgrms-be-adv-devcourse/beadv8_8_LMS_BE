@@ -26,8 +26,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
-import com.hapbang.billing.app.BudgetReserveCommand;
-import com.hapbang.billing.app.PromotionBudgetUseCase;
 import com.hapbang.billing.app.PromotionFundingCommand;
 import com.hapbang.billing.app.PromotionFundingUseCase;
 import com.hapbang.billing.domain.BalanceBucket;
@@ -66,9 +64,6 @@ class HoldQueryApiTest {
 
     @Autowired
     PromotionFundingUseCase promotionFundingUseCase;
-
-    @Autowired
-    PromotionBudgetUseCase promotionBudgetUseCase;
 
     private final AtomicInteger sequence = new AtomicInteger();
 
@@ -402,11 +397,15 @@ class HoldQueryApiTest {
                 + ids.stream().map(String::valueOf).collect(Collectors.joining(",", "[", "]")) + "}");
     }
 
-    private String promotionBudget(long couponId, long amountHp) {
+    private String promotionBudget(long couponId, long amountHp) throws Exception {
         promotionFundingUseCase.fund(900L, new PromotionFundingCommand("PF-" + couponId, amountHp,
                 PromotionFundingSourceType.ADMIN_GRANT, "결재-" + couponId, null));
-        return "PB-" + promotionBudgetUseCase.reserve(new BudgetReserveCommand("coupon-" + couponId + "-reserve-v1",
-                couponId, 1, amountHp)).reservationId();
+        String reserved = call("/promotion-budgets/reservations", """
+                {"workId":"coupon-%d-reserve-v1","couponId":%d,"policyVersion":1,"amountHp":%d}
+                """.formatted(couponId, couponId, amountHp))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        // 보류 조회의 예약 ID가 쿠폰 예산 API가 실제로 내보낸 표기와 같은지 확인한다.
+        return JsonPath.read(reserved, "$.data.reservationId");
     }
 
     private static String promotion(long couponId, long memberCouponId, long generation, long amountHp) {
