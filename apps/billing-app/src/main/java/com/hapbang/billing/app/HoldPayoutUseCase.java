@@ -101,7 +101,7 @@ public class HoldPayoutUseCase {
         Settlement settlement = holdProcessing.saveSettlement(Settlement.completed(command.receiverUserId(),
                 receiverWalletId, hold.getId(), command.sourceType(), command.sourceId(), PayoutType.NORMAL,
                 split.totalHp(), key, now));
-        billingEventPublisher.payoutCompleted(settlement);
+        billingEventPublisher.payoutCompleted(settlement, command.sourceTitle());
         // 두 지갑의 잔액은 record()가 원장으로만 바꾼다(이미 잡은 락을 그대로 쓴다).
         ledgerRecordUseCase.record(new LedgerOperation(key, LedgerTransactionType.PAYOUT, hold.getReferenceType(),
                 hold.getReferenceId(), DESCRIPTION, now,
@@ -174,7 +174,7 @@ public class HoldPayoutUseCase {
         entries.add(LedgerEntry.of(receiverWalletId, PointType.REVENUE, BalanceBucket.AVAILABLE, paidHp));
         ledgerRecordUseCase.record(new LedgerOperation(key, LedgerTransactionType.PAYOUT, hold.getReferenceType(),
                 hold.getReferenceId(), DESCRIPTION, now, entries));
-        billingEventPublisher.payoutCompleted(settlement);
+        billingEventPublisher.payoutCompleted(settlement, command.sourceTitle());
         return PayoutResult.of(hold, applied == null ? null : applied.detail(), settlement,
                 applied == null ? List.of() : applied.consumptions(), false);
     }

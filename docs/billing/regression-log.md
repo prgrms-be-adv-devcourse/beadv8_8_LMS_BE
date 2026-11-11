@@ -88,6 +88,16 @@
 
 | ID | 날짜 | 커밋 | 명령 | 단계 | 결과 | 실패 원인 분류 | 기록 목적 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| R-024 | 2026-11-11 | 1b62ae0c + 작업 트리(PR 리뷰 반영 + 자체 리뷰 반영) | `:shared:test` + billing 지급 이벤트 4개 클래스 + 세 앱 `compileTestJava` `--rerun-tasks` | C·U·I | 통과, shared 208건·billing 79건 | 실패 없음 | PR 리뷰 반영 최종 |
+| R-023 | 2026-11-11 | 1b62ae0c + 작업 트리(PR 리뷰: 이벤트 제목 255자 상한) | `:shared:test`(RED → 결함 주입 → GREEN) | U | 통과, shared 207건 | 실패 없음 | PR 리뷰 반영 |
+| R-022 | 2026-11-11 | 1b62ae0c(origin/dev c503d46e 병합) | R-020 명령 `--rerun-tasks` | C·U·I | 통과, billing 239건·shared 205건 | 실패 없음 | 병합 뒤 Push 전 |
+| R-021 | 2026-11-11 | aec4fa6f + #873 작업 트리(R-020과 같음) | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,521건 | 실패 없음 | #873 커밋 전 전체 |
+| R-020 | 2026-11-11 | aec4fa6f + #873 작업 트리(S6 리뷰 반영) | R-017 클래스 + `BillingCommandValidatorTest`·`HoldCaptureIntegrationTest` + 세 앱 `compileTestJava` | C·U·I | 통과, billing 239건·shared 205건 | 실패 없음 | #873 리뷰 반영 재검증 |
+| R-019 | 2026-11-11 | aec4fa6f + #873 작업 트리(문서 반영 뒤, 코드는 R-017과 같음) | R-017 명령 `--rerun-tasks` | C·U·I | 통과, billing 200건·shared 205건 | 실패 없음 | #873 완료 전 재검증(S5) |
+| R-018 | 2026-11-11 | aec4fa6f + #873 작업 트리(R-017과 같음) | 바뀐 클래스를 쓰는 billing 11개 클래스 + appearance·lecture·notification `compileTestJava` | C·U·I | 통과, 181건 | 실패 없음 | #873 영향 범위 회귀 |
+| R-017 | 2026-11-11 | aec4fa6f + #873 작업 트리 | billing 8개 클래스 + `:shared:test` | U·I | 통과, billing 200건·shared 205건 | 실패 없음 | #873 GREEN |
+| R-016 | 2026-11-11 | aec4fa6f + #873 작업 트리(구현 전) | billing 7개 클래스 | I | 의도한 실패 16건(161건 중) | 의도한 실패(TDD red) | #873 RED |
+| R-015 | 2026-11-11 | aec4fa6f + #873 작업 트리(구현 전) | `:shared:test --tests 'com.hapbang.shared.billing.*'` | C·U | 컴파일 실패 → 의도한 실패 7건(111건 중) | 의도한 실패(TDD red) | #873 RED |
 | R-014 | 2026-11-11 | d60d9410 + PR #856 리뷰 반영 작업 트리 | 관련 8개 클래스(아래) | C·U·I | 통과, 216건 | 실패 없음 | #842 PR 리뷰 반영 |
 | R-013 | 2026-11-11 | f9a812bf | 전체 완료 명령(아래) | C·U·S·I | 통과, billing 1,513건(전체 4,652건) | 실패 없음 | #842 최종 회귀 |
 | R-012 | 2026-11-11 | f9a812bf와 같은 소스 + 조기404 임시 재현 | 지급 생성경합 테스트만 | I | 의도한 2건 실패, 소스 복원 | F-CODE(결함 재현) | 새 테스트 감지력 확인 |
@@ -109,6 +119,23 @@
 ### 3.2 직접 실행한 기록 (R)
 
 _새 기록은 3.4 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙이고, 3.1 요약 표에도 한 줄 더한다._
+
+#### R-015~R-024 · 2026-11-11 · #873 알림용 지갑 이벤트·출처 제목 · 통과
+
+- **소스:** `feature/tkt-873`(origin/dev aec4fa6f) + 미커밋 작업 트리. 결정 BD-162·BD-163.
+- **환경:** 로컬 Java 25, Docker Desktop, PostgreSQL·Kafka Testcontainers. 운영 서비스 요청 없음.
+- **R-015 (RED):** `./gradlew :shared:test --tests 'com.hapbang.shared.billing.*'`. 처음은 새 생성자·이벤트가 없어 컴파일 실패. 필드·오버로드만 둔 뒤 다시 실행해 111건 중 7건 실패: 제목 공백 제거·빈 값 null 4건, 제목 없을 때 JSON 생략 2건, 그리고 기존 `BillingApiClientTest#지급과_위약금_정산은_각자의_경로로_보낸다`(요청 본문에 `"sourceTitle":null`이 붙음). 마지막 실패로 null 제목을 JSON에 쓰지 않기로 하고(`@JsonInclude(NON_NULL)`) 그 테스트를 더했다.
+- **R-016 (RED):** `./gradlew :billing-app:test --tests '*BillingExternalEventsTest' --tests '*ExchangeReviewIntegrationTest' --tests '*RefundIntegrationTest' --tests '*ChargeIntegrationTest' --tests '*ApiV1BillingInternalControllerTest' --tests '*ApiV1BillingPromotionPayoutTest' --tests '*BillingEventKafkaTest'`. 161건 중 16건 실패, 모두 새 이벤트가 없거나 `sourceTitle`이 null인 이유. `BillingEventKafkaTest#notificationEvents`는 `eventType` 헤더가 null이어서 실패해, `BillingEventExternalizationConfig`에 헤더 등록이 필요함을 확인했다.
+- **R-017 (GREEN):** 구현 뒤 R-016 명령 + `--tests '*HoldPayoutIntegrationTest'` → XML 기준 8개 클래스 200건 통과. `./gradlew :shared:test` → 26개 클래스 205건 통과.
+- **R-018:** `./gradlew :billing-app:test --tests '*BillingCommandValidatorTest' --tests '*BillingKeysTest' --tests '*BillingSharedDtoAccessTest' --tests '*BillingUserBackfillIntegrationTest' --tests '*ExchangePayoutIntegrationTest' --tests '*ExchangeSettlementIntegrationTest' --tests '*PaymentHoldRequestsTest' --tests '*WalletMaskingIntegrationTest' --tests '*WalletTransactionQueryIntegrationTest' --tests '*ExchangeIntegrationTest' --tests '*HoldCaptureIntegrationTest' :appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava` → 11개 클래스 181건 통과, 세 앱 테스트 소스 컴파일 통과(출연·강의·알림 코드는 바꾸지 않음).
+- **R-019:** 문서를 고친 뒤 `./gradlew :shared:test :billing-app:test --tests …(R-017과 같은 8개 클래스) --rerun-tasks` → billing 8개 클래스 200건·shared 26개 클래스 205건 통과, 실패·오류 0.
+- **R-020:** 자체 리뷰(S6) 반영 뒤(운영 코드에서 안 쓰는 `PaymentPayoutCommand.full(…, sourceTitle)` 제거, 주석 축약, 계약 문서) R-017의 8개 클래스 + `BillingCommandValidatorTest`·`HoldCaptureIntegrationTest`, `:shared:test`, `:appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava` → billing 10개 클래스 239건·shared 26개 클래스 205건 통과, 컴파일 통과.
+- **R-021:** 커밋 전 `./gradlew :billing-app:test --rerun-tasks` → XML 기준 118개 클래스 1,521건 통과, 실패·오류·건너뜀 0, 7분 17초.
+- **R-022:** 커밋 944b7a0e에 origin/dev(c503d46e)를 병합한 1b62ae0c에서 R-020 명령 `--rerun-tasks` → billing 10개 클래스 239건·shared 26개 클래스 205건 통과, 세 앱 테스트 컴파일 통과. 그 뒤 Push.
+- **R-023 (PR 리뷰):** 이벤트 제목 255자 상한. `:shared:test --tests 'com.hapbang.shared.billing.*'` RED 113건 중 새 상한 테스트 2건 실패 → `PayoutCompletedEvent`에 code point 기준 자르기 → `:shared:test` 26개 클래스 207건 통과. 결함 주입(UTF-16 `substring(0, 255)`)으로 이모지 경계 테스트 1건 실패를 확인하고 원복했다.
+- **R-023 이어서:** 자체 리뷰(S6) 반영(상수 설명을 출처 칼럼과 독립으로, 문서 수치는 BD-163 참조로, 발행 기록 JSON 역직렬화 상한 테스트 추가) 뒤 결과는 R-024.
+- **R-024:** `./gradlew :shared:test :billing-app:test --tests '*ApiV1BillingInternalControllerTest' --tests '*ApiV1BillingPromotionPayoutTest' --tests '*BillingEventKafkaTest' --tests '*HoldPayoutIntegrationTest' :appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava --rerun-tasks` → shared 26개 클래스 208건·billing 4개 클래스 79건 통과, 컴파일 통과.
+- **실행하지 않음:** `./gradlew check`, appearance·lecture·notification 테스트 실행.
 
 #### R-014 · 2026-11-11 · PR #856 리뷰 반영 · 통과
 
@@ -437,6 +464,8 @@ R-003(7dc89e0)은 그때 있던 73개 클래스의 실행이다. R-003 뒤에 �
 
 | 마지막 기록 | BT | 당시 상태 칸 값 |
 | --- | --- | --- |
+| R-024 | BT-EVT-04 | (R-024 새 실행, 상태 칸 값 없음) |
+| R-020 | BT-EVT-03 | (R-020 새 실행, 상태 칸 값 없음) |
 | R-007 | BT-LED-10, BT-LED-11, BT-DB-01, BT-DB-03 | (R-007 새 실행, 상태 칸 값 없음) |
 | R-003 | BT-WAL-01, BT-LED-01~09, BT-HLD-01~06, BT-REL-01~05, BT-PAY-01·02·03·05·06, BT-PEN-01~04, BT-CAP-01~04, BT-CHG-01~07, BT-RFD-01~07, BT-EXC-02~05, BT-EXP-01~06, BT-MCK-01·02, BT-ERN-01, BT-SEC-03, BT-ERR-01·02, BT-DB-02·04, BT-CFG-01 | `R-003 통과` |
 | R-003 | BT-WAL-03·04, BT-CHG-08·09, BT-RFD-08, BT-EXC-01·06·07, BT-EXP-07, BT-ERN-02·03, BT-USR-01·03, BT-SEC-04 | `R-003 통과 (경계)` |
