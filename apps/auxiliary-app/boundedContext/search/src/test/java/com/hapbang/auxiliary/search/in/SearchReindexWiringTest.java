@@ -1,10 +1,10 @@
 package com.hapbang.auxiliary.search.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -46,9 +46,10 @@ class SearchReindexWiringTest {
         startup.onReady();
         batch.checkIndex();
 
-        // 기동 이벤트가 넘긴 호출이 테스트 도중에 더 들어올 수 있어 횟수는 최소로 본다
-        verify(reindexer, timeout(5_000).atLeast(2)).run();
-        assertThat(calls).hasSizeGreaterThanOrEqualTo(2).allSatisfy(thread -> {
+        // 기록된 호출 수(verify)로 기다리지 않는다. 가짜는 답(calls.add)을 실행하기 전에 호출을 기록하고, 컨텍스트 기동 이벤트가 stub 전에 넘긴
+        // 호출도 센다. 그래서 verify가 통과해도 calls에 하나만 있을 수 있다(CI 간헐 실패, #860). calls에 두 번 들어올 때까지 기다린다
+        await().atMost(Duration.ofSeconds(5)).until(() -> calls.size() >= 2);
+        assertThat(calls).allSatisfy(thread -> {
             assertThat(thread.getName()).startsWith("search-reindex-");
             assertThat(thread).isNotSameAs(Thread.currentThread());
         });

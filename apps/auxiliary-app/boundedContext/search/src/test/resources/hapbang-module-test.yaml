@@ -7,8 +7,6 @@ spring:
       maximum-pool-size: 5
 hapbang:
   search:
-    # 운영 기본값은 꺼짐(application.yaml)이다. 모듈 테스트는 검색 빈을 시험하므로 켠다. 꺼졌을 때는 앱 기동 테스트가 본다
-    enabled: true
     # 시작할 때 index를 만드는 스레드가 다른 테스트의 ES 정리와 겹치지 않게 끈다. 준비는 테스트가 직접 부른다
     setup-on-startup: false
     # 대부분의 테스트에는 Kafka가 없다. 회원 이벤트 소비자는 Kafka 시험 클래스만 켠다

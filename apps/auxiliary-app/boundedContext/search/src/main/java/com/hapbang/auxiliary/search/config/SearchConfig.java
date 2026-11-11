@@ -10,7 +10,6 @@ import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
 /** 검색 설정: 순위 계수(#771), 처음 적재·재색인 실행기(#773) */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnSearchEnabled
 @EnableConfigurationProperties(SearchRankingProperties.class)
 public class SearchConfig {
 

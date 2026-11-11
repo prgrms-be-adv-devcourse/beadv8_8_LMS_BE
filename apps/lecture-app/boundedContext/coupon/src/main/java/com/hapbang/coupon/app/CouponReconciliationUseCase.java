@@ -73,6 +73,7 @@ public class CouponReconciliationUseCase {
     /** 불일치 확정 ERROR 로그의 alert 표식 */
     static final String MISMATCH_LOG_TAG = "[COUPON_ISSUE_RECONCILIATION_MISMATCH]";
 
+    private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final IssueCapacityReservationRepository reservationRepository;
     private final CouponRepository couponRepository;
     private final IssueResultReadRepository resultRepository;
@@ -87,7 +88,7 @@ public class CouponReconciliationUseCase {
     private final Clock clock;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public CouponReconciliationUseCase(IssueCapacityReservationRepository reservationRepository,
+    public CouponReconciliationUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, IssueCapacityReservationRepository reservationRepository,
                                        CouponRepository couponRepository, IssueResultReadRepository resultRepository,
                                        CouponReconciliationStore store, CouponIssueStore issueStore,
                                        CouponRedisProperties redisProperties, CouponCapacitySupport capacitySupport,
@@ -95,6 +96,7 @@ public class CouponReconciliationUseCase {
                                        CouponIssueDeliveryProperties delivery,
                                        PlatformTransactionManager transactionManager,
                                        @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
+        this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.reservationRepository = reservationRepository;
         this.couponRepository = couponRepository;
         this.resultRepository = resultRepository;
@@ -319,6 +321,8 @@ public class CouponReconciliationUseCase {
         boolean released = false;
         if (IssueCapacityRule.releasable(read.status(), judgment.requestsLeft(), judgment.inProgress(),
                 judgment.pendingCompensation())) {
+            // 정상 대사에서 진행 중 접수가 모두 끝났다는 근거를 확인한 뒤, 해제 의도를 Redis 정리보다 먼저 남긴다.
+            budgetReleaseRecorder.recordUnissued(couponId, clock.instant());
             released = store.cleanUp(couponId) && releaseCapacity(couponId);
         }
         Outcome outcome = released ? Outcome.matchedReleased(removed) : Outcome.matched(removed);

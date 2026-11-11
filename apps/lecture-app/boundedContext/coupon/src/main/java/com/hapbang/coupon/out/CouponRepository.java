@@ -27,6 +27,35 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
     @Lock(LockModeType.OPTIMISTIC_FORCE_INCREMENT)
     Optional<Coupon> findWithVersionIncrementById(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Coupon c where c.id = :id")
+    Optional<Coupon> findForBudgetRelease(@Param("id") long id);
+
+    /** 예약은 확정됐지만 한 번도 발급을 열지 못한 만료 플랫폼 쿠폰. 결과 불명 예약은 먼저 같은 작업 ID로 확정한다. */
+    @Query("""
+            select c.id from Coupon c
+            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM
+              and c.status = com.hapbang.coupon.domain.CouponStatus.DRAFT
+              and c.issueEndAt <= :now and c.issuedCount = 0
+              and c.budgetReservationId is not null and c.id > :afterId
+              and not exists (select 1 from BudgetWork w where w.couponId = c.id
+                  and w.kind = com.hapbang.coupon.domain.BudgetWorkKind.RELEASE and w.target like 'UNISSUED:%')
+            order by c.id
+            """)
+    List<Long> findExpiredDraftBudgetIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
+
+    /** 미확인 만료 발급 쿠폰이 남은 플랫폼 정책만 고른다. 완료 이력과 판매자 이력을 전역 발급 쿠폰 ID 순으로 다시 읽지 않는다. */
+    @Query("""
+            select c.id from Coupon c
+            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM and c.id > :afterId
+              and exists (select 1 from MemberCoupon mc where mc.couponId = c.id and mc.expiresAt <= :now
+                  and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
+                                    com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
+                  and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status))
+            order by c.id
+            """)
+    List<Long> findPlatformMemberBudgetCouponIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
+
     /**
      * 확정 발급 수를 "확정 발급 수 &lt; 총수량"이고 쿠폰의 epoch가 요청의 epoch와 같을 때만 1 올린다(발급 확정 트랜잭션의 마지막). 바꾼 행 수
      * (1 또는 0)를 돌려주고 해석은 {@code IssueCountRule.interpret}가 한다. 쿠폰 행을 잠그므로 같은 쿠폰의 확정은 순서대로 커밋된다.

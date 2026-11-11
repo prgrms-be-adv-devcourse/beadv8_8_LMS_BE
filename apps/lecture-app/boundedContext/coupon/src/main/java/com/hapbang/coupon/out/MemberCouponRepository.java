@@ -170,18 +170,40 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
     Optional<MemberCouponState> findStateById(@Param("id") long id);
 
     /**
-     * 만료 배치 대상: 기한이 지난(expiresAt <= now) AVAILABLE 발급 쿠폰 중 판매자 쿠폰의 것. 만료 시각 → ID 순으로 {@code limit}개의 ID.
-     * 플랫폼 쿠폰은 만료와 예산 해제를 같은 트랜잭션에 둬야 해 고르지 않는다. 조건은 {@code idx_member_coupon_status_expires_at}
+     * 만료 배치 대상: 기한이 지난(expiresAt <= now) 판매자·플랫폼의 모든 AVAILABLE 발급 쿠폰.
+     * 만료 시각 → ID 순으로 {@code limit}개의 ID를 고른다. 조건은 {@code idx_member_coupon_status_expires_at}
      * (status, expires_at)의 앞 컬럼 등호·뒤 컬럼 범위라 그 인덱스를 탈 수 있다.
      */
+    default List<Long> findExpiredCouponIds(Instant now, Limit limit) {
+        return findExpiredCouponTargets(now, null, 0, limit).stream().map(MemberCouponExpiryTarget::id).toList();
+    }
+
+    /** 첫 페이지는 커서 없는 쿼리를 사용해 NULL timestamp 매개변수의 DB 타입 추론에 의존하지 않는다. */
+    default List<MemberCouponExpiryTarget> findExpiredCouponTargets(Instant now, Instant afterExpiresAt,
+                                                                   long afterId, Limit limit) {
+        return afterExpiresAt == null ? findFirstExpiredCouponTargets(now, limit)
+                : findNextExpiredCouponTargets(now, afterExpiresAt, afterId, limit);
+    }
+
     @Query("""
-            select mc.id from MemberCoupon mc join Coupon c on c.id = mc.couponId
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
             where mc.status = com.hapbang.coupon.domain.MemberCouponStatus.AVAILABLE
               and mc.expiresAt <= :now
-              and c.type = com.hapbang.coupon.domain.CouponType.SELLER
             order by mc.expiresAt asc, mc.id asc
             """)
-    List<Long> findExpiredSellerCouponIds(@Param("now") Instant now, Limit limit);
+    List<MemberCouponExpiryTarget> findFirstExpiredCouponTargets(@Param("now") Instant now, Limit limit);
+
+    /** 같은 만료 시각의 ID도 커서에 포함하여 실패한 행을 건너뛰면서 기한 순서를 유지한다. */
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
+            where mc.status = com.hapbang.coupon.domain.MemberCouponStatus.AVAILABLE
+              and mc.expiresAt <= :now
+              and (mc.expiresAt > :afterExpiresAt
+                   or (mc.expiresAt = :afterExpiresAt and mc.id > :afterId))
+            order by mc.expiresAt asc, mc.id asc
+            """)
+    List<MemberCouponExpiryTarget> findNextExpiredCouponTargets(@Param("now") Instant now,
+            @Param("afterExpiresAt") Instant afterExpiresAt, @Param("afterId") long afterId, Limit limit);
 
     /**
      * 만료 조건부 갱신: 고른 ID 중 아직 AVAILABLE이고 기한이 지난(expiresAt <= now) 것만 EXPIRED로 바꾼다. generation은 그대로다. 고른 뒤
@@ -197,4 +219,54 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
               and mc.expiresAt <= :now
             """)
     int expire(@Param("ids") Collection<Long> ids, @Param("now") Instant now);
+
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponBudgetState(mc.id, mc.couponId, mc.status,
+                mc.generation, mc.expiresAt, mc.budgetReleasePlannedHp, mc.budgetReleaseCheckedStatus)
+            from MemberCoupon mc where mc.id = :id
+            """)
+    Optional<MemberCouponBudgetState> findBudgetState(@Param("id") long id);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update MemberCoupon mc set mc.budgetReleasePlannedHp = :planned,
+                mc.budgetReleaseCheckedStatus = :status, mc.updatedAt = :now
+            where mc.id = :id and mc.generation = :generation and mc.status = :status
+                and mc.budgetReleasePlannedHp = :before and mc.expiresAt <= :now
+                and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
+            """)
+    int planBudgetRelease(@Param("id") long id, @Param("generation") long generation,
+            @Param("status") MemberCouponStatus status, @Param("before") long before,
+            @Param("planned") long planned, @Param("now") Instant now);
+
+    /** 정책·만료 기한 범위만 읽고, 후속 페이지는 (expiresAt, id) 복합 커서로 진행한다. */
+    default List<MemberCouponExpiryTarget> findExpiredPlatformBudgetTargets(long couponId, Instant now,
+            Instant afterExpiresAt, long afterId, Limit limit) {
+        return afterExpiresAt == null ? findFirstExpiredPlatformBudgetTargets(couponId, now, limit)
+                : findNextExpiredPlatformBudgetTargets(couponId, now, afterExpiresAt, afterId, limit);
+    }
+
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
+            where mc.couponId = :couponId and mc.expiresAt <= :now
+              and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
+                                com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
+              and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
+            order by mc.expiresAt, mc.id
+            """)
+    List<MemberCouponExpiryTarget> findFirstExpiredPlatformBudgetTargets(@Param("couponId") long couponId,
+            @Param("now") Instant now, Limit limit);
+
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
+            where mc.couponId = :couponId and mc.expiresAt <= :now
+              and (mc.expiresAt, mc.id) > (:afterExpiresAt, :afterId)
+              and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
+                                com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
+              and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
+            order by mc.expiresAt, mc.id
+            """)
+    List<MemberCouponExpiryTarget> findNextExpiredPlatformBudgetTargets(@Param("couponId") long couponId,
+            @Param("now") Instant now, @Param("afterExpiresAt") Instant afterExpiresAt,
+            @Param("afterId") long afterId, Limit limit);
 }

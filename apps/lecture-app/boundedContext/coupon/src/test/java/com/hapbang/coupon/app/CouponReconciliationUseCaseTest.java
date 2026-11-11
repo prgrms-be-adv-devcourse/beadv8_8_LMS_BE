@@ -76,7 +76,7 @@ class CouponReconciliationUseCaseTest {
         when(store.cleanUp(anyLong())).thenReturn(true);
         when(capacitySupport.release(anyLong())).thenReturn(true);
         // 재발행 대기 임계치 1건
-        useCase = new CouponReconciliationUseCase(reservationRepository, couponRepository, resultRepository, store,
+        useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, resultRepository, store,
                 issueStore, new CouponRedisProperties(null), capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
                 CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
     }

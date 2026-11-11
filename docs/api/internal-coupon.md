@@ -40,7 +40,7 @@
 | `items[].lectureId` | number | O | 강의 ID |
 | `items[].sellerId` | number | O | 판매자 회원 ID |
 | `items[].price` | number | O | 강의 가격(HP, 0 이상) |
-| `selections` | array 또는 null | | 고른 쿠폰 매핑. 없거나 `null`이면 추천, `[]`이면 쿠폰 미사용(할인 0), 값이 있으면 그 매핑만 검증·계산한다. 매핑에 없는 강의는 추천으로 채우지 않는다. 플랫폼 재원이 꺼져 있으면(`hapbang.coupon.platform-funding-enabled=false`, 기본값) 추천에서 플랫폼 쿠폰을 빼고, 매핑에 본인의 플랫폼 쿠폰이 있으면 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)이다. 설정을 true로 바꾸는 것만으로는 주문이 열리지 않는다: 강의의 F > 0 차단 제거와 함께(billing 후속 이슈) 켠다. 두 모듈은 설정을 공유하지 않는다(JVM 분리) |
+| `selections` | array 또는 null | | 고른 쿠폰 매핑. 없거나 `null`이면 추천, `[]`이면 쿠폰 미사용(할인 0), 값이 있으면 그 매핑만 검증·계산한다. 매핑에 없는 강의는 추천으로 채우지 않는다. 플랫폼 재원 설정 `hapbang.coupon.platform-funding-enabled`의 기본값은 true다. false를 명시하면 추천에서 플랫폼 쿠폰을 빼고, 매핑에 본인의 플랫폼 쿠폰이 있으면 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)이다. true에서는 플랫폼 할인도 계산·주문 재원 처리 대상이며, 강의의 F > 0 차단은 제거됐다 |
 | `selections[].memberCouponId` | number | O | 발급 쿠폰 ID |
 | `selections[].lectureId` | number | O | 쿠폰을 쓸 강의 ID(`items`에 있는 강의) |
 

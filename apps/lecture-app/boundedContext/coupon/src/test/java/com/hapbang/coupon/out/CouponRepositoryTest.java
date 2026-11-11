@@ -14,6 +14,8 @@ import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.BudgetWork;
+import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.MemberCoupon;
@@ -30,6 +32,9 @@ class CouponRepositoryTest {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private BudgetWorkRepository budgetWorkRepository;
 
     @Test
     void 쿠폰_스키마에_저장한_쿠폰을_발행_조건과_상태_그대로_읽는다() {
@@ -72,6 +77,60 @@ class CouponRepositoryTest {
 
         assertThatThrownBy(() -> couponRepository.saveAndFlush(coupon))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void 만료_DRAFT_예산_수집은_예약확정_무발급_플랫폼만_ID순_묶음으로_고른다() {
+        Coupon first = expiredBudgetDraft();
+        Coupon second = expiredBudgetDraft();
+        Coupon unknown = Coupon.createPlatform(ADMIN_ID, anyLectureAmount()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60));
+        couponRepository.save(unknown);
+        Coupon future = Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW);
+        future.recordBudgetReserved("PB-future", NOW);
+        couponRepository.save(future);
+        Coupon opened = expiredBudgetDraft();
+        ReflectionTestUtils.setField(opened, "status", CouponStatus.OPEN);
+        Coupon issued = expiredBudgetDraft();
+        couponRepository.incrementIssuedCount(issued.getId(), issued.getEpoch());
+        couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60)));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(couponRepository.findExpiredDraftBudgetIds(NOW, 0, Limit.of(1)))
+                .containsExactly(first.getId());
+        assertThat(couponRepository.findExpiredDraftBudgetIds(NOW, first.getId(), Limit.of(10)))
+                .containsExactly(second.getId());
+    }
+
+    private Coupon expiredBudgetDraft() {
+        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureAmount()
+                .issuePeriod(NOW.minusSeconds(60), NOW).build(), NOW.minusSeconds(60));
+        coupon.recordBudgetReserved("PB-expired", NOW);
+        return couponRepository.saveAndFlush(coupon);
+    }
+
+    @Test
+    void DRAFT의_미발급_해제가_등록됐으면_PENDING_FAILED_DONE_모두_수집에서_제외한다() {
+        Coupon noWork = expiredBudgetDraft();
+        Coupon memberOnly = expiredBudgetDraft();
+        budgetWorkRepository.save(BudgetWork.release(memberOnly, "member-1", 1, "MEMBER_COUPON:1", "만료", NOW));
+        Coupon reserveOnly = expiredBudgetDraft();
+        budgetWorkRepository.save(BudgetWork.reserve(reserveOnly, 1, NOW));
+        for (BudgetWorkStatus status : BudgetWorkStatus.values()) {
+            Coupon coupon = expiredBudgetDraft();
+            BudgetWork work = BudgetWork.release(coupon, "unissued-v1", coupon.budgetAmount(),
+                    "UNISSUED:" + coupon.getQuantity(), "미개방 만료", NOW);
+            if (status == BudgetWorkStatus.DONE) work.markDone(coupon.getBudgetReservationId(), NOW);
+            if (status == BudgetWorkStatus.FAILED) work.markFailed("운영 확인 필요", NOW);
+            budgetWorkRepository.save(work);
+        }
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(couponRepository.findExpiredDraftBudgetIds(NOW, 0, Limit.of(10)))
+                .containsExactly(noWork.getId(), memberOnly.getId(), reserveOnly.getId());
     }
 
     @Test

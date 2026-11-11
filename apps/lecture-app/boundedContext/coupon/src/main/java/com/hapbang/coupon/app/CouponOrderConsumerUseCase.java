@@ -19,7 +19,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.UsageEventOutcome;
 import com.hapbang.coupon.domain.usage.UsageContentKey;
@@ -58,6 +60,7 @@ public class CouponOrderConsumerUseCase {
     static final String EVENT_PAID = "paid";
     static final String EVENT_CANCEL_COMPLETED = "cancel_completed";
 
+    private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final CouponUsageRepository couponUsageRepository;
     private final MemberCouponRepository memberCouponRepository;
     private final ProcessedOperationRepository processedOperationRepository;
@@ -66,12 +69,14 @@ public class CouponOrderConsumerUseCase {
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public CouponOrderConsumerUseCase(CouponUsageRepository couponUsageRepository,
+    public CouponOrderConsumerUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
+                                      CouponUsageRepository couponUsageRepository,
                                       MemberCouponRepository memberCouponRepository,
                                       ProcessedOperationRepository processedOperationRepository,
                                       CouponOrderConsumerMetrics metrics,
                                       PlatformTransactionManager transactionManager,
                                       @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
+        this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.couponUsageRepository = couponUsageRepository;
         this.memberCouponRepository = memberCouponRepository;
         this.processedOperationRepository = processedOperationRepository;
@@ -141,7 +146,7 @@ public class CouponOrderConsumerUseCase {
                 .map(usage -> new UsageRef(usage.memberCouponId(), usage.generation()))
                 .toList();
         return new Settlement(EVENT_PAID, event.eventId(), event.orderId(), event.orderItemId(), event.memberId(),
-                usages, event.paidAt(), List.of());
+                usages, event.paidAt(), List.of(), List.of());
     }
 
     private static Settlement settlementOf(OrderItemCancelCompletedEvent event) {
@@ -154,7 +159,7 @@ public class CouponOrderConsumerUseCase {
         event.budgetRestorations().forEach(restoration -> extraParts.add("p" + restoration.couponId() + "|"
                 + restoration.memberCouponId() + "|" + restoration.generation() + "|" + restoration.amount()));
         return new Settlement(EVENT_CANCEL_COMPLETED, event.eventId(), event.orderId(), event.orderItemId(),
-                event.memberId(), usages, event.completedAt(), extraParts);
+                event.memberId(), usages, event.completedAt(), extraParts, event.budgetRestorations());
     }
 
     private Result consume(Settlement settlement, TransactionTemplate transaction) {
@@ -185,6 +190,7 @@ public class CouponOrderConsumerUseCase {
         for (CouponUsage usage : usages) {
             found.put(new UsageRef(usage.getMemberCouponId(), usage.getGeneration()), usage);
         }
+        requireBudgetRestorations(settlement, found);
         Instant now = clock.instant();
         boolean applied = false;
         // 여러 장은 발급 쿠폰 ID 오름차순으로 갱신한다(교착 회피)
@@ -218,6 +224,9 @@ public class CouponOrderConsumerUseCase {
                 throw new IllegalStateException("발급 쿠폰이 읽은 뒤 바뀌어 반영하지 못했습니다 memberCouponId="
                         + usage.getMemberCouponId() + ", generation=" + usage.getGeneration());
             }
+            if (!paid && usage.getRestoredTo() == com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED) {
+                budgetReleaseRecorder.recordExpired(usage.getMemberCouponId(), now);
+            }
             log.info("주문 {} 이벤트를 쿠폰 사용에 반영했다 eventId={}, orderItemId={}, memberCouponId={}, generation={}, "
                             + "usageStatus={}, restoredTo={}", settlement.event(), settlement.eventId(),
                     settlement.orderItemId(), usage.getMemberCouponId(), usage.getGeneration(), usage.getStatus(),
@@ -243,6 +252,49 @@ public class CouponOrderConsumerUseCase {
                     + ", usageMemberId=" + usage.getMemberId() + ", usageOrderId=" + usage.getOrderId());
         }
         return usage;
+    }
+
+    /** 지갑이 실제 부담분 F를 복구한 결과가 모두 맞아야 쿠폰을 복원한다. 어떤 쿠폰도 바꾸기 전에 전체를 확인한다. */
+    private static void requireBudgetRestorations(Settlement settlement, Map<UsageRef, CouponUsage> found) {
+        if (!EVENT_CANCEL_COMPLETED.equals(settlement.event())) {
+            return;
+        }
+        Map<UsageRef, OrderItemCancelCompletedEvent.BudgetRestoration> restorations = new HashMap<>();
+        for (OrderItemCancelCompletedEvent.BudgetRestoration restoration : settlement.budgetRestorations()) {
+            UsageRef ref = new UsageRef(restoration.memberCouponId(), restoration.generation());
+            if (restoration.amount() <= 0 || restorations.putIfAbsent(ref, restoration) != null) {
+                throw invalidBudgetRestoration(settlement, ref, "복구 금액이 양수가 아니거나 복구 결과가 중복이다");
+            }
+        }
+        Set<UsageRef> refs = new HashSet<>(settlement.usages());
+        for (Map.Entry<UsageRef, CouponUsage> entry : found.entrySet()) {
+            CouponUsage usage = entry.getValue();
+            if (usage.getCouponType() == CouponType.PLATFORM && usage.getPlatformAmount() > 0
+                    && (usage.getStatus() == CouponUsageStatus.RESERVED || usage.getStatus() == CouponUsageStatus.PAID)
+                    && !refs.contains(entry.getKey())) {
+                throw invalidBudgetRestoration(settlement, entry.getKey(), "진행 중인 플랫폼 사용 시도가 이벤트에서 빠졌다");
+            }
+        }
+        for (UsageRef ref : settlement.usages()) {
+            CouponUsage usage = requireUsage(settlement, found.get(ref), ref);
+            OrderItemCancelCompletedEvent.BudgetRestoration restoration = restorations.remove(ref);
+            boolean required = usage.getCouponType() == CouponType.PLATFORM && usage.getPlatformAmount() > 0;
+            if (required ? restoration == null || restoration.couponId() != usage.getCouponId()
+                    || restoration.amount() != usage.getPlatformAmount() : restoration != null) {
+                throw invalidBudgetRestoration(settlement, ref, "복구 결과가 사용 시도의 쿠폰·금액과 다르거나 누락됐다");
+            }
+        }
+        if (!restorations.isEmpty()) {
+            throw invalidBudgetRestoration(settlement, restorations.keySet().iterator().next(),
+                    "이벤트의 사용 시도에 없는 예산 복구 결과다");
+        }
+    }
+
+    private static CouponOrderConsumerIsolationException invalidBudgetRestoration(Settlement settlement,
+                                                                                 UsageRef ref, String reason) {
+        return new CouponOrderConsumerIsolationException(reason + " eventId=" + settlement.eventId()
+                + ", orderItemId=" + settlement.orderItemId() + ", memberCouponId=" + ref.memberCouponId()
+                + ", generation=" + ref.generation());
     }
 
     /** 이미 처리한 이벤트면 아무것도 바꾸지 않고 끝낸다. 같은 eventId의 다른 내용이면 격리한다 */
@@ -299,7 +351,8 @@ public class CouponOrderConsumerUseCase {
      * @param extraParts 내용 키에 더 넣을 조각(취소 완료의 지갑 작업 ID·예산 복구 결과)
      */
     private record Settlement(String event, String eventId, long orderId, long orderItemId, long memberId,
-                              List<UsageRef> usages, Instant occurredAt, List<String> extraParts) {
+                              List<UsageRef> usages, Instant occurredAt, List<String> extraParts,
+                              List<OrderItemCancelCompletedEvent.BudgetRestoration> budgetRestorations) {
 
         /** 같은 eventId로 온 이벤트가 처음과 같은 내용인지 가르는 값. 사용 시도의 순서와 무관하다 */
         String contentKey() {

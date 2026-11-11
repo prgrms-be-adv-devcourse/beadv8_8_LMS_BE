@@ -16,6 +16,8 @@ import org.springframework.web.client.RestClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.HoldStateDto;
@@ -57,6 +59,8 @@ public class FakeBillingApiClient extends BillingApiClient {
     private final Map<Long, HoldStateDto> holdStates = new ConcurrentHashMap<>();
     private final Deque<HoldStatePageDto> holdPages = new ArrayDeque<>();
     private volatile boolean circuitOpen;
+    private final Map<Long, List<HoldPromotionDto>> promotions = new ConcurrentHashMap<>();
+    private final Map<Long, Long> buyerAmounts = new ConcurrentHashMap<>();
 
     public FakeBillingApiClient() {
         super(RestClient.builder(), new BillingClientProperties("http://127.0.0.1:9", null, null), "test");
@@ -71,6 +75,8 @@ public class FakeBillingApiClient extends BillingApiClient {
         holdStates.clear();
         holdPages.clear();
         circuitOpen = false;
+        promotions.clear();
+        buyerAmounts.clear();
     }
 
     /** 지갑 회로가 열려 있는지. 열려 있으면 실행기는 작업을 선점하지 않는다 (D79) */
@@ -114,27 +120,48 @@ public class FakeBillingApiClient extends BillingApiClient {
 
     @Override
     public BillingCallResult<HoldResultDto> hold(HoldCommand command) {
-        return answer(command, () -> new HoldResultDto(command.referenceType(), command.referenceId(),
-                command.amountHp(), false));
+        BillingCallResult<HoldResultDto> result = answer(command, () -> new HoldResultDto(command.referenceType(),
+                command.referenceId(), command.amountHp(), total(command.promotions()), command.promotions(), false));
+        if (result instanceof BillingCallResult.Succeeded<HoldResultDto>) {
+            promotions.put(command.referenceId(), command.promotions());
+            buyerAmounts.put(command.referenceId(), command.amountHp());
+        }
+        return result;
     }
 
     @Override
     public BillingCallResult<ReleaseResultDto> release(ReleaseCommand command) {
         return answer(command, () -> new ReleaseResultDto(command.referenceType(), command.referenceId(),
-                command.releaseRequestId(), settledHp, 0L, false));
+                command.releaseRequestId(), settledHp, 0L, total(promotions.getOrDefault(command.referenceId(), List.of())),
+                restorations(command.referenceId()), false));
     }
 
     @Override
     public BillingCallResult<PayoutResultDto> payout(PayoutCommand command) {
         return answer(command, () -> new PayoutResultDto(command.referenceType(), command.referenceId(),
                 command.payoutRequestId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
-                settledHp, 0L, false));
+                settledHp, total(promotions.getOrDefault(command.referenceId(), List.of())) == 0 ? null
+                        : settledHp - total(promotions.get(command.referenceId())),
+                total(promotions.getOrDefault(command.referenceId(), List.of())) == 0 ? null
+                        : total(promotions.get(command.referenceId())), 0L, false));
     }
 
     @Override
     public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
-        return answer(command, () -> new HoldVoidResultDto(command.referenceType(), command.referenceId(),
-                HoldVoidOutcome.VOIDED, 0L, false));
+        return answer(command, () -> promotions.getOrDefault(command.referenceId(), List.of()).isEmpty()
+                ? new HoldVoidResultDto(command.referenceType(), command.referenceId(), HoldVoidOutcome.VOIDED, 0L, false)
+                : new HoldVoidResultDto(command.referenceType(), command.referenceId(), HoldVoidOutcome.RELEASED,
+                        buyerAmounts.get(command.referenceId()), total(promotions.get(command.referenceId())),
+                        restorations(command.referenceId()), false));
+    }
+
+    private List<PromotionRestorationDto> restorations(Long itemId) {
+        return promotions.getOrDefault(itemId, List.of()).stream().map(p -> new PromotionRestorationDto(
+                p.couponId(), p.memberCouponId(), p.generation(), p.amountHp())).toList();
+    }
+
+    private static long total(List<HoldPromotionDto> values) {
+        return values.stream().map(HoldPromotionDto::amountHp).reduce(0L, Math::addExact);
     }
 
     @Override
