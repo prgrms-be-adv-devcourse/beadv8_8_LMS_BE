@@ -20,8 +20,9 @@ configMapGenerator:
       # heap 상한을 limit 비율(MaxRAMPercentage=60, 576Mi면 약 334Mi)이 아니라 고정값으로 둔다. heap 사용은 운영 7일 최대 108Mi,
       # Tenured 사용은 최대 83Mi다. 비율로 두면 heap 상한 + heap 밖(약 345Mi)이 limit을 넘는다(#726, #610).
       # 160m은 heap 사용 최대의 약 1.5배다. Tenured 상한(약 107Mi)은 Tenured 사용 최대의 약 1.3배라 full GC가 잦아지는지 본다.
-      # OutOfMemoryError(heap·metaspace·direct buffer 등)가 나면 JVM을 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
+      # JVM이 heap·metaspace 등을 할당하지 못해 OutOfMemoryError를 던지면 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
       # 끝내지 않으면 오류만 내며 떠 있어 어떤 alert도 울리지 않는다. 다시 시작하면 Grafana "컨테이너 재시작" alert가 받는다(#854).
+      # Java 코드가 직접 만들어 던지는 OutOfMemoryError(direct buffer 한도 초과 등)는 종료하지 않는다.
       - JAVA_TOOL_OPTIONS=-Xmx160m -XX:+ExitOnOutOfMemoryError
       # glibc malloc arena 수를 줄여 heap 밖 native 메모리를 줄인다. 기본값은 CPU 수 × 8이다(#610).
       - MALLOC_ARENA_MAX=2

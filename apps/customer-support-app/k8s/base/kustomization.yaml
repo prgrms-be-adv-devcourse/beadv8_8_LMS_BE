@@ -18,8 +18,9 @@ configMapGenerator:
       # actuator(헬스체크·Prometheus 지표)는 관리 포트로만 연다. 8080에는 Gateway만 들인다(#528, D72)
       - MANAGEMENT_SERVER_PORT=8082
       # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
-      # OutOfMemoryError(heap·metaspace·direct buffer 등)가 나면 JVM을 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
+      # JVM이 heap·metaspace 등을 할당하지 못해 OutOfMemoryError를 던지면 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
       # 끝내지 않으면 오류만 내며 떠 있어 어떤 alert도 울리지 않는다. 다시 시작하면 Grafana "컨테이너 재시작" alert가 받는다(#854).
+      # Java 코드가 직접 만들어 던지는 OutOfMemoryError(direct buffer 한도 초과 등)는 종료하지 않는다.
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60 -XX:+ExitOnOutOfMemoryError
       # trace를 Alloy(OTLP gRPC)로 보낸다. Alloy가 Tempo로 넘긴다(#663). service name은 spring.application.name(customer-support-app)이다
       - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317
