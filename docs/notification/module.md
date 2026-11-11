@@ -57,7 +57,6 @@
 | 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·prometheus와 알림 웹소켓 핸드셰이크(`GET /api/v1/notifications/ws`, ND-060) 밖의 모든 요청에 인증을 요구한다 | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/config/SecurityConfig.java` |
 | Modulith 발행 기록·Flyway 이력은 schema `auxiliary`, Flyway `out-of-order: true`, Hikari 5, 스케줄 풀 2 | `apps/auxiliary-app/src/main/resources/application.yaml` |
 | Kafka·Redis 클라이언트는 루트 빌드가 모든 앱에 넣는다(`:kafka`, `:redis`). WebSocket starter와 업무 모듈용 Redis starter·micrometer-core는 알림 모듈 빌드가 직접 넣는다(N3, 업무 모듈은 `:redis` 프로젝트를 의존할 수 없다) | `build.gradle.kts` 62~68행, `boundedContext/notification/build.gradle.kts` |
-| `final-project-infrastructure.md`는 아직 `notification-app`(폐기 ND-903)으로 적혀 있다 | `docs/architecture/final-project-infrastructure.md` 38·39행, Phase 4. decisions.md 11장 |
 
 ## 3. 확정 To-Be (ND로 확정. 구현된 부분은 2장 As-Is)
 

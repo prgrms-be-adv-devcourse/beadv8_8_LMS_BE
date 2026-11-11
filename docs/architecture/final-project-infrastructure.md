@@ -110,8 +110,7 @@ PostgreSQL instance 1개 (prod만, 10장)
   ├─ billing DB ────── 지갑·정산
   ├─ chat DB ───────── 채팅
   ├─ customersupport DB ─ 고객센터 원문·색인 상태
-  ├─ notification DB ─ 알림
-  └─ search DB ─────── 색인 inbox·상태 (색인 자체는 ES)
+  └─ auxiliary DB ──── 모듈별 schema: notification(알림), search(색인 inbox·상태, 색인 자체는 ES), chatbot
 
 Prometheus ← app·infrastructure metrics scrape
 Alloy ─┬─ pod logs ─→ Loki
@@ -142,8 +141,8 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 4 | [Graceful Shutdown](infrastructure/graceful-shutdown.md) | 전체 workload drain |
 | 5 | [관측성](infrastructure/observability.md) | Grafana observability stack, Prometheus vs Mimir, 부하 테스트 |
 | 6·7 | [포트폴리오 추가 항목](infrastructure/portfolio-items.md) | SonarQube Cloud, test fixtures, Testcontainers 장애 test, Spring AI RAG, 이벤트 계약·OpenAPI contract, JFR, Terraform |
-| 8 | [알림 모듈](infrastructure/notification.md) | notification 앱 분리 |
-| 9 | [검색 모듈](infrastructure/search.md) | search 앱과 Elasticsearch |
+| 8 | [알림 모듈](infrastructure/notification.md) | auxiliary-app의 알림 모듈 |
+| 9 | [검색 모듈](infrastructure/search.md) | auxiliary-app의 검색 모듈과 Elasticsearch |
 | 10 | [모듈별 database](infrastructure/database.md) | instance 1개 + 앱별 database |
 | - | [GraalVM Native Image](infrastructure/native-image.md) | customer-support-app native 시험 적용(#609), JVM과 메모리 비교, native 메타데이터 관리 |
 | 11 | [아래](#11-실서비스-전환-시-고려사항) | 실서비스 전환 시 고려사항 |
