@@ -12,12 +12,16 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 import com.hapbang.billing.app.BillingExternalEvents;
 import com.hapbang.shared.billing.event.BillingEventTopic;
 import com.hapbang.shared.billing.event.ChargeCompletedEvent;
+import com.hapbang.shared.billing.event.ChargeFailedEvent;
+import com.hapbang.shared.billing.event.ExchangeApprovedEvent;
 import com.hapbang.shared.billing.event.ExchangeCompletedEvent;
 import com.hapbang.shared.billing.event.ExchangeFinalFailedEvent;
 import com.hapbang.shared.billing.event.ExchangePayoutFailedEvent;
 import com.hapbang.shared.billing.event.ExchangeRejectedEvent;
 import com.hapbang.shared.billing.event.PayoutCompletedEvent;
 import com.hapbang.shared.billing.event.RefundCompletedEvent;
+import com.hapbang.shared.billing.event.RefundFailedEvent;
+import com.hapbang.shared.billing.event.RefundManualReviewRequiredEvent;
 
 /**
  * 지갑 이벤트를 Kafka로 내보낸다 (Modulith 이벤트 외부화, #497). 규칙은 docs/architecture/infrastructure/kafka.md(#339)를 따른다.
@@ -56,6 +60,11 @@ public class BillingEventExternalizationConfig {
                 .headers(ExchangeRejectedEvent.class, event -> headers("ExchangeRejectedEvent"))
                 .headers(ExchangePayoutFailedEvent.class, event -> headers("ExchangePayoutFailedEvent"))
                 .headers(ExchangeFinalFailedEvent.class, event -> headers("ExchangeFinalFailedEvent"))
+                // 알림센터용 (#873, BD-162)
+                .headers(ChargeFailedEvent.class, event -> headers("ChargeFailedEvent"))
+                .headers(RefundFailedEvent.class, event -> headers("RefundFailedEvent"))
+                .headers(RefundManualReviewRequiredEvent.class, event -> headers("RefundManualReviewRequiredEvent"))
+                .headers(ExchangeApprovedEvent.class, event -> headers("ExchangeApprovedEvent"))
                 .build();
     }
 

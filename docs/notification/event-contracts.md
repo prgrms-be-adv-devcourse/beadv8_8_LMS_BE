@@ -106,11 +106,11 @@
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ChargeFailedEvent` | 🆕 (M5) | `point-charge:<충전 ID>` | `chargeId`, `userId`, 금액, `failedAt` | `chargeId` | `failedAt` | 충전한 회원 | `CHARGE_FAILED` | 확정 |
-| `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 확정 |
-| `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 | `refundRequestId` | 발생 시각 | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 확정 |
-| `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 확정 |
-| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 확정 |
+| `ChargeFailedEvent` | 🆕 (M5) | `point-charge:<충전 ID>` | `chargeId`, `userId`, 금액, `failedAt` (구현: `amountHp`·`paymentAmountKrw`) | `chargeId` | `failedAt` | 충전한 회원 | `CHARGE_FAILED` | 구현됨 (#873) |
+| `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` (구현: `requestedAmountHp`. 환불 요청 FAILED만, 일부 환불은 `RefundCompletedEvent`) | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 구현됨 (#873) |
+| `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 (구현: `requestedAmountHp`·`manualReviewRequiredAt`) | `refundRequestId` | `manualReviewRequiredAt` | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 구현됨 (#873) |
+| `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` (구현: `requestedAmountHp`) | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 구현됨 (#873) |
+| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목, `String`. 제목 없는 요청은 null이고 JSON에 쓰지 않는다) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 구현됨 (#873) |
 
 - ND-040 변경 범위: 지급 요청 `PayoutCommand`(정상 지급)와 `PenaltyCommand`(위약금 지급)에 출처 제목을 더하고, 출연·강의가 지급을 요청할 때 넘긴다. 출연·강의는 저장해 둔 HP 작업으로 나중에 요청하므로, 작업에 제목을 어떻게 보관할지는 출연·강의 담당이 정한다. 지갑은 그 값을 `PayoutCompletedEvent.sourceTitle`로 담는다. 이벤트는 지급 건(`Settlement`)에서 만들므로 값을 어떻게 보관할지(저장 칸 추가 등)는 지갑 담당이 정한다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
 - 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`).
@@ -181,7 +181,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | #818 | 구현됨 |
 | M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
-| M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | — | 계약 확정, Issue 발송 전 |
+| M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(미병합, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | — | 계약 확정, Issue 발송 전 |
 | M7 | 고객센터 | 고객센터 🆕 3종(수정 회차 포함) | — | 계약 확정, Issue 발송 전 |
 | M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |

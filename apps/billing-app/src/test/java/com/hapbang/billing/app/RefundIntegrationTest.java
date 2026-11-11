@@ -7,6 +7,7 @@ import static org.mockito.Mockito.doAnswer;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +48,8 @@ import com.hapbang.billing.out.TossResult;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.event.RefundCompletedEvent;
+import com.hapbang.shared.billing.event.RefundFailedEvent;
+import com.hapbang.shared.billing.event.RefundManualReviewRequiredEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 충전 HP 환불(#260)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다. 실제 TossPayments는 부르지 않는다.
@@ -352,6 +355,10 @@ class RefundIntegrationTest {
         assertConsistent(result.refundRequestId());
         // 환불한 금액이 없으면(FAILED) 환불 완료 이벤트를 발행하지 않는다 (#497)
         assertThat(applicationEvents.stream(RefundCompletedEvent.class)).isEmpty();
+        // 대신 환불 실패 이벤트를 요청액으로 한 번 발행한다 (#873, BD-162)
+        assertThat(applicationEvents.stream(RefundFailedEvent.class)).containsExactly(
+                new RefundFailedEvent(result.refundRequestId(), 1L, 15_000L, result.completedAt()));
+        assertThat(applicationEvents.stream(RefundManualReviewRequiredEvent.class)).isEmpty();
     }
 
     @ParameterizedTest
@@ -383,6 +390,10 @@ class RefundIntegrationTest {
         assertWallet(walletId, 10_000L, CHARGE);
         assertConsistent(result.refundRequestId());
         assertThat(recover()).isZero();
+        // 운영자 확인 이벤트는 요청액과 그 결제 건의 운영자 확인 시각으로 한 번 나가고, 실패 이벤트는 없다 (#873, BD-162)
+        assertThat(applicationEvents.stream(RefundManualReviewRequiredEvent.class)).containsExactly(
+                new RefundManualReviewRequiredEvent(result.refundRequestId(), 1L, 15_000L, manualReviewAt(result, 0)));
+        assertThat(applicationEvents.stream(RefundFailedEvent.class)).isEmpty();
     }
 
     @Test
@@ -480,6 +491,8 @@ class RefundIntegrationTest {
                     result.completedAt()));
             assertThat(event.fullyRefunded()).isFalse();
         });
+        // 일부 환불은 실패 이벤트를 내지 않는다(완료 이벤트만, #873 BD-162)
+        assertThat(applicationEvents.stream(RefundFailedEvent.class)).isEmpty();
     }
 
     @Test
@@ -1129,6 +1142,11 @@ class RefundIntegrationTest {
 
     private Map<String, Object> chargeRow(String orderId) {
         return jdbcTemplate.queryForMap("SELECT * FROM billing.point_charge WHERE pg_order_id = ?", orderId);
+    }
+
+    private Instant manualReviewAt(RefundResult result, int index) {
+        return jdbcTemplate.queryForList("SELECT manual_review_at FROM billing.point_refund WHERE refund_request_id = ? "
+                + "ORDER BY id", OffsetDateTime.class, result.refundRequestId()).get(index).toInstant();
     }
 
     private Map<String, Object> refundRow(RefundResult result, int index) {

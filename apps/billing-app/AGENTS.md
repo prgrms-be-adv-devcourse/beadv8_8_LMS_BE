@@ -161,7 +161,7 @@ Billing은 다음 기능을 담당한다.
 - 멱등키는 Billing이 만든다(`app.BillingKeys`, BD-55). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다. 같은 요청 ID로 다시 보내도 HP는 두 번 움직이지 않는다.
 - 호출 쪽의 실패 복구(HP 작업·재시도·보상)는 각 모듈이 소유한다: 강의 `docs/lecture/integration.md`, 출연 `docs/appearance/module.md`. Billing 오류·결과 불명을 성공으로 해석하지 않는다(BD-70).
 - **지갑이 부르는 다른 앱 내부 API (BD-134)**: 수익 조회(shared `LectureApiClient`·`AppearanceApiClient`)와 회원 Backfill(`MemberApiClient`)은 shared Client를 고치지 않고 지갑의 `out.OutboundCircuitBreakers`로 감싼다(회로 `lecture`·`appearance`·`member`). `UNAVAILABLE`만 실패로 세고, 수익 조회만 연결 실패를 1회 다시 보낸다. 새 나가는 호출을 더하면 같은 컴포넌트에 회로를 더한다.
-- **지갑 이벤트 발행 (BD-130)**: 충전·지급·환불·환전 결과를 `billing.events.v1`에 발행한다(`BillingEventPublisher`, Modulith externalization, 같은 트랜잭션 + 매분 재발행). 이벤트 레코드는 `shared.billing.event`이고 사실만 담는다(계좌·결제키·사유 원문 없음). 상세는 `docs/billing/CONTEXT.md` 9장.
+- **지갑 이벤트 발행 (BD-130)**: 충전·지급·환불·환전 결과를 `billing.events.v1`에 발행한다(`BillingEventPublisher`, Modulith externalization, 같은 트랜잭션 + 매분 재발행). 이벤트 레코드는 `shared.billing.event`이고 사실만 담는다(계좌·결제키·사유 원문 없음). 상세는 `docs/billing/CONTEXT.md` 9장. 알림용 실패·운영자 확인·환전 승인 이벤트는 BD-162, 지급 완료 출처 제목(`sourceTitle`)은 BD-163을 따른다. 제목은 저장하지 않고 멱등 비교에 넣지 않으며, 제목 때문에 지급을 거절하지 않는다.
 - 거래 상태의 확정·취소 판단은 각 업무 도메인이 담당한다.
 - Billing은 HP 이동 및 원장 정합성만 책임진다.
 - 다른 도메인의 테이블을 직접 조회해 거래 상태를 변경하지 않는다.

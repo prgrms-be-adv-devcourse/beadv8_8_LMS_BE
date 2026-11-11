@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import org.springframework.modulith.events.Externalized;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 
@@ -18,8 +19,17 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
  * @param sourceId 지급 원천 ID
  * @param paidAmountHp 지급한 HP
  * @param paidAt 지급 시각
+ * @param sourceTitle 출처(출연·강의) 제목. 지급 요청에 제목이 없으면 null이다 (#873, BD-163·알림 ND-040)
  */
 @Externalized(BillingEventTopic.NAME + "::#{'settlement:' + #this.settlementId()}")
 public record PayoutCompletedEvent(Long settlementId, Long receiverUserId, PayoutType payoutType,
-        SettlementSourceType sourceType, Long sourceId, long paidAmountHp, Instant paidAt) {
+        SettlementSourceType sourceType, Long sourceId, long paidAmountHp, Instant paidAt,
+        // 제목이 없으면 본문에 쓰지 않는다(#873 이전 본문과 같다)
+        @JsonInclude(JsonInclude.Include.NON_NULL) String sourceTitle) {
+
+    /** 출처 제목 없이 만든다 (#873 이전 형식과 같다) */
+    public PayoutCompletedEvent(Long settlementId, Long receiverUserId, PayoutType payoutType,
+            SettlementSourceType sourceType, Long sourceId, long paidAmountHp, Instant paidAt) {
+        this(settlementId, receiverUserId, payoutType, sourceType, sourceId, paidAmountHp, paidAt, null);
+    }
 }

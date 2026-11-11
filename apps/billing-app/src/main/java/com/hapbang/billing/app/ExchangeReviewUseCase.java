@@ -69,6 +69,7 @@ public class ExchangeReviewUseCase {
         Instant approvedAt = exchangePayoutClock.now();
         Instant provisional = exchange.getPayoutScheduledAt();
         exchange.approve(adminId, approvedAt, ExchangeSettlementRound.forApproval(provisional, approvedAt));
+        billingEventPublisher.exchangeApproved(exchange);
         log.info("환전 승인 exchangeId={}, adminId={}, settlementRound={}{}", exchangeId, adminId,
                 ExchangeSettlementRound.dateOf(exchange.getPayoutScheduledAt()),
                 provisional.equals(exchange.getPayoutScheduledAt()) ? "" : " (정산일 이후 승인으로 다음 회차)");
