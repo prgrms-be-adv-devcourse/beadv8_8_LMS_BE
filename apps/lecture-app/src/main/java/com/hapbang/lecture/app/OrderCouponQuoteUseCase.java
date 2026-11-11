@@ -30,7 +30,6 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>강의를 읽어 주문할 수 있는지 주문 저장과 같은 규칙으로 먼저 검사한다.</li>
  *     <li>쿠폰 계산을 구매자가 고른 매핑({@code selections})으로 부른다. 거절이면 409 {@code COUPON_CALCULATION_REJECTED}
  *     (쿠폰 오류 코드 보존), 보내지 않음·결과 불명과 인증·권한 거절(401·403, 설정 문제)이면 503 {@code COUPON_UNAVAILABLE}이다.</li>
- *     <li>플랫폼 부담 할인이 있으면 409 {@code COUPON_PLATFORM_FUNDING_UNAVAILABLE}이다. 플랫폼 부담의 재원 처리가 아직 없다.</li>
  *     <li>구매자 금액 합이 구매자가 본 금액과 다르면 409 {@code ORDER_QUOTE_CHANGED}다.</li>
  * </ol>
  * 어느 경우든 실패하면 주문을 만들지 않는다.
@@ -63,11 +62,6 @@ public class OrderCouponQuoteUseCase {
 
         CouponCalculateResponse response = calculate(buyerUserId, lectures, selections);
         OrderCouponQuote quote = toQuote(lectures, response);
-        long platformDiscountHp = quote.items().values().stream()
-                .mapToLong(OrderCouponQuote.Item::platformDiscountHp).sum();
-        if (platformDiscountHp > 0) {
-            throw new LectureException(LectureErrorCode.COUPON_PLATFORM_FUNDING_UNAVAILABLE);
-        }
         long buyerAmountHp = quote.items().values().stream()
                 .mapToLong(item -> item.priceHp() - item.discountHp()).sum();
         if (buyerAmountHp != expectedBuyerAmountHp) {
@@ -153,8 +147,22 @@ public class OrderCouponQuoteUseCase {
         if (!isSplit(item.discount(), item.platformDiscount(), item.sellerDiscount(), item.price())) {
             return false;
         }
-        return item.coupons().stream().allMatch(coupon -> isSplit(coupon.discount(), coupon.platformAmount(),
-                coupon.sellerAmount(), coupon.baseAmount()));
+        long discount = 0;
+        long platform = 0;
+        long seller = 0;
+        for (CouponCalculateResponse.Coupon coupon : item.coupons()) {
+            if (!isSplit(coupon.discount(), coupon.platformAmount(), coupon.sellerAmount(), coupon.baseAmount())) {
+                return false;
+            }
+            try {
+                discount = Math.addExact(discount, coupon.discount());
+                platform = Math.addExact(platform, coupon.platformAmount());
+                seller = Math.addExact(seller, coupon.sellerAmount());
+            } catch (ArithmeticException exception) {
+                return false;
+            }
+        }
+        return discount == item.discount() && platform == item.platformDiscount() && seller == item.sellerDiscount();
     }
 
     /** 덧셈 대신 범위를 먼저 보고 뺄셈으로 비교해, 큰 값의 합이 넘쳐 우연히 같아지는 응답도 거른다 */

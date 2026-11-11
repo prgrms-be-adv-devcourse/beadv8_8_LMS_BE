@@ -49,6 +49,15 @@ public class MemberCoupon {
     @Column(nullable = false)
     private long generation;
 
+    /** billing 해제로 영속 작업을 등록한 누적액. PENDING도 포함해 응답 유실 중 중복 등록을 막는다. */
+    @Column(nullable = false, updatable = false)
+    private long budgetReleasePlannedHp;
+
+    /** 이 상태의 목표액까지 해제 작업 등록을 확인했다. HTTP 완료 여부와는 무관하다. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20, updatable = false)
+    private MemberCouponStatus budgetReleaseCheckedStatus;
+
     private Long currentOrderItemId;
 
     /** 최초 접수 시각 */

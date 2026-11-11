@@ -1,7 +1,10 @@
 package com.hapbang.lecture.app;
 
+import java.util.List;
+
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 
 /**
  * HP 작업 결과를 업무 상태에 반영한다. 작업 목적마다 하나다 (D65).
@@ -17,6 +20,11 @@ public interface LectureHpTaskResultHandler {
 
     /** 지갑이 처리했다 */
     void onSucceeded(LectureHpTask task);
+
+    /** 반환·무효화가 확인한 플랫폼 예산 복구 결과. 결과 기록과 이벤트 발행은 같은 트랜잭션이다. */
+    default void onSucceeded(LectureHpTask task, List<PromotionRestorationDto> restorations) {
+        onSucceeded(task);
+    }
 
     /** 보류가 확정 거절됐다(잔액 부족, 보류 무효화된 대상). 보류 목적만 받는다 */
     default void onRejected(LectureHpTask task) {

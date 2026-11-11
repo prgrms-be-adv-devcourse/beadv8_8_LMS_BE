@@ -2,6 +2,7 @@ package com.hapbang.lecture.fake;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 /**
  * 모듈 테스트 컨텍스트에 {@link FakeBillingApiClient}를 등록한다 (#275).
@@ -12,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 public class FakeBillingApiClientConfig {
 
     @Bean
+    @Primary
     FakeBillingApiClient fakeBillingApiClient() {
         return new FakeBillingApiClient();
     }

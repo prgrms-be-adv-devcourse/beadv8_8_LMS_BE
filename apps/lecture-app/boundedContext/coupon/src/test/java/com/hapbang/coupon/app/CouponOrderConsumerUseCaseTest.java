@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import com.hapbang.coupon.domain.CouponType;
@@ -58,7 +60,8 @@ class CouponOrderConsumerUseCaseTest {
     void setUp() {
         CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(
                 new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
-        useCase = new CouponOrderConsumerUseCase(couponUsageRepository, memberCouponRepository,
+        useCase = new CouponOrderConsumerUseCase(mock(CouponBudgetReleaseRecorder.class),
+                couponUsageRepository, memberCouponRepository,
                 processedOperationRepository, metrics, transactionManager(), CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
@@ -161,5 +164,116 @@ class CouponOrderConsumerUseCaseTest {
                 .isInstanceOf(IllegalStateException.class)
                 .isNotInstanceOf(CouponOrderConsumerIsolationException.class);
         verify(processedOperationRepository, never()).saveAndFlush(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MemberCouponStatus.class, names = {"RESERVED", "USED"})
+    void 플랫폼_사용분과_정확히_일치하는_예산_복구_결과가_있어야_쿠폰을_복원한다(MemberCouponStatus status) {
+        givenPlatformUsage(400);
+        if (status == MemberCouponStatus.USED) {
+            usage.applyPaid(PAID.eventId(), PAID_AT, MemberCouponStatus.RESERVED, GENERATION, NOW);
+        }
+        givenCoupon(status);
+        OrderItemCancelCompletedEvent event = canceledWith(List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)));
+
+        assertThat(useCase.consume(event)).isEqualTo(CouponOrderConsumerUseCase.Result.APPLIED);
+
+        assertThat(usage.getStatus()).isEqualTo(CouponUsageStatus.CANCELED);
+        verify(memberCouponRepository).restore(MEMBER_COUPON, GENERATION, NOW);
+    }
+
+    @Test
+    void 예산_복구_결과의_누락_추가_중복_식별자_금액_불일치는_쿠폰을_바꾸기_전에_격리한다() {
+        givenPlatformUsage(400);
+        List<List<OrderItemCancelCompletedEvent.BudgetRestoration>> invalid = List.of(
+                List.of(),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 400),
+                        restoration(1, MEMBER_COUPON + 1, GENERATION, 400)),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 400),
+                        restoration(1, MEMBER_COUPON, GENERATION, 400)),
+                List.of(restoration(2, MEMBER_COUPON, GENERATION, 400)),
+                List.of(restoration(1, MEMBER_COUPON + 1, GENERATION, 400)),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION + 1, 400)),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 401)),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 0)),
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, -400)));
+
+        for (List<OrderItemCancelCompletedEvent.BudgetRestoration> restorations : invalid) {
+            assertThatThrownBy(() -> useCase.consume(canceledWith(restorations)))
+                    .isInstanceOf(CouponOrderConsumerIsolationException.class);
+        }
+
+        assertThat(usage.getStatus()).isEqualTo(CouponUsageStatus.RESERVED);
+        verifyNoInteractions(memberCouponRepository);
+        verify(processedOperationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void 진행_중인_플랫폼_사용_시도를_이벤트에서_빼면_복원하지_않고_격리한다() {
+        CouponUsage seller = usage;
+        CouponUsage platform = CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+                new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
+                new AppliedCoupon(MEMBER_COUPON + 1, 2, CouponType.PLATFORM, 2, PRICE - 1_000, 400, 400, 0, 0, 1),
+                "lecture-order:900:reserve", NOW);
+        when(couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID)).thenReturn(List.of(seller, platform));
+
+        assertThatThrownBy(() -> useCase.consume(CANCELED))
+                .isInstanceOf(CouponOrderConsumerIsolationException.class);
+
+        assertThat(seller.getStatus()).isEqualTo(CouponUsageStatus.RESERVED);
+        verifyNoInteractions(memberCouponRepository);
+    }
+
+    @Test
+    void 판매자_쿠폰에_플랫폼_예산_복구_결과를_붙이면_격리한다() {
+        assertThatThrownBy(() -> useCase.consume(canceledWith(
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)))))
+                .isInstanceOf(CouponOrderConsumerIsolationException.class);
+
+        verifyNoInteractions(memberCouponRepository);
+    }
+
+    @Test
+    void 플랫폼_부담이_0이면_복구_결과는_빈_목록이어야_한다() {
+        givenPlatformUsage(0);
+        assertThatThrownBy(() -> useCase.consume(canceledWith(
+                List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)))))
+                .isInstanceOf(CouponOrderConsumerIsolationException.class);
+        givenCoupon(MemberCouponStatus.RESERVED);
+
+        assertThat(useCase.consume(CANCELED)).isEqualTo(CouponOrderConsumerUseCase.Result.APPLIED);
+
+        verify(memberCouponRepository).restore(MEMBER_COUPON, GENERATION, NOW);
+    }
+
+    @Test
+    void 이전_generation의_복구_결과도_이전_사용분과_대조하고_현재_쿠폰은_바꾸지_않는다() {
+        givenPlatformUsage(400);
+        when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(
+                new MemberCouponState(MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED,
+                        GENERATION + 1, EXPIRES_AT, ORDER_ITEM_ID)));
+
+        assertThat(useCase.consume(canceledWith(List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)))))
+                .isEqualTo(CouponOrderConsumerUseCase.Result.FACT_ONLY);
+
+        verify(memberCouponRepository, never()).restore(anyLong(), anyLong(), any());
+    }
+
+    private void givenPlatformUsage(long platformAmount) {
+        usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
+                new AppliedCoupon(MEMBER_COUPON, 1, CouponType.PLATFORM, 1, PRICE, platformAmount,
+                        platformAmount, 0, 0, 1), "lecture-order:900:reserve", NOW);
+        when(couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID)).thenReturn(List.of(usage));
+    }
+
+    private static OrderItemCancelCompletedEvent canceledWith(
+            List<OrderItemCancelCompletedEvent.BudgetRestoration> restorations) {
+        return OrderItemCancelCompletedEvent.of(ORDER_ID, ORDER_ITEM_ID, MEMBER_ID, CANCELED.usages(),
+                CANCELED.billingReleaseRequestId(), restorations, CANCELED.completedAt());
+    }
+
+    private static OrderItemCancelCompletedEvent.BudgetRestoration restoration(long couponId, long memberCouponId,
+                                                                              long generation, long amount) {
+        return new OrderItemCancelCompletedEvent.BudgetRestoration(couponId, memberCouponId, generation, amount);
     }
 }
