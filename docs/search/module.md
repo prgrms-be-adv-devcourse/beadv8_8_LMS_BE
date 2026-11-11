@@ -53,9 +53,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `TombstoneCleanup` | 7일 지난 숨김 문서 정리(대상마다 얇은 하위 클래스) |
 | app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
 | app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
-| app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 검색자 키는 회원 ID(`Long`) 또는 비회원 client IP 해시(`String`, L19) |
+| app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
 | out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
-| out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체 |
+| out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체. 이 대상 index는 이름이 정확히 `search-<대상>-` + 해시 12자인 것만 본다(`IndexDefinition.ownsIndex`). 이름이 대상 + "-…"인 다른 대상의 index를 남은 index로 지우지 않게 한다 |
 | out | `SynonymsSetup` | 동의어 묶음 하나를 공통 `synonyms.txt`와 맞춘다(모든 대상이 함께 씀) |
 | out | `DocumentWrites` | 문서 쓰기의 대상 무관 부분: alias 없음 404 → 건너뜀, 그 문서 값 때문의 거절 판별(`DocumentRejectedException`), bulk 결과(`WriteOutcome`), 보이는 문서 세기, 숨김 문서 지우기 |
 | out | `ConsistencyCheckStore` | 문서 수 정합성 점검 결과(`search.consistency_check`, 대상별 한 행). JDBC |
@@ -86,9 +86,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 1. `search/<대상>/index.json`을 만든다. 사용자 사전·동의어 묶음 자리표시자(`"__USER_DICTIONARY__"`, `__SYNONYMS_SET__`)를 넣고, 숨김 표시 필드 `hidden`(boolean)·`hiddenAt`(date)을 둔다(공통 세기·정리가 쓴다). 사용자 사전·동의어 파일은 `search/common/`의 것을 함께 쓴다. 새 용어를 더하면 모든 대상이 재색인한다.
 2. `search.<대상>.out`에 `<대상>IndexDefinition`(대상 이름·alias·지표 대상 값)과 `<대상>IndexSetup extends IndexSetup`(생성자만)을 둔다.
 3. 문서 저장소는 `DocumentWrites`를 써서 오류 처리·bulk 결과를 맞춘다. 원본 version 조건부 쓰기 script와 문서 모양은 대상이 정한다.
-4. `IndexLoader`(원본 전체로 새 index 채우기: 보이는 문서 + 숨김 문서, 거절 문서는 건너뛰고 셈)와 `IndexCatchUp`(교체 뒤 따라잡기)을 구현하고, `<대상>Reindexer`에서 공통 `Reindexer`에 넘긴다. 락은 `SearchJob`에 새 키(그 작업을 더한 이슈 번호 × 1000 + 순번)를 더한다.
+4. `IndexLoader`(원본 전체로 새 index 채우기: 보이는 문서 + 숨김 문서, 거절 문서는 건너뛰고 셈)와 `IndexCatchUp`(교체 뒤 따라잡기)을 구현하고, `<대상>Reindexer`에서 공통 `Reindexer`에 넘긴다. 따라잡기 부품은 겹쳐 읽기 값(`overlap()`)도 알려 준다(정기 보정과 같은 값). 락은 `SearchJob`에 **대상 이름을 붙인 새 키**(예: `LECTURE_REINDEX`, 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번)를 더한다. 인플루언서 키(`REINDEX` 등)를 같이 쓰면 두 대상이 같은 락을 잡아 한쪽이 건너뛴다. 키를 한 enum에 모으는 것은 auxiliary database 하나를 모듈이 나눠 쓰므로 `SearchJobTest`가 번호 겹침을 한 번에 보게 하려는 것이다.
 5. `<대상>TombstoneCleanup extends TombstoneCleanup`(생성자만, 새 락 키)을 두고 배치에 붙인다.
-6. 검색 Facade는 `SearchMetrics.forTarget(대상)`을 받고, 0건 검색어는 `ZeroResultKeywords.record(검색어, 검색자 키)`로 센다.
+6. 검색 Facade는 `SearchMetrics.forTarget(대상)`을 받고, 0건 검색어는 `ZeroResultKeywords.record(검색어, 회원 ID 또는 IP 해시)`로 센다.
 7. 공통 흐름은 `ReindexerTest`가 이미 시험용 대상으로 확인한다. 대상 테스트는 채우기·따라잡기 부품과 golden query를 본다.
 
 ## 4. index
@@ -305,6 +305,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ## 12. 알려진 한계
 
+- 동의어 묶음은 하나인데 재색인 확인(`Reindexer`)이 대상마다 묶음을 다시 맞춘다. 대상이 둘이 되면 묶음이 거절될 때 `[SEARCH_SYNONYMS_REJECTED]` ERROR와 `synonyms.rejected` 지표가 대상 수만큼 나온다. 강의 검색 PR에서 한 곳으로 모은다(#868 리뷰).
 - 사전에 없는 지어낸 닉네임은 잘게 쪼개져 다른 검색어에 걸릴 수 있다(예: "롤러스케이터"가 "롤" 검색에 걸림, G01b). 0건 검색어처럼 근거가 쌓이면 사전을 보강하거나 하위 필드를 더한다.
 - 동의어 일치와 원문 일치의 가중치가 같다(G05). 원문 일치를 위로 올리려면 동의어 없는 하위 필드를 작은 가중치로 더한다.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.

@@ -12,8 +12,8 @@ public final class InfluencerIndexDefinition {
 
     /** 대상 이름. {@code search/influencers/index.json}을 읽는다 */
     public static final String TARGET = "influencers";
-    /** 검색·쓰기에 쓰는 alias */
-    public static final String ALIAS = "search-influencers";
+    /** 검색·쓰기에 쓰는 alias({@code search-influencers}). 대상 이름에서 만든다(출처를 하나로, #868 리뷰) */
+    public static final String ALIAS = IndexDefinition.aliasOf(TARGET);
     /** index 이름 앞부분. 뒤에 설정 해시가 붙는다 */
     public static final String INDEX_PREFIX = ALIAS + "-";
     /** 지표·로그의 대상 태그 값({@code target=influencer}) */

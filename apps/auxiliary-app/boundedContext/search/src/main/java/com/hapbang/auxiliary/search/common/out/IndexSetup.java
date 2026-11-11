@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,7 +115,8 @@ public class IndexSetup {
     }
 
     /**
-     * alias가 가리키는 index와 이 대상의 index 전부를 읽는다.
+     * alias가 가리키는 index와 이 대상의 index 전부를 읽는다. 이 대상 index는 이름이 정확히 {@code search-<대상>-} + 해시인 것만이다
+     * ({@link IndexDefinition#ownsIndex}). 다른 대상의 index를 남은 index로 지우지 않게 한다.
      *
      * @throws IllegalStateException ES에 닿지 못하거나 거절당한 경우
      */
@@ -124,8 +126,14 @@ public class IndexSetup {
             Map<String, co.elastic.clients.elasticsearch.indices.IndexState> indices = client.indices()
                     .get(g -> g.index(definition.indexPrefix() + "*").allowNoIndices(true)).indices();
             Map<String, Instant> createdAt = new HashMap<>();
-            indices.forEach((name, index) -> creationDate(index).ifPresent(at -> createdAt.put(name, at)));
-            return new IndexState(targets, indices.keySet(), definition.indexName(), createdAt);
+            Set<String> owned = new HashSet<>();
+            indices.forEach((name, index) -> {
+                if (definition.ownsIndex(name)) {
+                    owned.add(name);
+                    creationDate(index).ifPresent(at -> createdAt.put(name, at));
+                }
+            });
+            return new IndexState(targets, owned, definition.indexName(), createdAt);
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("검색 index 상태를 읽지 못했습니다 alias=" + definition.alias(), e);
         }

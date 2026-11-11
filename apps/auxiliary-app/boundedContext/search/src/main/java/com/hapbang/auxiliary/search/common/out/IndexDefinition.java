@@ -39,6 +39,8 @@ public final class IndexDefinition {
     private static final Pattern ONE_WORD = Pattern.compile("[\\p{L}\\p{N}]+");
     /** index 이름에 붙이는 해시 길이(16진수 글자 수) */
     private static final int HASH_LENGTH = 12;
+    /** 이 대상 index 이름의 해시 부분. 다른 대상 이름이 이 대상 이름 + "-…"이어도 그 index를 이 대상 것으로 보지 않게 길이까지 맞춘다 */
+    private static final Pattern HASH_PART = Pattern.compile("[a-z0-9]{" + HASH_LENGTH + "}");
 
     private final String alias;
     private final String indexBody;
@@ -92,6 +94,15 @@ public final class IndexDefinition {
     /** 지금 설정의 index 이름 */
     public String indexName() {
         return indexPrefix() + hash;
+    }
+
+    /**
+     * 이 대상의 index 이름인지({@code search-<대상>-} + 해시 12자). {@code search-<대상>-*}로 찾으면 이름이 이 대상 + "-…"인 다른 대상
+     * (예: {@code lectures}와 {@code lectures-reviews})의 index까지 걸려 남은 index로 지울 수 있다(#868 리뷰).
+     */
+    public boolean ownsIndex(String index) {
+        String prefix = indexPrefix();
+        return index.startsWith(prefix) && HASH_PART.matcher(index.substring(prefix.length())).matches();
     }
 
     /** index 생성 요청 본문(설정·mapping, 사용자 사전과 동의어 묶음 이름을 채운 JSON) */

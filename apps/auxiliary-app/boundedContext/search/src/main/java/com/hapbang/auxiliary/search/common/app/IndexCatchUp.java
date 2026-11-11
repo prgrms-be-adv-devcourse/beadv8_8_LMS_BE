@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.search.common.app;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
@@ -11,7 +12,13 @@ import java.time.LocalDateTime;
 public interface IndexCatchUp {
 
     /**
-     * 이 시각 뒤에 바뀐 원본을 반영한다. 늦게 커밋된 변경을 위한 여유는 부르는 쪽({@link Reindexer})이 이미 뺐다.
+     * 늦게 커밋된 변경을 놓치지 않게 따라잡기를 시각 T보다 이만큼 앞에서 시작한다. 정기 보정의 겹쳐 읽기와 같은 값을 돌려준다(값이 갈라지지 않게 부품이
+     * 알려 준다, #868 리뷰).
+     */
+    Duration overlap();
+
+    /**
+     * 이 시각 뒤에 바뀐 원본을 반영한다. 늦게 커밋된 변경을 위한 여유({@link #overlap()})는 부르는 쪽({@link Reindexer})이 이미 뺐다.
      *
      * @param from 이 시각 뒤에 바뀐 원본부터(원본 앱 시간대)
      */

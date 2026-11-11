@@ -26,6 +26,18 @@ class IndexDefinitionTest {
     }
 
     @Test
+    @DisplayName("이 대상의 index는 search-대상- + 해시 12자인 이름뿐이다. 이름이 대상 + \"-…\"인 다른 대상 index는 아니다(#868 리뷰)")
+    void ownsOnlyItsIndices() {
+        IndexDefinition lectures = IndexDefinition.of("lectures", TEMPLATE, List.of("합방"), List.of());
+
+        assertThat(lectures.ownsIndex(lectures.indexName())).isTrue();
+        assertThat(lectures.ownsIndex("search-lectures-old000000000")).isTrue();
+        assertThat(lectures.ownsIndex("search-lectures-reviews-0123456789ab")).isFalse();
+        assertThat(lectures.ownsIndex("search-lectures-0123")).isFalse();
+        assertThat(lectures.ownsIndex("search-influencers-0123456789ab")).isFalse();
+    }
+
+    @Test
     @DisplayName("동의어만 바뀌면 index 이름이 같다(재색인 없음). 사용자 사전이 바뀌면 이름이 바뀐다")
     void hashExcludesSynonyms() {
         IndexDefinition base = IndexDefinition.of("influencers", TEMPLATE, List.of("합방"), List.of("롤, LoL"));

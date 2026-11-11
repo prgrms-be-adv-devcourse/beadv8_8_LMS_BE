@@ -43,12 +43,25 @@ public class ZeroResultKeywords {
     private long dropped;
 
     /**
-     * 결과가 0건이던 검색어 하나를 센다.
+     * 회원이 찾은 0건 검색어 하나를 센다.
      *
-     * @param searcher 검색자 키. 서로 다른 검색자 수를 세는 데만 쓴다(equals로 비교). 회원이면 회원 ID({@link Long}), 비회원이면 client IP 해시
-     *                 ({@link String}, L19)를 넘긴다. 타입이 달라 회원 ID와 IP 해시가 같은 검색자로 섞이지 않는다
+     * @param userId 검색한 회원 ID. 서로 다른 검색자 수를 세는 데만 쓴다
      */
-    public void record(String keyword, Object searcher) {
+    public void record(String keyword, Long userId) {
+        count(keyword, userId);
+    }
+
+    /**
+     * 비회원이 찾은 0건 검색어 하나를 센다(L19).
+     *
+     * @param clientIpHash 검색한 client IP의 해시. 서로 다른 검색자 수를 세는 데만 쓴다. 회원 ID와는 타입이 달라 같은 검색자로 섞이지 않는다
+     */
+    public void record(String keyword, String clientIpHash) {
+        count(keyword, clientIpHash);
+    }
+
+    /** 검색자 키는 회원 ID({@link Long}) 또는 IP 해시({@link String})만 온다(위 두 메서드). 다른 타입으로 같은 회원이 둘로 세이지 않게 막는다 */
+    private void count(String keyword, Object searcher) {
         String normalized = keyword.strip().replaceAll("\\s+", " ").toLowerCase();
         if (normalized.isEmpty() || normalized.length() > MAX_LENGTH || CONTACT_LIKE.matcher(normalized).find()) {
             return;

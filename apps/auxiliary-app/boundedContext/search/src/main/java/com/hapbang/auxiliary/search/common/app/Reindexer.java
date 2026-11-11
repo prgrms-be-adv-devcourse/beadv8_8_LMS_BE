@@ -35,7 +35,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>채우기 부품이 원본 전체를 넣는다(보이는 문서와 숨김 문서).</li>
  *     <li>새 index를 refresh하고, 넣은 보이는 문서 수와 새 index의 보이는 문서 수를 비교한다. 다르면 멈춘다.</li>
  *     <li>alias를 한 요청으로 옮긴다(remove + add). 이 순간까지 검색·이벤트는 옛 index를 쓴다(처음 적재면 검색은 503, 이벤트는 건너뜀).</li>
- *     <li>따라잡기 부품을 T − 1분부터 한 번 돈다. 그사이 이벤트는 옛 index로 갔으므로 바뀐 원본을 새 index에 반영한다. 정기 보정이 돌고 있으면 끝날
+ *     <li>따라잡기 부품을 T − 겹쳐 읽기(인플루언서 1분, {@link IndexCatchUp#overlap})부터 한 번 돈다. 그사이 이벤트는 옛 index로 갔으므로 바뀐 원본을 새 index에 반영한다. 정기 보정이 돌고 있으면 끝날
  *     때까지 기다렸다 다시 부른다.</li>
  *     <li>옛 index를 지운다.</li>
  * </ol>
@@ -53,9 +53,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class Reindexer {
-
-    /** 따라잡기를 T보다 이만큼 앞에서 시작한다. 늦게 커밋된 변경을 놓치지 않게 증분 보정의 겹쳐 읽기와 같은 값이다 */
-    public static final Duration CATCH_UP_OVERLAP = Duration.ofMinutes(1);
 
     /** 정기 보정이 락을 쥐고 있을 때 다시 부르는 간격과 최대로 기다리는 시간 */
     public static final Duration CATCH_UP_RETRY_INTERVAL = Duration.ofSeconds(5);
@@ -95,7 +92,7 @@ public class Reindexer {
      * @param target    지표·로그의 대상 이름(예: {@code influencer})
      * @param writes    새 index의 보이는 문서 수를 센다
      * @param job       이 대상의 재색인 락
-     * @param clock     시각 T를 정하는 시계(원본 앱 시간대). 따라잡기는 T − 1분부터다
+     * @param clock     시각 T를 정하는 시계(원본 앱 시간대). 따라잡기는 T − 겹쳐 읽기부터다
      * @param startedAt 이 pod가 뜬 시각
      */
     public Reindexer(String target, IndexSetup indexSetup, DocumentWrites writes, IndexLoader loader,
@@ -134,8 +131,8 @@ public class Reindexer {
         } catch (SynonymsRejectedException e) {
             // 파일이 틀렸다. 10분마다 같은 이유로 실패하므로 사람이 봐야 한다. 처음 적재 전이면 검색이 계속 503이다(PR #845 재리뷰)
             registry.counter("hapbang.search.synonyms.rejected").increment();
-            log.error("{} ES가 검색 동의어 묶음을 거절해 처음 적재·재색인을 하지 않는다. synonyms.txt를 고쳐 배포한다",
-                    SYNONYMS_REJECTED_MARKER, e);
+            log.error("{} ES가 검색 동의어 묶음을 거절해 처음 적재·재색인을 하지 않는다. synonyms.txt를 고쳐 배포한다 target={}",
+                    SYNONYMS_REJECTED_MARKER, target, e);
             return ReindexResult.failed(null, null);
         }
         IndexState state = indexSetup.state();
@@ -148,14 +145,15 @@ public class Reindexer {
         if (aliasCreatedAt.isPresent() && aliasCreatedAt.get().isAfter(startedAt.plus(CLOCK_SKEW_MARGIN))) {
             // 롤링 배포 중 옛 pod다. 더 새 배포가 옮긴 index를 옛 설정으로 되돌리지 않는다(이 pod는 곧 내려간다)
             log.warn("검색 alias가 이 pod가 뜬 뒤에 만든 index를 가리켜 더 새 배포로 보고 재색인하지 않는다. 10분마다 반복되면 배포를 되돌린 "
-                            + "상태인지 확인하고 rollout restart로 pod를 다시 띄운다 alias={}, createdAt={}, podStartedAt={}, expected={}",
-                    state.aliasTargets(), aliasCreatedAt.get(), startedAt, state.expectedIndex());
+                            + "상태인지 확인하고 rollout restart로 pod를 다시 띄운다 target={}, alias={}, createdAt={}, podStartedAt={}, "
+                            + "expected={}", target, state.aliasTargets(), aliasCreatedAt.get(), startedAt,
+                    state.expectedIndex());
             return ReindexResult.upToDate();
         }
         if (state.aliasTargets().contains(state.expectedIndex())) {
             // 사람이 alias를 손으로 바꾼 경우뿐이다. 지금 설정 index를 지우고 다시 만들 수 없어 멈춘다
             log.error("{} 검색 alias가 지금 설정의 index와 다른 index를 함께 가리켜 재색인하지 않는다. alias가 한 index만 가리키게 고친다 "
-                    + "targets={}", FAILED_MARKER, state.aliasTargets());
+                    + "target={}, targets={}", FAILED_MARKER, target, state.aliasTargets());
             return ReindexResult.failed(null, null);
         }
         return reindex(state);
@@ -174,9 +172,9 @@ public class Reindexer {
         } catch (RuntimeException e) {
             // 사용자 사전·mapping 오류로 ES가 새 index를 거절하는 경우가 여기다. 10분마다 같은 이유로 실패하므로 사람이 봐야 한다(PR #845 리뷰)
             reindexed(reason, REINDEX_FAILURE, Duration.ofNanos(System.nanoTime() - started), 0);
-            log.error("{} 검색 index를 {} 위해 새 index를 준비하지 못해 alias를 그대로 두고 다음 확인 때 다시 한다 reason={}, alias={}, "
-                    + "index={}", FAILED_MARKER, reason.description(), reason.tag(), state.aliasTargets(),
-                    state.expectedIndex(), e);
+            log.error("{} 검색 index를 {} 위해 새 index를 준비하지 못해 alias를 그대로 두고 다음 확인 때 다시 한다 target={}, reason={}, "
+                    + "alias={}, index={}", FAILED_MARKER, reason.description(), target, reason.tag(),
+                    state.aliasTargets(), state.expectedIndex(), e);
             return ReindexResult.failed(reason, null);
         }
         LoadResult loaded = null;
@@ -196,15 +194,15 @@ public class Reindexer {
                     deleteQuietly(List.of(fresh), "만들던");
                 }
                 reindexed(reason, REINDEX_FAILURE, Duration.ofNanos(System.nanoTime() - started), 0);
-                log.error("{} 검색 index를 {} 못해 alias를 그대로 두고 다음 확인 때 다시 한다 reason={}, alias={}, index={}",
-                        FAILED_MARKER, reason.description(), reason.tag(), state.aliasTargets(), fresh, e);
+                log.error("{} 검색 index를 {} 못해 alias를 그대로 두고 다음 확인 때 다시 한다 target={}, reason={}, alias={}, index={}",
+                        FAILED_MARKER, reason.description(), target, reason.tag(), state.aliasTargets(), fresh, e);
                 return ReindexResult.failed(reason, fresh);
             }
             // 교체 응답만 실패하고(시간 초과) ES에는 적용됐다. 새 index를 지우면 alias가 사라지므로 교체한 것으로 보고 이어 간다
-            log.warn("검색 alias 교체 응답은 실패했지만 alias가 새 index를 가리켜 이어 간다 index={}", fresh, e);
+            log.warn("검색 alias 교체 응답은 실패했지만 alias가 새 index를 가리켜 이어 간다 target={}, index={}", target, fresh, e);
         }
 
-        CatchUp caughtUp = catchUp(reindexStartedAt.minus(CATCH_UP_OVERLAP));
+        CatchUp caughtUp = catchUp(reindexStartedAt.minus(catchUp.overlap()));
         deleteQuietly(state.aliasTargets(), "옛");
         Duration took = Duration.ofNanos(System.nanoTime() - started);
         String outcome = caughtUp == CatchUp.CAUGHT_UP ? REINDEX_SUCCESS : REINDEX_CATCH_UP_FAILED;
@@ -223,7 +221,7 @@ public class Reindexer {
         try {
             return indexSetup.state().aliasTargets().contains(index) ? AliasCheck.SWITCHED : AliasCheck.NOT_SWITCHED;
         } catch (RuntimeException e) {
-            log.warn("검색 alias를 다시 읽지 못해 새 index를 지우지 않고 다음 확인에 맡긴다 index={}", index, e);
+            log.warn("검색 alias를 다시 읽지 못해 새 index를 지우지 않고 다음 확인에 맡긴다 target={}, index={}", target, index, e);
             return AliasCheck.UNKNOWN;
         }
     }
@@ -250,10 +248,11 @@ public class Reindexer {
             result = catchUp.runFrom(from);
         }
         if (result == CatchUp.BUSY) {
-            log.error("{} 정기 보정이 끝나지 않아 재색인 뒤 따라잡기를 하지 못했다. 재색인 중 바뀐 원본이 새 index에 빠졌을 수 있다 from={}",
-                    CATCH_UP_FAILED_MARKER, from);
+            log.error("{} 정기 보정이 끝나지 않아 재색인 뒤 따라잡기를 하지 못했다. 재색인 중 바뀐 원본이 새 index에 빠졌을 수 있다 "
+                    + "target={}, from={}", CATCH_UP_FAILED_MARKER, target, from);
         } else if (result == CatchUp.FAILED) {
-            log.error("{} 재색인 뒤 따라잡기가 실패했다. 다음 정기 보정이 이어 간다 from={}", CATCH_UP_FAILED_MARKER, from);
+            log.error("{} 재색인 뒤 따라잡기가 실패했다. 다음 정기 보정이 이어 간다 target={}, from={}", CATCH_UP_FAILED_MARKER, target,
+                    from);
         }
         return result;
     }
@@ -272,7 +271,7 @@ public class Reindexer {
         try {
             indexSetup.deleteIndices(indices);
         } catch (RuntimeException e) {
-            log.warn("{} 검색 index를 지우지 못해 다음 확인 때 다시 지운다 indices={}", what, indices, e);
+            log.warn("{} 검색 index를 지우지 못해 다음 확인 때 다시 지운다 target={}, indices={}", what, target, indices, e);
         }
     }
 

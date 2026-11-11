@@ -104,6 +104,12 @@ public class MemberChangeReconciler implements IndexCatchUp {
      * @return 끝까지 따라잡았으면 {@link CatchUp#CAUGHT_UP}. 다른 회차가 락을 쥐고 있어 돌지 못했으면 {@link CatchUp#BUSY}(커서 그대로라 부르는
      * 쪽이 다시 부른다). 중간에 실패했으면 {@link CatchUp#FAILED}(WARN, 커서는 그 시각 또는 마지막으로 끝낸 페이지에 있어 다음 정기 회차가 이어 간다)
      */
+    /** 재색인 따라잡기도 정기 보정과 같은 겹쳐 읽기({@link #OVERLAP})를 쓴다 */
+    @Override
+    public Duration overlap() {
+        return OVERLAP;
+    }
+
     @Override
     public CatchUp runFrom(LocalDateTime from) {
         Objects.requireNonNull(from, "from은 필수입니다.");

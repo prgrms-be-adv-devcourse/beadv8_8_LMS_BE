@@ -76,7 +76,7 @@ class ReindexerTest {
     }
 
     @Test
-    @DisplayName("alias가 없으면 부품으로 채우고 alias를 붙인 뒤 T − 1분부터 따라잡는다. 지표에 대상 태그가 붙는다")
+    @DisplayName("alias가 없으면 부품으로 채우고 alias를 붙인 뒤 T − 부품의 겹쳐 읽기부터 따라잡는다. 지표에 대상 태그가 붙는다")
     void firstLoad() {
         loader.visible = 2;
         loader.hidden = 1;
@@ -90,11 +90,23 @@ class ReindexerTest {
         assertThat(result.catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
         assertThat(loader.indices).containsExactly(definition.indexName());
         assertThat(indexSetup.state().aliasTargets()).containsExactly(definition.indexName());
-        assertThat(catchUp.calls).containsExactly(NOW.minus(Reindexer.CATCH_UP_OVERLAP));
+        assertThat(catchUp.calls).containsExactly(NOW.minus(FakeCatchUp.OVERLAP));
         assertThat(registry.get("hapbang.search.reindex.duration").tag("target", METRIC_TARGET)
                 .tag("reason", "first_load").tag("outcome", "success").timer().count()).isEqualTo(1);
         assertThat(registry.get("hapbang.search.reindex.documents").tag("target", METRIC_TARGET)
                 .tag("reason", "first_load").counter().count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("이름이 이 대상 + \"-…\"인 다른 대상의 index는 남은 index로 보지 않고 지우지 않는다(#868 리뷰)")
+    void keepsOtherTargetIndex() throws Exception {
+        String other = definition.indexPrefix() + "reviews-0123456789ab";
+        client.indices().create(c -> c.index(other));
+
+        reindexer.reindexIfNeeded();
+
+        assertThat(client.indices().exists(e -> e.index(other)).value()).isTrue();
+        assertThat(indexSetup.state().indices()).containsExactly(definition.indexName());
     }
 
     @Test
@@ -177,8 +189,16 @@ class ReindexerTest {
     /** 미리 넣은 결과를 차례로 돌려주고, 다 쓰면 CAUGHT_UP */
     private static final class FakeCatchUp implements IndexCatchUp {
 
+        /** 인플루언서(1분)와 다른 값이라 흐름이 부품의 값을 쓰는지 보인다 */
+        private static final Duration OVERLAP = Duration.ofMinutes(2);
+
         private final Deque<CatchUp> results = new ArrayDeque<>();
         private final List<LocalDateTime> calls = new ArrayList<>();
+
+        @Override
+        public Duration overlap() {
+            return OVERLAP;
+        }
 
         @Override
         public CatchUp runFrom(LocalDateTime from) {
