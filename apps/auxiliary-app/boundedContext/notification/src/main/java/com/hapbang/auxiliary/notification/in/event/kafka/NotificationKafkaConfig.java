@@ -38,8 +38,10 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
  * {@code docs/architecture/infrastructure/kafka.md}다. common/kafka는 연결 설정만 두고, 업무 모듈은 {@code :kafka} 프로젝트를
  * 의존할 수 없어 운영 정책(재시도·DLT·역직렬화)을 이 모듈이 구현한다.
  * <ul>
- *     <li>지금 소비자는 회원 이벤트({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica}) 하나다.
- *     알림을 만드는 소비자(N5 이후)는 아래 조립 메서드를 그대로 쓴다.</li>
+ *     <li>소비자는 회원 이벤트({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica}, 가입 환영·승급
+ *     승인 포함 ND-080), 출연 이벤트({@code appearance.events.v1}, {@code auxiliary-app.notification-appearance-alert}), 지갑
+ *     이벤트({@code billing.events.v1}, {@code auxiliary-app.notification-billing-alert}) 셋이다(ND-047·ND-069). 출연·지갑
+ *     컨테이너는 첫 Backfill 뒤에 시작한다(ND-078).</li>
  *     <li>props는 이 클래스에 적고 연결 주소만 {@code spring.kafka.bootstrap-servers}에서 받는다.</li>
  *     <li>value 역직렬화는 신뢰 패키지 하나만 믿는 {@link JacksonJsonDeserializer}를 {@link TrustedEventDeserializer}와
  *     {@link ErrorHandlingDeserializer}로 감싼다. 깨진 메시지는 오류 처리기가 재시도 없이 DLT로 보낸다.</li>
@@ -55,6 +57,12 @@ public class NotificationKafkaConfig {
     public static final String MEMBER_EVENT_SETTINGS = "notificationMemberEventSettings";
     public static final String MEMBER_EVENT_CONTAINER_FACTORY = "notificationMemberEventListenerContainerFactory";
     public static final String MEMBER_EVENT_DEAD_LETTER_TEMPLATE = "notificationMemberEventDeadLetterTemplate";
+    public static final String APPEARANCE_EVENT_SETTINGS = "notificationAppearanceEventSettings";
+    public static final String APPEARANCE_EVENT_CONTAINER_FACTORY = "notificationAppearanceEventListenerContainerFactory";
+    public static final String APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE = "notificationAppearanceEventDeadLetterTemplate";
+    public static final String BILLING_EVENT_SETTINGS = "notificationBillingEventSettings";
+    public static final String BILLING_EVENT_CONTAINER_FACTORY = "notificationBillingEventListenerContainerFactory";
+    public static final String BILLING_EVENT_DEAD_LETTER_TEMPLATE = "notificationBillingEventDeadLetterTemplate";
 
     private final String bootstrapServers;
     private final ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers;
@@ -107,7 +115,96 @@ public class NotificationKafkaConfig {
         return containerFactory(consumerFactory, errorHandler);
     }
 
+    // 출연 이벤트 → 알림(N5). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
+
+    @Bean(name = APPEARANCE_EVENT_SETTINGS)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    public NotificationKafkaConsumerSettings notificationAppearanceEventSettings() {
+        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.APPEARANCE_EVENTS_TOPIC,
+                NotificationKafkaConstants.APPEARANCE_ALERT_GROUP);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    ConsumerFactory<String, Object> notificationAppearanceEventConsumerFactory(
+            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return consumerFactory(settings, NotificationKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    public ProducerFactory<String, Object> notificationAppearanceEventDeadLetterProducerFactory(
+            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterProducerFactory(settings);
+    }
+
+    @Bean(name = APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    KafkaTemplate<String, Object> notificationAppearanceEventDeadLetterTemplate(
+            @Qualifier("notificationAppearanceEventDeadLetterProducerFactory")
+            ProducerFactory<String, Object> producerFactory) {
+        return deadLetterTemplate(producerFactory);
+    }
+
+    @Bean(name = APPEARANCE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    ConcurrentKafkaListenerContainerFactory<String, Object> notificationAppearanceEventListenerContainerFactory(
+            @Qualifier("notificationAppearanceEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
+            @Qualifier(NotificationKafkaErrorHandlerConfig.APPEARANCE_EVENT_ERROR_HANDLER)
+            DefaultErrorHandler errorHandler) {
+        return alertContainerFactory(consumerFactory, errorHandler);
+    }
+
+    // 지갑 이벤트 → 알림(N5). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
+
+    @Bean(name = BILLING_EVENT_SETTINGS)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    public NotificationKafkaConsumerSettings notificationBillingEventSettings() {
+        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.BILLING_EVENTS_TOPIC,
+                NotificationKafkaConstants.BILLING_ALERT_GROUP);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    ConsumerFactory<String, Object> notificationBillingEventConsumerFactory(
+            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return consumerFactory(settings, NotificationKafkaConstants.BILLING_EVENTS_TRUSTED_PACKAGE);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    public ProducerFactory<String, Object> notificationBillingEventDeadLetterProducerFactory(
+            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterProducerFactory(settings);
+    }
+
+    @Bean(name = BILLING_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    KafkaTemplate<String, Object> notificationBillingEventDeadLetterTemplate(
+            @Qualifier("notificationBillingEventDeadLetterProducerFactory")
+            ProducerFactory<String, Object> producerFactory) {
+        return deadLetterTemplate(producerFactory);
+    }
+
+    @Bean(name = BILLING_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    ConcurrentKafkaListenerContainerFactory<String, Object> notificationBillingEventListenerContainerFactory(
+            @Qualifier("notificationBillingEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
+            @Qualifier(NotificationKafkaErrorHandlerConfig.BILLING_EVENT_ERROR_HANDLER)
+            DefaultErrorHandler errorHandler) {
+        return alertContainerFactory(consumerFactory, errorHandler);
+    }
+
     // 소비자들이 함께 쓰는 조립
+
+    /** 알림을 만드는 출연·지갑 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
+    private static ConcurrentKafkaListenerContainerFactory<String, Object> alertContainerFactory(
+            ConsumerFactory<String, Object> consumerFactory, DefaultErrorHandler errorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = containerFactory(consumerFactory,
+                errorHandler);
+        factory.setAutoStartup(false);
+        return factory;
+    }
 
     private ConsumerFactory<String, Object> consumerFactory(NotificationKafkaConsumerSettings settings,
             String trustedPackage) {

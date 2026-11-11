@@ -48,7 +48,8 @@ import com.hapbang.shared.member.dto.UserDto;
  *     마스킹 직후 커밋 전의 행이 다시 들어오지 않는다.</li>
  *     <li>출연 사본은 upsert 한 문장이라 트랜잭션을 따로 열지 않는다.</li>
  *     <li><b>강의 사본</b>은 값이 바뀌었거나 원본 없음 표시가 바뀌면 같은 트랜잭션에서 강의 색인 요청({@code index_task})을 적는다(#718).
- *     커밋 뒤 실행기({@link IndexTaskRunner})가 처리한다. 값이 같은 싱크 반영은 요청을 적지 않는다(매시 전체 재색인 방지).</li>
+ *     커밋 뒤 실행기({@link IndexTaskRunner})가 처리한다. 값이 같은 싱크 반영은 요청을 적지 않는다(매시 전체 재색인 방지).
+ *     회원 사본도 같은 방식으로 인플루언서 색인 요청을 적는다(#719).</li>
  * </ul>
  */
 @Service
@@ -105,7 +106,10 @@ public class CopyApplier {
     /**
      * 회원을 반영한다(가입·변경 이벤트, 회원 싱크). 사본이 없으면 만든다. 회원 사본은 원본 없음을 표시하지 않아 싱크 회차 ID를 받지 않는다.
      * <p>
-     * 마스킹한 회원은 역할·상태만 반영하고 분야·자기소개는 버린다. 버린 값이 있는 행이라 결과는 반영 여부와 관계없이
+     * 값(역할·상태·분야·자기소개 등)이 바뀌면 같은 트랜잭션에서 인플루언서 색인 요청을 적는다(#719). 역할과 관계없이 적는다:
+     * 강등된 회원의 문서도 숨겨야 하고, 문서가 없는 일반 회원은 처리기가 아무것도 하지 않는다. 값이 같은 매시 싱크는 적지 않는다.
+     * <p>
+     * 마스킹한 회원은 역할·상태만 반영하고 분야·자기소개는 버린다. 색인 삭제 요청은 마스킹({@link MemberMasking})이 이미 적었다. 버린 값이 있는 행이라 결과는 반영 여부와 관계없이
      * {@link CopyOutcome#DISCARDED}로 센다. 그래서 마스킹 회원의 행은 어긋남·경고 비율 집계에서 빠진다(#717 스펙).
      */
     public CopyWrite apply(UserDto user) {
@@ -113,7 +117,12 @@ public class CopyApplier {
         return transaction.execute(status -> {
             maskedMemberStore.lock(copy.id());
             if (!maskedMemberStore.isMasked(copy.id())) {
-                return memberCopyStore.save(copy, now());
+                LocalDateTime now = now();
+                CopyWrite write = memberCopyStore.save(copy, now);
+                if (write.outcome().valueChanged()) {
+                    indexTaskStore.add(IndexType.INFLUENCER, InfluencerIndexPlan.docIdOf(copy.id()), IndexAction.UPSERT, now);
+                }
+                return write;
             }
             CopyWrite written = memberCopyStore.save(copy.withoutProfile(), now());
             return new CopyWrite(CopyOutcome.DISCARDED, written.ourVersion());

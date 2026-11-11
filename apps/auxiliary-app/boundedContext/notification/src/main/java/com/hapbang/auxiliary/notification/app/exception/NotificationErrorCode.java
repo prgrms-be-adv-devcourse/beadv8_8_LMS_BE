@@ -18,6 +18,19 @@ public enum NotificationErrorCode implements BaseErrorCode {
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),
     /** 받는 사람의 회원 복제본이 아직 없다. 이벤트 처리를 실패시켜 재시도 뒤 DLT로 보낸다(ND-035) */
     RECEIVER_NOT_REPLICATED(HttpStatus.CONFLICT, "받는 사람의 회원 복제본이 없습니다."),
+    /**
+     * 문구에 닉네임을 넣을 다른 회원(출연 요청의 호스트, 모집 지원의 게스트)의 복제본이 아직 없다. 받는 사람 복제본 없음(ND-035)과
+     * 같이 처리를 실패시켜 재시도 뒤 DLT로 보낸다. 첫 배포 때는 Backfill이 채운다(ND-077)
+     */
+    MENTIONED_NOT_REPLICATED(HttpStatus.CONFLICT, "문구에 넣을 회원의 복제본이 없습니다."),
+    /** 회원 복제본 Backfill을 다른 실행(기동 때 자동 실행, 다른 pod, 다른 관리자 요청)이 하고 있다(ND-078·ND-079) */
+    BACKFILL_RUNNING(HttpStatus.CONFLICT, "회원 복제본 Backfill이 이미 실행 중입니다."),
+    /** 회원 복제본 Backfill을 끝까지 하지 못했다(회원 API·DB 장애). 결과 없이 완료가 아니다. 다시 실행하면 된다(ND-089) */
+    BACKFILL_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "회원 복제본 Backfill을 마치지 못했습니다. 잠시 뒤 다시 실행해 주세요."),
+    /** 관리자 Backfill 시작 기록을 Redis에 쓰지 못해 실행하지 않았다(ND-092) */
+    BACKFILL_STATUS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 Backfill 실행 상태를 기록할 수 없어 시작하지 않았습니다."),
+    /** 없거나 보관 기간(7일)이 지난 관리자 Backfill 실행(ND-092) */
+    BACKFILL_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "Backfill 실행을 찾을 수 없습니다."),
     /** 연결 티켓 저장소(Redis)를 쓸 수 없어 발급하지 못했다(ND-058) */
     CONNECTION_TICKET_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 실시간 연결을 준비할 수 없습니다.");
 

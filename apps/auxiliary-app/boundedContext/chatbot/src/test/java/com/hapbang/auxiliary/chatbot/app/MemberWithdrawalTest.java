@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -89,16 +90,21 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
         assertThat(rows.count("lecture_review_copy")).isEqualTo(1);
         assertThat(rows.count("appearance_review_copy")).isEqualTo(1);
         assertThat(memberVisibility.isVisible(USER)).isFalse();
-        assertThat(rows.indexTasks()).singleElement().satisfies(task -> assertThat(task)
+        // 회원 반영 때 적은 UPSERT(#719) 뒤에 삭제 요청이 하나 붙는다
+        assertThat(deleteTasks()).singleElement().satisfies(task -> assertThat(task)
                 .containsEntry("index_type", "INFLUENCER").containsEntry("doc_id", String.valueOf(USER))
-                .containsEntry("action", "DELETE").containsEntry("done_at", null));
+                .containsEntry("done_at", null));
 
         // 같은 이벤트를 다시 받아도 결과가 같다(문서 삭제도 다시 적지 않는다)
         MemberMasking.Result again = memberMasking.mask(new UserMaskedEvent(USER, MASKED_AT));
         assertThat(again.first()).isFalse();
         assertThat(again.purged().deleted()).containsOnlyKeys(OwnedCopy.values()).values().containsOnly(0);
         assertThat(again.purged().profileCleared()).isFalse();
-        assertThat(rows.indexTasks()).hasSize(1);
+        assertThat(deleteTasks()).hasSize(1);
+    }
+
+    private List<Map<String, Object>> deleteTasks() {
+        return rows.indexTasks().stream().filter(task -> "DELETE".equals(task.get("action"))).toList();
     }
 
     @Test

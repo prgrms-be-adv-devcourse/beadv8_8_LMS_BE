@@ -101,7 +101,7 @@ class NotificationWriterTest {
         long withdrawn = member(UserStatus.WITHDRAWN);
 
         assertThat(writer.save(draft(withdrawn, "s-1", 7L, "호스트", T0)).outcome())
-                .isEqualTo(Outcome.SKIPPED_WITHDRAWN);
+                .isEqualTo(Outcome.SKIPPED_RECEIVER);
         assertThat(rowsOf(withdrawn)).isZero();
     }
 

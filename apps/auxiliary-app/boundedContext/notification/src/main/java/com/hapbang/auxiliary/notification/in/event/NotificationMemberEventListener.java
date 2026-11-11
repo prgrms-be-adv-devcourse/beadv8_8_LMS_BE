@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.notification.in.event;
 
+import java.time.Instant;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,8 +13,8 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.notification.app.NotificationMaskingService;
+import com.hapbang.auxiliary.notification.app.NotificationMemberAlertService;
 import com.hapbang.auxiliary.notification.app.NotificationUserSyncResult;
-import com.hapbang.auxiliary.notification.app.NotificationUserSyncService;
 import com.hapbang.auxiliary.notification.app.exception.NotificationErrorCode;
 import com.hapbang.auxiliary.notification.app.exception.NotificationException;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
@@ -32,7 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  * 회원 이벤트 Kafka 토픽({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica})을 받아 알림 회원 복제본을
  * 만드는 진입 어댑터(ND-018, ND-047). 채팅의 회원 이벤트 리스너를 복사했다(ND-028).
  * <ul>
- *     <li>처리는 {@link NotificationUserSyncService}에 맡긴다. 이 메서드가 정상 반환한 뒤(DB 커밋 뒤)에 offset을 커밋한다.</li>
+ *     <li>처리는 {@link NotificationMemberAlertService}에 맡긴다. 복제본 반영과 가입 환영·승급 승인 알림이 한 트랜잭션이다
+ *     (ND-080). 이 메서드가 정상 반환한 뒤(DB 커밋 뒤)에 offset을 커밋한다.</li>
  *     <li>가입보다 먼저 온 변경(복제본 없음)은 그 정보로 복제본을 만든다(ND-049).</li>
  *     <li>예외는 삼키지 않는다. 동시 반영 충돌·DB 장애는 블로킹 재시도 뒤 DLT로 간다. 복제할 수 없는
  *     정보는 다시 처리해도 같으므로 {@link RejectedEventException}으로 바꿔 재시도 없이 DLT로 보낸다. 읽지 못한 값·신뢰 패키지 밖
@@ -40,7 +42,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>파기({@code UserMaskedEvent})는 그 회원이 언급된 저장 알림의 닉네임을 바꾼다(ND-036·ND-051).</li>
  *     <li>처리기가 없는 회원 이벤트(로그아웃 등), 클래스패스에 아직 없는 종류, tombstone은 오류로 보지 않고 로그만 남긴 뒤
  *     offset을 넘긴다(ND-010).</li>
- *     <li>알림은 만들지 않는다. 그래서 첫 배포 때 보존 기간 안의 과거 회원 이벤트를 읽어도 복제본만 채운다(ND-048).</li>
+ *     <li>회원 이벤트에는 사건 시각이 없어 레코드 timestamp를 알림의 대체 시각으로 넘긴다(ND-081). 그 시각이 알림 시작 시각보다
+ *     이르면 복제본만 채운다(ND-076). 그래서 보존 기간 안의 과거 회원 이벤트를 다시 읽어도 알림이 쏟아지지 않는다.</li>
+ *     <li>이 리스너는 Backfill을 기다리지 않는다(ND-078·ND-080).</li>
  * </ul>
  */
 @Slf4j
@@ -53,29 +57,31 @@ public class NotificationMemberEventListener {
     /** 리스너 컨테이너 ID(소비 그룹 이름과 다르다) */
     public static final String LISTENER_ID = "notification-member-events";
 
-    private final NotificationUserSyncService syncService;
+    private final NotificationMemberAlertService memberService;
     private final NotificationMaskingService maskingService;
     private final NotificationKafkaConsumerSettings settings;
     private final SkippedEventLog skippedLog = new SkippedEventLog(log);
 
-    public NotificationMemberEventListener(NotificationUserSyncService syncService,
+    public NotificationMemberEventListener(NotificationMemberAlertService memberService,
             NotificationMaskingService maskingService,
             @Qualifier(NotificationKafkaConfig.MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        this.syncService = syncService;
+        this.memberService = memberService;
         this.maskingService = maskingService;
         this.settings = settings;
     }
 
     @KafkaHandler
-    public void on(UserJoinedEvent event) {
-        NotificationUserSyncResult result = rejectInvalid(() -> syncService.syncJoined(event.user()));
+    public void on(UserJoinedEvent event, @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp) {
+        NotificationUserSyncResult result = rejectInvalid(
+                () -> memberService.joined(event.user(), Instant.ofEpochMilli(timestamp)));
         log.info("알림 회원 가입 반영 userId={}, outcome={}, memberVersion={}", result.userId(), result.outcome(),
                 result.memberVersion());
     }
 
     @KafkaHandler
-    public void on(UserModifiedEvent event) {
-        NotificationUserSyncResult result = rejectInvalid(() -> syncService.syncModified(event.user()));
+    public void on(UserModifiedEvent event, @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp) {
+        NotificationUserSyncResult result = rejectInvalid(
+                () -> memberService.modified(event.user(), Instant.ofEpochMilli(timestamp)));
         log.info("알림 회원 변경 반영 userId={}, outcome={}, memberVersion={}", result.userId(), result.outcome(),
                 result.memberVersion());
     }

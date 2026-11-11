@@ -13,8 +13,8 @@ public record NotificationWriteResult(Outcome outcome, Long notificationId) {
         CREATED,
         /** 같은 사건의 알림이 이미 있어(밀려난 알림 포함) 만들지 않았다(ND-019) */
         DUPLICATE,
-        /** 받는 사람이 탈퇴해 만들지 않았다(ND-018) */
-        SKIPPED_WITHDRAWN
+        /** 받는 사람이 탈퇴·정지했거나 관리자라 만들지 않았다(ND-018·ND-072·ND-003) */
+        SKIPPED_RECEIVER
     }
 
     static NotificationWriteResult created(Long id) {
