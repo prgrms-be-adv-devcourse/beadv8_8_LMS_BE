@@ -86,6 +86,72 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-038 · 2026-11-11 · 통과 (#859 S6 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-038 |
+| 실행 날짜 | 2026-11-11 13:43~13:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `35735bf1` + 작업 트리 |
+| 작업 트리 변경 | NR-037 목록 + `NotificationAlertService`(받는 사람 확인을 언급 회원 닉네임 조회보다 먼저, 로그 형식), `NotificationAdminFacade`(장애는 503 `BACKFILL_FAILED`, ND-089), `NotificationErrorCode`(`BACKFILL_FAILED`), `NotificationAlertListenerStarter`(종료 신호 뒤 시작 안 함, 잠금 경쟁은 INFO), `NotificationUserBackfillService`(로그 ID 20개, JVM 시각), `NotificationUserRepository`(시각 파라미터), `AlertDrafts`(`appliedAt`), `AlertTemplate`(`PayoutType`), 리스너 import·로그. 시험: `NotificationAlertEventListenerTest`(+받을 수 없는 회원·언급 복제본 없음, +탈퇴), `NotificationMemberAlertTest`(+시작 시각 이전 승급), `ApiV1NotificationAdminControllerTest`(+503), 새 `NotificationMentionRetryTest`(ND-091 재시도) |
+| 대상 기능 | S6 리뷰 결함(받을 수 없는 회원인데 언급 회원 복제본 없음으로 DLT) 수정, ND-089~ND-091 |
+| 관련 NT ID | NT-GEN-07·16, NT-KAF-07, NT-USR-03·09·10 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 통과(종료 코드 0, 2분 40초) |
+| 건수 | `:notification` 171, 실패 0(새로 실행). `:auxiliary-app` 12, 실패 0(새로 실행). `:auxiliary-global`·`:chatbot`·`:search` test는 `UP-TO-DATE`(입력 변경 없음, 마지막 새 실행 NR-036) |
+| 실패 원인 분류 | 실패 없음(이 실행). 수정 전 RED: `받을_수_없는_회원이면_언급_회원_복제본이_없어도_DLT_없이_건너뛴다`(결함 재현), `끝까지_읽지_못하면_결과_없이_503_BACKFILL_FAILED다`(500). `NotificationMentionRetryTest`는 수정 전부터 통과(재시도 가능 분류 확인용) |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | NT-USR-08 실제 동시 경합(순서 실행만), NT-GEN-16의 알림 저장 실패 때 복제본 롤백(저장 실패를 일으킬 수단이 없어 시험하지 않음), 환불·환전 4종 Kafka 경로(단위 시험만), 운영 회원 API Backfill·첫 배포(E2E) |
+| 관련 변경 | #859 |
+
+#### NR-037 · 2026-11-11 · 통과 (ND-088 시작 시각 설정 검증, 대상 시험만)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-037 |
+| 실행 날짜 | 2026-11-11 13:23~13:25 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `35735bf1` + 작업 트리 |
+| 작업 트리 변경 | NR-036 목록 + `AlertStartPolicy`(설정 문자열을 `OffsetDateTime`으로 직접 읽음), 새 `AlertStartPolicyConfigTest`, `AlertStartPolicyTest`(생성자 두 개), `application-prod.yaml` 주석 |
+| 대상 기능 | 알림 시작 시각 값이 없거나 잘못되면 기동 실패, 운영 형식(`+09:00`) 읽기 |
+| 관련 NT ID | NT-KAF-04 |
+| 명령 | `./gradlew :notification:test --tests "*AlertStartPolicyConfigTest" --tests "*AlertStartPolicyTest" --tests "*NotificationAlertEventListenerTest"` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 통과 |
+| 건수 | 3 + 3 + 9, 실패 0 |
+| 실패 원인 분류 | 첫 실행에서 `운영과_같은_형식의_값은_그_시각을_그대로_쓴다` 실패: 빈 컨텍스트에 Boot 변환 서비스가 없어 `String → Instant` 변환 불가(시험 환경). 운영 형식 변환을 Spring에 기대지 않게 `AlertStartPolicy`가 직접 읽도록 고쳤다. 두 번째 실행은 `AlertStartPolicyTest`의 `new AlertStartPolicy(null)` 모호 호출로 컴파일 실패(시험 코드) → 형 지정 |
+| 수정 내용 | 위와 같다 |
+| 재실행 결과 | 위 명령 통과 |
+| 미검증 항목 | 전체 3명령은 Phase 4 리뷰 반영 뒤 다시 돌린다 |
+| 관련 변경 | #859 |
+
+#### NR-036 · 2026-11-11 · 통과 (N5 #859 이벤트 소비 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-036 |
+| 실행 날짜 | 2026-11-11 13:00~13:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `35735bf1` + 작업 트리 |
+| 작업 트리 변경 | 알림 모듈: 새 `AlertDrafts`·`AlertTemplate`·`AlertStartPolicy`·`NotificationAlertService`·`NotificationMemberAlertService`·`NotificationUserBackfillService`·`NotificationMemberSource`·`NotificationJob`·`BackfillResult`·`NotificationAdminFacade`·`ApiV1NotificationAdminController`·`NotificationAppearanceEventListener`·`NotificationBillingEventListener`·`NotificationAlertListenerStarter`·`MemberApiNotificationMemberSource`, 고친 `ReceiverPolicy`·`NotificationWriter`·`NotificationWriteResult`(`SKIPPED_RECEIVER`)·`NotificationTemplates`·`NotificationErrorCode`·`NotificationMemberEventListener`·`NotificationKafka{Config,Constants,ErrorHandlerConfig,TopicConfig}`·`NotificationUserRepository`. 시험: 새 `AlertDraftsTest`·`AlertStartPolicyTest`·`ReceiverPolicyTest`·`NotificationUserBackfillServiceTest`·`ApiV1NotificationAdminControllerTest`·`NotificationAlertEventListenerTest`·`NotificationMemberAlertTest`·`NotificationAlertListenerStarterTest`·`AlertEventKafka`·`FakeMemberSource`, 고친 `NotificationWriterTest`·`MemberEventKafka`·`hapbang-module-test.yaml`. 앱: `application-{prod,local}.yaml`(`start-at`), `AuxiliaryApplicationTest`(새 스위치·`start-at`). 문서 |
+| 대상 기능 | N5 11종 알림 생성(출연·지갑·회원), 알림 시작 시각·대체 시각, 받는 사람 정책, 회원 복제본 Backfill·시작 순서·관리자 재실행 API |
+| 관련 NT ID | NT-GEN-01·03·06·07·10·12·13·15·16, NT-KAF-04·07, NT-IDEM-05, NT-USR-03·04·05·06·08·09·10 (NT-GEN-12는 승급 승인 이름만, 나머지는 미결 U11) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다(Windows 10, JDK 25, Docker 29.8.0 Testcontainers PostgreSQL·Redis·Kafka) |
+| 결과 | 통과(종료 코드 0, 6분 30초) |
+| 건수 | `:notification` 163, 실패 0, 오류 0, 건너뜀 0(새로 실행). `:auxiliary-app` 12, 실패 0(새로 실행). `:auxiliary-global`·`:chatbot`·`:search` test도 새로 실행·통과 |
+| 실패 원인 분류 | 실패 없음(이 실행). 구현 중 TDD RED는 기대한 실패라 기록하지 않는다. Docker가 꺼져 `NotificationWriterTest`가 `Could not find a valid Docker environment`로 실패한 적이 있다(환경, Docker를 켜고 다시 실행해 통과) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NT-USR-08의 Backfill과 Kafka 변경이 **동시에** 겹치는 경우는 순서대로(Backfill 뒤 Kafka) 실행해서만 봤다(행 잠금 안 조건부 upsert에 기댐). 환불·환전 4종은 Kafka 경로를 종류마다 돌리지 않고 초안·문구 단위 시험으로 봤다(Kafka 경로는 충전·지급·송금 실패로 확인). `MENTIONED_NOT_REPLICATED` 재시도 뒤 DLT는 시험하지 않았다. 운영 회원 API를 실제로 부르는 Backfill과 운영 첫 배포(E2E)는 실행하지 않았다. 지급 제목(NT-GEN-11, M5 전) |
+| 관련 변경 | #859 |
+
 #### NR-035 · 2026-11-10 · 통과 (#847 재리뷰 반영)
 
 | 항목 | 값 |

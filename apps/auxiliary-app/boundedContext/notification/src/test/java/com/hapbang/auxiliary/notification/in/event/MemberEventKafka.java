@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -53,7 +54,17 @@ final class MemberEventKafka implements AutoCloseable {
 
     /** partition을 정해 보낸다(null이면 key로 고른다) */
     void send(String typeId, long key, String json, Integer partition) {
-        ProducerRecord<String, byte[]> record = new ProducerRecord<>(topic, partition, String.valueOf(key),
+        send(typeId, key, json, partition, null);
+    }
+
+    /** 레코드 timestamp를 정해 보낸다(회원 이벤트에는 사건 시각이 없어 이 값이 알림의 대체 시각이다, ND-081) */
+    void sendAt(String typeId, long key, String json, Instant timestamp) {
+        send(typeId, key, json, null, timestamp);
+    }
+
+    private void send(String typeId, long key, String json, Integer partition, Instant timestamp) {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(topic, partition,
+                timestamp == null ? null : timestamp.toEpochMilli(), String.valueOf(key),
                 json.getBytes(StandardCharsets.UTF_8));
         record.headers().add("__TypeId__", typeId.getBytes(StandardCharsets.UTF_8));
         try {
@@ -70,6 +81,11 @@ final class MemberEventKafka implements AutoCloseable {
 
     /** DLT의 모든 partition에서 key가 같은 레코드를 기다린다 */
     ConsumerRecord<String, byte[]> awaitDeadLetter(String deadLetterTopic, long key) {
+        return awaitDeadLetter(deadLetterTopic, String.valueOf(key));
+    }
+
+    /** DLT의 모든 partition에서 key(문자열)가 같은 레코드를 기다린다. 출연·지갑 이벤트 key는 {@code <종류>:<ID>}다 */
+    ConsumerRecord<String, byte[]> awaitDeadLetter(String deadLetterTopic, String key) {
         Properties config = new Properties();
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
@@ -87,7 +103,7 @@ final class MemberEventKafka implements AutoCloseable {
             consumer.seekToBeginning(partitions);
             await().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
                 consumer.poll(Duration.ofMillis(200)).forEach(record -> {
-                    if (String.valueOf(key).equals(record.key())) {
+                    if (key.equals(record.key())) {
                         found.add(record);
                     }
                 });

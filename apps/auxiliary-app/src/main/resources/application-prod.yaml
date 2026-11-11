@@ -40,6 +40,12 @@ hapbang:
     websocket:
       # 알림 웹소켓 핸드셰이크를 허용할 프론트 출처(chat-app과 같은 값). Gateway route는 N4에서 연다
       allowed-origins: https://hapbang.duckdns.org
+    alert:
+      # 알림 시작 시각(ND-076·ND-088): 업무 시각이 이보다 이른 사건은 알림을 만들지 않는다. 첫 배포 때 보존 기간(72시간) 안의
+      # 과거 사건이 한꺼번에 알림이 되지 않게 한다. 값은 Git 병합 시각이 아니라 N5 첫 운영 배포의 알림 활성화 기준 시각이다.
+      # 지금 값은 임시이고 첫 운영 배포 전에 정한다(U20). 한 번 운영에 적용하면 재배포·재시작 때 바꾸지 않는다.
+      # 기본값이 없어 빠뜨리거나 시간대 있는 ISO-8601이 아니면 기동에 실패한다
+      start-at: 2026-11-11T13:00:00+09:00
   chatbot:
     faq:
       index-name: chatbot-faq-openai-1536

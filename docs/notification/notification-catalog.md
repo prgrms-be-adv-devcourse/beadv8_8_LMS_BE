@@ -17,6 +17,7 @@
 > - 2026-11-09 decisions.md ND-033~ND-036 반영: 0.2 원본 대상 ID 칸 설명에 ND-033, 0.3에 ND-035·ND-036, 7장에 ND-034를 참조로 넣고, 9장 미결 목록은 남은 부분만 남겼다. 종류별 행의 원본 대상 ID "미정(U5)"는 그대로 두었다.
 > - 2026-11-09 #794 리뷰 반영: 7장 예약보다 먼저 온 취소 항목에 예약 짝 키 위치(event-contracts 0.3)를 더했다.
 > - 2026-11-09 ND-045 반영: 0.2 원본 대상 ID 칸 설명과 9장 U5에 회차 번호 규칙과 이벤트 계약 요청 위치를 더했다.
+> - 2026-11-11 decisions.md ND-069~ND-079 반영(#859): N5 11종 행의 이동 대상(ND-074)·원본 대상 ID(ND-073)를 채우고, 0.3에 정지 회원(ND-072)·알림 시작 시각(ND-076)·Backfill(ND-077)·대체 시각(ND-081)을, 0.5 N5 문구(ND-075)를 더했다. 승급 승인 종류 코드(ND-071)와 9장 미결 목록을 맞췄다.
 > - 2026-11-10 #818(강의 담당): 이의 제기 4종 행의 이벤트 계약 상태 칸에 값 추가 사실을 덧붙였다. 2026-11-06 판정은 그대로 두었다.
 
 ## 0. 읽는 법
@@ -63,12 +64,13 @@
 
 ### 0.3 모든 알림에 공통인 규칙
 
-- 받는 사람이 `notification_user`에서 탈퇴한 회원이면 알림과 예약을 만들지 않는다(ND-018). 정지 회원은 미정(U8).
-- 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본을 채우는 방법(Backfill)은 미정이다(**U17**, `NT-USR-06`).
+- 받는 사람이 `notification_user`에서 탈퇴한 회원이면 알림과 예약을 만들지 않는다(ND-018). 정지 회원도 같다(ND-072).
+- 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본은 회원 목록 내부 API Backfill로 채우고, 알림을 만드는 소비자는 첫 Backfill 뒤 시작한다(ND-077·ND-078, `NT-USR-06`).
+- 업무 시각이 알림 시작 시각(`notification.alert.start-at`)보다 이른 사건은 알림을 만들지 않는다(ND-076, `NT-KAF-04`).
 - 같은 이벤트를 다시 받아도 한 번만 만든다(ND-019).
-- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). 실제 문구는 미정(U3).
+- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), 나머지는 미정(U3).
 - 다른 회원의 닉네임이 들어간 문구·값은 그 회원이 파기되면 바꾼다(ND-036, `NT-USR-07`). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구를 다시 만든다(ND-051).
-- 목록은 이벤트의 업무 시각으로 정렬한다(ND-021).
+- 목록은 이벤트의 업무 시각으로 정렬한다(ND-021). 사건 시각 필드가 없는 `AppearanceRequestSentEvent`·`UserJoinedEvent`·`UserModifiedEvent`는 Kafka 레코드 timestamp를 대체 시각으로 쓰며, 원래 사건 시각과 같다고 보장하지 않는다(ND-081).
 - 관리자는 알림센터 알림을 받지 않는다(ND-003).
 
 ### 0.4 집계
@@ -86,6 +88,24 @@
 
 `PAYOUT_COMPLETED_DAILY`(하루 묶음, [8장](#8-하루-묶음-알림))는 강의 11종 안에 센다.
 
+### 0.5 문구 (N5 11종, ND-075)
+
+시각은 KST, 금액은 천 단위 쉼표다. `{닉네임}`은 언급 회원(ND-051)이라 파기되면 `탈퇴회원#{회원ID}`로 바뀐다(ND-054). 나머지 종류의 문구는 미정(U3).
+
+| 종류 코드 | 문구 |
+| --- | --- |
+| `APPEARANCE_REQUEST_SENT` | {호스트 닉네임}님이 '{제목}' 출연을 요청했습니다. {M월 d일 HH:mm}까지 응답해 주세요. (응답 기한 `acceptDeadline`) |
+| `APPEARANCE_APPLICATION_SUBMITTED` | {게스트 닉네임}님이 '{모집글 제목}' 모집에 지원했습니다. |
+| `CHARGE_COMPLETED` | {충전 HP} HP 충전이 완료되었습니다. |
+| `REFUND_COMPLETED` | 전부 환불: {환불 HP} HP 환불이 완료되었습니다. / 일부 환불: 환불 신청 {요청 HP} HP 중 {환불 HP} HP가 환불되었습니다. |
+| `PAYOUT_COMPLETED` | `NORMAL`: 출연료 {지급 HP} HP가 지급되었습니다. / `PENALTY`: 위약금 {지급 HP} HP가 지급되었습니다. 제목(`sourceTitle`)이 생기면 앞에 '{제목}'을 붙인다(ND-070) |
+| `EXCHANGE_REJECTED` | {신청 HP} HP 환전 신청이 거절되었습니다. |
+| `EXCHANGE_COMPLETED` | {신청 HP} HP 환전 송금이 완료되었습니다. 입금액 {원}원 (수수료 {수수료 HP} HP) |
+| `EXCHANGE_PAYOUT_FAILED` | 환전 송금({원}원)이 지연되고 있습니다. 다시 시도합니다. |
+| `EXCHANGE_FINAL_FAILED` | 환전 송금에 실패해 {신청 HP} HP를 돌려드렸습니다. |
+| `USER_JOINED` | 합방에 오신 것을 환영합니다. |
+| `INFLUENCER_UPGRADE_REQUEST_APPROVED` | 인증된 인플루언서로 승급되었습니다. |
+
 ## 1. 출연 (15종)
 
 토픽 `appearance.events.v1`.
@@ -101,12 +121,12 @@
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `APPEARANCE_REQUEST_SENT` | 출연 요청 도착 | 게스트 | `AppearanceRequestSentEvent` | 출연 요청 도착 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `appearance-request:<요청 ID>`), `AppearanceRequestDto`에 `guestId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`guestId` 있음 | ND-004 | 채팅도 함께 보낸다(U12). 예약 `APPEARANCE_REQUEST_EXPIRING`도 이 이벤트로 만든다 |
+| `APPEARANCE_REQUEST_SENT` | 출연 요청 도착 | 게스트 | `AppearanceRequestSentEvent` | 출연 요청 도착 | — | `APPEARANCE_REQUEST` / `request.requestId`(ND-074) | `request.requestId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `appearance-request:<요청 ID>`), `AppearanceRequestDto`에 `guestId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`guestId` 있음 | ND-004 | 채팅도 함께 보낸다(U12). 예약 `APPEARANCE_REQUEST_EXPIRING`도 이 이벤트로 만든다 |
 | `APPEARANCE_REQUEST_ACCEPTED` | 출연 요청 수락 (출연 성립) | 호스트 | `AppearanceRequestAcceptedEvent` | 게스트가 출연 요청을 수락해 출연 성립 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `AppearanceChangedEvent`(#713)(결과 `SCHEDULED`, `hostId` 있음). 요청 수락과 지원 수락을 구분할 수 없고, 출연 성립과 취소 요청(둘 다 `SCHEDULED`)도 구분할 수 없다. 요청서 ID·제목·출연료 없음, 순서 보장 없음 | — | 요청 값 1.1 |
 | `APPEARANCE_REQUEST_REJECTED` | 출연 요청 거절 | 호스트 | `AppearanceRequestRejectedEvent` | 게스트가 출연 요청을 거절 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`AppearanceRequestRejectUseCase` 38행 근처) | — | 요청 값 1.1 |
 | `APPEARANCE_REQUEST_CANCELED` | 응답 전 취소 | 게스트 | `AppearanceRequestCanceledEvent` | 호스트가 응답 전 출연 요청을 취소 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`AppearanceRequestCancelUseCase` 38행 근처) | — | 요청 값 1.1 |
 | `APPEARANCE_REQUEST_EXPIRED` | 만료 | 호스트, 게스트 | `AppearanceRequestExpiredEvent` | 출연 요청 만료 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`AppearanceRequestExpireUseCase` 45행 근처) | — | 요청 값 1.1 |
-| `APPEARANCE_APPLICATION_SUBMITTED` | 모집 지원 도착 | 호스트 | `AppearanceApplicationSubmittedEvent` | 모집 지원 도착 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `appearance-application:<지원 ID>`), `AppearanceApplicationDto`에 `hostId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`hostId` 있음 | ND-004 | 채팅도 함께 보낸다(U12) |
+| `APPEARANCE_APPLICATION_SUBMITTED` | 모집 지원 도착 | 호스트 | `AppearanceApplicationSubmittedEvent` | 모집 지원 도착 | — | `APPEARANCE_RECRUIT` / `application.recruitId`(ND-074) | `application.applicationId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `appearance-application:<지원 ID>`), `AppearanceApplicationDto`에 `hostId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`hostId` 있음 | ND-004 | 채팅도 함께 보낸다(U12) |
 | `APPEARANCE_APPLICATION_SELECTED` | 지원 수락 (출연 성립) | 게스트 | `AppearanceApplicationSelectedEvent` | 호스트가 지원을 수락해 출연 성립 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `AppearanceChangedEvent`(#713)(결과 `SCHEDULED`, `guestId` 있음). 지원 수락과 요청 수락을 구분할 수 없고 지원 ID·모집글 ID·제목 없음, 순서 보장 없음 | — | 요청 값 1.1 |
 | `APPEARANCE_APPLICATION_NOT_SELECTED` | 미선정 (거절 또는 모집 마감) | 게스트 | `AppearanceApplicationNotSelectedEvent` | 지원 거절 또는 모집 마감. 모집 전체 취소 때 대기 중인 지원마다 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(거절 `AppearanceApplicationRespondUseCase.reject` 77행 근처, 마감 `AppearanceRecruitCloseRecorder` 37행 근처, 모집 전체 취소 때 대기 지원 `closeUnselected` `AppearanceRecruitCancelUseCase` 79~81행 근처). 출연이 아니라 지원 단계라 `AppearanceChangedEvent`도 나가지 않는다 | ND-017 | 요청 값 1.1 |
 | `APPEARANCE_RECRUIT_CLOSED` | 모집 마감 | 호스트 | `AppearanceRecruitClosedEvent` | 모집 마감 | `closeType`이 `DEADLINE`이 아닐 때(조기 마감은 본인 행동). `DEADLINE`일 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`AppearanceRecruitCloseUseCase` 39행, `AppearanceRecruitDeadlineCloseUseCase` 47행, `AppearanceRecruitCloseRecorder` 37행 근처). `closeType` 값도 없다 | — | 요청 값 1.1 |
@@ -159,17 +179,17 @@
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CHARGE_COMPLETED` | 충전 완료 | 충전한 회원 | `ChargeCompletedEvent` | 충전 완료 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-charge:<충전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
+| `CHARGE_COMPLETED` | 충전 완료 | 충전한 회원 | `ChargeCompletedEvent` | 충전 완료 | — | `CHARGE` / `chargeId`(ND-074) | `chargeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-charge:<충전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
 | `CHARGE_FAILED` | 충전 실패 | 충전한 회원 | `ChargeFailedEvent` | 충전 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ChargeProcessing` 70행 근처). 본보기는 기존 7종(`BillingEventPublisher` 39~81행) | — | 요청 값 3.1 |
-| `REFUND_COMPLETED` | 환불 완료 (전부·일부) | 신청한 회원 | `RefundCompletedEvent` | 환불 완료(전부 또는 일부) | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-refund-request:<환불 요청 ID>`), `userId`·`fullyRefunded()` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
+| `REFUND_COMPLETED` | 환불 완료 (전부·일부) | 신청한 회원 | `RefundCompletedEvent` | 환불 완료(전부 또는 일부) | — | `REFUND_REQUEST` / `refundRequestId`(ND-074) | `refundRequestId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-refund-request:<환불 요청 ID>`), `userId`·`fullyRefunded()` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
 | `REFUND_FAILED` | 환불 실패 | 신청한 회원 | `RefundFailedEvent` | 환불 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) | — | 요청 값 3.1 |
 | `REFUND_MANUAL_REVIEW_REQUIRED` | 환불 운영자 확인 필요 | 신청한 회원 | `RefundManualReviewRequiredEvent` | 환불이 운영자 확인 필요 상태가 됨 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) | — | 요청 값 3.1 |
-| `PAYOUT_COMPLETED` | 지급 완료 (출연료, 위약금) | 게스트 | `PayoutCompletedEvent` | `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE` 지급 완료(`payoutType` `NORMAL`·`PENALTY`). 한 건씩 보낸다 | `sourceType`이 `LECTURE_ORDER_ITEM`일 때(`PAYOUT_COMPLETED_DAILY`로 보낸다) | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `settlement:<지급 건 ID>`), `receiverUserId`·`payoutType`·`sourceType`·`sourceId` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-040 | — |
-| `EXCHANGE_REJECTED` | 환전 거절 | 신청한 회원 | `ExchangeRejectedEvent` | 환전 거절 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
+| `PAYOUT_COMPLETED` | 지급 완료 (출연료, 위약금) | 게스트 | `PayoutCompletedEvent` | `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE` 지급 완료(`payoutType` `NORMAL`·`PENALTY`). 한 건씩 보낸다 | `sourceType`이 `LECTURE_ORDER_ITEM`일 때(`PAYOUT_COMPLETED_DAILY`로 보낸다) | `APPEARANCE` / `sourceId`(출연 ID, 원천이 요청·모집 모두, ND-074) | `settlementId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `settlement:<지급 건 ID>`), `receiverUserId`·`payoutType`·`sourceType`·`sourceId` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-040 | — |
+| `EXCHANGE_REJECTED` | 환전 거절 | 신청한 회원 | `ExchangeRejectedEvent` | 환전 거절 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
 | `EXCHANGE_APPROVED` | 환전 승인 (정산일) | 신청한 회원 | `ExchangeApprovedEvent` | 환전 승인 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ExchangeReviewUseCase` 54~71행 근처) | ND-021 | 요청 값 3.1 |
-| `EXCHANGE_COMPLETED` | 환전 송금 완료 | 신청한 회원 | `ExchangeCompletedEvent` | 환전 송금 완료 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
-| `EXCHANGE_PAYOUT_FAILED` | 환전 송금 실패 (지연) | 신청한 회원 | `ExchangePayoutFailedEvent` | 환전 송금 실패(지연) | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId`·`payoutAttemptId`·`attemptNo` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음. 원본 대상 ID는 U5 | ND-021 | 한 환전에서 여러 번 난다. 환전 ID를 원본 대상 ID로 쓰면 두 번째 실패가 막힌다(U5) |
-| `EXCHANGE_FINAL_FAILED` | 환전 최종 실패 (보류 HP 반환) | 신청한 회원 | `ExchangeFinalFailedEvent` | 환전 최종 실패, 보류 HP 반환 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
+| `EXCHANGE_COMPLETED` | 환전 송금 완료 | 신청한 회원 | `ExchangeCompletedEvent` | 환전 송금 완료 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
+| `EXCHANGE_PAYOUT_FAILED` | 환전 송금 실패 (지연) | 신청한 회원 | `ExchangePayoutFailedEvent` | 환전 송금 실패(지연) | — | `EXCHANGE` / `exchangeId`(ND-074) | `payoutAttemptId`(ND-073, ND-033) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId`·`payoutAttemptId`·`attemptNo` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음. 원본 대상 ID는 U5 | ND-021 | 한 환전에서 여러 번 난다. 환전 ID를 원본 대상 ID로 쓰면 두 번째 실패가 막힌다(U5) |
+| `EXCHANGE_FINAL_FAILED` | 환전 최종 실패 (보류 HP 반환) | 신청한 회원 | `ExchangeFinalFailedEvent` | 환전 최종 실패, 보류 HP 반환 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
 
 - `PayoutCompletedEvent` 하나를 원천으로 출연 원천은 `PAYOUT_COMPLETED`, 강의 원천은 `PAYOUT_COMPLETED_DAILY`로 나눈다(ND-013).
 - 환전 이벤트는 순서가 바뀌어 올 수 있어 목록은 업무 시각으로 정렬한다(ND-021).
@@ -185,10 +205,10 @@
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `USER_JOINED` | 가입 환영 | 새 회원 | `UserJoinedEvent` | 회원 가입 | — | 미정 | 미정(U5) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key 회원 ID), `UserDto.id` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`UserDto.id` 있음. 첫 배포 이전 가입 회원은 U7·U17 | — | 첫 배포 때 과거 가입 이벤트 처리 U7 |
+| `USER_JOINED` | 가입 환영 | 새 회원 | `UserJoinedEvent` | 회원 가입 | — | 없음(ND-074) | `user.id`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key 회원 ID), `UserDto.id` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`UserDto.id` 있음. 첫 배포 이전 가입 회원은 U7·U17 | — | 첫 배포 때 과거 가입 이벤트는 ND-076, 이전 가입 회원 복제본은 ND-077 |
 | `INFLUENCER_CHANNEL_APPROVED` | 채널 인증 승인 (자동·관리자) | 회원 | 🆕 `InfluencerChannelApprovedEvent` (ND-042. 원본 표기: `UserModifiedEvent` "✅ 추정") | 회원의 채널 인증 승인(자동·관리자) | 역할 변경(`UserModifiedEvent`)만으로는 만들지 않는다(관리자 인플루언서 지정 #724 포함) | 미정 | 미정(U5) | 원본 ✅ 추정 / 재확인: 레코드 있음, `@Externalized`, `UserDto.role` 있음(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`) / **2026-11-06 판정: 부분 충족(U18)** — `UserModifiedEvent`(`UserDto`: id, nickname, role, status, version)에 이전 역할이 없어 복제본 비교가 필요하다(복제본 없음은 U17). 관리자 인플루언서 지정(#724)과 구분되지 않고, 이미 인플루언서인 회원의 채널 승인은 역할이 바뀌지 않아 이벤트가 없다. 2026-11-09 ND-042로 새 이벤트를 요청했다(계약 요청 4장) | ND-042(ND-016 일부 대체) | 자동·관리자 승인을 같은 종류로 보낸다. 요청 값 4.1 |
 | `INFLUENCER_CHANNEL_REJECTED` | 채널 인증 반려 (사유) | 회원 | `InfluencerChannelRejectedEvent` | 채널 인증 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberChannelReviewUseCase` 28~29행 근처) | — | 요청 값 4.1 |
-| `INFLUENCER_UPGRADE_REQUEST_APPROVED` | 승급 승인 | 회원 | `UserModifiedEvent` (원본 표기: "✅ 추정") | 복제본의 이전 역할과 새 역할을 비교해 인플루언서 → 인증된 인플루언서로 바뀜 | 역할이 인플루언서 → 인증된 인플루언서로 바뀌지 않은 `UserModifiedEvent` | 미정 | 미정(U5) | 원본 ✅ 추정 / 재확인: 위와 같음 / **2026-11-06 판정: 충족(복제본 비교 전제)** — 인플루언서 → 인증된 인플루언서는 승급 승인 경로에서만 바뀌어 판별 가능. 이전 역할은 이벤트에 없어 복제본에 의존(U17) | ND-016 | 자동·관리자 승인을 구분하지 않는다. 이벤트 이름 규칙 밖 코드(U11) |
+| `INFLUENCER_UPGRADE_REQUEST_APPROVED` | 승급 승인 | 회원 | `UserModifiedEvent` (원본 표기: "✅ 추정") | 복제본의 이전 역할과 새 역할을 비교해 인플루언서 → 인증된 인플루언서로 바뀜 | 역할이 인플루언서 → 인증된 인플루언서로 바뀌지 않은 `UserModifiedEvent` | 없음(ND-074) | `<user.id>:<user.version>`(ND-073) | 원본 ✅ 추정 / 재확인: 위와 같음 / **2026-11-06 판정: 충족(복제본 비교 전제)** — 인플루언서 → 인증된 인플루언서는 승급 승인 경로에서만 바뀌어 판별 가능. 이전 역할은 이벤트에 없어 복제본에 의존(U17) | ND-016 | 자동·관리자 승인을 구분하지 않는다. 이벤트 이름 규칙 밖 코드라 ND-071로 정했다 |
 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 승급 반려 (사유) | 회원 | `InfluencerUpgradeRequestRejectedEvent` | 승급 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberUpgradeReviewUseCase` 60~61행 근처) | — | 요청 값 4.1 |
 
 **보내지 않는 것**: 비밀번호 변경, 로그인 잠금, 정지, 탈퇴(알림센터를 볼 수 없다), 승인 요청·승급 신청 도착(관리자). 로그인하지 못한 회원에게 가야 하는 알림은 범위 밖이다(ND-002).
@@ -266,7 +286,7 @@
 | 묶음 단위 | 판매자(`receiverUserId`) × `paidAt`의 KST 날짜. 강의 지급 배치가 매일 01:00에 돌아 하루치가 대부분 한 번에 온다 |
 | 지급이 올 때 | 금액·건수를 더하고, 다시 안 읽음으로 만들고, 발생 시각을 새로 고쳐 목록 맨 위로 올린 뒤 실시간으로 보낸다 |
 | 중복 | 같은 지급(`settlementId`)은 `notification_payout_item`에 기록해 한 번만 더한다. 알림 유일 키는 (종류, 받는 사람, 묶음 키)(ND-019) |
-| 미결 | 이미 밀려난 날짜 묶음에 지급이 또 올 때 U9, 규칙 밖 종류 코드 U11. 제목은 ND-040 |
+| 미결 | 이미 밀려난 날짜 묶음에 지급이 또 올 때 U9, 규칙 밖 종류 코드 U11. 제목은 ND-040(M5 전에는 ND-070) |
 
 ## 9. 관련 미결
 
@@ -274,10 +294,9 @@
 
 | ID | 질문 |
 | --- | --- |
-| U3 | 종류별 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050) |
-| U5 | 이미 발행 중인 이벤트의 원본 대상 ID 필드(원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
-| U11 | 규칙 밖 종류 코드(`PAYOUT_COMPLETED_DAILY`, 승급 승인, 예약 5종. 단체방 3종 이름은 ND-043) |
-| U12 | 채팅과 알림센터에 같은 사건이 함께 뜨는 것 |
+| U3 | N5 11종 밖의 종류별 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075) |
+| U5 | N5 밖의 이미 발행 중인 이벤트의 원본 대상 ID 필드(N5는 ND-073. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
+| U11 | 규칙 밖 종류 코드(`PAYOUT_COMPLETED_DAILY`, 예약 5종. 승급 승인은 ND-071, 단체방 3종 이름은 ND-043) |
+| U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |
 | U16 | 예약 알림별로 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 계약 검증(처리 방향은 ND-034) |
-| U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) |
 | U19 | 구조는 ND-051로 정했다. 구현 가능성 검증만 남았다(N2, #801) |

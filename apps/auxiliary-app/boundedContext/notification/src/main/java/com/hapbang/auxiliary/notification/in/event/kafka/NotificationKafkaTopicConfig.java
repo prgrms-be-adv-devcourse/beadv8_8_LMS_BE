@@ -24,6 +24,20 @@ public class NotificationKafkaTopicConfig {
         return deadLetterTopic(settings);
     }
 
+    @Bean
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    NewTopic notificationAppearanceEventDeadLetterTopic(
+            @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTopic(settings);
+    }
+
+    @Bean
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    NewTopic notificationBillingEventDeadLetterTopic(
+            @Qualifier(NotificationKafkaConfig.BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTopic(settings);
+    }
+
     static NewTopic deadLetterTopic(NotificationKafkaConsumerSettings settings) {
         return TopicBuilder.name(settings.deadLetterTopic())
                 .partitions(settings.deadLetterPartitions())

@@ -28,6 +28,9 @@ hapbang:
     websocket:
       # 알림 웹소켓 핸드셰이크를 허용할 프론트 출처(chat-app과 같은 값)
       allowed-origins: http://localhost:5173
+    alert:
+      # 알림 시작 시각(ND-076). 로컬은 과거 값으로 두어 모든 사건이 알림이 된다
+      start-at: 2000-01-01T00:00:00Z
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
   clients:

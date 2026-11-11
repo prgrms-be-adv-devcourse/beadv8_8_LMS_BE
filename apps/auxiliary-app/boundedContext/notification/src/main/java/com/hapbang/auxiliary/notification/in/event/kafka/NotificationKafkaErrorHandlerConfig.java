@@ -39,6 +39,28 @@ public class NotificationKafkaErrorHandlerConfig {
         return errorHandler(deadLetterTemplate, settings);
     }
 
+    public static final String APPEARANCE_EVENT_ERROR_HANDLER = "notificationAppearanceEventErrorHandler";
+
+    @Bean(name = APPEARANCE_EVENT_ERROR_HANDLER, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
+    DefaultErrorHandler notificationAppearanceEventErrorHandler(
+            @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE)
+            KafkaTemplate<String, Object> deadLetterTemplate,
+            @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return errorHandler(deadLetterTemplate, settings);
+    }
+
+    public static final String BILLING_EVENT_ERROR_HANDLER = "notificationBillingEventErrorHandler";
+
+    @Bean(name = BILLING_EVENT_ERROR_HANDLER, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
+    DefaultErrorHandler notificationBillingEventErrorHandler(
+            @Qualifier(NotificationKafkaConfig.BILLING_EVENT_DEAD_LETTER_TEMPLATE)
+            KafkaTemplate<String, Object> deadLetterTemplate,
+            @Qualifier(NotificationKafkaConfig.BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return errorHandler(deadLetterTemplate, settings);
+    }
+
     static DefaultErrorHandler errorHandler(KafkaOperations<?, ?> deadLetterTemplate,
             NotificationKafkaConsumerSettings settings) {
         ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(settings.maxRetries());

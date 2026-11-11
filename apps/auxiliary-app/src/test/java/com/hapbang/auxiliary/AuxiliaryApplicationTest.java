@@ -51,6 +51,12 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.scheduling.enabled=false",
                 // 이 테스트는 Kafka 없이 앱 뼈대(포트·Flyway·헬스)를 본다. 알림 회원 이벤트 소비자는 끄고, 소비는 알림 모듈 Kafka 테스트가 본다
                 "hapbang.notification.member-events.enabled=false",
+                // 알림 출연·지갑 소비자(N5)도 같은 이유로 끄고, 기동 Backfill(회원 API 호출)도 끈다. 소비·Backfill은 알림 모듈 테스트가 본다
+                "hapbang.notification.appearance-events.enabled=false",
+                "hapbang.notification.billing-events.enabled=false",
+                "hapbang.notification.user-backfill.on-startup=false",
+                // 알림 시작 시각(ND-076)은 기본값이 없는 필수 설정이다. 운영은 application-prod.yaml
+                "hapbang.notification.alert.start-at=2000-01-01T00:00:00Z",
                 // 챗봇 사본 이벤트 소비(출연·회원·강의, #716·#717)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
                 "hapbang.chatbot.copy-events.enabled=false",
                 // 운영 설정은 다른 앱 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다

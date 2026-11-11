@@ -15,7 +15,7 @@
 
 ## 2. 현재 구현 상태
 
-**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)도 있다. Gateway route(N4, #847)는 브랜치에서 구현했다(dev 병합 전). 이벤트를 소비해 알림을 만드는 코드(N5 이후)는 아직 없다. 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
+**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)도 있다. Gateway route(N4, #847, PR #853)도 있다. 이벤트를 소비해 알림을 만드는 코드는 N5(#859)에서 만든다. 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
 
 | 무엇 | 어디서 확인하나 |
 | --- | --- |
@@ -101,7 +101,7 @@
 | 공통 API 규칙 | [`docs/api/conventions.md`](../api/conventions.md) | 따름 |
 | Kafka 토픽·key·소비·DLT 규칙 | [`kafka.md`](../architecture/infrastructure/kafka.md) | 소비 (consumer group 이름은 ND-047) |
 | 발행 모듈 이벤트 계약 요청(M1~M8) | [`event-contracts.md`](event-contracts.md). 지금 이벤트 판정은 [`notification-catalog.md`](notification-catalog.md) 행별, [`module.md`](module.md) 5장 | 계약을 정함(ND-037), 소비 예정 |
-| 회원 목록(복제본 Backfill 검토) | [`docs/api/internal-members.md`](../api/internal-members.md) | 호출 후보 (미결 U17) |
+| 회원 목록(복제본 Backfill) | [`docs/api/internal-members.md`](../api/internal-members.md) | 호출(ND-077) |
 | 앱 구조·모듈 경계·Flyway·배포 | [`apps/auxiliary-app/README.md`](../../apps/auxiliary-app/README.md), [`final-project-infrastructure.md`](../architecture/final-project-infrastructure.md) | 따름 |
 | Gateway·관측성 | [`docs/deploy/gateway.md`](../deploy/gateway.md), [`observability.md`](../architecture/infrastructure/observability.md) | 따름 |
 | 원본 설계 | [`docs/architecture/infrastructure/notification.md`](../architecture/infrastructure/notification.md) | 이 문서 체계의 원천(보존) |
@@ -117,7 +117,6 @@
 | 구분 | 무엇 | 자세히 |
 | --- | --- | --- |
 | U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
-| U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) | decisions 10장, test-spec `NT-USR-06`, module 5장 |
 | U19 | 구조는 ND-051로 정했다. 구현 가능성 검증은 N2(#801) | decisions 10장, test-spec `NT-USR-07` |
 | M1~M8 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | `event-contracts.md`, catalog 판정, module 5장, PROGRESS 3장 |
 
