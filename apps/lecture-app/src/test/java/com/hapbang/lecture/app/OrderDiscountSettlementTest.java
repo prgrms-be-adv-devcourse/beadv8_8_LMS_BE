@@ -23,15 +23,18 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 할인이 있는 주문 항목의 구매 취소·이의 제기 반환·지급 금액과, 금액이 0인 항목의 지갑 없는 즉시 완료를 Fake 지갑 Client와 DB로 확인한다.
+ * 할인이 있는 주문 항목의 구매 취소·이의 제기 반환·지급 금액과, 금액이 0인 항목의 지갑 없는 즉시 완료를 실제 billing HTTP와 DB로 확인한다.
  * 할인 스냅샷은 쿠폰 흐름 없이 주문 도메인으로 바로 남긴다(쿠폰 흐름은 OrderCouponReserveTest가 맡는다).
  */
 @IntegrationTest
@@ -59,7 +62,7 @@ class OrderDiscountSettlementTest {
     private LectureOrderRepository lectureOrderRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -77,7 +80,8 @@ class OrderDiscountSettlementTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP - DISCOUNT);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -141,7 +145,13 @@ class OrderDiscountSettlementTest {
         LectureOrder order = LectureOrder.place(BUYER_ID, List.of(lecture), Set.of(), purchasedAt);
         order.applyItemDiscount(lecture.getId(), sellerDiscount, 0L, sellerDiscount);
         order.markPaid(purchasedAt);
-        return lectureOrderRepository.save(order);
+        LectureOrder saved = lectureOrderRepository.save(order);
+        if (sellerDiscount < PRICE_HP) {
+            assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                    itemId(saved), PRICE_HP - sellerDiscount))).isInstanceOf(BillingCallResult.Succeeded.class);
+            billing.clearCalls();
+        }
+        return saved;
     }
 
     private LectureOrder saveConfirmed(long sellerDiscount, LocalDateTime purchasedAt) {

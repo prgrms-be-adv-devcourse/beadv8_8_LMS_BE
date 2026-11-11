@@ -23,7 +23,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.lecture.domain.Lecture;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
@@ -35,7 +35,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.jayway.jsonpath.JsonPath;
 
-// 관리자의 주문 쿠폰 작업 목록·상세·다시 시도·결제 실패 확정·해제 확인 완료 API를 HTTP부터 DB까지 확인한다(쿠폰·지갑 Client는 Fake).
+// 관리자의 주문 쿠폰 작업 목록·상세·다시 시도·결제 실패 확정·해제 확인 완료 API를 HTTP부터 DB까지 확인한다(쿠폰 Client는 Fake, billing은 실제 HTTP).
 // 조치 분기는 OrderCouponWorkAdminUseCaseTest, 상태 전이·판정 규칙은 OrderCouponWorkTest·CouponReservationOutcomeTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -55,7 +55,7 @@ class LectureCouponWorkAdminApiTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -66,6 +66,8 @@ class LectureCouponWorkAdminApiTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         coupon.reset();
     }
 

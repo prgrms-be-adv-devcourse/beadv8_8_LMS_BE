@@ -19,11 +19,14 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fake.RecordingCancelResultHandler;
 import com.hapbang.lecture.global.scheduling.ConditionalOnSchedulingEnabled;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 // HP 작업 재시도 배치: 실행할 작업만 한 번에 정한 수까지 실행한다 (D57 (7))
 @IntegrationTest
@@ -39,7 +42,7 @@ class LectureHpTaskBatchUseCaseTest {
     private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     // 실행기만 확인하도록 운영 CANCEL 처리기 자리에 결과만 남기는 처리기를 넣는다
     @TestBean(methodName = RecordingCancelResultHandler.FACTORY)
@@ -58,6 +61,7 @@ class LectureHpTaskBatchUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(7L, 1_000_000L, 0L);
         cancelHandler().reset();
     }
 
@@ -91,6 +95,9 @@ class LectureHpTaskBatchUseCaseTest {
         LectureHpTask task = LectureHpTask.create(LectureHpTaskPurpose.CANCEL, requestId, 3L,
                 Long.valueOf(requestId.substring(requestId.lastIndexOf('-') + 1)), 7L, null, 10_000L,
                 LocalDateTime.now(clock));
+        assertThat(billing.client().hold(new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM,
+                task.getOrderItemId(), 10_000L))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         return transactionTemplate.execute(status -> lectureHpTaskSupport.register(task).getId());
     }
 

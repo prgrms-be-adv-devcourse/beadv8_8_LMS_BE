@@ -1,11 +1,6 @@
 package com.hapbang.coupon;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -35,9 +30,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.port.LectureCatalog;
-import com.hapbang.coupon.app.port.PromotionBudget;
-import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.CouponRepository;
@@ -77,8 +69,8 @@ class CouponIssueE2eTest {
     @Autowired
     private CouponRepository couponRepository;
 
-    @MockitoBean
-    private PromotionBudget promotionBudget;
+    @Autowired
+    private com.hapbang.testsupport.billing.RealBillingTestFixture billing;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -97,8 +89,7 @@ class CouponIssueE2eTest {
 
     @Test
     void 연_플랫폼_쿠폰을_접수하면_Redis에_한_번만_기록되고_재전송은_같은_결과_다른_요청은_이미_발급이다() throws Exception {
-        given(promotionBudget.reserve(anyString(), anyLong(), anyInt(), anyLong()))
-                .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-1", null));
+        fundPromotion();
 
         // 관리자: 모든 강의 대상 1,000 HP 10장 발행(DRAFT) → 열기(예산 예약 → Redis 준비 → OPEN)
         long couponId = createPlatformCoupon();
@@ -108,8 +99,13 @@ class CouponIssueE2eTest {
         mockMvc.perform(post("/api/v1/coupons/admin/{couponId}/open", couponId).with(login(ADMIN_ID, "ADMIN")).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("OPEN"));
-        verify(promotionBudget).reserve("coupon-" + couponId + "-reserve-v" + Coupon.INITIAL_POLICY_VERSION,
-                couponId, Coupon.INITIAL_POLICY_VERSION, DISCOUNT_HP * QUANTITY);
+        String reservationId = couponRepository.findById(couponId).orElseThrow().getBudgetReservationId();
+        assertThat(billing.client().getBudgetReservation(reservationId))
+                .isInstanceOfSatisfying(com.hapbang.shared.billing.out.BillingCallResult.Succeeded.class, success -> {
+                    var reservation = (com.hapbang.shared.billing.dto.PromotionBudgetReservationDto) success.value();
+                    assertThat(reservation.couponId()).isEqualTo(couponId);
+                    assertThat(reservation.amountHp()).isEqualTo(DISCOUNT_HP * QUANTITY);
+                });
         verifyNoInteractions(lectureCatalog);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo(String.valueOf(QUANTITY));
         // Redis 접수는 DB OPEN 커밋의 version을 fence로 열린다. 다시 열면(멱등) version을 올려 같은 fence로 다시 연다
@@ -219,6 +215,16 @@ class CouponIssueE2eTest {
 
     private long issueFence(long couponId) {
         return Long.parseLong((String) redisTemplate.opsForHash().get(CouponRedisKeys.issueControl(couponId), "fence"));
+    }
+
+    private void fundPromotion() {
+        org.springframework.web.client.RestClient.create(billing.baseUrl()).post()
+                .uri("/api/v1/settlements/admin/promotion-wallet/fundings")
+                .header("X-User-Id", String.valueOf(ADMIN_ID)).header("X-User-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(java.util.Map.of("fundingWorkId", "coupon-e2e-" + java.util.UUID.randomUUID(),
+                        "amountHp", 1_000_000L, "sourceType", "ADMIN_GRANT", "sourceRef", "coupon-e2e"))
+                .retrieve().toBodilessEntity();
     }
 
     /** 회원 ID가 이름(getName)인 로그인. 운영에서는 강의 앱의 Gateway 사용자 헤더 필터가 같은 모양으로 만든다 */

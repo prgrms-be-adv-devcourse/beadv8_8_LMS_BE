@@ -20,7 +20,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
@@ -32,7 +32,7 @@ import com.hapbang.shared.coupon.api.CouponReserveResponse;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 쿠폰 주문 2~3단계(트랜잭션 밖 쿠폰 예약 → 결과 기록과 보류 작업 등록)를 Fake 쿠폰·지갑 Client와 DB로 확인한다.
+ * 쿠폰 주문 2~3단계(트랜잭션 밖 쿠폰 예약 → 결과 기록과 보류 작업 등록)를 Fake 쿠폰 Client·실제 billing HTTP와 DB로 확인한다.
  * 응답과 스냅샷의 대조 규칙은 OrderCouponReservationTest가 맡는다.
  */
 @IntegrationTest
@@ -51,7 +51,7 @@ class OrderCouponReserveTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -62,7 +62,9 @@ class OrderCouponReserveTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+
         coupon.reset();
     }
 
@@ -91,7 +93,7 @@ class OrderCouponReserveTest {
         assertThat(jdbcTemplate.queryForObject("select reserved_generation from lectures.order_item_coupon "
                 + "where order_item_id = ?", Long.class, orderItemId)).isEqualTo(EXPECTED_GENERATION + 1);
         assertThat(workStatus(response.orderId())).isEqualTo("RESERVED");
-        assertThat(billing.calls()).extracting(FakeBillingApiClient.Call::command)
+        assertThat(billing.calls()).extracting(RealBillingTestFixture.Call::command)
                 .singleElement().isInstanceOfSatisfying(HoldCommand.class, hold -> {
                     assertThat(hold.referenceId()).isEqualTo(orderItemId);
                     // 보류 금액은 구매자 금액(가격 − 할인)이다

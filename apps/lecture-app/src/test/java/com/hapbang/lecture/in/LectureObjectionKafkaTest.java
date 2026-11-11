@@ -51,18 +51,22 @@ import com.hapbang.lecture.config.LectureEventExternalizationConfig;
 import com.hapbang.lecture.config.LectureKafkaConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.ObjectionStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureObjectionCommandRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import com.hapbang.testsupport.RecordedSpans;
 import com.hapbang.testsupport.TraceRequests;
@@ -140,13 +144,16 @@ class LectureObjectionKafkaTest {
     private LectureHpTaskAdminFacade lectureHpTaskAdminFacade;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     private KafkaConsumer<String, String> consumer;
     private final List<ConsumerRecord<String, String>> received = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() {
+        billing.reset();
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         consumer = consumerAtEnd(LectureEventTopic.NAME);
         spans.reset();
     }
@@ -203,7 +210,10 @@ class LectureObjectionKafkaTest {
                 itemId, true, ADMIN_ID));
         Long taskId = lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + itemId).orElseThrow().getId();
         // 결과 금액이 작업 금액과 달라 DEAD가 된다 (D43)
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        assertThat(billing.client().release(ReleaseCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, itemId, "PREEXISTING-RETURN-" + itemId, 1_000L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         try {
             lectureHpTaskExecutor.execute(taskId);
             lectureHpTaskAdminFacade.retry(ADMIN_ID, taskId);
@@ -340,6 +350,9 @@ class LectureObjectionKafkaTest {
         Long itemId = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID,
                         List.of(lectureRepository.save(lecture)), LocalDateTime.now(LectureConfig.ZONE)))
                 .getItems().getFirst().getId();
+        assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                itemId, PRICE_HP))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         lectureObjectionFacade.file(LectureObjectionFileRequest.of(inquiryId, itemId, BUYER_ID, "내용이 다릅니다."));
         return itemId;
     }

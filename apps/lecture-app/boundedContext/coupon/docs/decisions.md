@@ -81,6 +81,12 @@
 - `budget_work`에 예약 ID·target·attempt·leaseUntil·version을 영속화한다. PENDING 선점은 짧은 DB 트랜잭션에서 attempt·version을 올리고, HTTP는 트랜잭션 밖에서 수행하며, 결과는 같은 attempt에만 반영한다. 작업 ID에는 `:`를 쓰지 않고 해제 target에는 미발급 수량 또는 발급 쿠폰 ID를 남긴다. 주기·lease·묶음 크기는 운영 측정 전 기본값이며 operations.md에 기록한다. 관리자 열기도 배치와 같은 `CouponBudgetWorkUseCase.execute(workId)`를 사용해 별도 HTTP·결과 기록 경로를 두지 않는다. 이미 선점된 PENDING은 503으로 두고 최신 DB 작업이 DONE일 때만 열기를 이어 간다. 같은 lease·attempt fence가 늦은 성공·거절의 덮어쓰기를 막는다.
 - 강의 HP 작업은 구매자 금액과 양수 플랫폼 재원을 함께 보류·지급·반환하고, 반환 시 billing이 확인한 쿠폰별 복구 결과를 취소 완료 이벤트에 싣는다. 구매자 금액이 0이어도 플랫폼 재원이 양수면 billing 작업과 조회 기준을 남긴다. 양수 재원 처리를 생략하지 않는 F7과 반환 완료 뒤 쿠폰을 복원하는 원칙은 유지한다.
 
+## 실제 billing 통합 검증 (2026-11-11, #866)
+
+- 사용자 요청과 범위 확인에 따라 쿠폰 E2E뿐 아니라 강의 Spring 통합 테스트 전체의 billing stub·fake를 제거한다. 실제 billing 앱을 별도 JVM·전용 DB로 띄우고 운영 HTTP API·원장 엔진을 검증한다.
+- 초기 충전/수익 데이터는 billing 소유 테스트 fixture로 준비하며 외부 PG 승인·회원 가입 검증은 포함하지 않는다. 업무 응답과 금융 결과는 가공하지 않는다. 실제 잔액/지갑/멱등 상태, 연결 단절·응답 유실, 호출 순서 제어로 거절·불명·경쟁을 검증한다.
+- 기존 도메인·어댑터 응답 분류 단위 테스트는 유지한다. 운영 jar에 fixture를 넣거나 강의 테스트에 billing Java 의존을 추가하지 않는다. 자세한 실행·정리 경계는 operations.md와 레포 docs/dev/testing.md를 따른다.
+
 ## 구현 순서와 담당 경계
 
 1. 정책·API 계약: 위 업무 결정을 확정하고 billing 계약을 연결한다. 공통 AGENTS·용어·정책·DB 문서에 스키마 예외와 공개 API 호출 경계를 반영한다.

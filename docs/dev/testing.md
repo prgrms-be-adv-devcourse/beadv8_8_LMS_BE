@@ -5,7 +5,7 @@
 - 앱: `:member-app`, `:billing-app`, `:appearance-app`, `:lecture-app`, `:chat-app`, `:customer-support-app`.
 - 공통 라이브러리: `:shared`, `:test-support`, `:kafka`, `:redis`.
 - `./gradlew check`는 활성 테스트를 실행하며 Testcontainers를 사용하는 테스트는 Docker가 필요하다.
-- `./gradlew verifyModuleStructure`는 앱 간 실행 의존과 common → 앱 의존을 막고 필수 실행 파일을 검사한다.
+- `./gradlew verifyModuleStructure`는 각 프로젝트의 `compileClasspath`·`runtimeClasspath`에서 해석된 Gradle 프로젝트 의존과 필수 실행 파일을 검사한다. 테스트 클래스패스와 task 산출물 의존(`dependsOn`·파일 입력)은 검사하지 않는다.
 - 앱별 검증: `./gradlew :member-app:check :member-app:bootJar`.
 - 실제 실행 여부는 `apps/<앱>/build/test-results/test/TEST-*.xml`로 확인한다. up-to-date로 생략된 테스트를 새 실행으로 보고하지 않는다.
 
@@ -13,9 +13,37 @@
 
 기존 업무 모듈 테스트와 앱 내부 global 테스트는 각 앱의 `src/test`에 있다. `common/test-support`가 PostgreSQL·S3Mock·Kafka·Redis·테스트 로그인 지원을 제공한다. 앱 테스트가 다른 앱을 Gradle 의존으로 가져와 모든 빈을 한 컨텍스트에 올리면 독립 배포 경계를 검증할 수 없으므로 금지한다.
 
-기존 단일 `apps`의 통합 테스트는 현재 `check`에 포함되지 않는다. 이전 시나리오는 Git 이력에서 확인하고 서비스 간 HTTP·이벤트·인증으로 전환하면서 재작성해야 한다. 현재 테스트 통과는 분산 거래 전체의 동작 보장이 아니다. 자세한 미완료 범위는 [앱 구조](../architecture/app-modules.md)를 따른다.
+기존 단일 `apps`의 통합 테스트는 현재 `check`에 포함되지 않는다. 이전 시나리오는 Git 이력에서 확인하고 서비스 간 HTTP·이벤트·인증으로 전환하면서 재작성해야 한다. 아래 강의·billing HTTP 통합 테스트가 검증하는 경로 외의 분산 거래 전체는 앱별 테스트 통과만으로 보장하지 않는다. 자세한 미완료 범위는 [앱 구조](../architecture/app-modules.md)를 따른다.
 
 다른 서비스의 포트를 대체하는 Fake는 테스트 소스에만 둔다. 앱 실행을 위해 Fake를 운영 소스에 넣지 않는다.
+
+## 강의·billing HTTP 통합 테스트
+
+강의 앱의 Spring 통합 테스트는 `RealBillingTestFixture`로 실제 billing 서버에 연결한다. `:lecture-app:test`가 먼저 `:billing-app:e2eServerJar`를 만들고, 공통 하네스가 테스트 JVM당 billing 프로세스와 전용 PostgreSQL 컨테이너(database `billing_e2e`)를 한 번 시작한다. 강의 DB와 billing DB는 분리하며, 강의 테스트 클래스패스에 billing 앱·엔티티·Repository를 추가하지 않는다. HTTP Client 자체의 응답 해석 단위 테스트와는 검증 범위가 다르다.
+
+`lecture-app`·`coupon`의 `Test` task가 `:billing-app:e2eServerJar`에 의존하고 JAR를 파일 입력으로 받는 것은 **같은 모노레포 안에서 테스트 실행 산출물을 빌드하는 명시적 예외**다. Java 클래스패스에 billing 구현을 추가하거나 엔티티·Repository·DB를 공유하는 예외가 아니다. 이 task 의존은 `verifyModuleStructure`의 검사 대상에 포함되지 않으므로, 검사 통과를 테스트 산출물 의존까지 검증한 결과로 해석하지 않는다. 경계 규칙은 [모듈 연동 문서](module-integration.md#테스트-실행-산출물-예외)를 따른다.
+
+레포를 분리하면 현재의 모노레포 task 연결과 `apps/billing-app/build/libs/billing-e2e-server.jar` 경로를 그대로 사용할 수 없다. billing이 발행한 E2E 실행 JAR를 아티팩트로 받아 소비자 테스트 하네스의 `hapbang.billing.e2e.jar`에 전달하도록 빌드를 변경해야 한다. 이는 레포 분리 시 필요한 변경 사항이며, 현재 Gradle 설정은 같은 저장소에서 만든 JAR 경로를 사용한다.
+
+- 실행은 `./gradlew :lecture-app:test :coupon:test`로 한다. 두 프로젝트의 테스트는 billing E2E Jar를 빌드 의존과 파일 입력으로 등록하므로 서버 코드·설정이 바뀌면 다시 실행한다. 다른 앱에도 실제 billing을 연결할 때는 같은 연결이 필요하다. PR CI는 billing 변경 시 실제 소비자인 lecture-app 검사도 포함한다.
+- 서버는 `apps/billing-app/src/e2eServer`만 fixture로 더한 실제 `BillingApplication`이다. 일반 billing 테스트 클래스는 포함하지 않고, 운영 `app.jar`에는 fixture를 포함하지 않는다. 독립 `billing-e2e.yml`·`e2e` 프로필로 실행해 로컬 `.env`·운영 앱 설정을 읽지 않는다. Flyway 마이그레이션과 JPA 검증은 실제 DB에 적용한다.
+- 하네스가 임시 DB 자격·내부 API 키를 전달하고 서버는 loopback 임의 포트에 바인딩한다. 서버가 준비되면 `hapbang.e2e.ready-file`에 `{port, baseUrl, pid}` JSON을 원자적으로 쓴다. 기동 로그는 임시 디렉터리의 `billing.log`에 남는다. Jar 누락·컨테이너 실패·서버 종료·준비 시간 초과는 테스트 실패다. Fake 대체나 자동 건너뛰기를 하지 않는다.
+- 지갑 조회·관리자 프로모션 충전/조회·예산 예약/해제·HP 보류/반환/지급/보류 취소/조회는 실제 운영 Controller와 내부 HTTP Client를 지난다. billing의 Kafka 소비·외부화·배치는 이 하네스에서 끈다. 따라서 이 테스트의 성공은 billing 이벤트의 Kafka 전달이나 Toss 결제 승인을 검증했다는 뜻이 아니다.
+
+초기 상태는 loopback과 `X-Billing-E2e-Key`로 보호한 `/__test/billing/*` HTTP fixture만 준비한다. 이는 billing E2E Jar에만 존재하며 billing 소유 스키마 안에서 동작한다. 다른 앱의 DB를 직접 읽거나 쓰는 경로로 확장하지 않는다.
+
+| fixture | 용도와 경계 |
+| --- | --- |
+| `POST /reset` | billing 스키마의 금융 테스트 데이터를 비우고 시스템 지갑을 다시 만든다. Flyway 이력은 유지한다. 공통 리스너가 각 테스트의 트랜잭션 시작 전에 호출한다. |
+| `POST /wallets` | `userId`, `chargeHp`, `revenueHp`를 받아 양수만 더한다. 충전 HP는 실제 완료 `PointCharge`와 원장, 수익 HP는 실제 원장 엔진으로 준비한다. 0은 해당 종류의 원장·충전 건을 만들지 않는다. 잔액 덮어쓰기나 기존 원장 삭제는 하지 않는다. |
+| `POST /wallets/{userId}/close` | 실제 지갑 폐쇄 상태를 만든다. `WALLET_CLOSED` 같은 업무 거절을 실제 API에서 받기 위한 전제다. |
+| `GET /snapshot?userId=...` | 실제 지갑·원장·충전 원금·정합성 대사 결과를 반환한다. 없는 지갑을 만들지 않는다. |
+
+충전·수익 seed는 외부 결제 승인과 회원 생성 경로를 생략하고, 거래 테스트에 필요한 완료 충전·원장 초기 상태만 billing 안에 준비한다. 이후 금융 성공·거절·멱등·원금 FIFO·복구 결과는 실제 billing 엔진이 결정한다. 예산은 `promotionWallet(amountHp)`를 통해 실제 관리자 충전 API로 준비한다. 부족 상태는 작은 초기 잔액이나 전체 reset으로 만들고, 응답을 지정해 성공·실패를 만들어 내지 않는다.
+
+`RealBillingTestFixture.calls()`는 실제 `BillingApiClient`를 관찰해 명령과 호출 시 강의 트랜잭션 유무를 남긴다. `duringCall`·`duringNextCall`은 동시 실행 순서만 제어한다. 통신 프록시는 정상 업무 응답을 그대로 전달하고, `disconnect`·응답 유실은 연결 또는 전달 중단으로 재현한다. 임의 HTTP 상태·업무 응답을 만들거나 금융 결과를 바꾸지 않는다. 회로 테스트는 실제 Client의 회로를 열고 닫는다.
+
+테스트 사이에는 fixture가 billing 데이터·관측 목록·통신 장애·회로 상태를 초기화한다. JVM 종료 시 하네스가 billing 프로세스를 종료하고 전용 PostgreSQL 컨테이너를 정리한다. 수동으로 공유 컨테이너를 중단하거나 다른 앱의 스키마를 비우지 않는다. 구현은 [`common/test-support/.../billing`](../../common/test-support/src/main/java/com/hapbang/testsupport/billing)과 [`billing-app/src/e2eServer`](../../apps/billing-app/src/e2eServer)를 따른다.
 
 ## Kafka·Redis Testcontainers
 
@@ -35,6 +63,7 @@ class DomainIntegrationTest {
 
 - Kafka는 `apache/kafka:4.2.1`의 단일 노드 KRaft, Redis는 로컬 Compose와 같은 `redis:8`을 사용한다. Kafka 이미지 버전은 현재 Spring Boot BOM의 Kafka 버전에 맞췄다.
 - Docker가 실행 중이어야 한다. 최초 실행에는 이미지 다운로드가 필요하다. Docker나 컨테이너 기동 실패는 테스트 실패이며 Mock 대체·자동 건너뛰기는 하지 않는다.
+- 로컬 Docker가 기본 주소의 임의 포트 게시를 하지 못해 포트 매핑이 비어 있을 때만 `HAPBANG_TEST_BIND_ADDRESS=127.0.0.1 ./gradlew ...`로 명시한다. 공통 `TestContainerBindAddress`가 Testcontainers의 `CreateContainerCmdModifier` SPI로 기존 포트 게시 주소만 바꾸고 포트 번호는 동적으로 유지한다. 기본 실행과 CI에는 이 환경 변수를 설정하지 않아 기존 Testcontainers 동작을 유지한다.
 - 준비 완료 후 동적 호스트·포트를 `spring.kafka.bootstrap-servers`, `spring.data.redis.host`, `spring.data.redis.port`에 주입한다. 외부 서버나 고정 호스트 포트는 필요 없다.
 - member-app은 회원 이벤트를 Kafka로 외부화하므로 통합 테스트가 모두 `@MemberIntegrationTest`(`@IntegrationTest` + `KafkaTestcontainersConfig`)를 쓴다. 다른 테스트의 메시지가 같은 토픽에 섞이므로 Kafka 메시지를 확인하는 테스트는 자신이 만든 회원 ID(key)로 거른다. 공통 Kafka 설정 없이 `@IntegrationTest`만 쓰면 `localhost:9092`로 보내려 한다.
 - 토픽·소비자 그룹·직렬화와 Redis 키·채널은 사용하는 테스트가 지정한다. 공통 설정은 업무 정책을 정하지 않는다.

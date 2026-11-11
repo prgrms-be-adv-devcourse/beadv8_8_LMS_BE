@@ -179,10 +179,11 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 설명 API의 LLM 프롬프트에 닉네임·자기소개 원문·회원 ID를 보내지 않는다(Tool 결과에는 회원 ID가 있다) | | `explained`, `promptHasNoMemberIds` |
 | 표를 처음 받는 중이면 색인 쪽 호출은 기다리고, 화면용 호출은 기다리지 않는다 | 기동 직후(받기에 실패하면 재시도 시간까지는 기다리지 않고 실패) | `ChatbotCategoryNamesTest.waitsForFirstFetch`, `displayDoesNotWait` |
 
-## 검색 (#771, #772)
+## 검색 (#771, #772, #868)
 
 인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
 
+- 코드는 대상과 상관없는 공통 코드(`search.common`: index·alias·동의어·재색인·tombstone 정리·지표)와 대상별 구현(`search.influencer`)으로 나뉜다(#868). 강의·모집 검색은 `search.<대상>`으로 더한다(`docs/search/module.md` 3장 "새 대상을 붙이는 법").
 - 검색 기능 스위치는 #860에서 지웠다. 검색 빈은 늘 뜨고, ES가 없어도 챗봇·알림은 그대로이며 검색 API만 503이다(`docs/search/module.md` 2장).
 - ES는 챗봇과 같은 cluster지만 검색 전용 client가 `ES_SEARCH_API_KEY`(role `search`, `search-*`)로 따로 붙는다(`hapbang.search.elasticsearch.*`). 검색 index는 nori를 쓰므로 로컬 `compose.yaml`의 ES는 nori를 설치한 이미지다.
 - Kafka: `member.events.v1`, 그룹 `auxiliary-app.search-member`. 배치: 통계 동기화·문서 수 정합성 점검(끝난 뒤 10분, `JobLock` 771_002), 회원 변경분 증분 보정(끝난 뒤 10분, 772_001), tombstone 정리(매일 04:30, 771_001), 0건 검색어 로그(10분, 락 없음).

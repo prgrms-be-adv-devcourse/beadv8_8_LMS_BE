@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -25,12 +26,15 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.fake.CommittedCouponOrderEvents;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
@@ -51,6 +55,7 @@ class OrderCouponEventPublishTest {
     private static final long DISCOUNT = 3_000L;
     private static final long MEMBER_COUPON_ID = 501L;
     private static final long RESERVED_GENERATION = 5L;
+    private static final long INITIAL_BUYER_HP = 1_000_000L;
     private static final Long INQUIRY_ID = 77L;
 
     @Autowired
@@ -75,7 +80,7 @@ class OrderCouponEventPublishTest {
     private OrderItemCouponRepository orderItemCouponRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -96,7 +101,9 @@ class OrderCouponEventPublishTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP - DISCOUNT);
+        billing.wallet(BUYER_ID, INITIAL_BUYER_HP, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+
         coupon.reset();
         events.reset();
     }
@@ -128,7 +135,6 @@ class OrderCouponEventPublishTest {
 
     @Test
     void 쿠폰_없는_주문은_결제와_구매_취소에서_쿠폰_이벤트를_내지_않는다() {
-        billing.setSettledHp(PRICE_HP);
         Lecture lecture = saveOnSale();
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
@@ -154,6 +160,7 @@ class OrderCouponEventPublishTest {
             assertThat(event.memberId()).isEqualTo(BUYER_ID);
             assertThat(event.orderId()).isEqualTo(order.getId());
         });
+        assertRefundLedger(orderItemId, PRICE_HP - DISCOUNT);
     }
 
     @Test
@@ -168,6 +175,7 @@ class OrderCouponEventPublishTest {
 
         assertThat(events.cancelCompleted()).singleElement().satisfies(event ->
                 assertThat(event.billingReleaseRequestId()).isEqualTo("LECTURE-RETURN-" + orderItemId));
+        assertRefundLedger(orderItemId, PRICE_HP - DISCOUNT);
     }
 
     @Test
@@ -203,7 +211,29 @@ class OrderCouponEventPublishTest {
                 PRICE_HP, sellerDiscount, 0L, sellerDiscount, RESERVED_GENERATION - 1, 2);
         itemCoupon.recordReserved(RESERVED_GENERATION);
         orderItemCouponRepository.save(itemCoupon);
+        long buyerAmount = PRICE_HP - sellerDiscount;
+        if (buyerAmount > 0) {
+            assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                    itemId(saved), buyerAmount))).isInstanceOf(BillingCallResult.Succeeded.class);
+        }
         return saved;
+    }
+
+    private void assertRefundLedger(long orderItemId, long buyerAmount) {
+        Map<String, Object> snapshot = billing.snapshot(BUYER_ID);
+        Map<?, ?> wallet = (Map<?, ?>) snapshot.get("wallet");
+        assertThat(((Number) wallet.get("chargeBalanceHp")).longValue()).isEqualTo(INITIAL_BUYER_HP);
+        assertThat(((Number) wallet.get("heldTotalHp")).longValue()).isZero();
+        assertThat(((Number) snapshot.get("chargePrincipalHp")).longValue()).isEqualTo(INITIAL_BUYER_HP);
+        var refunds = ((List<?>) snapshot.get("ledgers")).stream().map(row -> (Map<?, ?>) row)
+                .filter(row -> "RELEASE".equals(row.get("transactionType"))
+                        && row.get("referenceId") instanceof Number id && id.longValue() == orderItemId)
+                .toList();
+        assertThat(refunds).hasSize(2);
+        assertThat(refunds).extracting(row -> (String) row.get("balanceBucket"))
+                .containsExactlyInAnyOrder("AVAILABLE", "HELD");
+        assertThat(refunds).extracting(row -> ((Number) row.get("amountHp")).longValue())
+                .containsExactlyInAnyOrder(buyerAmount, -buyerAmount);
     }
 
     private void resolveAccepted(LectureOrder order) {

@@ -40,7 +40,6 @@ import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.domain.LectureObjectionCommandOutcome;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.fixture.ObjectionCommands;
@@ -48,7 +47,6 @@ import com.hapbang.lecture.out.LectureObjectionCommandRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
@@ -64,9 +62,10 @@ import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEven
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 이의 제기 Facade(LectureObjectionFacade)를 직접 호출해 DB·HP 반환(Fake billing)·명령 이력·결과 이벤트까지 확인한다 (#278).
+ * 이의 제기 Facade(LectureObjectionFacade)를 직접 호출해 DB·HP 반환(실제 billing HTTP)·명령 이력·결과 이벤트까지 확인한다 (#278).
  * 상태 규칙과 기한 경계는 LectureOrderObjectionTest가 맡는다. 명령은 고객센터가 보낸 것처럼 명령 하나가 강의 트랜잭션 하나다.
  */
 @IntegrationTest
@@ -92,7 +91,7 @@ class LectureObjectionFacadeTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
@@ -131,7 +130,8 @@ class LectureObjectionFacadeTest {
     void setUp() {
         objections = new ObjectionCommands(lectureObjectionFacade);
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -227,7 +227,7 @@ class LectureObjectionFacadeTest {
         Long orderItemId = order.items().getFirst().orderItemId();
         objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
         objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID);
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        returnPreviously(orderItemId);
 
         lectureHpTaskBatchUseCase.runDue();
 
@@ -239,12 +239,13 @@ class LectureObjectionFacadeTest {
 
     @Test
     void 지갑이_반환을_거부하면_반환_처리_중에_멈춘다() {
-        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        // 강의에만 구매 완료가 기록되고 billing에는 보류가 없는 불일치 상태다.
+        LectureOrder missingHold = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID,
+                List.of(saveOnSale("OBS 방송 세팅")), LocalDateTime.now(clock)));
+        OrderResponse order = lectureOrderFacade.getOrder(BUYER_ID, missingHold.getId());
         Long orderItemId = order.items().getFirst().orderItemId();
         objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
         objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID);
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_NOT_FOUND,
-                "HP 보류를 찾을 수 없습니다.", 404, "HOLD_NOT_FOUND"));
 
         lectureHpTaskBatchUseCase.runDue();
 
@@ -409,8 +410,8 @@ class LectureObjectionFacadeTest {
         objections.resolve(deadItemId, INQUIRY_ID + 1, true, ADMIN_ID);
 
         lectureHpTaskExecutor.execute(returnTaskId(completedItemId));
-        // 결과 금액이 작업 금액과 달라 DEAD가 된다 (D43)
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        // 다른 요청으로 일부 HP가 이미 반환되어 실제 남은 반환액이 작업 금액보다 작다 (D43)
+        returnPreviously(deadItemId);
         lectureHpTaskExecutor.execute(returnTaskId(deadItemId));
 
         assertThat(events.stream(LectureObjectionReturnCompletedEvent.class)).containsExactly(
@@ -432,8 +433,9 @@ class LectureObjectionFacadeTest {
         objections.file(otherItemId, BUYER_ID, INQUIRY_ID + 1, REASON);
         objections.resolve(itemId, INQUIRY_ID, true, ADMIN_ID);
         objections.resolve(otherItemId, INQUIRY_ID + 1, true, ADMIN_ID);
-        // 결과 금액이 작업 금액과 달라 DEAD가 된다 (D43)
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        // 다른 요청으로 일부 HP가 이미 반환되어 실제 남은 반환액이 작업 금액보다 작다 (D43)
+        returnPreviously(itemId);
+        returnPreviously(otherItemId);
 
         lectureHpTaskExecutor.execute(returnTaskId(itemId));
         // 관리자가 원인을 확인하지 못한 채 다시 시도해 또 멈춘다 (D57 (9))
@@ -461,7 +463,7 @@ class LectureObjectionFacadeTest {
         Long itemId = order.items().getFirst().orderItemId();
         objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON);
         objections.resolve(itemId, INQUIRY_ID, true, ADMIN_ID);
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        returnPreviously(itemId);
         lectureHpTaskExecutor.execute(returnTaskId(itemId));
         LectureObjectionReturnActionRequiredEvent first = events.stream(LectureObjectionReturnActionRequiredEvent.class)
                 .findFirst().orElseThrow();
@@ -516,7 +518,7 @@ class LectureObjectionFacadeTest {
         Long itemId = order.items().getFirst().orderItemId();
         objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON);
         objections.resolve(itemId, INQUIRY_ID, true, ADMIN_ID);
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        returnPreviously(itemId);
         lectureHpTaskExecutor.execute(returnTaskId(itemId));
 
         // DEAD 작업은 선점되지 않아 결과 처리기(onDead)가 다시 불리지 않는다
@@ -556,7 +558,8 @@ class LectureObjectionFacadeTest {
         }
         // 두 반환이 모두 지갑 호출에 들어갈 때까지 기다리게 해, 결과 기록이 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
         CyclicBarrier bothReleasing = new CyclicBarrier(2);
-        billing.setDuringCall(() -> await(bothReleasing));
+        billing.duringNextCall(() -> await(bothReleasing));
+        billing.duringNextCall(() -> await(bothReleasing));
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             List<Future<?>> futures = itemIds.stream()
@@ -608,6 +611,13 @@ class LectureObjectionFacadeTest {
                 ADMIN_ID);
     }
 
+    private void returnPreviously(Long orderItemId) {
+        assertThat(billing.client().release(ReleaseCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, orderItemId, "PREEXISTING-RETURN-" + orderItemId, 1_000L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
+    }
+
     private Long returnTaskId(Long orderItemId) {
         return returnTask(orderItemId).getId();
     }
@@ -644,7 +654,7 @@ class LectureObjectionFacadeTest {
 
     private List<ReleaseCommand> releases() {
         return billing.calls().stream()
-                .map(FakeBillingApiClient.Call::command)
+                .map(RealBillingTestFixture.Call::command)
                 .filter(ReleaseCommand.class::isInstance)
                 .map(ReleaseCommand.class::cast)
                 .toList();

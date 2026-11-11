@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,13 +25,13 @@ import org.springframework.web.client.RestClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.out.BillingApiClient;
-import com.hapbang.shared.billing.out.BillingClientProperties;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
 import com.hapbang.testsupport.RecordedSpans;
 import com.hapbang.testsupport.TraceRequests;
-import com.hapbang.testsupport.TraceRequests.StubServer;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -74,7 +75,10 @@ class LectureTracingTest {
     private RecordedSpans spans;
 
     @Autowired
-    private RestClient.Builder restClientBuilder;
+    private BillingApiClient billingApiClient;
+
+    @Autowired
+    private RealBillingTestFixture billing;
 
     @Autowired
     private ObservationRegistry observationRegistry;
@@ -124,23 +128,23 @@ class LectureTracingTest {
 
     @Test
     void 지갑_호출은_지금_trace를_이어_traceparent를_보내고_client_span을_남긴다() throws Exception {
-        try (StubServer billing = StubServer.respondingWith("""
-                {"statusCode":200,"message":"","data":{
-                  "referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"heldHp":10000,"replayed":false}}""")) {
-            // 앱의 실제 Client처럼 Boot가 주입하는 RestClient.Builder로 만든다
-            BillingApiClient billingApiClient = new BillingApiClient(restClientBuilder,
-                    new BillingClientProperties(billing.baseUrl(), null, null), "test");
+        billing.wallet(7L, 10_000L, 0L);
+        Observation.createNotStarted("lecture-tracing-test", observationRegistry).observe(() -> {
+            assertThat(billingApiClient.hold(new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L)))
+                    .isInstanceOf(BillingCallResult.Succeeded.class);
+        });
 
-            Observation.createNotStarted("lecture-tracing-test", observationRegistry).observe(() ->
-                    billingApiClient.hold(new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L)));
-
-            RecordedSpans.await(() -> !spans.clientSpans().isEmpty());
-            SpanData parent = spans.named("lecture-tracing-test").getFirst();
-            SpanData http = spans.clientSpans().getFirst();
-            assertThat(http.getTraceId()).isEqualTo(parent.getTraceId());
-            assertThat(http.getParentSpanId()).isEqualTo(parent.getSpanId());
-            assertThat(billing.traceparents()).singleElement()
-                    .satisfies(header -> TraceRequests.assertContinues(header, http));
-        }
+        RecordedSpans.await(() -> !spans.clientSpans().isEmpty());
+        SpanData parent = spans.named("lecture-tracing-test").getFirst();
+        SpanData http = spans.clientSpans().getFirst();
+        assertThat(http.getTraceId()).isEqualTo(parent.getTraceId());
+        assertThat(http.getParentSpanId()).isEqualTo(parent.getSpanId());
+        Map<?, ?> received = RestClient.create(billing.directBaseUrl()).get().uri("/__test/billing/requests/last")
+                .header("X-Billing-E2e-Key", billing.fixtureKey()).retrieve().body(Map.class);
+        assertThat(received).isNotNull();
+        assertThat(((Number) received.get("count")).longValue()).isEqualTo(1);
+        assertThat(received.get("method")).isEqualTo("POST");
+        assertThat(received.get("path")).isEqualTo("/api/v1/internal/billing/holds");
+        TraceRequests.assertContinues((String) received.get("traceparent"), http);
     }
 }
