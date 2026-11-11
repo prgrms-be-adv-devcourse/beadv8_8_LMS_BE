@@ -81,7 +81,8 @@ public class CouponBudgetReleaseRecorder {
         MemberCouponBudgetState state = memberCouponRepository.findBudgetState(memberCouponId).orElseThrow();
         if (state.expiresAt().isAfter(now)
                 || (state.status() != MemberCouponStatus.EXPIRED
-                    && (!allowUsed || state.status() != MemberCouponStatus.USED))) {
+                    && (!allowUsed || state.status() != MemberCouponStatus.USED))
+                || state.checkedStatus() == state.status()) {
             return;
         }
         Coupon coupon = couponRepository.findById(state.couponId()).orElseThrow();
@@ -102,17 +103,18 @@ public class CouponBudgetReleaseRecorder {
         if (retained < 0 || planned < 0 || state.plannedHp() < 0 || state.plannedHp() > maximum) {
             throw new IllegalStateException("쿠폰 예산 해제 누적액이 예산 범위를 벗어났습니다.");
         }
-        if (planned <= state.plannedHp()) {
-            return;
-        }
+        // 이미 누적액이 목표에 도달했거나 M=F라 차액이 0이어도 현재 상태의 등록 확인을 남긴다.
+        planned = Math.max(planned, state.plannedHp());
         long amount = Math.subtractExact(planned, state.plannedHp());
         if (memberCouponRepository.planBudgetRelease(state.id(), state.generation(), state.status(), state.plannedHp(),
                 planned, now) != 1) {
             // 같은 발급 쿠폰을 취소·만료·다른 작업이 먼저 바꿨다. 그 전이 또는 다음 회차가 현재 값으로 다시 등록한다.
             return;
         }
-        budgetWorkRepository.save(BudgetWork.release(coupon, "member-" + state.id() + "-to-" + planned,
-                amount, "MEMBER_COUPON:" + state.id(), "발급 쿠폰 만료 뒤 남은 예산", now));
+        if (amount > 0) {
+            budgetWorkRepository.save(BudgetWork.release(coupon, "member-" + state.id() + "-to-" + planned,
+                    amount, "MEMBER_COUPON:" + state.id(), "발급 쿠폰 만료 뒤 남은 예산", now));
+        }
     }
 
     private static long maximum(Coupon coupon) {

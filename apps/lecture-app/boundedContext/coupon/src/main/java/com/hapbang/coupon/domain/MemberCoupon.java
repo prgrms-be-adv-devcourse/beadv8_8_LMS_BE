@@ -53,6 +53,11 @@ public class MemberCoupon {
     @Column(nullable = false, updatable = false)
     private long budgetReleasePlannedHp;
 
+    /** 이 상태의 목표액까지 해제 작업 등록을 확인했다. HTTP 완료 여부와는 무관하다. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20, updatable = false)
+    private MemberCouponStatus budgetReleaseCheckedStatus;
+
     private Long currentOrderItemId;
 
     /** 최초 접수 시각 */

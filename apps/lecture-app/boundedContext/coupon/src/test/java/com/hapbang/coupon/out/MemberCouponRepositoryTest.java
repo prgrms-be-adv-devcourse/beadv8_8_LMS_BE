@@ -249,6 +249,50 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10))).isEmpty();
     }
 
+    @Test
+    void 만료_cursor는_같은_기한의_실패_AVAILABLE이_남아도_마지막_ID_다음부터_고른다() {
+        long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        long first = memberCouponRepository.save(MemberCoupon.issue(1L, couponId, "cursor-1", NOW, NOW, NOW)).getId();
+        long second = memberCouponRepository.save(MemberCoupon.issue(2L, couponId, "cursor-2", NOW, NOW, NOW)).getId();
+        long third = memberCouponRepository.save(MemberCoupon.issue(3L, couponId, "cursor-3", NOW, NOW, NOW)).getId();
+        flushAndClear();
+
+        assertThat(memberCouponRepository.findExpiredCouponTargets(NOW, null, 0, Limit.of(2)))
+                .extracting(MemberCouponExpiryTarget::id).containsExactly(first, second);
+        memberCouponRepository.expire(List.of(second), NOW);
+        assertThat(memberCouponRepository.findExpiredCouponTargets(NOW, NOW, second, Limit.of(2)))
+                .extracting(MemberCouponExpiryTarget::id).containsExactly(third);
+        assertThat(memberCouponRepository.findStateById(first).orElseThrow().status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+    }
+
+    @Test
+    void 예산_등록_완료는_0원도_현재상태로_표시하고_상태가_바뀌면_재선택한다() {
+        long couponId = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long used = memberCouponRepository.save(MemberCoupon.issue(1L, couponId, "checked-used", NOW, NOW, NOW)).getId();
+        long expired = memberCouponRepository.save(MemberCoupon.issue(2L, couponId, "checked-expired", NOW, NOW, NOW)).getId();
+        memberCouponRepository.reserve(used, 1L, 0, 500L, NOW.minusSeconds(1));
+        memberCouponRepository.markUsed(used, 1, NOW);
+        memberCouponRepository.expire(List.of(expired), NOW);
+        flushAndClear();
+
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).containsExactly(used, expired);
+        assertThat(memberCouponRepository.planBudgetRelease(used, 0, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
+        assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 0, NOW)).isZero();
+        assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 1, 1, NOW)).isZero();
+        assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 0, 0, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
+        assertThat(memberCouponRepository.planBudgetRelease(expired, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).isEmpty();
+
+        // 완료 표식을 모르는 이전 writer의 복원 UPDATE도 status 변경 자체로 재선택된다.
+        memberCouponRepository.restore(used, 1, NOW);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).containsExactly(used);
+        assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).isEmpty();
+    }
+
     private Long saveCoupon(Coupon coupon) {
         return couponRepository.save(coupon).getId();
     }

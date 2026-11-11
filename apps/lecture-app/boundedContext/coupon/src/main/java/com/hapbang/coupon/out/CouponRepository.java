@@ -38,6 +38,8 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
               and c.status = com.hapbang.coupon.domain.CouponStatus.DRAFT
               and c.issueEndAt <= :now and c.issuedCount = 0
               and c.budgetReservationId is not null and c.id > :afterId
+              and not exists (select 1 from BudgetWork w where w.couponId = c.id
+                  and w.kind = com.hapbang.coupon.domain.BudgetWorkKind.RELEASE and w.target like 'UNISSUED:%')
             order by c.id
             """)
     List<Long> findExpiredDraftBudgetIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);

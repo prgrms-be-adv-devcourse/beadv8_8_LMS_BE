@@ -225,8 +225,10 @@ class CouponUsageE2eTest {
             }
             public BudgetResult status(String id) {
                 assertBudgetHttpOutsideTransaction();
-                return new BudgetResult(confirmed.get() && id.equals(workId) ? Outcome.SUCCEEDED : Outcome.UNKNOWN,
-                        confirmed.get() && id.equals(workId) ? "PB-late" : null, null);
+                return confirmed.get() && id.equals(workId)
+                        ? new BudgetResult(Outcome.SUCCEEDED, "PB-44", null,
+                                new PromotionBudget.WorkMetadata(id, BudgetWorkKind.RESERVE, couponId, coupon.budgetAmount()))
+                        : new BudgetResult(Outcome.UNKNOWN, null, null);
             }
         };
         budgetWorker(budget, now).execute(workId);
@@ -240,7 +242,7 @@ class CouponUsageE2eTest {
         assertThat(budgetWorkRepository.findById(workId).orElseThrow().getStatus()).isEqualTo(BudgetWorkStatus.DONE);
         assertThat(couponRepository.findById(couponId).orElseThrow()).satisfies(expiredDraft -> {
             assertThat(expiredDraft.getStatus()).isEqualTo(CouponStatus.DRAFT);
-            assertThat(expiredDraft.getBudgetReservationId()).isEqualTo("PB-late");
+            assertThat(expiredDraft.getBudgetReservationId()).isEqualTo("PB-44");
         });
         assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
                 .singleElement().satisfies(release -> {
@@ -367,6 +369,9 @@ class CouponUsageE2eTest {
         budgetReleaseRecorder.recordDue(memberId, now);
         assertThat(budgetWorkRepository.findAll()).singleElement().extracting(com.hapbang.coupon.domain.BudgetWork::getAmount)
                 .isEqualTo(1_100L);
+        assertThat(memberCouponRepository.findBudgetState(memberId).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(now, 0, org.springframework.data.domain.Limit.of(10)))
+                .isEmpty();
         com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent canceled =
                 com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent.of(900L, 901L, MEMBER_A,
                         List.of(new com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent.Usage(memberId, 1)),
@@ -407,15 +412,74 @@ class CouponUsageE2eTest {
     }
 
     @Test
-    void 만료의_해제_작업_등록이_실패하면_발급쿠폰_만료도_롤백한다() {
+    void 예산_예약이_누락된_플랫폼만_롤백하고_같은_묶음과_다음_묶음의_정상_쿠폰은_만료한다() {
         Instant now = Instant.now();
-        long couponId = budgetCoupon(now, false);
-        long memberId = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, couponId, "bad-budget",
-                now.minusSeconds(60), now.minusSeconds(1), now)).getId();
-        org.assertj.core.api.Assertions.assertThatThrownBy(memberCouponExpiryUseCase::expireDue)
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThat(memberCouponRepository.findStateById(memberId).orElseThrow().status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+        long badCoupon = budgetCoupon(now, false);
+        long platformCoupon = budgetCoupon(now, true);
+        long sellerCoupon = couponRepository.saveAndFlush(Coupon.createSeller(SELLER_ID,
+                com.hapbang.coupon.domain.CouponFixture.lectureRate().build(), now)).getId();
+        long bad = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, badCoupon, "bad-budget",
+                now.minusSeconds(60), now.minusSeconds(30), now)).getId();
+        long seller = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, sellerCoupon, "good-seller",
+                now.minusSeconds(60), now.minusSeconds(20), now)).getId();
+        long platform = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, platformCoupon, "good-platform",
+                now.minusSeconds(60), now.minusSeconds(10), now)).getId();
+        var metrics = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var expiry = new com.hapbang.coupon.app.MemberCouponExpiryUseCase(budgetReleaseRecorder, memberCouponRepository,
+                new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
+                metrics.getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), budgetTransactionManager,
+                java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+
+        assertThat(expiry.expireDue().expired()).isEqualTo(2);
+        assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+        assertThat(memberCouponRepository.findStateById(seller).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(memberCouponRepository.findStateById(platform).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getCouponId).isEqualTo(platformCoupon);
+        assertThat(expiry.expireDue().expired()).isZero();
+        new org.springframework.transaction.support.TransactionTemplate(budgetTransactionManager).executeWithoutResult(status ->
+                couponRepository.findById(badCoupon).orElseThrow().recordBudgetReserved("PB-43", now));
+        assertThat(expiry.expireDue().expired()).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(budgetWorkRepository.findAll()).hasSize(2);
+    }
+
+    @Test
+    void M과_F가_같아_해제액이_0인_USED도_완료로_제외하며_EXPIRED복원은_다시_선택한다() {
+        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        long couponId = budgetCoupon(now, true);
+        long id = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, couponId, "full-used",
+                now.minusSeconds(60), now, now)).getId();
+        var tx = new org.springframework.transaction.support.TransactionTemplate(budgetTransactionManager);
+        tx.executeWithoutResult(status -> {
+            memberCouponRepository.reserve(id, MEMBER_A, 0, 901L, now.minusSeconds(1));
+            memberCouponRepository.markUsed(id, 1, now);
+            var usage = com.hapbang.coupon.domain.CouponUsage.reserve(MEMBER_A, 900L,
+                    new com.hapbang.coupon.domain.usage.UsageItem(901L, LECTURE_ID, SELLER_ID, PRICE),
+                    new com.hapbang.coupon.domain.usage.AppliedCoupon(id, couponId,
+                            com.hapbang.coupon.domain.CouponType.PLATFORM, 1, PRICE, 1_500, 1_500, 0, 0, 1),
+                    "budget-full-used", now.minusSeconds(1));
+            usage.applyPaid("budget-full-paid", now, MemberCouponStatus.RESERVED, 1, now);
+            couponUsageRepository.saveAndFlush(usage);
+        });
+
+        budgetReleaseRecorder.recordDue(id, now);
+        assertThat(memberCouponRepository.findBudgetState(id).orElseThrow()).satisfies(state -> {
+            assertThat(state.plannedHp()).isZero();
+            assertThat(state.checkedStatus()).isEqualTo(MemberCouponStatus.USED);
+        });
         assertThat(budgetWorkRepository.findAll()).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(now, 0, org.springframework.data.domain.Limit.of(10)))
+                .isEmpty();
+
+        // 이전 writer처럼 완료 표식을 건드리지 않고 상태만 EXPIRED로 복원해도 다시 수집한다.
+        tx.executeWithoutResult(status -> memberCouponRepository.restore(id, 1, now));
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(now, 0, org.springframework.data.domain.Limit.of(10)))
+                .containsExactly(id);
+        budgetReleaseRecorder.recordDue(id, now);
+        assertThat(memberCouponRepository.findBudgetState(id).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getAmount).isEqualTo(1_500L);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(now, 0, org.springframework.data.domain.Limit.of(10)))
+                .isEmpty();
     }
 
     @Test
@@ -455,7 +519,8 @@ class CouponUsageE2eTest {
                 if (query.incrementAndGet() == 1) {
                     // 첫 HTTP가 지연된 동안 lease가 끝나 다른 작업자가 attempt 2를 선점했다.
                     budgetWorker(this, now.plusSeconds(61)).runDue();
-                    return new BudgetResult(Outcome.SUCCEEDED, "PB-42", null);
+                    return new BudgetResult(Outcome.SUCCEEDED, "PB-42", null,
+                            new PromotionBudget.WorkMetadata(id, BudgetWorkKind.RELEASE, couponId, 1_500L));
                 }
                 return new BudgetResult(Outcome.UNKNOWN, null, null);
             }
