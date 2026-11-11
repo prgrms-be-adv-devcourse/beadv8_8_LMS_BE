@@ -17,7 +17,7 @@ import com.hapbang.lecture.app.dto.OrderCouponSelection;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
@@ -28,7 +28,7 @@ import com.hapbang.shared.coupon.api.CouponReservationStatusResponse;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 관리자의 쿠폰 작업 조치(다시 시도·결제 실패 확정·해제 확인 완료·예약 상태 조회)를 Fake 쿠폰·지갑 Client와 DB로 확인한다.
+ * 관리자의 쿠폰 작업 조치(다시 시도·결제 실패 확정·해제 확인 완료·예약 상태 조회)를 Fake 쿠폰 Client·실제 billing HTTP와 DB로 확인한다.
  * 상태 전이 규칙은 OrderCouponWorkTest, 예약 상태 판정은 CouponReservationOutcomeTest가 맡는다.
  */
 @IntegrationTest
@@ -53,7 +53,7 @@ class OrderCouponWorkAdminUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -64,7 +64,9 @@ class OrderCouponWorkAdminUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP - SELLER_DISCOUNT);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+
         coupon.reset();
     }
 

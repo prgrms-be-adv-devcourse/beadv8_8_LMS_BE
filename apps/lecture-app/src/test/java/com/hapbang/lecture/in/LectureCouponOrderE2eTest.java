@@ -25,7 +25,6 @@ import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.AfterAll;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,18 +49,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.app.OrderPayoutUseCase;
 import com.hapbang.lecture.app.LectureHpTaskBatchUseCase;
-import com.hapbang.lecture.fake.PromotionBudgetHttpStub;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.lecture.fake.CommittedCouponOrderEvents;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClientConfig;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.HoldResultDto;
-import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.DatabaseCleanUpListener;
@@ -73,8 +68,8 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 판매자 쿠폰 주문을 강의 주문 API부터 쿠폰 모듈 DB까지 관통해 확인한다. 강의 → 쿠폰은 실제 쿠폰 내부 HTTP API(같은 서버의 포트)로,
- * 쿠폰 → 강의(강의 조회)도 실제 내부 HTTP API로, 강의 결제·취소 완료 이벤트는 실제 Kafka로 쿠폰 소비자에게 간다. 지갑만 Fake다.
+ * 판매자·플랫폼 쿠폰 주문을 강의 주문 API부터 쿠폰 모듈 DB까지 관통해 확인한다. 강의 → 쿠폰은 실제 쿠폰 내부 HTTP API(같은 서버의 포트)로,
+ * 쿠폰 → 강의(강의 조회)도 실제 내부 HTTP API로, 강의 결제·취소 완료 이벤트는 실제 Kafka로 쿠폰 소비자에게 간다. billing도 독립 서버·DB의 실제 HTTP와 원장으로 연결한다.
  * <ol>
  *     <li>판매자 쿠폰 주문 → 보류 → 결제 완료 → 쿠폰 사용됨 → 구매 취소 → 반환 → 쿠폰 사용 가능. 같은 이벤트를 다시 보내도 효과는 한 번이다.
  *     사용 경로는 Redis를 쓰지 않으므로 Redis를 멈춘 채로 진행한다(I9).</li>
@@ -123,7 +118,6 @@ class LectureCouponOrderE2eTest {
     private static final String COUPON_ORDER_GROUP = "lecture-app.coupon-order";
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final int PORT = freePort();
-    private static final PromotionBudgetHttpStub BUDGET = new PromotionBudgetHttpStub();
 
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired OrderPayoutUseCase orderPayoutUseCase;
@@ -136,7 +130,7 @@ class LectureCouponOrderE2eTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private CommittedCouponOrderEvents committedEvents;
@@ -158,19 +152,14 @@ class LectureCouponOrderE2eTest {
     @DynamicPropertySource
     static void serverPort(DynamicPropertyRegistry registry) {
         registry.add("server.port", () -> PORT);
-        registry.add("hapbang.clients.billing.base-url", BUDGET::baseUrl);
     }
 
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         committedEvents.reset();
-        BUDGET.reset();
-    }
-
-    @AfterAll
-    static void stopBudgetStub() {
-        BUDGET.close();
     }
 
     @AfterEach
@@ -185,7 +174,6 @@ class LectureCouponOrderE2eTest {
 
     @Test
     void 판매자_쿠폰_주문은_결제_완료에_사용됨이_되고_구매_취소_반환에_복원되며_같은_이벤트를_다시_받아도_한_번만_바뀐다() throws Exception {
-        billing.setSettledHp(PRICE_HP - DISCOUNT);
         Lecture lecture = saveOnSale();
         long memberCouponId = issueSellerCoupon(lecture, DISCOUNT);
         long expected = quotedBuyerAmount(lecture, memberCouponId);
@@ -199,7 +187,7 @@ class LectureCouponOrderE2eTest {
                     .andReturn().getResponse().getContentAsString();
             long orderId = ((Number) JsonPath.read(ordered, "$.data.orderId")).longValue();
             long orderItemId = ((Number) JsonPath.read(ordered, "$.data.items[0].orderItemId")).longValue();
-            assertThat(billing.calls()).extracting(FakeBillingApiClient.Call::command)
+            assertThat(billing.calls()).extracting(RealBillingTestFixture.Call::command)
                     .singleElement().isInstanceOfSatisfying(HoldCommand.class,
                             hold -> assertThat(hold.amountHp()).isEqualTo(PRICE_HP - DISCOUNT));
             awaitMemberCoupon(memberCouponId, "USED");
@@ -249,14 +237,10 @@ class LectureCouponOrderE2eTest {
         Lecture plain = saveOnSale();
         long coupon = issueSellerCoupon(discounted, DISCOUNT);
         long expected = PRICE_HP - DISCOUNT + PRICE_HP;
-        billing.setSettledHp(PRICE_HP - DISCOUNT);
-        billing.respond(command -> {
-            HoldCommand hold = (HoldCommand) command;
-            return new BillingCallResult.Succeeded<>(new HoldResultDto(hold.referenceType(), hold.referenceId(),
-                    hold.amountHp(), false));
-        });
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+
+        billing.reset();
+        billing.wallet(BUYER_ID, PRICE_HP - DISCOUNT, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
 
         perform(post("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -273,14 +257,19 @@ class LectureCouponOrderE2eTest {
 
     @Test
     void 플랫폼_전액_쿠폰은_0원_앵커로_결제하고_취소_복구_뒤_재사용해_판매자에게_전액_지급한다() throws Exception {
-        billing.setSettledHp(0L);
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+        fundPromotion(PRICE_HP * 10);
         Lecture lecture = saveOnSale();
         long memberCouponId = issuePlatformCoupon(lecture);
-        long couponId = BUDGET.reservations().getFirst().couponId();
-        assertThat(BUDGET.reservations()).singleElement().satisfies(reserve -> {
-            assertThat(reserve.amountHp()).isEqualTo(PRICE_HP * 10);
-            assertThat(reserve.workId()).doesNotContain(":");
-        });
+        long couponId = createdCouponIds.getLast();
+        String reserveWork = internalBillingGet("/promotion-budgets/works/coupon-" + couponId + "-reserve-v1");
+        assertThat(JsonPath.<String>read(reserveWork, "$.data.kind")).isEqualTo("RESERVE");
+        assertThat(JsonPath.<String>read(reserveWork, "$.data.status")).isEqualTo("DONE");
+        assertThat(number(reserveWork, "$.data.amountHp")).isEqualTo(PRICE_HP * 10);
+        String reservationId = JsonPath.read(reserveWork, "$.data.reservationId");
+        assertBudget(reservationId, PRICE_HP * 10, 0, 0);
         assertThat(quotedBuyerAmount(lecture, memberCouponId)).isZero();
 
         String first = perform(order(lecture, memberCouponId, 0))
@@ -302,11 +291,14 @@ class LectureCouponOrderE2eTest {
             });
         });
         awaitMemberCoupon(memberCouponId, "USED");
+        assertBudget(reservationId, PRICE_HP * 9, PRICE_HP, 0);
+        assertThat(number(promotionWallet(), "$.data.heldHp")).isEqualTo(PRICE_HP);
         perform(post("/api/v1/lectures/orders/{orderId}/items/{itemId}/cancel", firstOrder, firstItem)
                 .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CANCELED"));
         awaitMemberCoupon(memberCouponId, "AVAILABLE");
         assertThat(billing.calls().getLast().command()).isInstanceOf(ReleaseCommand.class);
+        assertBudget(reservationId, PRICE_HP * 10, 0, 0);
         assertThat(committedEvents.cancelCompleted()).singleElement().satisfies(event -> {
             assertThat(event.billingReleaseRequestId()).isNotBlank();
             assertThat(event.budgetRestorations()).singleElement().satisfies(restored -> {
@@ -329,7 +321,7 @@ class LectureCouponOrderE2eTest {
                 .with(GatewayLogin.as(BUYER_ID, Role.USER))).andExpect(status().isOk());
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = timestamp '2000-01-01 00:00:00' where id = ?",
                 secondItem);
-        billing.setSettledHp(PRICE_HP);
+
         orderPayoutUseCase.payOutDueItems();
         hpTaskBatch.runDue();
         assertThat(jdbcTemplate.queryForObject("select status from lectures.order_item where id = ?", String.class, secondItem))
@@ -337,6 +329,65 @@ class LectureCouponOrderE2eTest {
         assertThat(billing.calls().getLast().command()).isInstanceOfSatisfying(PayoutCommand.class,
                 payout -> assertThat(payout.referenceId()).isEqualTo(secondItem));
         assertThat(memberCouponStatus(memberCouponId)).isEqualTo("USED");
+        assertBudget(reservationId, PRICE_HP * 9, 0, PRICE_HP);
+        assertThat(number(promotionWallet(), "$.data.heldHp")).isZero();
+        assertThat(number(wallet(SELLER_ID), "$.data.revenueBalanceHp")).isEqualTo(PRICE_HP);
+        assertThat(number(wallet(BUYER_ID), "$.data.availableTotalHp")).isZero();
+        List<Map<String, Object>> sellerLedger = JsonPath.read(walletTransactions(SELLER_ID), "$.data.content");
+        assertThat(sellerLedger).singleElement().satisfies(row -> {
+            assertThat(((Number) row.get("referenceId")).longValue()).isEqualTo(secondItem);
+            assertThat(((Number) row.get("totalChangeHp")).longValue()).isEqualTo(PRICE_HP);
+        });
+        assertThat(JsonPath.<List<?>>read(walletTransactions(BUYER_ID), "$.data.content")).isEmpty();
+    }
+
+    private void fundPromotion(long amount) {
+        org.springframework.web.client.RestClient.create(billing.directBaseUrl()).post()
+                .uri("/api/v1/settlements/admin/promotion-wallet/fundings")
+                .header("X-User-Id", String.valueOf(ADMIN_ID)).header("X-User-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fundingWorkId", "coupon-e2e-" + UUID.randomUUID(), "amountHp", amount,
+                        "sourceType", "ADMIN_GRANT", "sourceRef", "coupon-order-e2e"))
+                .retrieve().toBodilessEntity();
+        assertThat(number(promotionWallet(), "$.data.availableHp")).isEqualTo(amount);
+    }
+
+    private String internalBillingGet(String path) {
+        return org.springframework.web.client.RestClient.create(billing.directBaseUrl()).get()
+                .uri("/api/v1/internal/billing" + path)
+                .header("X-Internal-Api-Key", IntegrationTest.INTERNAL_API_KEY)
+                .retrieve().body(String.class);
+    }
+
+    private String memberBillingGet(String path, long userId, String role) {
+        return org.springframework.web.client.RestClient.create(billing.directBaseUrl()).get().uri(path)
+                .header("X-User-Id", String.valueOf(userId)).header("X-User-Role", role)
+                .retrieve().body(String.class);
+    }
+
+    private String promotionWallet() {
+        return memberBillingGet("/api/v1/settlements/admin/promotion-wallet", ADMIN_ID, "ADMIN");
+    }
+
+    private String wallet(long userId) {
+        return memberBillingGet("/api/v1/wallets/me", userId, "USER");
+    }
+
+    private String walletTransactions(long userId) {
+        return memberBillingGet("/api/v1/wallets/me/transactions?size=100", userId, "USER");
+    }
+
+    private void assertBudget(String reservationId, long remaining, long held, long paid) {
+        String reservation = internalBillingGet("/promotion-budgets/reservations/" + reservationId);
+        assertThat(number(reservation, "$.data.amountHp")).isEqualTo(PRICE_HP * 10);
+        assertThat(number(reservation, "$.data.remainingHp")).isEqualTo(remaining);
+        assertThat(number(reservation, "$.data.heldHp")).isEqualTo(held);
+        assertThat(number(reservation, "$.data.paidHp")).isEqualTo(paid);
+        assertThat(number(reservation, "$.data.releasedHp")).isZero();
+    }
+
+    private static long number(String json, String path) {
+        return ((Number) JsonPath.read(json, path)).longValue();
     }
 
     private long issuePlatformCoupon(Lecture lecture) throws Exception {

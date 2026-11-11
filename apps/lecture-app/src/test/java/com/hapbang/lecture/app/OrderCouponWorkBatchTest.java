@@ -22,12 +22,10 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
-import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
@@ -37,7 +35,7 @@ import com.hapbang.shared.coupon.api.CouponReserveResponse;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 결제 실패한 쿠폰 주문의 쿠폰 해제 작업과 쿠폰 작업 재전송 배치(시도 한도·DEAD·회로 열림)를 Fake 쿠폰·지갑 Client와 DB로 확인한다.
+ * 결제 실패한 쿠폰 주문의 쿠폰 해제 작업과 쿠폰 작업 재전송 배치(시도 한도·DEAD·회로 열림)를 Fake 쿠폰 Client·실제 billing HTTP와 DB로 확인한다.
  * 작업 상태 전이는 OrderCouponWorkTest(도메인)가 맡는다.
  */
 @IntegrationTest
@@ -65,7 +63,7 @@ class OrderCouponWorkBatchTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -79,7 +77,9 @@ class OrderCouponWorkBatchTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+
         coupon.reset();
     }
 
@@ -87,8 +87,7 @@ class OrderCouponWorkBatchTest {
     void 예약_뒤_보류가_거절되어_결제_실패로_끝나면_같은_트랜잭션에서_해제_작업을_만들고_예약_generation으로_해제한다() {
         Lecture lecture = saveOnSale();
         respondCalculatedAndReserved(lecture);
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        buyerWithoutHp();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(released((CouponReleaseRequest) request)));
 
         assertThatThrownBy(() -> order(lecture))
@@ -107,8 +106,7 @@ class OrderCouponWorkBatchTest {
     @Test
     void 쿠폰_없는_주문은_결제_실패해도_쿠폰_작업을_만들지_않는다() {
         Lecture lecture = saveOnSale();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        buyerWithoutHp();
 
         assertThatThrownBy(() -> lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId())))
                 .isInstanceOf(LectureException.class);
@@ -163,8 +161,7 @@ class OrderCouponWorkBatchTest {
     void 쿠폰이_해제를_거절하면_다시_보내도_같으므로_DEAD로_멈춘다() {
         Lecture lecture = saveOnSale();
         respondCalculatedAndReserved(lecture);
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        buyerWithoutHp();
         coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_RELEASE_NOT_ALLOWED", null, null));
 
         assertThatThrownBy(() -> order(lecture)).isInstanceOf(LectureException.class);
@@ -181,8 +178,7 @@ class OrderCouponWorkBatchTest {
         // 해제: 결제 실패 뒤 주문 요청 안의 첫 해제가 결과를 몰라 다음 시도 시각이 미래다
         Lecture failing = saveOnSale();
         respondCalculatedAndReserved(failing);
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        buyerWithoutHp();
         assertThatThrownBy(() -> order(failing)).isInstanceOf(LectureException.class);
         Long releaseOrderId = jdbcTemplate.queryForObject("select order_id from lectures.order_coupon_work "
                 + "where kind = 'RELEASE'", Long.class);
@@ -247,6 +243,12 @@ class OrderCouponWorkBatchTest {
         assertThat(orderCouponWorkUseCase.runDue()).isZero();
 
         assertThat(work(orderId, "RESERVE")).containsEntry("status", "PENDING").containsEntry("attempt_count", 1);
+    }
+
+    private void buyerWithoutHp() {
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     private OrderResponse order(Lecture lecture) {
