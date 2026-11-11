@@ -52,7 +52,7 @@
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 완료 | #801(PR #819, dev `0debc874`). 정책 ND-050~ND-054, 테스트 NR-015 |
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 완료 | #829(PR #834, dev `40c94d7b`). 정책 ND-055~ND-061, 자원 U13 미결 |
 | N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 완료 | #847(PR #853, dev `671244aa`). 정책 ND-062~ND-068 |
-| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승급 승인 2종, 회원 복제본 Backfill | 알림 | N0, N2 | 진행 중 | #859. 정책 ND-069~ND-081·ND-088~ND-091. 구현·테스트 완료(커밋 전, NR-036~NR-038). 병합 전 U20 |
+| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승급 승인 2종, 회원 복제본 Backfill | 알림 | N0, N2 | 진행 중 | #859. 정책 ND-069~ND-081·ND-088~ND-091. 구현·테스트 완료, PR 리뷰 중(브랜치 `feature/tkt-859`, NR-036~). 병합 전 U20 |
 | M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
 | M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 완료 | #818(PR #827, dev `1f2f353b`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
 | N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 미착수 | 코드 없음 |

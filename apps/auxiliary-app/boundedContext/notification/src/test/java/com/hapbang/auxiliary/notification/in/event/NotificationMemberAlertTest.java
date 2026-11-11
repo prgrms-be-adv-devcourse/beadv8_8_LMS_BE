@@ -4,7 +4,10 @@ import static com.hapbang.auxiliary.notification.in.event.MemberEventKafka.TIMEO
 import static com.hapbang.auxiliary.notification.in.event.MemberEventKafka.userJson;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 
+import com.hapbang.auxiliary.notification.app.NotificationWriter;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
@@ -36,6 +39,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * 가입 환영·승급 승인은 회원 복제본 리스너 안에서 복제본 반영과 함께 만든다(ND-080). 승급은 반영 전 역할로 판단하고(ND-016·ND-071),
@@ -77,6 +81,10 @@ class NotificationMemberAlertTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    /** 특정 회원의 알림 저장만 실패시켜 롤백·DLT를 본다. 그 밖 호출은 실제 저장 서비스로 간다 */
+    @MockitoSpyBean
+    private NotificationWriter writer;
 
     private MemberEventKafka kafka;
 
@@ -138,6 +146,19 @@ class NotificationMemberAlertTest {
                 .containsEntry("source_event_type", "UserModifiedEvent")
                 .containsEntry("source_target_id", id + ":2")
                 .containsEntry("message", "인증된 인플루언서로 승급되었습니다."));
+    }
+
+    @Test
+    void 가입_환영_저장이_실패하면_복제본_반영도_롤백되고_재시도_뒤_DLT로_간다() {
+        long id = nextId();
+        doThrow(new IllegalStateException("알림 저장 실패(시험)")).when(writer)
+                .save(argThat(draft -> draft != null && draft.receiverUserId() == id));
+
+        joined(id, Role.USER, 0L, RECORD_TIME);
+
+        kafka.awaitDeadLetter(DLT, id);
+        assertThat(users.findById(id)).isEmpty();
+        assertThat(rows(id)).isEmpty();
     }
 
     @Test

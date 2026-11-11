@@ -27,6 +27,10 @@ public enum NotificationErrorCode implements BaseErrorCode {
     BACKFILL_RUNNING(HttpStatus.CONFLICT, "회원 복제본 Backfill이 이미 실행 중입니다."),
     /** 회원 복제본 Backfill을 끝까지 하지 못했다(회원 API·DB 장애). 결과 없이 완료가 아니다. 다시 실행하면 된다(ND-089) */
     BACKFILL_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "회원 복제본 Backfill을 마치지 못했습니다. 잠시 뒤 다시 실행해 주세요."),
+    /** 관리자 Backfill 시작 기록을 Redis에 쓰지 못해 실행하지 않았다(ND-092) */
+    BACKFILL_STATUS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 Backfill 실행 상태를 기록할 수 없어 시작하지 않았습니다."),
+    /** 없거나 보관 기간(7일)이 지난 관리자 Backfill 실행(ND-092) */
+    BACKFILL_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "Backfill 실행을 찾을 수 없습니다."),
     /** 연결 티켓 저장소(Redis)를 쓸 수 없어 발급하지 못했다(ND-058) */
     CONNECTION_TICKET_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 실시간 연결을 준비할 수 없습니다.");
 

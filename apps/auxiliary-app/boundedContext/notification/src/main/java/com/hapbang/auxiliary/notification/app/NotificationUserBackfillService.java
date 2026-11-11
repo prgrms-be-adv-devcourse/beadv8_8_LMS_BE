@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.notification.app;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,7 +41,7 @@ public class NotificationUserBackfillService {
     public static final String PAGE_SIZE = "hapbang.notification.user-backfill.page-size";
     static final String RUNS_METRIC = "hapbang.notification.user.backfill.runs";
     static final String MEMBERS_METRIC = "hapbang.notification.user.backfill.members";
-    /** 완료 로그에 남기는 건너뛴 회원 ID 수. 전체는 재실행 응답으로 본다 */
+    /** 완료 로그에 남기는 건너뛴 회원 ID 수. 전체는 관리자 실행 조회(COMPLETED 결과)로 본다 */
     static final int LOGGED_SKIPPED_IDS = 20;
 
     private final ObjectProvider<NotificationMemberSource> sources;
@@ -66,28 +67,56 @@ public class NotificationUserBackfillService {
      * @throws RuntimeException      회원 API·DB 장애. 완료가 아니다
      */
     public BackfillResult run() {
-        NotificationMemberSource source = sources.getIfAvailable();
-        if (source == null) {
-            throw new IllegalStateException("회원 목록 소스가 없어 Backfill을 할 수 없습니다(hapbang.clients.member.base-url).");
+        try (JobLock.Lease ignored = acquire()) {
+            return runLocked(() -> {
+            });
         }
-        try (JobLock.Lease ignored = jobLock.tryAcquire(NotificationJob.USER_BACKFILL)
-                .orElseThrow(() -> new NotificationException(NotificationErrorCode.BACKFILL_RUNNING))) {
-            BackfillResult result = readAll(source);
+    }
+
+    /**
+     * 잠금을 잡는다. 관리자 비동기 실행은 요청 스레드에서 잡고, 실행 스레드가 끝나며 푼다(ND-092).
+     *
+     * @throws NotificationException 다른 실행이 쥐고 있으면 {@code BACKFILL_RUNNING}
+     */
+    public JobLock.Lease acquire() {
+        Optional<JobLock.Lease> lease;
+        try {
+            lease = jobLock.tryAcquire(NotificationJob.USER_BACKFILL);
+        } catch (RuntimeException e) {
+            // 잠금을 시도하지 못했다(DB 장애). 실행하지 못했으므로 실패로 센다
+            count(RUNS_METRIC, "outcome", "failed", 1);
+            throw e;
+        }
+        return lease.orElseThrow(() -> {
+            count(RUNS_METRIC, "outcome", "running", 1);
+            return new NotificationException(NotificationErrorCode.BACKFILL_RUNNING);
+        });
+    }
+
+    /**
+     * 잠금을 잡은 쪽이 부른다. 페이지마다 {@code onPage}를 부른다(실행 상태 갱신 시각, ND-092).
+     *
+     * @throws RuntimeException 회원 API·DB 장애. 완료가 아니다
+     */
+    public BackfillResult runLocked(Runnable onPage) {
+        NotificationMemberSource source = sources.getIfAvailable();
+        try {
+            if (source == null) {
+                throw new IllegalStateException("회원 목록 소스가 없어 Backfill을 할 수 없습니다(hapbang.clients.member.base-url).");
+            }
+            BackfillResult result = readAll(source, onPage);
             count(RUNS_METRIC, "outcome", "completed", 1);
             log.info("알림 회원 복제본 Backfill을 마쳤다 scanned={}, applied={}, unchanged={}, skipped={}, skippedUserIds={}",
                     result.scanned(), result.applied(), result.unchanged(), result.skipped(),
                     result.skippedUserIds().stream().limit(LOGGED_SKIPPED_IDS).toList());
             return result;
-        } catch (NotificationException e) {
-            count(RUNS_METRIC, "outcome", "running", 1);
-            throw e;
         } catch (RuntimeException e) {
             count(RUNS_METRIC, "outcome", "failed", 1);
             throw e;
         }
     }
 
-    private BackfillResult readAll(NotificationMemberSource source) {
+    private BackfillResult readAll(NotificationMemberSource source, Runnable onPage) {
         int scanned = 0;
         int applied = 0;
         int unchanged = 0;
@@ -113,6 +142,7 @@ public class NotificationUserBackfillService {
                 }
             }
             afterId = page.nextAfterId();
+            onPage.run();
         } while (afterId != null);
         count(MEMBERS_METRIC, "result", "applied", applied);
         count(MEMBERS_METRIC, "result", "unchanged", unchanged);

@@ -29,7 +29,8 @@
 | 전체 읽음 | `PATCH /api/v1/notifications/read-all` | | ND-023 |
 | 연결 티켓 | `POST /api/v1/notifications/ws-tickets` | 채팅 `/api/v1/chats/ws-tickets`와 같은 방식 | ND-028 |
 | WebSocket | `/api/v1/notifications/ws` | 받는 곳 `/user/queue/notifications`. 프레임에 알림 한 건(묶음은 갱신된 알림)과 안 읽은 수를 담는다 | ND-027, ND-032 |
-| 회원 복제본 Backfill 재실행(관리자) | `POST /api/v1/notifications/admin/user-replica/backfill` | `ADMIN`만(그 밖 403, 비로그인 401). **동기**: 끝날 때까지 기다리고 응답이 곧 이 실행의 결과다. 200 `{scanned, applied, unchanged, skipped, skippedUserIds}`. 다른 실행(기동 Backfill·다른 pod·다른 요청)이 돌고 있으면 409 `BACKFILL_RUNNING`, 회원 API·DB 장애로 끝까지 하지 못하면 결과 없이 503 `BACKFILL_FAILED`(다시 실행하면 된다). 운영자 도구이며 FE 알림센터가 부르지 않는다 | ND-077~ND-079, ND-089 |
+| 회원 복제본 Backfill 재실행 시작(관리자) | `POST /api/v1/notifications/admin/user-replica/backfill` | `ADMIN`만(그 밖 403, 비로그인 401). **비동기**: 202 실행 조회와 같은 모양(`status: RUNNING`, `finishedAt`·`result`·`failureCode`는 null)을 바로 주고 실행은 뒤에서 한다. 시작 응답은 작업 결과가 아니다. 다른 실행(기동 Backfill·다른 pod·다른 요청)이 돌고 있으면 409 `BACKFILL_RUNNING`, 실행 상태를 기록할 수 없으면 실행하지 않고 503 `BACKFILL_STATUS_UNAVAILABLE`. 운영자 도구이며 FE 알림센터가 부르지 않는다 | ND-077~ND-079, ND-089, ND-092 |
+| 회원 복제본 Backfill 실행 조회(관리자) | `GET /api/v1/notifications/admin/user-replica/backfill/{runId}` | `ADMIN`만. 200 `{runId, status, startedAt, updatedAt, finishedAt, result, failureCode}`. `status`: RUNNING(페이지마다 `updatedAt` 갱신), COMPLETED(`result` = scanned·applied·unchanged·skipped·skippedUserIds), FAILED(`failureCode` = `BACKFILL_FAILED`, 결과 없음, 완료 아님. 다시 시작하면 된다), UNKNOWN(RUNNING인데 5분 넘게 갱신이 없어 실제 실행 여부를 알 수 없음). 보관 7일, 없으면 404 `BACKFILL_RUN_NOT_FOUND` | ND-089, ND-092 |
 
 ### 2.1 아직 정하지 않은 것 (모든 엔드포인트 공통)
 
@@ -80,3 +81,4 @@
 | 2026-11-10 | ND-062~ND-064·ND-067 반영(N4 사전 결정, #847): Gateway route, WebSocket 시간 제한·heart-beat, `exp` claim, WebSocket route에 JWT 인증 없음 |
 | 2026-11-11 | ND-074·ND-075·ND-079 반영(N5 사전 결정, #859): 역할 규칙 범위, Backfill 재실행 API, 문구 형식, 2.2 이동 대상. 머리말·Gateway 행의 N4 병합 상태를 고쳤다 |
 | 2026-11-11 | ND-089 반영(#859 구현): Backfill 재실행 API의 동기 응답 필드, 409 `BACKFILL_RUNNING`, 503 `BACKFILL_FAILED` |
+| 2026-11-11 | ND-092 반영(#859 PR 리뷰): Backfill 재실행을 비동기(202·실행 ID)로 바꾸고 실행 조회 API를 더했다 |

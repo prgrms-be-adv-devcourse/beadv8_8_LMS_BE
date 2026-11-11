@@ -13,7 +13,11 @@ import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import java.time.Duration;
 import java.util.List;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -30,6 +34,7 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @IntegrationTest
 @DirtiesContext
+@ExtendWith(OutputCaptureExtension.class)
 @Import({KafkaTestcontainersConfig.class, NotificationAlertListenerStarterTest.FailingSource.class})
 class NotificationAlertListenerStarterTest {
 
@@ -43,6 +48,7 @@ class NotificationAlertListenerStarterTest {
         registry.add("hapbang.notification.user-backfill.on-startup", () -> "true");
         registry.add("hapbang.notification.user-backfill.retry-initial-interval", () -> "100ms");
         registry.add("hapbang.notification.user-backfill.retry-max-interval", () -> "200ms");
+        registry.add("hapbang.notification.user-backfill.stall-alert-after", () -> "300ms");
     }
 
     @Autowired
@@ -54,15 +60,23 @@ class NotificationAlertListenerStarterTest {
     @Autowired
     private NotificationUserRepository users;
 
+    @Autowired
+    private MeterRegistry meters;
+
     @Test
-    void 회원_API_장애_동안_알림_소비자만_멈추고_회복하면_Backfill을_마친_뒤_시작한다() {
+    void 회원_API_장애_동안_알림_소비자만_멈추고_회복하면_Backfill을_마친_뒤_시작한다(CapturedOutput output) {
         // 기동 직후부터 계속 실패하는 중: 다시 시도하는 동안 출연·지갑 소비자는 멈춰 있다
         await().atMost(Duration.ofSeconds(30)).until(() -> source.calls() >= 3);
+        // 실패가 기준 시간을 넘으면 사람이 봐야 하므로 alert 표식을 붙인 ERROR를 남긴다(docs/dev/logging.md)
+        await().atMost(Duration.ofSeconds(30))
+                .until(() -> output.getAll().contains("[NOTIFICATION_BACKFILL_STALLED]"));
         assertThat(registry.getListenerContainer(NotificationAppearanceEventListener.LISTENER_ID).isRunning())
                 .isFalse();
         assertThat(registry.getListenerContainer(NotificationBillingEventListener.LISTENER_ID).isRunning()).isFalse();
         // 회원 복제본 리스너(가입 환영·승급 승인 포함)는 기다리지 않는다
         assertThat(registry.getListenerContainer(NotificationMemberEventListener.LISTENER_ID).isRunning()).isTrue();
+        // 기다리는 동안 이 pod의 대기 게이지는 1이다(ND-093. pod마다 따로 내고 alert는 앱별 max로 본다)
+        assertThat(meters.get(NotificationAlertListenerStarter.WAITING_METRIC).gauge().value()).isEqualTo(1.0);
 
         source.failNext(0);
 
@@ -73,6 +87,7 @@ class NotificationAlertListenerStarterTest {
                     .isTrue();
         });
         assertThat(users.findById(MEMBER_ID)).isPresent();
+        assertThat(meters.get(NotificationAlertListenerStarter.WAITING_METRIC).gauge().value()).isZero();
     }
 
     /** 기동 전부터 계속 실패하는 회원 목록 소스 */

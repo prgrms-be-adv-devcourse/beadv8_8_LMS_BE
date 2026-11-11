@@ -86,6 +86,30 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-040 · 2026-11-11 · 통과 (#859 PR 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-040 |
+| 실행 날짜 | 2026-11-11 14:18~14:21 (KST, 끝 시각은 실행 로그 파일 기준) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `ca66ec01` + 작업 트리 |
+| 작업 트리 변경 | 관리자 Backfill 비동기(ND-092): 새 `BackfillRun`·`BackfillRunStatus`·`BackfillRunStore`·`RedisBackfillRunStore`·`NotificationAdminBackfillExecutorConfig`, `NotificationAdminFacade`(시작·조회, 잠금·기록 실패 처리), `ApiV1NotificationAdminController`(202·GET), `NotificationUserBackfillService`(`acquire`·`runLocked`), `NotificationErrorCode`(`BACKFILL_STATUS_UNAVAILABLE`·`BACKFILL_RUN_NOT_FOUND`). 대기 게이지·정지 ERROR(ND-093): `NotificationAlertListenerStarter`, `k8s/platform/base/alerting/rules.yaml`(`hapbang-notification-backfill-waiting`), `docs/architecture/infrastructure/observability.md` 표. 시험: `ApiV1NotificationAdminControllerTest`(7), `NotificationAlertListenerStarterTest`(게이지·STALLED), `NotificationMemberAlertTest`(+저장 실패 롤백). 문서 |
+| 대상 기능 | PR 리뷰 6건 반영(U20 확정 방식 ND-094, 비동기 Backfill, 롤백 시험, 정지 alert, AGENTS·PROGRESS) |
+| 관련 NT ID | NT-USR-09·10, NT-GEN-16 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `kubectl kustomize k8s/platform/base` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 통과(종료 코드 0, 2분 33초). kustomize 빌드 통과 |
+| 건수 | `:notification` 175, 실패 0(새로 실행). `:auxiliary-app` 12, 실패 0(새로 실행). `:auxiliary-global`·`:chatbot`·`:search` test는 `UP-TO-DATE` |
+| 실패 원인 분류 | 실패 없음(이 실행). 구현 중 RED: 정지 ERROR 표식 없음(시간 초과), 관리자 API 컨텍스트 실패(실행 상태 저장소 없음)·대기 게이지 없음 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | ND-093 여러 pod에서의 지표 의미(앱별 max·30분 지속)는 규칙·문서로만 두고 실행 검증하지 않았다(Grafana alert 평가는 운영에서만). pod 재시작으로 RUNNING이 남는 경우는 오래된 기록을 직접 넣어 UNKNOWN을 봤다(재시작 재현 아님). NR-038의 미검증 항목(동시 경합, 환불·환전 Kafka 경로, 운영 E2E)은 그대로 |
+| 관련 변경 | #859 PR 리뷰 |
+
+**메모(정정)**: NR-038의 실행 날짜는 실제로 13:39~13:42, NR-039는 13:50이다(실행 로그 파일의 끝 시각 기준). 두 기록은 시각을 어림해 적었다. 지난 기록은 고치지 않고 여기 남긴다(1.1 규칙 3).
+
 #### NR-039 · 2026-11-11 · 통과 (#859 origin/dev 병합 뒤, 시험 태스크 UP-TO-DATE)
 
 | 항목 | 값 |

@@ -21,7 +21,7 @@
 
 맡는 것과 맡지 않는 것은 [CONTEXT.md](CONTEXT.md) 1장에 있다(ND-001~004). 채팅 알림은 채팅 소유이며 이 모듈의 구조에 넣지 않는다(ND-004, decisions.md 12장).
 
-## 2. As-Is (기준: dev `35735bf1`(N2 PR #819, N3 PR #834, N4 PR #853 병합) + N5 #859 브랜치 `feature/tkt-859` 커밋 전)
+## 2. As-Is (기준: dev `35735bf1`(N2 PR #819, N3 PR #834, N4 PR #853 병합) + N5 #859 브랜치 `feature/tkt-859`(PR 리뷰 중, dev 병합 전))
 
 | 사실 | 근거 |
 | --- | --- |
@@ -37,8 +37,8 @@
 | 출연·지갑 소비자(N5): `NotificationAppearanceEventListener`(`appearance.events.v1`, 그룹 `auxiliary-app.notification-appearance-alert`, 출연 요청 도착·모집 지원 도착), `NotificationBillingEventListener`(`billing.events.v1`, `auxiliary-app.notification-billing-alert`, 지갑 7종). 그 밖 종류는 건너뛴다. DLT·재시도는 위 공통 설정, 컨테이너는 `autoStartup=false`. `hapbang.notification.{appearance,billing}-events.enabled`(기본 켜짐) | `.../in/event/Notification{Appearance,Billing}EventListener.java`, `.../in/event/kafka/NotificationKafkaConfig.java` |
 | 회원 알림(N5): `NotificationMemberAlertService`가 한 트랜잭션에서 반영 전 역할을 읽고 → 복제본 반영 → 가입 환영(항상, 받는 사람 정책·시작 시각으로 거름)·승급 승인(반영됨 + 이전 인플루언서 + 새 인증된 인플루언서, 원본 대상 `<회원 ID>:<버전>`)을 저장한다(ND-071·ND-080) | `.../app/NotificationMemberAlertService.java` |
 | 회원 복제본 Backfill(N5): `NotificationUserBackfillService`가 `NotificationMemberSource`(운영 `MemberApiNotificationMemberSource` → `MemberApiClient.getMembers`, 회원 API 주소가 있을 때만)를 키셋으로 마지막 페이지까지 읽고 회원마다 `upsertFromBackfill`(native `INSERT … ON CONFLICT DO UPDATE … WHERE masked_at IS NULL AND 버전 규칙`, 낙관적 락 버전 +1)로 반영한다. 복제할 수 없는 회원은 건너뜀(ID 기록), 장애는 예외(완료 아님). global `JobLock`(`NotificationJob.USER_BACKFILL` 859001)으로 하나만 돈다(못 잡으면 `BACKFILL_RUNNING` 409). 페이지 크기 `hapbang.notification.user-backfill.page-size`(기본 500). 지표 `hapbang.notification.user.backfill.runs{outcome}`·`.members{result}` (ND-077~ND-079) | `.../app/NotificationUserBackfillService.java`, `.../out/NotificationUserRepository.java`, `.../out/MemberApiNotificationMemberSource.java` |
-| 시작 순서(N5): `NotificationAlertListenerStarter`가 `ApplicationReadyEvent` 뒤 가상 스레드에서 Backfill을 돌리고 성공하면 출연·지갑 컨테이너를 시작한다. 실패·잠금 경합은 백오프(기본 5초에서 두 배씩 상한 5분) 뒤 다시 시도한다. `hapbang.notification.user-backfill.on-startup=false`면 바로 시작한다(모듈 테스트) | `.../in/event/NotificationAlertListenerStarter.java` |
-| 관리자 API(N5): `POST /api/v1/notifications/admin/user-replica/backfill`, `NotificationAdminFacade` `@PreAuthorize("hasRole('ADMIN')")` + global `SecurityConfig` `/api/v1/*/admin/**` ADMIN. 동기 실행, 응답 `RsData<BackfillResult>`(scanned·applied·unchanged·skipped·skippedUserIds), 잠금 경합 409 `BACKFILL_RUNNING`, 장애 503 `BACKFILL_FAILED`(ND-089) | `.../in/ApiV1NotificationAdminController.java` |
+| 시작 순서(N5): `NotificationAlertListenerStarter`가 `ApplicationReadyEvent` 뒤 가상 스레드에서 Backfill을 돌리고 성공하면 출연·지갑 컨테이너를 시작한다. 실패·잠금 경합은 백오프(기본 5초에서 두 배씩 상한 5분) 뒤 다시 시도한다. 처음 시도부터 `stall-alert-after`(기본 30분)가 지나도 마치지 못하면 `[NOTIFICATION_BACKFILL_STALLED]` ERROR를 남긴다. 대기 게이지 `hapbang.notification.alert.listeners.waiting`(pod마다 1이면 대기, 시작하면 0)과 공용 alert `hapbang-notification-backfill-waiting`(앱별 max가 30분 넘게 1, critical)이 있다(ND-093). `hapbang.notification.user-backfill.on-startup=false`면 바로 시작한다(모듈 테스트) | `.../in/event/NotificationAlertListenerStarter.java` |
+| 관리자 API(N5): `POST /api/v1/notifications/admin/user-replica/backfill`(202 `BackfillRun`), `GET …/backfill/{runId}`, `NotificationAdminFacade` `@PreAuthorize("hasRole('ADMIN')")` + global `SecurityConfig` `/api/v1/*/admin/**` ADMIN. 비동기(ND-092): 요청 스레드에서 `JobLock` 잡기(409) → `RedisBackfillRunStore`에 RUNNING(실패하면 잠금 풀고 503 `BACKFILL_STATUS_UNAVAILABLE`) → 가상 스레드에서 `runLocked`(페이지마다 갱신 시각) → COMPLETED(결과)·FAILED(`BACKFILL_FAILED`) 저장 → 잠금 해제. 조회는 RUNNING인데 5분 넘게 갱신이 없으면 UNKNOWN, 없으면 404 `BACKFILL_RUN_NOT_FOUND`. Redis 키 `<접두어>:backfill:run:<id>`, TTL 7일 | `.../in/ApiV1NotificationAdminController.java` |
 | 알림 시작 시각 설정: `application-prod.yaml` `hapbang.notification.alert.start-at`(지금은 임시 값, 첫 운영 배포 기준 시각은 U20, 적용 뒤 유지 ND-088), `application-local.yaml`은 2000-01-01, `application.yaml`에는 없다. `AlertStartPolicy`가 문자열을 `OffsetDateTime`으로 직접 읽어 없거나 시간대 있는 ISO-8601이 아니면 기동에 실패한다 | `apps/auxiliary-app/src/main/resources/application-{prod,local}.yaml` |
 | Kafka 소비·DLT 공통 설정(채팅 복사, ND-028): 블로킹 재시도 3회(1·2·4초, 상한 10초) 뒤 `<토픽>.<그룹>.DLT`, 역직렬화·검증 실패는 재시도 없이 DLT, DLT는 원본과 같은 partition 번호·3개·7일 보존으로 모듈이 선언, AckMode.RECORD, 동시성 1(U13 제안), `auto-offset-reset=earliest` | `.../in/event/kafka/NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}.java` |
 | Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID). 묶음 키 인덱스는 없다(N8) | `boundedContext/notification/src/main/resources/db/migration/` |
@@ -263,7 +263,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 반영 | 회원마다 한 문장: 없으면 만들고, 있으면 버전이 더 클 때만, 파기 표시가 있으면 바꾸지 않음. Kafka 회원 이벤트와 겹쳐도 가장 큰 버전이 남는다 | ND-049, ND-054, ND-077 |
 | 실행 | 앱이 뜬 뒤 비동기로 자동 실행 + 관리자 재실행 API. 기동 실행과 재실행은 같은 advisory lock | ND-078, ND-079 |
 | 리스너 제어 | 출연·지갑 알림 소비자 컨테이너만 첫 Backfill이 끝날 때까지 시작하지 않는다. 앱 기동·회원 복제본 리스너(가입 환영·승급 승인 포함)·챗봇·REST·WebSocket은 기다리지 않는다 | ND-078, ND-080 |
-| 실패 | 일시 장애는 미완료로 두고 백오프로 다시 시도. 복제할 수 없는 회원은 건너뜀(회원 ID 기록), 완료 판정을 막지 않음. 결과 수는 로그·메트릭·재실행 응답 | ND-078 |
+| 실패 | 일시 장애는 미완료로 두고 백오프로 다시 시도. 복제할 수 없는 회원은 건너뜀(회원 ID 기록), 완료 판정을 막지 않음. 결과 수는 로그·메트릭·관리자 실행 조회(ND-092) | ND-078 |
 
 - 선례: 지갑 관리자 회원 Backfill([지갑 결정 기록](../billing/decisions.md) BD-132·BD-133·BD-138).
 - 관련 테스트: `NT-USR-04`(ND-035), `NT-USR-06`·`NT-USR-08`~`NT-USR-10`(ND-077~ND-079) ([test-spec.md](test-spec.md)).
