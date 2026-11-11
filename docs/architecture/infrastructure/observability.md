@@ -28,7 +28,7 @@
 - **trace**: Envoy가 업무 요청을 모두(Grafana·Kafka UI 요청은 빼고, #679) OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 6개(lecture #579, member·appearance·billing·chat #631, customer-support #663)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
 - 앱 로그의 형식·MDC 키(`traceId`·`userId`·`eventType`·`eventKey`)는 [로그 표준](../../dev/logging.md)을 따른다(#582).
-- **alert**: Grafana alerting이 돈·HP 정합성과 앱·인프라 상태(수집 끊김, 컨테이너 재시작, 디스크, 인증서, circuit breaker, DLT, DB 연결, 채팅 전달, 예약 작업) alert 14개를 Slack으로 보낸다(#781, 대사 중단 #804, 아래 "Alert 정책").
+- **alert**: Grafana alerting이 돈·HP 정합성과 앱·인프라 상태(수집 끊김, 컨테이너 재시작, 컨테이너 메모리, 디스크, 인증서, circuit breaker, DLT, DB 연결, 채팅 전달, 예약 작업) alert 15개를 Slack으로 보낸다(#781, 대사 중단 #804, 컨테이너 메모리 #854, 아래 "Alert 정책").
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
@@ -146,7 +146,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 ## Alert 정책 (#629)
 
-대상 지표와 정책은 #629에서 정했다. 평소 값이 0이거나 기준이 분명해 실측 없이 조건을 정할 수 있는 alert 13개는 #781에서 구성했고, 대사 중단 alert를 #804에서 더했다(아래 "구성한 alert"). 나머지는 운영 실측을 본 뒤 후속 티켓에서 한다.
+대상 지표와 정책은 #629에서 정했다. 평소 값이 0이거나 기준이 분명해 실측 없이 조건을 정할 수 있는 alert 13개는 #781에서 구성했고, 대사 중단 alert를 #804에서, 운영 7일 실측으로 기준을 정한 컨테이너 메모리 alert를 #854에서 더했다(아래 "구성한 alert"). 나머지는 운영 실측을 본 뒤 후속 티켓에서 한다.
 
 운영자가 받는 장애 통보는 **alert**라고 쓴다. 회원이 받는 **알림**(notification, [용어집](../../GLOSSARY.md))과 섞어 쓰지 않는다.
 
@@ -171,7 +171,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 **임계값.** 돈·HP 정합성 alert는 0건을 넘으면 바로 보낸다(지속 시간 없음). 나머지는 운영 7일 실측(평소 값과 최대)을 본 뒤 구현 티켓에서 정한다. 실측 없이 정한 숫자는 평소에도 울리거나, 장애 때도 울리지 않는다.
 
-**메모리는 컨테이너 기준이다.** 메모리 alert는 컨테이너 working set ÷ limit으로 본다. OOMKilled는 이 값이 limit에 닿을 때 일어난다. JVM heap 사용률은 GC가 정상으로 돌아도 높게 나오므로 alert에 쓰지 않고 dashboard에서만 본다. 평소 비율이 앱마다 다르고 이미 높다(2026-11-03 7일 최대, 앱 6개 모두 85% 이상, #610). "80% 넘으면"처럼 한 숫자로 정하면 지금도 계속 울린다.
+**메모리는 컨테이너 기준이다.** 메모리 alert는 컨테이너 working set ÷ limit으로 본다. working set은 cgroup 사용량에서 회수하기 쉬운 page cache(`inactive_file`)를 뺀 값이고(kubelet eviction도 이 값을 쓴다), 커널은 cgroup 사용량이 limit에 닿고 회수에 실패할 때 OOMKilled를 한다. 그래서 이 비율은 OOM의 정확한 조건이 아니라, limit에 가까울수록 회수할 여지가 적어 OOMKilled 위험이 커진다는 신호다. JVM heap 사용률은 GC가 정상으로 돌아도 높게 나오므로 alert에 쓰지 않고 dashboard에서만 본다. 평소 비율이 앱마다 다르고 이미 높다(2026-11-03 7일 최대, 앱 6개 모두 85% 이상, #610). "80% 넘으면"처럼 한 숫자로 정하면 지금도 계속 울린다. 그래서 #854는 평소 최대보다 위인 95%에 지속 시간 10분을 두어, limit에 붙어 내려오지 않는 것만 잡는다(아래 "구성한 alert").
 
 ### 후보
 
@@ -185,7 +185,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 | 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`(#822), `lecture.hp_reconciliation.last.completed`(#805), `appearance.hp_reconciliation.last.completed`(#821) | 마지막 성공이 하루 넘게 없음 |
 | 돈·HP 정합성 | HP 작업 DEAD | `lecture.hp_task.dead`, `appearance.hp_task.dead` | 0 초과 즉시 |
 | 앱 상태 | 지표 수집 끊김 | `up` (`kubernetes-pods` job) | 0이 지속 |
-| 앱 상태 | 컨테이너 메모리 | cAdvisor working set ÷ limit | 실측 뒤 |
+| 앱 상태 | 컨테이너 메모리 | cAdvisor working set ÷ limit | 실측 뒤 (#854에서 95%·10분, platform 포함) |
 | 앱 상태 | 5xx 비율 | Envoy `envoy_http_downstream_rq_xx` (route별) | 실측 뒤 |
 | 앱 상태 | DB 연결 대기·timeout | HikariCP `hikaricp.connections.pending`, `hikaricp.connections.timeout` | 실측 뒤 |
 | 앱 상태 | circuit breaker 열림 | `resilience4j.circuitbreaker.state{state="open"}` | 열린 상태가 지속 |
@@ -195,7 +195,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 | 인프라 | node 디스크 | cAdvisor `container_fs_usage_bytes` / `container_fs_limit_bytes` (`/dev/root`) | 실측 뒤 |
 | 인프라 | ERROR 로그 급증 | Loki, JVM dashboard의 ERROR 쿼리 | 실측 뒤 |
 
-#781에서 위 표의 돈·HP 정합성 4개, 지표 수집 끊김, DB 연결 timeout, circuit breaker 열림, 채팅 전달 중지, node 디스크를 구성하고, 표에 없던 컨테이너 재시작·HTTPS 인증서 만료·Kafka DLT 적재·예약 작업 실패를 더했다. 남은 것은 컨테이너 메모리, 5xx 비율, HikariCP 연결 대기(pending), Kafka 소비 lag·소비 그룹 사라짐, 채팅 전달 작업 격리, ERROR 로그 급증이다.
+#781에서 위 표의 돈·HP 정합성 4개, 지표 수집 끊김, DB 연결 timeout, circuit breaker 열림, 채팅 전달 중지, node 디스크를 구성하고, 표에 없던 컨테이너 재시작·HTTPS 인증서 만료·Kafka DLT 적재·예약 작업 실패를 더했다. 컨테이너 메모리는 #854에서 구성했다. 남은 것은 5xx 비율, HikariCP 연결 대기(pending), Kafka 소비 lag·소비 그룹 사라짐, 채팅 전달 작업 격리, ERROR 로그 급증이다.
 
 지표가 없어 지금은 만들 수 없는 것:
 
@@ -224,7 +224,8 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 | 대사가 돌지 않음 | warning | 강의·출연 마지막 완료 시각 `(lecture\|appearance)_hp_reconciliation_last_completed_seconds`, 지갑 failed 0인 마지막 실행의 시작 시각 `hapbang_billing_reconciliation_last_success_seconds`가 26시간 넘게 지남(앱별). 셋 다 기동할 때 DB의 실행 기록으로 채워 pod 나이와 무관(#814, #851) | 10분 | Loki `{app="<앱>"} \|= "대사"`로 배치 실행과 중단 사유를 보고, 강의·출연은 `GET .../admin/hp-reconciliations/latest`로 마지막 실행을 본다(지갑은 관리자 API 없음). 최근에 끝까지 돌았는데도 울리면 기동할 때 DB를 읽지 못한 것이다(앱 로그 "DB에서 채우지 못해", 앱을 다시 띄운다). 지갑은 failed 지갑이 남으면 성공으로 치지 않아 지갑 잔액 대사 불일치·실패 alert와 함께 울린다. 대사가 돌지 않으면 불일치 alert가 오래된 값으로 남는다(아래 "한계") |
 | 대사 중단 | warning | 강의·출연 `runs_total{status="INCOMPLETE"}`가 1시간 안에 늘었거나 새로 생김(#804) | 즉시 | 중단된 실행은 불일치 지표를 바꾸지 않는다. 사유는 관리자 API `GET .../admin/hp-reconciliations/latest`와 Loki `{app="<앱>"} \|= "대사"`로 본다(지갑 조회 실패면 circuit breaker·billing-app). 원인을 고친 뒤 관리자 수동 대사로 다시 돌린다. 복구 통보는 마지막 중단 뒤 1시간이 지났거나 pod가 다시 떴다는 뜻이지 다시 돌아 끝까지 비교했다는 뜻이 아니므로 `/latest`로 확인한다. 대사 도중 pod가 내려가 `RUNNING`으로 남은 실행도 센다. 강의는 기동할 때 정리하며 세고(#805), 출연은 배포 중 옛 pod가 아직 대사 중일 수 있어(maxSurge 1) 다음 실행이 `abandon-after`(1시간)보다 오래된 것만 정리하며 세므로 최대 약 24시간 늦게 잡힌다(#821) |
 | 지표 수집 끊김 | critical | `up{job="kubernetes-pods"}` < 1 (pod별) | 5분 | pod 상태(`kubectl get pod`)와 로그. 기동 실패·재시작 반복·NetworkPolicy를 본다 |
-| 컨테이너 재시작 | warning | 같은 pod 이름에서 cAdvisor 컨테이너 ID가 최근 15분에 2개 이상(Kubernetes dashboard "컨테이너 재생성"과 같은 계산) | 즉시 | `kubectl describe pod`의 Last State(OOMKilled면 limit 부족). platform 컨테이너도 본다. Deployment 배포는 pod 이름이 바뀌어 세지 않고, 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다 |
+| 컨테이너 재시작 | warning | 같은 pod 이름에서 cAdvisor 컨테이너 ID가 최근 15분에 2개 이상(Kubernetes dashboard "컨테이너 재생성"과 같은 계산) | 즉시 | `kubectl describe pod`의 Last State. Reason `OOMKilled`(Exit Code 137)면 컨테이너 limit 부족, 앱 컨테이너의 Exit Code 3이면 JVM `OutOfMemoryError`로 스스로 끝낸 것이다(`-XX:+ExitOnOutOfMemoryError`, #854. 직전 로그 `Terminating due to java.lang.OutOfMemoryError`). platform 컨테이너도 본다. Deployment 배포는 pod 이름이 바뀌어 세지 않고, 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다 |
+| 컨테이너 메모리 | warning | working set ÷ memory limit > 95% (`namespace`·`pod`·`container`별, limit 있는 컨테이너만. 앱·platform 모두) | 10분 | Kubernetes 자원 dashboard "메모리 사용률 / limit"으로 언제부터 올랐는지 보고, 앱이면 JVM dashboard에서 heap(`-Xmx` 상한)과 heap 밖을 나눠 본다. 계속 오르면 누수, 계단처럼 올랐으면 부하·설정 변경이다. limit은 node 메모리 예산([k3s](k3s.md)) 안에서 올린다. 갑자기 치솟아 바로 OOMKilled되면 이 alert는 울리지 않고 컨테이너 재시작 alert로 알게 된다. 재시작 alert도 짧게 살고 끝나기를 반복하는 컨테이너는 늦게 울리거나 놓친다(아래 "메모리 부족을 받는 경로") |
 | node 디스크 사용률 | critical | `/dev/root` 사용 ÷ 크기 > 85% | 15분 | kubelet은 85%에서 안 쓰는 이미지를 지운다(기본값). 15분 넘게 내려가지 않으면 보존 기간(Prometheus·Loki·Tempo·Kafka)과 이미지를 줄인다. PVC(local-path)도 이 디스크에 있다 |
 | HTTPS 인증서 만료 임박 | warning | `certmanager_certificate_expiration_timestamp_seconds`까지 21일 미만 | 즉시 | cert-manager는 만료 30일 전에 갱신한다. `kubectl describe certificate`로 Order·Challenge(HTTP-01)와 cert-manager 로그를 본다([Gateway](../../deploy/gateway.md)) |
 | circuit breaker 열림 | critical | `resilience4j_circuitbreaker_state{state=~"open\|half_open\|forced_open"}` (앱·대상별) | 2분 | open과 half_open을 오가도 울리도록 둘을 함께 본다. 대상이 billing이면 HP 보류·지급, toss면 충전 결제가 멈춘다 |
@@ -236,6 +237,11 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 - **한계: 대사 지표는 기동할 때 DB로 채우고, 읽지 못하면 0이다.** 대사 지표는 앱 메모리에 있어, 그대로 두면 pod가 다시 뜰 때 다음 대사 전까지 0이 되고 고치지 않은 불일치에 복구 통보가 간다(2026-11-09 하루에 appearance-app pod 7개, billing-app 6개). 그래서 앱이 뜰 때 DB의 실행 기록으로 채운다. 강의(#805)·출연(#821)은 마지막 COMPLETED 실행의 규칙별 불일치 건수와 끝난 시각, 지갑(#822)은 마지막 실행(`wallet_reconciliation_run`)의 `wallets{result}`와 failed 0인 마지막 실행의 시작 시각(`last_success`)이다. 한계: 기동할 때 DB를 읽지 못하면(로그 "DB에서 채우지 못해") 다음 대사까지 0이다. 지갑은 실행 기록 저장에 실패한 회차(`[BILLING_RECONCILIATION_RECORD_FAILED]`)가 있으면, pod가 다시 뜰 때 그 앞 회차 값으로 채운다.
 - **한계: "대사가 돌지 않음"은 DB에서 채운 앱별 마지막 완료·성공 시각으로 본다(#814, #851).** 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 값이 DB 기준이라 pod 나이와 관계없이 동작한다. pod가 아니라 앱별로 묶는다. pod로 묶으면 울리는 동안 배포할 때마다 옛 pod series가 사라져 복구 통보가 간다. 출연·지갑(maxSurge 1)은 새 pod가 뜰 때까지 옛 pod가 남아 series가 이어지지만, 강의(maxSurge 0)는 새 pod가 수집될 때까지 끊겨 복구 통보가 갈 수 있다. 완료·성공한 실행이 한 번도 없거나 기동할 때 DB를 읽지 못해 채우지 못하면 0이라 울린다. 후자는 다음 대사가 끝날 때까지 남으므로 앱을 다시 띄우거나, 강의·출연은 수동 대사를 돌린다. 지갑은 성공한 회차의 실행 기록 저장이 실패한 뒤(`[BILLING_RECONCILIATION_RECORD_FAILED]`) pod가 다시 뜨면 `last_success`가 그 앞 성공 시각으로 돌아가, 대사는 돌았는데도 다음 대사까지 울릴 수 있다. 기동 직후 채우기 전에 0이 한 번 수집될 수 있어 rule에 10분 지속을 둔다. #851 전에는 출연 실행 counter와 지갑 `last_success`가 pod 메모리에만 있어 26시간 넘게 산 pod만 봤고, dev 병합마다 pod가 다시 떠서 거의 꺼져 있었다.
 - 재시작을 반복하는 pod는 scrape 대상에 남아 `up`이 0이 되므로 수집 끊김으로 잡힌다(앱 pod만, platform pod는 컨테이너 재시작 alert가 본다). pod가 아예 없어 지표가 사라진 경우(replica 0, 스케줄되지 않은 Pending pod)는 잡지 못한다. kube-state-metrics가 필요하다.
+- **메모리 부족을 받는 경로(#854).** 컨테이너가 limit을 넘어 OOMKilled되면 같은 pod에서 다시 시작해 컨테이너 재시작 alert가 받는다. JVM 앱의 `OutOfMemoryError`는 컨테이너를 죽이지 않아 전에는 앱이 오류만 내며 떠 있고 어떤 alert도 울리지 않았다. 그래서 앱 7개에 `-XX:+ExitOnOutOfMemoryError`를 주어 JVM이 종료 코드 3으로 끝나고 다시 시작하게 했다(JVM 앱은 `JAVA_TOOL_OPTIONS`, native인 운영 customer-support-app은 실행 인자). 대신 한 번 나면 그 요청만이 아니라 처리 중인 요청이 모두 끊긴다.
+  - **종료하는 것은 VM이 던지는 `OutOfMemoryError`뿐이다.** HotSpot은 heap·metaspace 등을 할당하지 못해 VM이 던질 때만 종료한다(`debug.cpp`의 `report_java_out_of_memory`). Java 코드가 직접 만들어 던지는 것(direct buffer 한도 초과, `java.nio.Bits.reserveMemory`의 `new OutOfMemoryError(...)` 등)은 종료하지 않아, 요청 처리 코드가 잡으면 앱이 계속 떠 있고 alert도 오지 않는다. Native Image는 Java heap이 부족할 때만 종료한다(옵션 설명 "thrown because the Java heap is out of memory").
+  - **native는 소스 기준이다.** Native Image는 GraalVM 22.2부터 이 옵션을 실행 시점 옵션(`RuntimeOptionKey`)으로 지원하고 종료 코드도 3이다(GR-38413, `OutOfMemoryUtil`의 `LibC.exit(3)`). 운영 native 이미지는 로컬에서 받을 권한이 없어 실행해 보지 않았다. 배포 뒤 customer-support-app이 정상 기동하는지만 확인한다. 로컬 k3d에서 member-app에 `-Xmx16m`을 주어 `Terminating due to java.lang.OutOfMemoryError: Java heap space`, Exit Code 3, 같은 pod 재시작, 컨테이너 재시작 alert Firing을 확인했다(2026-11-11). 다만 기동 중에 바로 끝나는 컨테이너(이 시험에서 12초)는 1분 간격 cAdvisor 수집에 잘 잡히지 않아, 재시작이 여러 번 쌓인 뒤 약 7분 만에 울렸다. 기동 중에 반복해 끝나는 앱 pod는 지표 수집 끊김(5분)도 잡는다. 오래 돌던 앱이 `OutOfMemoryError`로 끝나면 이전 컨테이너가 이미 수집돼 있으므로, 다시 뜬 컨테이너가 한 번 수집되면 울린다(2026-11-10 운영 `tempo-0` 삭제 시험에서 약 2분). 사유(OOMKilled)를 지표로 받으려면 kube-state-metrics가 필요하다.
+- **컨테이너 메모리 alert에서 빠지는 것.** memory limit이 없는 컨테이너는 비율을 계산할 수 없다. 2026-11-11 기준 kube-system의 local-path-provisioner, metrics-server, svclb(Envoy LoadBalancer) 컨테이너 2개, 모두 4개다. 완료된 `helm-install-*` pod는 지표가 없다.
+- **컨테이너 메모리 기준을 정한 실측(#854).** 운영 7일(2026-11-04 02:20~11 02:20 UTC) 하루별 최대 working set ÷ limit은 앱이 lecture 80~95%, chat 80~93%, member 76~89%, billing 78~86%, appearance 71~83%, auxiliary 45~77%, customer-support 36~56%였고, platform은 Tempo 81~100%, Alloy 40~91%, Grafana 61~86%, Elasticsearch 80~81%, Prometheus 59~81%, Kafka 72~77%, 나머지 75% 이하였다. 거꾸로 돌려 보면 95%·10분은 2026-11-07~09의 Tempo(OOMKilled 반복, #774 전)만 울렸다. 90%·15분이었다면 heap 설정을 바꾸던 무렵의 chat(11-04~05, #684 전후 약 2.7시간)과 lecture(11-05~07, #727 전후 약 14시간·2.7시간), Prometheus configmap-reload(11-04~05, 몇 분)도 울렸다.
 - 첫 발생 때 series가 생기는 counter(DLT 전송, 예약 작업 예외, 강의·출연 대사 실행)와 pod가 뜬 뒤 첫 수집 전에 늘어난 counter(강의 HP 작업 DEAD)는 `increase()`가 첫 값을 놓친다. 그래서 `(increase(x[창]) > 0) or (x unless x offset 창)`처럼 창 안에 새로 생긴 series도 발생으로 친다. `or`는 metric 이름을 빼고 label을 맞추므로 왼쪽을 `> 0`으로 걸러야 새 series가 오른쪽에서 들어온다.
 - 7일 기록(2026-11-02~09)에 거꾸로 돌려 보면 울렸을 것: 컨테이너 재시작(Tempo OOMKilled 반복 #774, chat-app 재시작, #774의 ECK operator 이동, 11-06 PostgreSQL 재시작), 11-06 14:41 PostgreSQL 재시작(#731 limit 변경) 직후의 DB 연결 timeout(lecture 약 230건, chat 3건, appearance 2건)과 appearance 예약 작업 2개의 `DataAccessResourceFailureException`. 디스크(최대 64%)·인증서(80일 남음)·circuit breaker·DLT·채팅 전달 멈춤은 울리지 않았다.
 
