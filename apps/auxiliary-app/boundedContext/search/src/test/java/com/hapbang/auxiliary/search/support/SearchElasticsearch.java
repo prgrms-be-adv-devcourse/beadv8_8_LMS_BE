@@ -11,6 +11,7 @@ import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
 import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
+import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 
 /**
  * Spring 컨텍스트 없이 검색 ES를 쓰는 테스트 도우미(#771). 컨테이너는 {@link SearchElasticsearchTestcontainersConfig}가 JVM에 하나 띄운다.
@@ -30,6 +31,20 @@ public final class SearchElasticsearch {
     public static ElasticsearchClient client(String uri) {
         return new ElasticsearchClient(new Rest5ClientTransport(Rest5Client.builder(URI.create(uri)).build(),
                 new Jackson3JsonpMapper()));
+    }
+
+    /**
+     * 처음 적재가 끝난 상태를 만든다: 동의어 묶음을 올리고, 지금 설정의 빈 index를 만들어 alias를 붙인다. 처음 적재 전에는 alias가 없어 쓰기를
+     * 건너뛰므로(#773 Q1), 문서를 쓰는 테스트는 먼저 이것을 부른다.
+     *
+     * @return 만든 index 이름
+     */
+    public static String createIndex(ElasticsearchClient client) {
+        InfluencerIndexSetup setup = new InfluencerIndexSetup(client);
+        setup.syncSynonyms();
+        String index = setup.createIndex();
+        setup.switchAlias(List.of(), index);
+        return index;
     }
 
     /**

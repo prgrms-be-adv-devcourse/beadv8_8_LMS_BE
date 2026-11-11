@@ -11,6 +11,9 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 
 import com.hapbang.appearance.app.AppearanceExternalEvents;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
@@ -41,6 +44,9 @@ public class AppearanceEventExternalizationConfig {
     public static final String APPLICATION_SUBMITTED = "AppearanceApplicationSubmittedEvent";
     public static final String REVIEW_PUBLISHED = "AppearanceReviewPublishedEvent";
     public static final String CHANGED = "AppearanceChangedEvent";
+    public static final String CANCEL_REQUESTED = "AppearanceCancelRequestedEvent";
+    public static final String CANCEL_REQUEST_ACCEPTED = "AppearanceCancelRequestAcceptedEvent";
+    public static final String CANCEL_REQUEST_REJECTED = "AppearanceCancelRequestRejectedEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -56,6 +62,9 @@ public class AppearanceEventExternalizationConfig {
                 .headers(AppearanceApplicationSubmittedEvent.class, event -> headers(APPLICATION_SUBMITTED))
                 .headers(AppearanceReviewPublishedEvent.class, event -> headers(REVIEW_PUBLISHED))
                 .headers(AppearanceChangedEvent.class, event -> headers(CHANGED))
+                .headers(AppearanceCancelRequestedEvent.class, event -> headers(CANCEL_REQUESTED))
+                .headers(AppearanceCancelRequestAcceptedEvent.class, event -> headers(CANCEL_REQUEST_ACCEPTED))
+                .headers(AppearanceCancelRequestRejectedEvent.class, event -> headers(CANCEL_REQUEST_REJECTED))
                 .build();
     }
 

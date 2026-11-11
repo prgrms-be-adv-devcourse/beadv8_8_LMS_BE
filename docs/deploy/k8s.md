@@ -72,7 +72,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `billing-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`(없으면 충전 API만 503) | `apps/billing-app/k8s/overlays/prod` |
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
-| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 챗봇 FAQ(#715)부터 prod 프로필이 두 키를 기본값 없이 읽으므로 없으면 앱이 뜨지 않는다 | `apps/auxiliary-app/k8s/overlays/prod` |
+| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**), `ES_SEARCH_API_KEY`(검색 API key `auxiliary-app-search`, 2026-11-11 생성, 2027-02-09 만료. **2027-01-26까지 교체한다**, #806). 챗봇 FAQ(#715)부터 prod 프로필이 `OPENAI_API_KEY`·`ES_API_KEY`를 기본값 없이 읽으므로 없으면 앱이 뜨지 않는다. `ES_SEARCH_API_KEY`는 검색 기능 스위치가 켜졌을 때만 읽는다 | `apps/auxiliary-app/k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 7개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
 | `grafana-alerting` | hapbang-platform | `SLACK_WEBHOOK_URL`(Grafana alert를 보내는 Slack Incoming Webhook, #781). `k8s/tools/seal-grafana-alerting.sh`가 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`로 봉인한다 | `k8s/platform/overlays/prod` ([Alert](../architecture/infrastructure/observability.md#alert-정책-629)) |
@@ -83,7 +83,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
 
 - `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 7개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
-- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `OPENAI_API_KEY`, `ES_API_KEY`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `OPENAI_API_KEY`, `ES_API_KEY`, `ES_SEARCH_API_KEY`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 7개를 모두 다시 봉인한다.
 - `JWT_PRIVATE_KEY`는 RSA 2048 PKCS#8 PEM을 줄바꿈 없이 한 줄로 적는다(`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | tr -d '\n'`). env 파일은 여러 줄 값을 받지 못하고, member-app은 공백·줄바꿈을 지우고 읽는다. 이 키는 팀 비밀 보관소에 두지 않는다. 잃으면 새로 만들어 member만 다시 봉인한다. refresh token은 서명 키와 무관해 그대로 쓰이고, 이미 발급한 access token(최대 15분)만 무효가 된다(#500).
@@ -193,6 +193,7 @@ Elasticsearch는 `hapbang-platform`의 ECK CR `hapbang`이다. 앱은 모듈마�
 | 모듈 (앱) | role | index pattern | 권한 | API key 이름 | 앱 Secret 키 |
 | --- | --- | --- | --- | --- | --- |
 | chatbot (auxiliary-app) | `chatbot` | `chatbot-*` (`chatbot-<종류>-<공급자>-<차원>`) | index `all`, cluster `monitor` | `auxiliary-app-chatbot` | `ES_API_KEY` |
+| search (auxiliary-app) | `search` | `search-*` (index `search-influencers-<설정 해시>`, alias `search-influencers`) | index `all`, cluster `monitor`·`manage_search_synonyms`(동의어 묶음을 Synonyms API로 관리) | `auxiliary-app-search` | `ES_SEARCH_API_KEY` |
 
 API key 만료는 GHCR PAT와 같이 90일로 하고, 만든 날과 만료일을 [Secret](#secret) 표에 적는다. 만료 14일 전에 새 key를 만들어 앱 Secret을 다시 봉인하고, 배포 뒤 이전 key를 무효로 한다.
 
@@ -226,39 +227,64 @@ kubectl --context hapbang-k3s -n hapbang-platform get secret hapbang-es-http-cer
 es() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'user = "elastic:%s"\n' "$es_pw") -H 'Content-Type: application/json' "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
 ```
 
+만들 key의 값을 고른다. 모듈마다 아래 묶음 하나를 실행하고 나머지 단계는 같다. 한 번에 key 하나씩 끝까지 진행한다.
+
+```bash
+# 챗봇(#726)
+role=chatbot name=auxiliary-app-chatbot var=ES_API_KEY issue=726 other=search
+desc='{"cluster":["monitor"],"indices":[{"names":["chatbot-*"],"privileges":["all"]}]}'
+```
+
+```bash
+# 검색(#806). 동의어 묶음을 Synonyms API로 관리하므로 manage_search_synonyms가 더 있다
+role=search name=auxiliary-app-search var=ES_SEARCH_API_KEY issue=806 other=chatbot
+desc='{"cluster":["monitor","manage_search_synonyms"],"indices":[{"names":["search-*"],"privileges":["all"]}]}'
+```
+
 먼저 조회한다. role이 없으면 `{}`, 같은 이름의 유효한 key가 없으면 빈 목록이다.
 
 ```bash
 es /_security/_authenticate | jq '{username, roles}'
-es /_security/role/chatbot
-es '/_security/api_key?name=auxiliary-app-chatbot&active_only=true' | jq '[.api_keys[] | {id, name, expiration: (.expiration / 1000 | todate)}]'
+es "/_security/role/${role}"
+es "/_security/api_key?name=${name}&active_only=true" | jq '[.api_keys[] | {id, name, expiration: (.expiration / 1000 | todate)}]'
 ```
 
-role과 API key를 만든다. key 값(`encoded`)은 화면에 내지 않고 `~/.hapbang/prod-secrets.env`의 `ES_API_KEY` 줄로 바로 쓴다. API key의 권한은 만들 때 넣은 `role_descriptors`로 고정되므로 role을 바꾸면 key를 다시 만든다.
+role과 API key를 만든다. key 값(`encoded`)은 화면에 내지 않고 `~/.hapbang/prod-secrets.env`의 `$var` 줄로 바로 쓴다. API key의 권한은 만들 때 넣은 `role_descriptors`로 고정되므로 role을 바꾸면 key를 다시 만든다.
 
 ```bash
-desc='{"cluster":["monitor"],"indices":[{"names":["chatbot-*"],"privileges":["all"]}]}'
-es /_security/role/chatbot -X PUT -d "$desc"
-resp=$(es /_security/api_key -X POST -d "{\"name\":\"auxiliary-app-chatbot\",\"expiration\":\"90d\",\"role_descriptors\":{\"chatbot\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"issue\":726}}")
+es "/_security/role/${role}" -X PUT -d "$desc"
+resp=$(es /_security/api_key -X POST -d "{\"name\":\"${name}\",\"expiration\":\"90d\",\"role_descriptors\":{\"${role}\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"module\":\"${role}\",\"issue\":${issue}}}")
 printf '%s' "$resp" | jq '{id, name, expiration: (.expiration / 1000 | todate)}'
 key=$(printf '%s' "$resp" | jq -r '.encoded // empty')
 f=~/.hapbang/prod-secrets.env
-[ -n "$key" ] && ( umask 077; { grep -v '^ES_API_KEY=' "$f"; printf 'ES_API_KEY=%s\n' "$key"; } > "$f.tmp" ) && mv "$f.tmp" "$f" && grep -c '^ES_API_KEY=' "$f"
+[ -n "$key" ] && ( umask 077; { grep -v "^${var}=" "$f"; printf '%s=%s\n' "$var" "$key"; } > "$f.tmp" ) && mv "$f.tmp" "$f" && grep -c "^${var}=" "$f"
 unset resp key
 ```
 
-마지막 줄은 `1`을 출력해야 한다. 기존 `ES_API_KEY` 줄을 지우고 새 줄 하나만 남기므로 `seal-app-secrets.sh`와 아래 확인 단계가 새 key를 읽는다. `sed -i`는 macOS와 Linux의 문법이 달라 쓰지 않는다.
+마지막 줄은 `1`을 출력해야 한다. 기존 `$var` 줄을 지우고 새 줄 하나만 남기므로 `seal-app-secrets.sh`와 아래 확인 단계가 새 key를 읽는다. 다른 모듈의 key 줄은 그대로 남는다. `sed -i`는 macOS와 Linux의 문법이 달라 쓰지 않는다.
 
-key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403이다. 확인용 index는 바로 지운다.
+key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403(다른 모듈 index)이다. 확인용 index는 바로 지운다.
 
 ```bash
-k=$(grep -m1 '^ES_API_KEY=' ~/.hapbang/prod-secrets.env | cut -d= -f2-)
-esk() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'header = "Authorization: ApiKey %s"\n' "$k") "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
+k=$(grep -m1 "^${var}=" ~/.hapbang/prod-secrets.env | cut -d= -f2-)
+esk() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'header = "Authorization: ApiKey %s"\n' "$k") -H 'Content-Type: application/json' "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
 esk /_security/_authenticate | jq -r .authentication_type
 esk /_cluster/health -o /dev/null -w '%{http_code}\n'
-esk /chatbot-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
-esk /chatbot-check-726 -X DELETE -o /dev/null -w '%{http_code}\n'
-esk /search-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
+esk "/${role}-check-${issue}" -X PUT -o /dev/null -w '%{http_code}\n'
+esk "/${role}-check-${issue}" -X DELETE -o /dev/null -w '%{http_code}\n'
+esk "/${other}-check-${issue}" -X PUT -o /dev/null -w '%{http_code}\n'
+```
+
+검색 key는 동의어 권한도 확인한다. 기대 결과는 201, 200이다. 새 동의어 묶음을 만들면 200이 아니라 201이 나온다.
+
+```bash
+esk "/_synonyms/search-check-${issue}" -X PUT -d '{"synonyms_set":[{"id":"r1","synonyms":"롤, 리그 오브 레전드"}]}' -o /dev/null -w '%{http_code}\n'
+esk "/_synonyms/search-check-${issue}" -X DELETE -o /dev/null -w '%{http_code}\n'
+```
+
+확인이 끝나면 접속 정보를 지운다. 다른 key를 이어서 만들려면 이 줄을 실행하기 전에 위의 값 고르기부터 다시 한다.
+
+```bash
 unset k es_pw; rm -f "$ca"
 ```
 

@@ -41,7 +41,7 @@ Billing은 다음 기능을 담당한다.
 
 현재 테이블 목록·수와 추가한 마이그레이션은 `docs/billing/module.md` 8.2가 원본이다. 필드·자료형·제약 조건은 Flyway 마이그레이션(`apps/billing-app/src/main/resources/db/migration`)에서 확인한다.
 
-- 기획서 ERD에 없던 테이블은 결정으로 추가했다: `mock_payout_transfer`(BD-99), `billing_user`(BD-103), `hold_void`(BD-125), `wallet_withdrawal`(BD-141). Spring Modulith 발행 기록 테이블은 BD-130.
+- 기획서 ERD에 없던 테이블은 결정으로 추가했다: `mock_payout_transfer`(BD-99), `billing_user`(BD-103), `hold_void`(BD-125), `wallet_withdrawal`(BD-141), `wallet_reconciliation_run`·`wallet_reconciliation_run_wallet`(BD-146), `promotion_funding`·`promotion_withdrawal`·`budget_reservation`·`budget_release`(BD-147~BD-150), `promotion_hold`(BD-157~BD-160). Spring Modulith 발행 기록 테이블은 BD-130.
 - 무엇을 기준 ERD로 삼을지는 미결이다(`docs/billing/decisions.md` 10장 "Billing 기준 ERD" 행). 임의로 정하지 않는다.
 
 결정(`BD-*`) 없이 테이블이나 컬럼을 임의로 추가하지 않는다.
@@ -70,10 +70,11 @@ Billing은 다음 기능을 담당한다.
 
 ## 6. Wallet과 Ledger
 
-- 지갑 유형(`WalletType`)은 회원 지갑 `MEMBER`와 플랫폼 지갑 `PLATFORM`(1개, `user_id` 없음)이다(BD-114).
-- HP 종류는 `CHARGE`(충전 HP)·`REVENUE`(수익 HP)이고, 플랫폼 지갑 전용으로 `FEE`(수수료 수입, 가용 칸만)가 있다(BD-115). 회원 지갑에는 FEE를, 플랫폼 지갑에는 충전·수익 HP를 기록하지 않는다(BD-117).
-- 가용·보류 잔액은 `AVAILABLE`과 `HELD`로 구분한다.
-- `WALLET`의 잔액 칸(충전·수익 × 가용·보류 4개 + `fee_balance_hp`)은 원장 합계의 캐시다(BD-114·BD-115).
+- 지갑 유형(`WalletType`)은 회원 지갑 `MEMBER`, 플랫폼 지갑 `PLATFORM`(1개, `user_id` 없음, BD-114), 프로모션 지갑 `PROMOTION`(1개, `user_id` 없음, BD-147)이다. 플랫폼·프로모션 지갑은 닫지 않는다.
+- HP 종류는 `CHARGE`(충전 HP)·`REVENUE`(수익 HP)이고, 플랫폼 지갑 전용으로 `FEE`(수수료 수입, 가용 칸만)가 있다(BD-115). 회원 지갑에는 FEE를, 플랫폼 지갑에는 충전·수익 HP를 기록하지 않는다(BD-117). 프로모션 지갑 전용으로 `PROMOTION`(프로모션 HP, 가용·예약·보류 칸)이 있고 다른 지갑에는 기록하지 않는다(BD-147). 지갑 유형별 HP 종류는 `WalletType.holds`, HP 종류별 칸은 `PointType.has`가 정한다.
+- 가용·보류 잔액은 `AVAILABLE`과 `HELD`로 구분한다. 예약 칸 `RESERVED`(쿠폰 예산으로 묶은 HP)는 프로모션 HP만 있다(BD-147).
+- `WALLET`의 잔액 칸(충전·수익 × 가용·보류 4개 + `fee_balance_hp` + 프로모션 HP 3개 `promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`)은 원장 합계의 캐시다(BD-114·BD-115·BD-147).
+- 프로모션 지갑의 충전·회수·예산 예약·해제 및 주문 항목 보류(`PROMOTION_HOLD`: 예약 − / 보류 +)·복구(`PROMOTION_RESTORE`: 보류 − / 예약 +)는 `PromotionLedgerOperations`로 만든다. 판매자 지급(`PAYOUT`)은 `HoldPayoutUseCase`가 구매자·프로모션 보류 차감과 판매자 수익 HP 증가를 합산한다. 모두 `LedgerRecordUseCase`로 같은 트랜잭션에서 기록한다(BD-148·BD-157~BD-160). 쿠폰 예산 예약(`budget_reservation`)의 총액 = 남은 + 보류 중 + 지급됨 + 해제됨이고, 예약 칸 = Σ 남은 예산, 보류 칸 = Σ 보류 중이다(BD-156). 지갑 대사가 이 불변식을 함께 본다.
 - 원장(`POINT_LEDGER`)은 append-only다.
 - 기존 원장 행을 수정하거나 삭제하지 않는다.
 - 정정은 역분개를 통해 신규 원장 행으로 기록한다.
@@ -303,7 +304,7 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 탈퇴로 닫으면 탈퇴 작업 ID와 시각이, 회원 정보 파기(`UserMaskedEvent`)로 닫으면 시각만 있다. 다시 열기는 탈퇴 작업 ID가 같을 때만 열어 파기로 닫힌 지갑은 열리지 않는다(BD-145).
     - 파기 때 끝난 환전의 계좌만 지우고 처리 중인 환전의 계좌는 송금에 필요해 남긴다(BD-144, `WalletMaskingUseCase`).
 - **배치 실행 락 (BD-138·BD-139)**: `@Scheduled` 배치는 `run()`에서 `JobLock.runOrSkip(BillingJob.X, ...)`으로 감싸 배포 중 겹친 pod에서 한 곳만 실행한다(PostgreSQL advisory lock, 잡지 못하면 그 회차를 건너뜀). 동시에 한 번만 돌아야 하는 관리자 작업은 `tryAcquire`를 쓴다(Backfill: 다른 실행 중 409, 락 오류 503). 새 배치를 더하면 `BillingJob`에 그 이슈 번호 × 1000 + 순번(예: #607 → 607001)을 더하고 기존 번호는 바꾸지 않는다(BD-139). UseCase의 건별 락·멱등성은 그대로 둔다(락은 동시 실행만 막는다).
-- **잔액 대사 배치 (BD-139)**: `WalletReconciliationBatch`가 매일 04:02:45 KST에 최근 72시간 안에 바뀐 지갑(`wallet.updated_at`·`point_ledger.created_at`)만 대사한다. 불일치는 고치지 않고 error 로그와 `hapbang.billing.reconciliation.*` 지표로만 알린다. 오류 지갑은 끝에 1회 재시도하고, 그래도 실패하면 다음 회차로 넘긴다. `last.success`는 failed 0일 때만 갱신한다. 대사 대상 조회가 인덱스(`idx_wallet_1`, `idx_point_ledger_5`)를 타므로 두 컬럼의 의미(수정 시각, 기록 시각)를 바꾸지 않는다.
+- **잔액 대사 배치 (BD-139)**: `WalletReconciliationBatch`가 매일 04:02:45 KST에 최근 72시간 안에 바뀐 지갑(`wallet.updated_at`·`point_ledger.created_at`)만 대사한다. 불일치는 고치지 않고 error 로그와 `hapbang.billing.reconciliation.*` 지표로만 알린다. 오류 지갑은 끝에 1회 재시도하고, 그래도 실패하면 다음 회차로 넘긴다. `last.success`는 failed 0일 때만 갱신한다. 실행 기록·이월·기동 시 지표 복원은 DB 실행 기록을 원본으로 하고(BD-146), 그 기록의 저장·읽기 실패가 대사와 기동을 멈추지 않게 한다. 대사 대상 조회가 인덱스(`idx_wallet_1`, `idx_point_ledger_5`)를 타므로 두 컬럼의 의미(수정 시각, 기록 시각)를 바꾸지 않는다.
 - **사용자 API rate limit (BD-140)**: 회원이 부르는 사용자 API에는 컨트롤러 메서드에 `@RateLimited(RateLimitedApi.X)`를 붙인다(신청·취소 분당 10, 일반 조회 60, 다른 앱을 부르는 조회 20). 새 사용자 API를 더하면 `RateLimitedApi`에 넣고 같은 애노테이션을 붙인다. 내부·관리자 API에는 붙이지 않는다. 검증 실패(400)·권한 거절(403)도 세고, 처리 중 결과 확인은 같은 신청을 다시 보내지 말고 조회 API로 안내한다. 넘으면 429 `TOO_MANY_REQUESTS` + `Retry-After`(공통 핸들러). member와 같은 이름을 쓰므로 바꾸지 않는다. 테스트 공유 컨텍스트는 `hapbang-module-test.yaml`에서 한도를 크게 둔다.
 - **헬스체크·지표 (BD-133)**: Actuator `/actuator/health`로 앱·DB 상태를 확인하고 `/actuator/prometheus`로 지표를 낸다. k8s에서는 관리 포트 8082(`MANAGEMENT_SERVER_PORT`)에서만 열리고, 8080(Gateway 전용)·8081(내부 API)에서는 404다(`ManagementPortTest`).
 - **로컬 테스트 계정**: 로컬에서는 member-app(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만들고, Gateway를 거쳐 billing-app을 부른다.

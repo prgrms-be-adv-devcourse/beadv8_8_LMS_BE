@@ -15,7 +15,9 @@ public enum SearchJob implements JobLockKey {
     /** 통계·분야 이름 동기화(10분마다) */
     STATS_SYNC(771_002L, "search-stats-sync"),
     /** 회원 변경분 증분 보정(10분마다, #772) */
-    MEMBER_RECONCILE(772_001L, "search-member-reconcile");
+    MEMBER_RECONCILE(772_001L, "search-member-reconcile"),
+    /** 처음 적재·재색인(시작 때와 10분마다 확인, #773) */
+    REINDEX(773_001L, "search-reindex");
 
     private final long lockKey;
     private final String tag;

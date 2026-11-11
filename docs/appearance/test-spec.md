@@ -684,8 +684,8 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 | 종류 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|---|
 | 단위 | `AppearanceBatchRulesTest` | 보류 성공 반영: 처음 / 이미 `REQUESTED` | true(바뀜) / false(그대로) |
-| 단위 | `AppearanceRequestTest` | 요청서 `toDto()` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
-| 단위 | `AppearanceApplicationTest` | 지원 `toDto(모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceRequestTest`) | 요청서 `toRequestDto` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceApplicationTest`) | 지원 `toApplicationDto(지원, 모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
 | 통합 | `AppearanceEventPublishTest` | 요청서 보내기 성공 | `AppearanceRequestSentEvent` 1건, 내용 일치 |
 | 통합 | 〃 | Billing 보류 거절 | 0건 |
 | 통합 | 〃 | 보류 결과 모름 → 보류 재확인 배치 | 0건 → 1건 (같은 요청서 ID) |
@@ -730,9 +730,9 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
-| 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목) |
-| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, Billing에 반환 30,000 요청 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 수락 이벤트 1건, 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
-| 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
+| 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목, `requestedAt`이 요청 전후 시계 사이, #817) |
+| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, Billing에 반환 30,000 요청 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 수락 이벤트 1건(`acceptedAt`이 수락 전후 시계 사이), 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
+| 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`, `rejectedAt`이 거절 전후 시계 사이) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
 | 요청서 출처 | 거부 | 요청 없이 수락 `CANCEL_REQUEST_NOT_PENDING`, 공백 사유 `INVALID_REQUEST`, 호스트 요청 `NOT_APPEARANCE_GUEST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 처리 중 재요청 `CANCEL_REQUEST_ALREADY_PENDING`, 게스트 수락 `NOT_APPEARANCE_HOST`, 없는 출연 `APPEARANCE_NOT_FOUND` |
 | 요청서 출처 | 방송 예정 일시 지남 | 요청·수락·거절 `APPEARANCE_SCHEDULE_PASSED` |
 | 요청서 출처 | Billing 무응답에서 수락 | 합의 취소 성공, 반환 작업 `PENDING` |
@@ -1274,7 +1274,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 요청 도착·지원 도착 | 내보냄 (`@Externalized`) |
-| 출연 취소 요청 이벤트 3종 | 내보내지 않음 |
+| 출연 취소 요청 이벤트 3종 | 내보냄 (#817. 전에는 받는 곳이 없어 내보내지 않음) |
 | 회원 이벤트(`UserJoinedEvent`·`UserModifiedEvent`) | 내보내지 않음 (다른 컨텍스트 이벤트) |
 
 ### 25.3 `AppearanceEventRepublishUseCaseTest` (단위, `IncompleteEventPublications` 대역)
@@ -1283,8 +1283,11 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 취소 요청 이벤트 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
-| 취소 요청 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
+| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 내보내지 않는 이벤트(회원 가입 이벤트) 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
+| 출연 취소 요청 이벤트 3종(5·4·3분 전, #817) | 3건 모두 고름(오래된 순), 반환 3 |
+| 내보내지 않는 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
+
+- 내보내지 않는 예시는 원래 출연 취소 요청 이벤트였다. #817에서 내보내게 되어 다른 컨텍스트 이벤트(`UserJoinedEvent`, `@Externalized`가 있지만 패키지로 거름)로 바꿨다.
 
 ## 26. 지갑 회로가 열려 있으면 배치 건너뛰기 (#439)
 
@@ -1471,8 +1474,9 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceReviewTest` | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
-| `AppearanceReviewTest` | 공개 전 리뷰 → 공개 이벤트 / 공개 시각 나노초 | `IllegalStateException` / 마이크로초까지만 저장 |
+| `AppearanceContractMapperTest` (#825) | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
+| `AppearanceContractMapperTest` (#825) | 공개 전 리뷰 → 공개 이벤트 | `IllegalStateException` |
+| `AppearanceReviewTest` | 공개 시각 나노초 | 마이크로초까지만 저장 |
 | `AppearanceReviewFlowTest` | 한쪽만 작성 | 발행 없음 |
 | `AppearanceReviewFlowTest` | 상대가 써서 공개 | 리뷰마다 1개씩 2개, 공개 시각은 DB 값과 같음 |
 | `AppearanceReviewFlowTest` | 이미 씀·상대 정지로 작성 실패 | 발행 없음 |
@@ -1571,11 +1575,22 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHpReconciliationTest` | 목록 `hasMore` 두 페이지 → 다음 실행 | 응답 커서로 이어 읽고 마지막 커서를 KST로 저장, 다음 실행은 그 커서에서 시작 |
 | `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
 | `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
-| `AppearanceHpReconciliationTest` | 앱이 멈춰 `RUNNING`으로 남은 실행 | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) |
+| `AppearanceHpReconciliationTest` | 앱이 멈춰 1시간 넘게 `RUNNING`으로 남은 실행 (#821) | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행), `runs{INCOMPLETE}` +1 |
+| `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 배치는 건너뜀(null)·관리자 실행은 409 `HP_RECONCILIATION_RUNNING`, 새 실행·지갑 호출 없음, 중단 횟수 그대로, 막은 실행 ID를 WARN 로그로 남김 |
+| `AppearanceHpReconciliationTest` | 정리 기준 경계 (#821) | 기준 시각보다 먼저 시작한 실행만 `INCOMPLETE`, 기준 시각에 시작한 실행은 `RUNNING` |
+| `AppearanceHpReconciliationFinishFailureTest` | 결과 기록(`finish`) 실패 (#821) | `INCOMPLETE`("결과 기록 실패: QueryTimeoutException"), `runs{INCOMPLETE}` +1, 바로 다음 실행은 막히지 않고 `COMPLETED` |
+| `AppearanceHpReconciliationFinishFailureTest` | 기록 직전에 다른 pod가 이 실행을 정리함 (#821) | 다른 pod가 남긴 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) 그대로, 이 pod의 `runs{INCOMPLETE}`는 그대로(두 번 세지 않음) |
+| `AppearanceHpReconciliationFinishFailureTest` | 결과 기록과 미완료 처리가 모두 실패 (#821) | 예외를 던지고 `RUNNING`이 남음, 실행 중 표시는 풀림(1시간 안에는 건너뜀) → 1시간 뒤 다음 실행이 정리(+1)하고 `COMPLETED` |
+| `AppearanceHpReconciliationTest` | 완료 실행 | `last.completed` = 끝난 시각(epoch 초) (#821) |
+| `AppearanceHpReconciliationTest` | 기동 복원: 완료 2건 + 그 뒤 미완료 1건 (#821) | 마지막 완료 실행의 규칙별 건수(`HP_TASK_DEAD` 포함)와 끝난 시각, 미완료 실행은 보지 않음 |
+| `AppearanceHpReconciliationTest` | 기동 복원: 실행 기록 없음 (#821) | 지표 그대로 |
+| `AppearanceHpReconciliationTest` | 기동 복원: 완료 실행 없음, 미완료·`RUNNING` 실행 있음 (#821) | 지표 그대로, `RUNNING` 정리 안 함(읽기만) |
+| `HpReconciliationMetricsRestorerTest` | 기동 복원 중 DB 오류 (#821) | 예외 없이 기동, 지표 0 |
 | `AppearanceHpReconciliationHttpTest` | Mock Billing: 목록 GET·조회 POST | 내부 API 키, 쿼리(참조 유형·처음 커서·500건), JSON 본문(참조 유형·ID 목록), 응답 해석, 커서 KST 저장 |
 | `AppearanceHpReconciliationHttpTest` | Mock Billing: 조회 500 | `INCOMPLETE`, 커서 저장 안 함 |
 | `AppearanceHpReconciliationAdminApiE2ETest` | 기록 없음 → 실행 → 마지막 결과 | 404 `HP_RECONCILIATION_NOT_FOUND` → 200 `COMPLETED`·어긋난 건 → 200 같은 실행 |
 | `AppearanceHpReconciliationAdminApiE2ETest` | 회로 열림 | 200 `INCOMPLETE` + 이유 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 10분 전에 시작한 `RUNNING` 실행이 남음(다른 pod) (#821) | 409 `HP_RECONCILIATION_RUNNING`, 새 실행 없음 |
 | `AppearanceHpReconciliationAdminApiE2ETest` | 관리자 아님 / 비로그인 / 권한 잃은 관리자 | 403 / 401 / 403 `NOT_ADMIN`, 실행 기록 없음 |
 | `AppearanceBatchScheduleTest` | HP 대사 cron | 매일 04:00:25(KST), 매분 배치 초와 겹치지 않음, 배치 9개 등록, UseCase 호출 |
 | `AppearanceConfigTest` | 기본값 / 유예 음수·범위 ≤ 유예·건수 0·501 | 2h·7d·500 / 앱 기동 실패 |
@@ -1620,15 +1635,15 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceStatusTest` | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
-| `AppearanceTest` | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
-| `AppearanceReviewTest` | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceStatusTest`) | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceTest`) | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceReviewTest`) | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
 | `AppearanceChangedEventTest` | 요청 수락 / 모집 지원 수락 2명 | 출연마다 1건, `SCHEDULED`, version 0, 커밋된 값과 같음 |
 | `AppearanceChangedEventTest` | 취소 요청 / 호스트 거절 / 자동 거절 배치 / 합의 취소 | 전이마다 1건 더: `SCHEDULED`(version 1) / `SCHEDULED`(version 2) / `SCHEDULED` / `CANCELED` |
 | `AppearanceChangedEventTest` | 호스트 확인 / 불참 / D+7 자동 확인 배치 | `COMPLETED` / `NO_SHOW` / `COMPLETED` |
 | `AppearanceChangedEventTest` | 호스트 일방 취소 / 모집 전체 취소(출연 2건) | `CANCELED` / 출연마다 `CANCELED` 1건, 각각 커밋된 version |
 | `AppearanceChangedEventTest` | 호스트가 아닌 회원의 확인(막힘) | 성립 때 1건 뒤로 더 나가지 않음 |
-| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 2건, `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
+| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 출연 변경 2건 + 취소 요청 1건(#817), 출연 변경은 `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
 | `AppearanceExternalEventsTest` | `AppearanceChangedEvent` | 내보낸다 |
 | `AppearanceSyncInternalApiE2ETest` | 출연 3건(성립·일방 취소·취소 요청 중), size 2 → 다음 페이지 / 생략 / 딱 맞게 끝남 / 끝 뒤 | 키셋·`nextAfterId`=마지막 ID, 결과·version, 금액 없음 / 처음부터 3건 / `nextAfterId` null / 빈 목록 |
 | `AppearanceSyncInternalApiE2ETest` | 공개 리뷰 2건 사이에 공개 전 리뷰 1건, size 1 | 첫 페이지 공개 리뷰, 다음 페이지는 공개 전 리뷰를 건너뛰고 이어짐, 본문·쓴 사람 없음 |
@@ -1641,3 +1656,31 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 - 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
 - 소비 앱(chat-app·member-app)이 새 타입에서 실패하지 않는 것은 코드로 확인했다(chat `MissingTypeEvent`·기본 처리기, member `@KafkaHandler(isDefault = true)`). 다른 앱 코드는 바꾸지 않았다.
 
+## 40. 출연 취소 요청 이벤트 3종 Kafka 발행 (#817)
+
+알림센터가 출연 취소 요청 알림을 만들도록 세 이벤트를 `appearance.events.v1`로 내보내고, 사건 시각을 더했다(구성은 `module.md` 11.1·11.3, 계약은 `docs/notification/event-contracts.md` 1장).
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceExternalEventsTest` | 취소 요청·수락·거절 이벤트 | 내보낸다 |
+| `AppearanceEventKafkaTest` | 성립 → 취소 요청 → 거절 → 다시 요청 → 수락 (각각 커밋) | key `appearance:<출연 ID>`로 정확히 9건(출연 변경 5 + 취소 요청 이벤트 4). 요청 2건(`eventType=AppearanceCancelRequestedEvent`·`eventVersion=1`·`__TypeId__`, 취소 요청 ID 두 개, `requestedAt`이 시계 범위 안), 거절 1건(DTO 7개 값 전부·`autoRejected=false`·`rejectedAt`), 수락 1건(두 번째 요청 ID·순번 2·`acceptedAt`이 거절 시각 뒤) |
+| `AppearanceCancelRequestFlowTest` | 요청 / 수락 / 거절 / 자동 거절 | 사건 시각이 그 처리 전후의 테스트 시계 사이. 수락·거절·자동 거절은 이력의 응답 시각과 같은 값(DB가 마이크로초까지 저장하므로 1마이크로초 차이까지 허용). 요청 시각은 이력의 요청 시각(`createdAt`, 저장 시각)과 다를 수 있어 범위로만 봄 (13.3) |
+| `AppearanceEventRepublishUseCaseTest` | 취소 요청 이벤트 3종의 미완료 기록 | 재발행 대상으로 고름 (25.3) |
+| `AppearanceCopyEventListenerTest` (chatbot) | 같은 key로 취소 요청·거절·수락 뒤 출연 변경 | 세 건은 건너뛰고 출연 변경은 반영, DLT에 그 key 없음 |
+| `AppearanceCancelRequestFlowTest` | 거절한 요청에 수락·거절, 거절·수락한 출연의 방송 예정 일시가 지난 뒤 자동 거절 배치 | 수락·거절 `CANCEL_REQUEST_NOT_PENDING`, 배치 0건. 거절 이벤트는 거절한 출연 1건, 수락 이벤트는 수락한 출연 1건뿐 |
+
+- 기존 소비 그룹이 새 eventType을 건너뛰는 것은 각 앱의 기존 테스트가 맡는다: chat-app `AppearanceNotificationEventListenerTest.처리하지_않는_출연_이벤트_종류는_건너뛰고_DLT로_보내지_않는다`(취소 요청 이벤트 타입으로 보냄), member-app `AppearanceReviewEventListenerTest.ignoreOtherTypes`(〃, 생성자 인자만 맞춤), chatbot `AppearanceCopyEventListenerTest.skipsCancelRequestEvents`(3종 모두 보냄). chat-app·member-app은 취소 요청 타입만 보내고, 수락·거절도 같은 기본 처리기 경로다.
+- 수락과 거절이 동시에 오는 경우는 13장 `Concurrent.acceptAndReject`가 한쪽만 반영됨을 확인한다. 이벤트는 상태를 바꾼 트랜잭션 안에서만 발행되므로 한쪽만 나간다.
+
+## 41. 다른 앱에 보내는 계약 변환 분리 (#825)
+
+도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 위 장(12·32·39장)에 있던 행은 클래스 이름을 바꿔 적었고, 취소 요청 DTO 행은 여기에만 있다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceContractMapperTest` | 출연 동기화 사본·변경 이벤트 / 나노초 / ID·version 없음 | 값 그대로 / 마이크로초까지 / `IllegalStateException` |
+| `AppearanceContractMapperTest` | 출연 상태 6개 → 공개 결과 | 4개로 매핑, 모두 쓰임 |
+| `AppearanceContractMapperTest` | 리뷰 공개 이벤트·동기화 사본 / 공개 전 | 값 그대로, 같은 이름 필드 같음 / `IllegalStateException` |
+| `AppearanceContractMapperTest` | `toRequestDto`·`toApplicationDto`(다른 모집글)·`toCancelRequestDto` | 값 그대로 / `IllegalArgumentException` |
+
+- 이벤트·내부 API 값이 바뀌지 않은 것은 기존 통합 테스트(`AppearanceChangedEventTest`, `AppearanceEventKafkaTest`, `AppearanceSyncInternalApiE2ETest`, 알림 이벤트 테스트)가 그대로 통과해 확인했다.
