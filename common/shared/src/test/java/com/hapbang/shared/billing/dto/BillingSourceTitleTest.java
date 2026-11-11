@@ -56,12 +56,14 @@ class BillingSourceTitleTest {
     }
 
     @Test
-    @DisplayName("제목 길이는 검사하지 않는다(제목 때문에 지급을 거절하지 않는다)")
-    void titleLengthIsNotValidated() {
+    @DisplayName("요청의 제목 길이는 검사·변경하지 않는다(지급을 거절하지 않고, 이벤트용 상한은 지급 완료 이벤트가 정한다)")
+    void titleLengthIsNotChangedInRequest() {
         String longTitle = "가".repeat(1_000);
 
         assertThat(PayoutCommand.full(1L, REQUEST, 7L, "P1", 2L, SOURCE, 7L, longTitle).sourceTitle())
                 .isEqualTo(longTitle);
+        assertThat(new PenaltyCommand(1L, REQUEST, 7L, "C1", 2L, SOURCE, 7L, 7_000L, 3_000L, longTitle)
+                .sourceTitle()).isEqualTo(longTitle);
     }
 
     @Test

@@ -111,7 +111,7 @@
 | `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` (구현: `requestedAmountHp`. 환불 요청 FAILED만, 일부 환불은 `RefundCompletedEvent`) | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 구현됨 (#873) |
 | `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 (구현: `requestedAmountHp`·`manualReviewRequiredAt`) | `refundRequestId` | `manualReviewRequiredAt` | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 구현됨 (#873) |
 | `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` (구현: `requestedAmountHp`) | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 구현됨 (#873) |
-| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목, `String`. 제목 없는 요청은 null이고 JSON에 쓰지 않는다) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 구현됨 (#873) |
+| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목, `String`. 길이 상한은 지갑 BD-163. 제목 없는 요청은 null이고 JSON에 쓰지 않는다) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 구현됨 (#873) |
 
 - ND-040 변경 범위: 지급 요청 `PayoutCommand`(정상 지급)와 `PenaltyCommand`(위약금 지급)에 출처 제목을 더하고, 출연·강의가 지급을 요청할 때 넘긴다. 출연·강의는 저장해 둔 HP 작업으로 나중에 요청하므로, 작업에 제목을 어떻게 보관할지는 출연·강의 담당이 정한다. 지갑은 그 값을 `PayoutCompletedEvent.sourceTitle`로 담는다. 이벤트는 지급 건(`Settlement`)에서 만들므로 값을 어떻게 보관할지(저장 칸 추가 등)는 지갑 담당이 정한다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
 - 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`).

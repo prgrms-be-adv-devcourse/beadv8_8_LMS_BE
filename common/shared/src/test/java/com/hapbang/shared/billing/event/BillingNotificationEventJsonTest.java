@@ -64,6 +64,47 @@ class BillingNotificationEventJsonTest {
                 """, PayoutCompletedEvent.class)).isEqualTo(untitled);
     }
 
+    @Test
+    @DisplayName("지급 완료 이벤트의 출처 제목은 255자까지 그대로, 넘으면 앞 255자만 담는다(Kafka 메시지 크기 상한, PR #873 리뷰)")
+    void payoutCompletedTitleIsCappedAt255() {
+        String longest = "가".repeat(255);
+
+        assertThat(payoutCompleted(longest).sourceTitle()).isEqualTo(longest);
+        assertThat(payoutCompleted(longest + "나").sourceTitle()).isEqualTo(longest);
+        assertThat(payoutCompleted("가".repeat(100_000)).sourceTitle()).isEqualTo(longest);
+        assertThat(payoutCompleted("합방 출연").sourceTitle()).isEqualTo("합방 출연");
+        assertThat(payoutCompleted(null).sourceTitle()).isNull();
+    }
+
+    @Test
+    @DisplayName("상한은 문자(code point) 기준이고, 경계의 이모지(서로게이트 쌍)를 반으로 자르지 않는다")
+    void payoutCompletedTitleCapCountsCodePoints() {
+        String emoji = "🎬"; // 🎬: UTF-16 두 칸, 문자 하나
+
+        String capped = payoutCompleted(emoji.repeat(256)).sourceTitle();
+
+        assertThat(capped.codePointCount(0, capped.length())).isEqualTo(255);
+        assertThat(capped).isEqualTo(emoji.repeat(255));
+        assertThat(payoutCompleted("가".repeat(254) + emoji + "나").sourceTitle())
+                .isEqualTo("가".repeat(254) + emoji);
+    }
+
+    @Test
+    @DisplayName("발행 기록에 남은 긴 제목의 JSON을 다시 읽어도 앞 255자만 담는다(재발행 본문도 상한을 지킨다)")
+    void payoutCompletedJsonWithLongTitleIsCapped() {
+        String json = """
+                {"settlementId":1,"receiverUserId":2,"payoutType":"NORMAL","sourceType":"APPEARANCE_REQUEST",
+                 "sourceId":7,"paidAmountHp":9000,"paidAt":"2026-11-11T01:30:00Z","sourceTitle":"%s"}
+                """.formatted("가".repeat(300));
+
+        assertThat(jsonMapper.readValue(json, PayoutCompletedEvent.class).sourceTitle()).isEqualTo("가".repeat(255));
+    }
+
+    private static PayoutCompletedEvent payoutCompleted(String sourceTitle) {
+        return new PayoutCompletedEvent(1L, 2L, PayoutType.NORMAL, SettlementSourceType.APPEARANCE_REQUEST, 7L,
+                9_000L, AT, sourceTitle);
+    }
+
     @SuppressWarnings("unchecked")
     private <T> T roundTrip(T event) {
         return (T) jsonMapper.readValue(jsonMapper.writeValueAsString(event), event.getClass());
