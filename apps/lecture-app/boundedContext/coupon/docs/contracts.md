@@ -7,7 +7,7 @@
 | 소유 | 데이터 | 필수 내용·제약 |
 | --- | --- | --- |
 | coupon | coupon | 유형, 신청자, 대상, 할인 방식/값, 장당 최대 할인액(모든 강의 대상 정률만 필수), 수량, 발급 기간, 만료 방식, 중첩, 정책 버전, 승인/운영 상태, 예산 예약 ID, epoch·준비 상태 |
-| coupon | member_coupon | 소유자, 쿠폰 ID, 발급 요청 ID, 상태, generation, 현재 항목, 발급/만료 시각, `budget_release_planned_hp`(해제 작업으로 등록한 누적 HP, PENDING 포함). UNIQUE(member_id,coupon_id), UNIQUE(coupon_id,issue_request_id). 요청 ID는 쿠폰 안에서만 유일하다(Redis requests도 쿠폰별) |
+| coupon | member_coupon | 소유자, 쿠폰 ID, 발급 요청 ID, 상태, generation, 현재 항목, 발급/만료 시각, `budget_release_planned_hp`(해제 작업으로 등록한 누적 HP, PENDING 포함), `budget_release_checked_status`(현재 USED/EXPIRED의 목표액까지 등록 확인; HTTP 완료와 별개). UNIQUE(member_id,coupon_id), UNIQUE(coupon_id,issue_request_id). 요청 ID는 쿠폰 안에서만 유일하다(Redis requests도 쿠폰별) |
 | coupon | coupon_usage | 발급 쿠폰+generation UNIQUE, 주문/항목, 적용 순서·기준액·d/f/s·정책 버전, 예약 작업 ID, 결제/해제/취소/복원 사실 |
 | coupon | processed_operation | 이벤트/작업 ID UNIQUE, 요청 내용 식별값, 결과. last_event_id 하나로 전체 중복 처리를 대체하지 않음 |
 | coupon | coupon_issue_request | (쿠폰 ID, 요청 ID) 유일, 회원/epoch, ISSUED/REJECTED 결과, 거절 사유, 최초 접수 시각, 발급 건, 보상 상태 |
