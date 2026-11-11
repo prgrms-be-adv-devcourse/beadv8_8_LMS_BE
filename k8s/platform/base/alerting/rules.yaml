@@ -313,8 +313,50 @@ groups:
           summary: '{{ $labels.namespace }}/{{ $labels.pod }}의 {{ $labels.container }} 컨테이너가 최근 15분에 {{ with $values.A }}{{ humanize .Value }}{{ end }}번 다시 시작했다.'
           description: >-
             원인은 지표로 알 수 없다. kubectl --context hapbang-k3s -n {{ $labels.namespace }} describe pod {{ $labels.pod }}의 Last State를 본다.
-            OOMKilled면 limit이 부족하다(Kubernetes 자원 dashboard "메모리 사용률 / limit"). StatefulSet pod를 다시 만든 경우에도 한 번 울린다.
-            15분 동안 재시작이 없으면 복구 통보가 온다.
+            Reason OOMKilled(Exit Code 137)면 컨테이너 메모리가 limit을 넘었다(Kubernetes 자원 dashboard "메모리 사용률 / limit").
+            앱 컨테이너가 Exit Code 3이면 JVM이 heap·metaspace 등을 할당하지 못한 OutOfMemoryError로 스스로 끝낸 것이다(-XX:+ExitOnOutOfMemoryError). 직전 로그의 "Terminating due to java.lang.OutOfMemoryError"와 JVM dashboard heap을 본다.
+            StatefulSet pod를 다시 만든 경우에도 한 번 울린다. 15분 동안 재시작이 없으면 복구 통보가 온다.
+
+      # 컨테이너 working set ÷ memory limit(#854). Kubernetes dashboard "메모리 사용률 / limit"과 같은 식이다.
+      # working set은 cgroup 사용량에서 회수하기 쉬운 page cache(inactive_file)를 뺀 값이다. 커널은 사용량이 limit에 닿고 회수에 실패할 때
+      # OOMKilled를 하므로 이 값이 OOM의 정확한 조건은 아니다. limit에 가까울수록 회수할 여지가 적다는 신호로 본다.
+      # 앱과 platform 컨테이너를 모두 본다. limit이 없는 컨테이너(kube-system의 local-path-provisioner·metrics-server·svclb)는 비율이 없어 빠진다.
+      # 기준 95%·10분은 운영 7일(2026-11-04~11) 기록에서 실제로 OOMKilled가 반복되던 Tempo만 울렸을 값이다. 90%·15분은 heap 설정을 바꾸던 무렵의 lecture·chat이 몇 시간씩 울렸다.
+      # 갑자기 치솟아 바로 OOMKilled되는 경우는 이 alert가 아니라 컨테이너 재시작 alert로 알게 된다. 다만 재시작 alert는 15분 안에 서로 다른
+      # 컨테이너 ID가 둘 이상 수집돼야 울리므로, 1분 수집 간격보다 짧게 살고 끝나기를 반복하는 컨테이너는 늦게 울리거나 놓친다(앱 pod는 지표 수집 끊김도 본다).
+      - uid: hapbang-container-memory
+        title: 컨테이너 메모리
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (namespace, pod, container) (container_memory_working_set_bytes{container!="", container!="POD"})
+                  / max by (namespace, pod, container) (container_spec_memory_limit_bytes{container!="", container!="POD"} > 0)
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.95]}
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.namespace }}/{{ $labels.pod }}의 {{ $labels.container }} 컨테이너 메모리가 10분 넘게 limit의 95%를 넘었다{{ with $values.A }}(지금 {{ humanizePercentage .Value }}){{ end }}.'
+          description: >-
+            회수할 page cache가 거의 없어 사용량이 limit에 닿으면 OOMKilled로 다시 시작할 수 있다. Kubernetes 자원 dashboard "메모리 사용률 / limit"으로 언제부터 올랐는지 보고,
+            앱이면 JVM dashboard에서 heap(-Xmx 상한)과 heap 밖(non-heap·buffer)을 나눠 본다. 계속 오르면 누수, 계단처럼 올랐으면 부하·설정 변경을 의심한다.
+            limit을 올릴 때는 node 메모리 예산(docs/architecture/infrastructure/k3s.md) 안에서 한다. 95% 아래로 내려가면 복구 통보가 온다.
 
       # node 루트 디스크(/dev/root). PVC(local-path)도 여기에 있다. kubelet은 85%에서 안 쓰는 이미지를 지우므로(기본값),
       # 15분 넘게 85%를 넘으면 이미지 정리로 내려가지 않는 것이다.
