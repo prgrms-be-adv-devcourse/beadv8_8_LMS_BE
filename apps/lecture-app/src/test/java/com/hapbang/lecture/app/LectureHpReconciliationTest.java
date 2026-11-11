@@ -40,7 +40,6 @@ import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpReconciliationCursorRepository;
 import com.hapbang.lecture.out.LectureHpReconciliationMismatchRepository;
@@ -49,23 +48,19 @@ import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
-import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.domain.BillingSettlementStatus;
-import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldQueryCommand;
-import com.hapbang.shared.billing.dto.HoldStateDto;
 import com.hapbang.shared.billing.dto.HoldStatePageDto;
-import com.hapbang.shared.billing.out.BillingApiClient;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
+import com.hapbang.shared.billing.dto.PayoutCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 서비스 간 HP 대사 (#580, D74). 주문 항목은 fixture로 상태를 만들고 HP 작업을 직접 남기며, 지갑 기록은 Fake 지갑 Client에 손으로 적는다.
+ * 서비스 간 HP 대사 (#580, D74). 주문 항목은 fixture로 상태를 만들고 HP 작업을 직접 남기며, 지갑 기록은 별도 billing 앱의 실제 HTTP 보류·반환·지급으로 만든다.
  * <ul>
  *     <li>항목 가격 10,000 HP. 작업 변경 시각을 3시간 전으로 두면 진행 중 유예(2시간)를 지나 비교 대상이 된다</li>
  *     <li>규칙 하나하나는 LectureHpReconciliationComparerTest가, HTTP 응답은 LectureHpReconciliationAdminApiTest가 맡는다</li>
@@ -111,7 +106,7 @@ class LectureHpReconciliationTest {
     private OrderItemCouponRepository orderItemCouponRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -129,6 +124,8 @@ class LectureHpReconciliationTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         old = LocalDateTime.now(clock).minusHours(3);
     }
 
@@ -138,9 +135,9 @@ class LectureHpReconciliationTest {
         Item canceled = item(OrderItemStatus.CANCELED, old);
         Item paidOut = item(OrderItemStatus.PAID_OUT, old);
         Item holdFailed = item(OrderItemStatus.HOLD_FAILED, old);
-        billing.putHoldState(held(purchased.id()));
-        billing.putHoldState(released(canceled.id()));
-        billing.putHoldState(paid(paidOut.id(), settlement(paidOut.id(), SELLER_ID, PRICE_HP)));
+        seedHold(purchased.id(), PRICE_HP);
+        seedRelease(canceled.id());
+        seedPayout(paidOut.id());
 
         LectureHpReconciliationRun run = useCase.runScheduled();
 
@@ -185,7 +182,7 @@ class LectureHpReconciliationTest {
         Item holdPending = item(OrderItemStatus.HOLD_PENDING, old);
         Item cancelPending = item(OrderItemStatus.CANCEL_PENDING, old);
         Item recentlyCanceled = item(OrderItemStatus.CANCELED, LocalDateTime.now(clock).minusMinutes(30));
-        billing.putHoldState(held(recentlyCanceled.id()));
+        seedHold(recentlyCanceled.id(), PRICE_HP);
 
         LectureHpReconciliationRun run = useCase.runScheduled();
 
@@ -200,13 +197,11 @@ class LectureHpReconciliationTest {
         Item canceledButHeld = item(OrderItemStatus.CANCELED, old);
         Item paidWithoutSettlement = item(OrderItemStatus.PAID_OUT, old);
         Item wrongAmount = item(OrderItemStatus.CONFIRMED, old);
-        billing.putHoldState(held(canceledButHeld.id()));
-        billing.putHoldState(paid(paidWithoutSettlement.id()));
-        billing.putHoldState(state(wrongAmount.id(),
-                hold(BillingHoldStatus.HELD, PRICE_HP + 500, PRICE_HP + 500, 0, 0), List.of()));
+        seedHold(canceledButHeld.id(), PRICE_HP);
+        seedRelease(paidWithoutSettlement.id());
+        seedHold(wrongAmount.id(), PRICE_HP + 500);
         long walletOnlyId = 987_654L;
-        billing.addHoldPage(new HoldStatePageDto(List.of(held(walletOnlyId)), Instant.parse("2026-11-03T00:00:00Z"),
-                41L, false));
+        seedHold(walletOnlyId, PRICE_HP);
 
         LectureHpReconciliationRun run = useCase.runScheduled();
 
@@ -217,6 +212,7 @@ class LectureHpReconciliationTest {
                 .containsExactlyInAnyOrder(
                         tuple(canceledButHeld.id(), LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH),
                         tuple(paidWithoutSettlement.id(), LectureHpReconciliationRule.SETTLEMENT_MISSING),
+                        tuple(paidWithoutSettlement.id(), LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH),
                         tuple(wrongAmount.id(), LectureHpReconciliationRule.HOLD_MISMATCH),
                         tuple(wrongAmount.id(), LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH),
                         tuple(walletOnlyId, LectureHpReconciliationRule.WALLET_ONLY_HOLD));
@@ -231,8 +227,8 @@ class LectureHpReconciliationTest {
         assertThat(walletOnly.getOrderId()).isNull();
         assertThat(walletOnly.getItemStatus()).isNull();
         assertThat(run.getCheckedCount()).isEqualTo(4);
-        assertThat(run.getMismatchCount()).isEqualTo(5);
-        assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(2);
+        assertThat(run.getMismatchCount()).isEqualTo(6);
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(3);
         assertThat(metrics.mismatches(LectureHpReconciliationRule.SETTLEMENT_MISSING)).isEqualTo(1);
         assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_MISMATCH)).isEqualTo(1);
         assertThat(metrics.mismatches(LectureHpReconciliationRule.WALLET_ONLY_HOLD)).isEqualTo(1);
@@ -241,7 +237,7 @@ class LectureHpReconciliationTest {
     @Test
     void 어긋난_건은_대사_불일치_표식을_붙여_ERROR_로그로_남긴다(CapturedOutput output) {
         Item canceledButHeld = item(OrderItemStatus.CANCELED, old);
-        billing.putHoldState(held(canceledButHeld.id()));
+        seedHold(canceledButHeld.id(), PRICE_HP);
 
         useCase.runScheduled();
 
@@ -281,11 +277,14 @@ class LectureHpReconciliationTest {
     void 지갑_목록_조회가_실패하면_미완료로_끝나고_커서를_옮기지_않는다() {
         item(OrderItemStatus.CANCELED, old);
         double incompleteBefore = metrics.runs(LectureHpReconciliationStatus.INCOMPLETE);
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.RETRYABLE, 0, BillingApiClient.CIRCUIT_OPEN);
-        });
+        billing.disconnect();
 
-        LectureHpReconciliationRun run = useCase.runScheduled();
+        LectureHpReconciliationRun run;
+        try {
+            run = useCase.runScheduled();
+        } finally {
+            billing.reconnect();
+        }
 
         assertThat(run.getStatus()).isEqualTo(LectureHpReconciliationStatus.INCOMPLETE);
         assertThat(run.getFailureReason()).contains("지갑 보류 목록", "RETRYABLE");
@@ -296,22 +295,24 @@ class LectureHpReconciliationTest {
     }
 
     @Test
-    void 참조_대상별_조회가_거절되면_미완료로_끝나고_결과를_모르는_건을_어긋남으로_세지_않는다() {
+    void 참조_대상별_조회가_실패하면_미완료로_끝나고_결과를_모르는_건을_어긋남으로_세지_않는다() {
         Item canceledButHeld = item(OrderItemStatus.CANCELED, old);
-        billing.putHoldState(held(canceledButHeld.id()));
+        seedHold(canceledButHeld.id(), PRICE_HP);
         // 첫 실행은 끝까지 비교해 지표를 남긴다
         useCase.runScheduled();
         assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(1);
         LectureHpReconciliationCursor cursor = cursorRepository.findAll().getFirst();
-        billing.respond(command -> new BillingCallResult.Succeeded<>(
-                new HoldStatePageDto(List.of(), Instant.parse("2026-11-03T00:00:00Z"), 77L, false)));
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.UNMAPPED, "거절", 500,
-                "INTERNAL_ERROR"));
+        billing.duringCall(HoldQueryCommand.class::isInstance, billing::disconnect);
 
-        LectureHpReconciliationRun run = useCase.runScheduled();
+        LectureHpReconciliationRun run;
+        try {
+            run = useCase.runScheduled();
+        } finally {
+            billing.reconnect();
+        }
 
         assertThat(run.getStatus()).isEqualTo(LectureHpReconciliationStatus.INCOMPLETE);
-        assertThat(run.getFailureReason()).contains("지갑 보류 조회 거절", "INTERNAL_ERROR");
+        assertThat(run.getFailureReason()).contains("지갑 보류 조회 결과를 받지 못함", "RETRYABLE");
         assertThat(run.getCheckedCount()).isZero();
         assertThat(run.getMismatchCount()).isZero();
         assertThat(mismatchRepository.findByRunIdOrderByIdAsc(run.getId())).isEmpty();
@@ -324,61 +325,67 @@ class LectureHpReconciliationTest {
 
     @Test
     void 회로가_열려_있으면_지갑을_부르지_않고_미완료로_끝난다() {
-        BillingApiClient openCircuit = new FakeBillingApiClient() {
-            @Override
-            public boolean isCircuitOpen() {
-                return true;
-            }
-        };
-        LectureHpReconciliationUseCase withOpenCircuit = new LectureHpReconciliationUseCase(support, metrics,
-                openCircuit, new LectureHpReconciliationProperties(null, null, null), clock);
+        billing.openCircuit();
 
-        LectureHpReconciliationRun run = withOpenCircuit.runScheduled();
+        LectureHpReconciliationRun run = useCase.runScheduled();
 
         assertThat(run.getStatus()).isEqualTo(LectureHpReconciliationStatus.INCOMPLETE);
         assertThat(run.getFailureReason()).isEqualTo("지갑 회로가 열려 있음");
-        assertThat(((FakeBillingApiClient) openCircuit).calls()).isEmpty();
+        assertThat(billing.calls()).isEmpty();
     }
 
     @Test
     void 지갑_목록은_hasMore가_false일_때까지_이어_읽고_다음_실행은_저장한_커서부터_읽는다() {
-        Instant first = Instant.parse("2026-11-02T10:00:00Z");
-        Instant last = Instant.parse("2026-11-02T11:00:00Z");
-        billing.addHoldPage(new HoldStatePageDto(List.of(), first, 5L, true));
-        billing.addHoldPage(new HoldStatePageDto(List.of(), last, 9L, false));
+        seedHold(987_651L, PRICE_HP);
+        seedHold(987_652L, PRICE_HP);
+        seedHold(987_653L, PRICE_HP);
+        HoldStatePageDto first = page(Instant.EPOCH, 0L, 2);
+        HoldStatePageDto last = page(first.nextUpdatedAfter(), first.nextAfterId(), 2);
+        assertThat(first.hasMore()).isTrue();
+        assertThat(last.hasMore()).isFalse();
+        billing.clearCalls();
+        LectureHpReconciliationUseCase smallPages = new LectureHpReconciliationUseCase(support, metrics,
+                billing.client(), new LectureHpReconciliationProperties(null, null, 2), clock);
 
-        useCase.runScheduled();
+        smallPages.runScheduled();
 
-        assertThat(listQueries()).extracting(FakeBillingApiClient.HoldListQuery::updatedAfter,
-                        FakeBillingApiClient.HoldListQuery::afterId, FakeBillingApiClient.HoldListQuery::size)
-                .containsExactly(tuple(Instant.EPOCH, 0L, 500), tuple(first, 5L, 500));
+        assertThat(listQueries()).extracting(RealBillingTestFixture.HoldListQuery::updatedAfter,
+                        RealBillingTestFixture.HoldListQuery::afterId, RealBillingTestFixture.HoldListQuery::size)
+                .containsExactly(tuple(Instant.EPOCH, 0L, 2),
+                        tuple(first.nextUpdatedAfter(), first.nextAfterId(), 2));
         LectureHpReconciliationCursor cursor = cursorRepository.findById(BillingReferenceType.LECTURE_ORDER_ITEM)
                 .orElseThrow();
-        assertThat(cursor.getUpdatedAfter()).isEqualTo(LocalDateTime.ofInstant(last, LectureConfig.ZONE));
-        assertThat(cursor.getAfterId()).isEqualTo(9L);
+        assertThat(cursor.getUpdatedAfter()).isEqualTo(LocalDateTime.ofInstant(last.nextUpdatedAfter(), LectureConfig.ZONE));
+        assertThat(cursor.getAfterId()).isEqualTo(last.nextAfterId());
 
-        billing.reset();
-        useCase.runScheduled();
+        billing.clearCalls();
+        smallPages.runScheduled();
 
-        assertThat(listQueries()).extracting(FakeBillingApiClient.HoldListQuery::updatedAfter,
-                        FakeBillingApiClient.HoldListQuery::afterId)
-                .containsExactly(tuple(last, 9L));
+        assertThat(listQueries()).extracting(RealBillingTestFixture.HoldListQuery::updatedAfter,
+                        RealBillingTestFixture.HoldListQuery::afterId)
+                .containsExactly(tuple(last.nextUpdatedAfter(), last.nextAfterId()));
     }
 
     @Test
     void 비교_범위_밖의_항목은_지갑에서_바뀐_보류로만_다시_본다() {
         Item stale = item(OrderItemStatus.CANCELED, LocalDateTime.now(clock).minusDays(8));
-        billing.putHoldState(held(stale.id()));
+        seedHold(stale.id(), PRICE_HP);
+        // 이전 실행이 이미 읽은 실제 지갑 커서부터 시작한다.
+        HoldStatePageDto previous = page(Instant.EPOCH, 0L, 500);
+        cursorRepository.save(new LectureHpReconciliationCursor(BillingReferenceType.LECTURE_ORDER_ITEM,
+                LocalDateTime.ofInstant(previous.nextUpdatedAfter(), LectureConfig.ZONE), previous.nextAfterId()));
+        billing.clearCalls();
 
         LectureHpReconciliationRun outOfRange = useCase.runScheduled();
 
         assertThat(outOfRange.getCheckedCount()).isZero();
         assertThat(queriedIds()).isEmpty();
 
-        billing.reset();
-        billing.putHoldState(held(stale.id()));
-        billing.addHoldPage(new HoldStatePageDto(List.of(held(stale.id())), Instant.parse("2026-11-03T00:00:00Z"),
-                12L, false));
+        // 실제 부분 반환으로 보류의 변경 시각이 옮겨지면 강의 비교 범위 밖이어도 다시 읽는다.
+        assertThat(billing.client().release(ReleaseCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, stale.id(), "CHANGED-" + stale.id(), 1L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         LectureHpReconciliationRun walletChanged = useCase.runScheduled();
 
         assertThat(walletChanged.getCheckedCount()).isEqualTo(1);
@@ -392,10 +399,10 @@ class LectureHpReconciliationTest {
         List<Long> ids = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
             Item purchased = item(OrderItemStatus.PURCHASED, old);
-            billing.putHoldState(held(purchased.id()));
+            seedHold(purchased.id(), PRICE_HP);
             ids.add(purchased.id());
         }
-        LectureHpReconciliationUseCase smallPages = new LectureHpReconciliationUseCase(support, metrics, billing,
+        LectureHpReconciliationUseCase smallPages = new LectureHpReconciliationUseCase(support, metrics, billing.client(),
                 new LectureHpReconciliationProperties(null, null, 2), clock);
 
         LectureHpReconciliationRun run = smallPages.runScheduled();
@@ -403,22 +410,17 @@ class LectureHpReconciliationTest {
         assertThat(run.getCheckedCount()).isEqualTo(3);
         assertThat(holdQueries()).extracting(HoldQueryCommand::referenceIds)
                 .containsExactly(ids.subList(0, 2), ids.subList(2, 3));
-        assertThat(listQueries()).extracting(FakeBillingApiClient.HoldListQuery::size).containsExactly(2);
+        assertThat(listQueries()).extracting(RealBillingTestFixture.HoldListQuery::size).containsExactly(2, 2);
         assertThat(billing.calls()).allSatisfy(call -> assertThat(call.transactionActive()).isFalse());
     }
 
     @Test
     void 비교하는_사이에_바뀐_항목은_이번에_남기지_않고_다음_실행에서_잡는다() {
         Item canceledButHeld = item(OrderItemStatus.CANCELED, old);
-        billing.putHoldState(held(canceledButHeld.id()));
-        AtomicBoolean changed = new AtomicBoolean();
-        billing.setDuringCall(() -> {
-            if (billing.calls().getLast().command() instanceof HoldQueryCommand && changed.compareAndSet(false, true)) {
-                // 강의 쪽을 읽은 뒤 지갑 응답 전에 항목이 바뀌었다 (다른 트랜잭션)
+        seedHold(canceledButHeld.id(), PRICE_HP);
+        billing.duringCall(HoldQueryCommand.class::isInstance, () ->
                 jdbcTemplate.update("update lectures.order_item set version = version + 1 where id = ?",
-                        canceledButHeld.id());
-            }
-        });
+                        canceledButHeld.id()));
 
         LectureHpReconciliationRun meanwhile = useCase.runScheduled();
 
@@ -438,7 +440,7 @@ class LectureHpReconciliationTest {
         AtomicReference<LectureHpReconciliationRun> skipped = new AtomicReference<>();
         AtomicReference<Throwable> manual = new AtomicReference<>();
         AtomicBoolean once = new AtomicBoolean();
-        billing.setDuringCall(() -> {
+        billing.duringNextCall(() -> {
             if (once.compareAndSet(false, true)) {
                 skipped.set(useCase.runScheduled());
                 manual.set(catchThrowable(() -> useCase.runManual(ADMIN_ID)));
@@ -471,7 +473,7 @@ class LectureHpReconciliationTest {
     @Test
     void 끝까지_비교한_실행은_끝난_시각을_지표로_낸다() {
         Item purchased = item(OrderItemStatus.PURCHASED, old);
-        billing.putHoldState(held(purchased.id()));
+        seedHold(purchased.id(), PRICE_HP);
 
         LectureHpReconciliationRun run = useCase.runScheduled();
 
@@ -627,41 +629,39 @@ class LectureHpReconciliationTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // 지갑 기록 (손으로 적는다)
+    // 별도 billing 앱에서 실제 HP 기록을 만든다.
 
-    private static HoldStateDto held(Long itemId) {
-        return state(itemId, hold(BillingHoldStatus.HELD, PRICE_HP, PRICE_HP, 0, 0), List.of());
+    private void seedHold(Long itemId, long amountHp) {
+        assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                itemId, amountHp))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
     }
 
-    private static HoldStateDto released(Long itemId) {
-        return state(itemId, hold(BillingHoldStatus.RELEASED, PRICE_HP, 0, PRICE_HP, 0), List.of());
+    private void seedRelease(Long itemId) {
+        seedHold(itemId, PRICE_HP);
+        assertThat(billing.client().release(ReleaseCommand.full(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, itemId, "PREEXISTING-RETURN-" + itemId)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
     }
 
-    private static HoldStateDto paid(Long itemId, HoldStateDto.Settlement... settlements) {
-        return state(itemId, hold(BillingHoldStatus.PAID, PRICE_HP, 0, 0, PRICE_HP), List.of(settlements));
+    private void seedPayout(Long itemId) {
+        seedHold(itemId, PRICE_HP);
+        assertThat(billing.client().payout(PayoutCommand.full(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                itemId, "PREEXISTING-PAYOUT-" + itemId, SELLER_ID, SettlementSourceType.LECTURE_ORDER_ITEM, itemId)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
     }
 
-    private static HoldStateDto state(Long itemId, HoldStateDto.Hold hold, List<HoldStateDto.Settlement> settlements) {
-        return new HoldStateDto(BillingReferenceType.LECTURE_ORDER_ITEM, itemId, hold, null, settlements);
-    }
-
-    private static HoldStateDto.Hold hold(BillingHoldStatus status, long original, long remaining, long released,
-                                          long paid) {
-        return new HoldStateDto.Hold(status, BUYER_ID, amount(original), amount(remaining), amount(released),
-                amount(paid), amount(0));
-    }
-
-    private static HoldStateDto.Amount amount(long totalHp) {
-        return new HoldStateDto.Amount(totalHp, 0, totalHp);
-    }
-
-    private static HoldStateDto.Settlement settlement(Long itemId, Long receiverUserId, long amountHp) {
-        return new HoldStateDto.Settlement(SettlementSourceType.LECTURE_ORDER_ITEM, itemId, PayoutType.NORMAL,
-                receiverUserId, amountHp, amountHp, BillingSettlementStatus.COMPLETED);
+    private HoldStatePageDto page(Instant after, long afterId, int size) {
+        BillingCallResult<HoldStatePageDto> result = billing.client().listHolds(
+                BillingReferenceType.LECTURE_ORDER_ITEM, after, afterId, size);
+        assertThat(result).isInstanceOf(BillingCallResult.Succeeded.class);
+        return ((BillingCallResult.Succeeded<HoldStatePageDto>) result).value();
     }
 
     private List<HoldQueryCommand> holdQueries() {
-        return billing.calls().stream().map(FakeBillingApiClient.Call::command)
+        return billing.calls().stream().map(RealBillingTestFixture.Call::command)
                 .filter(HoldQueryCommand.class::isInstance).map(HoldQueryCommand.class::cast).toList();
     }
 
@@ -669,9 +669,9 @@ class LectureHpReconciliationTest {
         return holdQueries().stream().flatMap(query -> query.referenceIds().stream()).toList();
     }
 
-    private List<FakeBillingApiClient.HoldListQuery> listQueries() {
-        return billing.calls().stream().map(FakeBillingApiClient.Call::command)
-                .filter(FakeBillingApiClient.HoldListQuery.class::isInstance)
-                .map(FakeBillingApiClient.HoldListQuery.class::cast).toList();
+    private List<RealBillingTestFixture.HoldListQuery> listQueries() {
+        return billing.calls().stream().map(RealBillingTestFixture.Call::command)
+                .filter(RealBillingTestFixture.HoldListQuery.class::isInstance)
+                .map(RealBillingTestFixture.HoldListQuery.class::cast).toList();
     }
 }
