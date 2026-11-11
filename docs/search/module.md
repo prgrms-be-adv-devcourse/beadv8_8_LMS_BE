@@ -2,7 +2,7 @@
 
 auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다.
 
-- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인).
+- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장).
 - 이 문서와 코드가 다르면 코드가 맞다. 확인한 뒤 이 문서를 고친다.
 
 ## 1. 지금 범위
@@ -28,31 +28,74 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 ## 3. 구조
 
+코드는 대상과 상관없는 **공통 코드**(`search.common`)와 **대상별 구현**(`search.influencer`, 나중에 `search.lecture`·`search.recruit`)으로 나뉜다(#868). 공통 코드는 "검색 index 하나를 관리하는 일"(처음 적재·재색인·alias 교체·tombstone 정리·조건부 쓰기의 오류 처리·적재 중 건너뛰기·지표·job 잠금·0건 검색어)을 하고, 대상은 원본 읽기·문서 모양·mapping·점수만 구현한다(강의 검색 결정 L15). 계층은 다른 모듈과 같은 `in`(들어오는 어댑터)·`app`(처리)·`out`(ES·DB·다른 앱)이다.
+
+- **방향**: 대상 → 공통만 참조한다. 공통 코드는 어느 대상이 쓰는지 모른다(`search.common`에 `search.influencer` import 0건).
+- **모듈 전체가 함께 쓰는 것**은 `search` 바로 아래에 둔다(아래 첫 표).
+- **대상을 공통 코드에 붙이는 두 방식**(#868 R1·R7)
+  - 설정만 채우면 **얇은 하위 클래스**: `InfluencerIndexSetup extends IndexSetup`, `InfluencerTombstoneCleanup extends TombstoneCleanup`. 생성자만 두고 메서드를 덮어쓰지 않는다(동작은 공통 클래스에서 바꾼다). 쓰는 곳이 타입으로 대상을 가리켜 다른 대상의 index를 잘못 넘기지 못한다.
+  - 대상별 동작을 끼우면 **부품 조합**: 공통 `Reindexer`에 채우기(`IndexLoader`)·따라잡기(`IndexCatchUp`) 구현을 넘긴다(`InfluencerReindexer`).
+
+### 모듈 전체 (`search`)
+
 | 계층 | 클래스 | 하는 일 |
 | --- | --- | --- |
 | config | `SearchElasticsearchConfig` | 검색 전용 `ElasticsearchClient`(빈 이름 `searchElasticsearchClient`, 기본 후보 아님). 챗봇은 Boot 자동 설정 client(`ES_API_KEY`)를 쓰고 검색은 같은 cluster에 `ES_SEARCH_API_KEY`로 따로 붙는다 |
+| config | `SearchConfig` | 처음 적재·재색인 실행기(`searchReindexExecutor`, 가상 스레드, 7장) |
+| app | `exception/SearchErrorCode`·`SearchException` | 검색 오류 코드 |
+| in | `ApiV1SearchController`·`ApiV1SearchSpec` | 검색 API(대상별 경로, 8장) |
+
+### 공통 코드 (`search.common`)
+
+| 계층 | 클래스 | 하는 일 |
+| --- | --- | --- |
+| app | `Reindexer` | 처음 적재·무중단 재색인 흐름(7장). 대상은 `IndexLoader`(새 index 채우기)·`IndexCatchUp`(교체 뒤 따라잡기)만 구현한다. 재색인 지표(`target` 태그)와 ERROR 표식을 남긴다 |
+| app | `TombstoneCleanup` | 7일 지난 숨김 문서 정리(대상마다 얇은 하위 클래스) |
+| app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
+| app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
+| app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 검색자 키는 회원 ID(`Long`) 또는 비회원 client IP 해시(`String`, L19) |
+| out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
+| out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체 |
+| out | `SynonymsSetup` | 동의어 묶음 하나를 공통 `synonyms.txt`와 맞춘다(모든 대상이 함께 씀) |
+| out | `DocumentWrites` | 문서 쓰기의 대상 무관 부분: alias 없음 404 → 건너뜀, 그 문서 값 때문의 거절 판별(`DocumentRejectedException`), bulk 결과(`WriteOutcome`), 보이는 문서 세기, 숨김 문서 지우기 |
+| out | `ConsistencyCheckStore` | 문서 수 정합성 점검 결과(`search.consistency_check`, 대상별 한 행). JDBC |
+
+### 인플루언서 (`search.influencer`)
+
+| 계층 | 클래스 | 하는 일 |
+| --- | --- | --- |
 | in | `SearchMemberEventListener` | 회원 이벤트 소비(`member.events.v1`, 그룹 `auxiliary-app.search-member`) |
 | in | `SearchBatch` | 통계 동기화(끝난 뒤 10분), 증분 보정(끝난 뒤 10분), 처음 적재·재색인 확인(끝난 뒤 10분), tombstone 정리(매일 04:30), 0건 검색어 로그(10분) |
 | in | `SearchIndexStartup` | 기동 뒤 다른 스레드에서 처음 적재·재색인 확인(동의어 포함) |
-| in | `ApiV1SearchController`·`ApiV1SearchSpec` | 검색 API |
 | app | `InfluencerMemberIndexer` | 회원 정보 → 넣기 또는 숨기기 |
 | app | `InfluencerStatsSync` | 통계·분야 이름 동기화와 문서 수 정합성 점검(한 pod만, `JobLock` 771_002) |
-| app | `MemberChangeReconciler` | 회원 변경분 증분 보정(한 pod만, `JobLock` 772_001). 결과 종류는 `ReconcileKind` |
-| app | `InfluencerReindexer` | 처음 적재·무중단 재색인(한 pod만, `JobLock` 773_001, 7장) |
-| app | `SearchSyncMetrics` | 보정·정합성·재색인 지표 |
-| app | `TombstoneCleanup` | tombstone 정리(한 pod만, `JobLock` 771_001) |
+| app | `MemberChangeReconciler` | 회원 변경분 증분 보정(한 pod만, `JobLock` 772_001). 결과 종류는 `ReconcileKind`. 재색인의 따라잡기 부품(`IndexCatchUp`)이기도 하다 |
+| app | `InfluencerReindexer`, `InfluencerIndexLoader` | 공통 `Reindexer`에 인플루언서 부품을 끼운다(락 `JobLock` 773_001). 채우기는 회원 목록 + 통계, 따라잡기는 증분 보정 |
+| app | `InfluencerTombstoneCleanup` | 인플루언서 index의 tombstone 정리(한 pod만, `JobLock` 771_001) |
+| app | `SearchSyncMetrics` | 보정·정합성 지표 |
 | app | `InfluencerSearchFacade` | 검색 조건 검사, 지표, 0건 검색어 |
 | app | `ContentCategoryNames`, `RatingBaseline` | 분야 코드 → 이름, 평점 전체 평균 C. 둘 다 pod마다 10분 캐시 |
-| out | `InfluencerIndexDefinition`, `InfluencerIndexSetup` | index 정의(레포 파일)와 준비. 준비는 동의어 묶음 맞추기, alias 확인(없으면 `IndexNotReadyException`), 상태(`IndexState`) 보기, 새 index 만들기·지우기, alias 원자 교체 |
-| out | `InfluencerDocumentStore` | 문서 쓰기(회원·통계·분야 이름·정리). 처음 적재용으로 이름을 정한 새 index에 bulk 넣기·통계·세기 |
+| out | `InfluencerIndexDefinition`, `InfluencerIndexSetup` | 대상 이름(`influencers`)·alias·지표 대상 값(`influencer`)과, 그 정의를 채운 `IndexSetup` |
+| out | `InfluencerDocumentStore` | 회원·통계·분야 이름 쓰기(painless), 처음 적재용 bulk, 증분 보정용 문서 읽기. 나머지는 `DocumentWrites`에 맡긴다 |
 | out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource`, `MemberApiChangeSource`, `MemberApiListSource` | 회원 내부 API(통계·분야 목록·변경분 #769, 회원 목록 #773) |
-| out | `SyncCursorStore`, `ConsistencyCheckStore` | 증분 보정 커서(`search.sync_cursor`)와 문서 수 정합성 점검 결과(`search.consistency_check`). JDBC |
+| out | `SyncCursorStore` | 증분 보정 커서(`search.sync_cursor`). JDBC |
+
+### 새 대상(강의·모집)을 붙이는 법
+
+1. `search/<대상>/index.json`을 만든다. 사용자 사전·동의어 묶음 자리표시자(`"__USER_DICTIONARY__"`, `__SYNONYMS_SET__`)를 넣고, 숨김 표시 필드 `hidden`(boolean)·`hiddenAt`(date)을 둔다(공통 세기·정리가 쓴다). 사용자 사전·동의어 파일은 `search/common/`의 것을 함께 쓴다. 새 용어를 더하면 모든 대상이 재색인한다.
+2. `search.<대상>.out`에 `<대상>IndexDefinition`(대상 이름·alias·지표 대상 값)과 `<대상>IndexSetup extends IndexSetup`(생성자만)을 둔다.
+3. 문서 저장소는 `DocumentWrites`를 써서 오류 처리·bulk 결과를 맞춘다. 원본 version 조건부 쓰기 script와 문서 모양은 대상이 정한다.
+4. `IndexLoader`(원본 전체로 새 index 채우기: 보이는 문서 + 숨김 문서, 거절 문서는 건너뛰고 셈)와 `IndexCatchUp`(교체 뒤 따라잡기)을 구현하고, `<대상>Reindexer`에서 공통 `Reindexer`에 넘긴다. 락은 `SearchJob`에 새 키(그 작업을 더한 이슈 번호 × 1000 + 순번)를 더한다.
+5. `<대상>TombstoneCleanup extends TombstoneCleanup`(생성자만, 새 락 키)을 두고 배치에 붙인다.
+6. 검색 Facade는 `SearchMetrics.forTarget(대상)`을 받고, 0건 검색어는 `ZeroResultKeywords.record(검색어, 검색자 키)`로 센다.
+7. 공통 흐름은 `ReindexerTest`가 이미 시험용 대상으로 확인한다. 대상 테스트는 채우기·따라잡기 부품과 golden query를 본다.
 
 ## 4. index
 
 - 이름 `search-influencers-<설정 해시 12자>`, 검색·쓰기는 alias `search-influencers`로만 한다(쓰기는 `require_alias`라 alias가 없으면 실패하고, ES가 같은 이름의 index를 멋대로 만들지 않는다).
-- 원본은 레포 파일 `boundedContext/search/src/main/resources/search/influencers/`의 `index.json`(설정·mapping), `user-dictionary.txt`(사용자 사전), `synonyms.txt`(동의어)다.
+- 원본은 레포 파일 `boundedContext/search/src/main/resources/search/`의 `influencers/index.json`(설정·mapping)과, 모든 대상이 함께 쓰는 `common/user-dictionary.txt`(사용자 사전)·`common/synonyms.txt`(동의어)다(#868, L17).
+- 동의어 묶음 이름은 아직 `search-influencers-synonyms`다. 이름이 index 본문에 들어가 바꾸면 설정 해시가 바뀌므로, 공통 이름으로 바꾸는 일은 사용자 사전에 강의 용어를 더해 어차피 재색인하는 강의 검색 PR에서 함께 한다(#868 R4). 지금 운영 index는 `search-influencers-d656dfa35eee`이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
 - 설정 해시는 mapping·분석기·사용자 사전으로만 만든다. **동의어는 넣지 않는다**(검색할 때만 쓰여 재색인이 필요 없다).
 - 기동하면(다른 스레드): 동의어 묶음(`search-influencers-synonyms`)이 파일과 다르면 묶음 전체를 PUT → alias가 없거나 다른 해시의 index를 가리키면 처음 적재·재색인을 한다(7장). 10분마다 다시 확인한다.
 - **alias는 처음 적재가 index를 다 채우고 확인한 뒤에만 붙인다.** 이벤트 소비·보정이 alias가 없다고 빈 index에 alias를 붙이지 않는다(붙이면 "alias 있음, 해시 같음"으로 보여 처음 적재가 돌지 않는다).
@@ -144,6 +187,8 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 이미 있는 인플루언서를 index에 처음 채우고, 사용자 사전·mapping이 바뀌면 검색을 멈추지 않고 새 index로 옮긴다. 사람이 손대지 않아도 된다.
 
+흐름은 공통 `Reindexer`가 하고(#868), 인플루언서는 채우기(`InfluencerIndexLoader`: 아래 3)와 따라잡기(`MemberChangeReconciler.runFrom`: 아래 6)만 넘긴다. 끝 로그는 `target`·`visible`(넣은 보이는 문서 수)을 남기고, 통계를 쓰지 못한 회원 수(`statsFailed`)는 채우기 부품이 따로 INFO 한 줄로 남긴다.
+
 ### 언제 하나
 
 - 기동 뒤 다른 스레드에서 한 번(`SearchIndexStartup`, 기동을 막지 않는다), 그 뒤 10분마다 확인한다(`SearchBatch`, `hapbang.search.reindex-check-interval`). 둘 다 재색인 실행기(`SearchConfig.searchReindexExecutor`, 가상 스레드)로 넘긴다. 적재가 몇 분 걸려도 앱 공용 스케줄러 스레드 2개를 붙잡지 않고, Boot builder로 만들어 10분 확인의 `traceId`가 재색인 로그에 이어진다(`docs/dev/logging.md` 스레드 경계, PR #845 리뷰). 한 pod만(`JobLock` 773_001). 배포 중 두 pod가 겹쳐도 한 번만 돌고, 락을 놓친 pod는 건너뛴다.
@@ -213,9 +258,9 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reconcile.members{kind}` | 증분 보정이 반영한 회원 수(6장 표). inserted·hidden·overwritten이 놓친 이벤트이고, 모든 kind의 합이 읽은 회원 수다 |
 | `hapbang.search.reconcile.duration{outcome}` | 보정 1회 소요 시간. outcome = success·failure. 길어지면 규모를 다시 판단한다 |
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
-| `hapbang.search.reindex.duration{reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
-| `hapbang.search.reindex.documents{reason}` | 처음 적재·재색인으로 새 index에 넣은 정상 인플루언서 수 |
-| `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(10분 확인마다). 0이 아니면 `synonyms.txt`를 고친다 |
+| `hapbang.search.reindex.duration{target, reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). `target` 태그는 #868에서 더했다. reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
+| `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수) |
+| `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(10분 확인마다). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
 | `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
 
@@ -243,11 +288,14 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
 | `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
-| `InfluencerReindexerTest` | 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
+| `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 1분 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림(#868) |
+| `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
 | `SearchReindexWiringTest` | 기동·10분 확인이 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링·기동 재색인을 켠 컨텍스트, 재색인은 가짜) |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀 |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
+| `IndexDefinitionTest`, `InfluencerIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868) |
+| `DocumentWritesRejectionTest`, `ZeroResultKeywordsTest` | 그 문서 값 때문의 거절만 건너뜀, 0건 검색어(서로 다른 검색자 2명, 연락처 모양 제외, 비회원 IP 해시 키) |
 | `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
 | `SearchModuleIntegrationTest` | 모듈만으로 컨텍스트, search schema, 검색 전용 client(nori), 재색인 실행기가 가상 스레드에서 trace를 이어받음 |
 | `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이(DB, 25분 지나면 비움), kind별 건수 |
