@@ -3,6 +3,7 @@ package com.hapbang.member.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,6 +38,8 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.InfluencerChannelApprovedEvent;
+import com.hapbang.shared.member.event.InfluencerChannelRejectedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /** 관리자 채널 심사: 실제 DB로 권한·역할 변경·이벤트·목록 쿼리·비관적 락을 확인한다 */
@@ -67,6 +70,7 @@ class MemberChannelReviewIntegrationTest {
     void approve() {
         User user = userRepository.save(MemberFixture.user());
         InfluencerChannel channel = pendingChannel(user, NOW);
+        Instant before = Instant.now();
 
         ChannelVerificationResult result = memberChannelReviewFacade.approve(ADMIN_ID, channel.getId());
 
@@ -79,10 +83,19 @@ class MemberChannelReviewIntegrationTest {
         assertThat(events.stream(UserModifiedEvent.class))
                 .singleElement()
                 .satisfies(event -> assertThat(event.user().id()).isEqualTo(user.getId()));
+        // 관리자 승인은 자동 승인이 아니고, 승인 요청 때 정한 회차를 담는다 (#874)
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.userId()).isEqualTo(user.getId());
+                    assertThat(event.channelId()).isEqualTo(channel.getId());
+                    assertThat(event.reviewSequence()).isEqualTo(1);
+                    assertThat(event.autoApproved()).isFalse();
+                    assertThat(event.approvedAt()).isBetween(before, Instant.now());
+                });
     }
 
     @Test
-    @DisplayName("이미 인플루언서인 회원의 채널은 채널만 승인되고 역할·이벤트는 그대로다")
+    @DisplayName("이미 인플루언서인 회원의 채널은 역할·변경 이벤트는 그대로지만 채널 승인 이벤트는 나간다 (ND-042)")
     void approve_alreadyInfluencer() {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
         InfluencerChannel channel = pendingChannel(influencer, NOW);
@@ -93,13 +106,16 @@ class MemberChannelReviewIntegrationTest {
         assertThat(influencerChannelRepository.findById(channel.getId()).orElseThrow().isApproved()).isTrue();
         assertThat(userRepository.findById(influencer.getId()).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).singleElement()
+                .satisfies(event -> assertThat(event.userId()).isEqualTo(influencer.getId()));
     }
 
     @Test
-    @DisplayName("반려하면 사유가 저장되고 역할·이벤트는 그대로다")
+    @DisplayName("반려하면 사유가 저장되고 역할·변경 이벤트는 그대로이며, 채널 반려 이벤트가 나간다")
     void reject() {
         User user = userRepository.save(MemberFixture.user());
         InfluencerChannel channel = pendingChannel(user, NOW);
+        Instant before = Instant.now();
 
         memberChannelReviewFacade.reject(ADMIN_ID, channel.getId(), "방송 시간 부족");
 
@@ -109,6 +125,15 @@ class MemberChannelReviewIntegrationTest {
         assertThat(saved.getVerifiedBy()).isEqualTo(ADMIN_ID);
         assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.USER);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelRejectedEvent.class)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.userId()).isEqualTo(user.getId());
+                    assertThat(event.channelId()).isEqualTo(channel.getId());
+                    assertThat(event.reviewSequence()).isEqualTo(1);
+                    assertThat(event.rejectionReason()).isEqualTo("방송 시간 부족");
+                    assertThat(event.rejectedAt()).isBetween(before, Instant.now());
+                });
     }
 
     @Test
@@ -125,6 +150,8 @@ class MemberChannelReviewIntegrationTest {
                 .extracting("errorCode").isEqualTo(MemberErrorCode.CHANNEL_OWNER_INACTIVE);
         assertThat(influencerChannelRepository.findById(channel.getId()).orElseThrow().getVerificationStatus())
                 .isEqualTo(ChannelVerificationStatus.PENDING);
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelRejectedEvent.class)).isEmpty();
     }
 
     @Test
