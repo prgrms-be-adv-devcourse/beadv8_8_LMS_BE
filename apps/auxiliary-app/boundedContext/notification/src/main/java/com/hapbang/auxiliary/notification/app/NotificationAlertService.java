@@ -10,13 +10,14 @@ import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.domain.NotificationUser;
 import com.hapbang.auxiliary.notification.out.NotificationUserRepository;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 출연·지갑 이벤트로 만든 알림 초안을 저장한다(N5, ND-069).
+ * 출연·지갑·강의 이벤트로 만든 알림 초안을 저장한다(N5 ND-069, N6 ND-082).
  * <ul>
  *     <li>업무 시각이 알림 시작 시각보다 이르면 저장하지 않는다(ND-076). 실패가 아니라 커밋한다.</li>
  *     <li>받는 사람 복제본이 없으면 저장 서비스가 실패시킨다(ND-035, 재시도 뒤 DLT). 받는 사람 정책(탈퇴·정지·관리자)도 저장 서비스가
@@ -55,6 +56,22 @@ public class NotificationAlertService {
         }
         String guest = nicknameOf(event.application().guestId());
         save(AlertDrafts.applicationSubmitted(event, guest));
+    }
+
+    /**
+     * 출연 취소 요청 도착(N6): 호스트에게 게스트 닉네임으로 만든다(ND-085). 시작 시각·받는 사람을 먼저 본 뒤에 닉네임을 읽는다(시작
+     * 시각 전이거나 받을 수 없는 회원이면 언급 회원 복제본이 없어도 DLT로 보내지 않는다)
+     *
+     * @param checked 호출하는 쪽이 닉네임 없이 바꿔 필수 값을 확인한 초안({@code AppearanceCancelRequestAlerts.requested(event,
+     *                null)}). 받는 사람·발생 시각을 여기서 읽는다
+     */
+    public void cancelRequested(AppearanceCancelRequestedEvent event, NotificationDraft checked) {
+        if (beforeStart(checked.kind(), checked.occurredAt())
+                || cannotReceive(checked.kind(), checked.receiverUserId())) {
+            return;
+        }
+        String guest = nicknameOf(event.cancelRequest().guestId());
+        save(AppearanceCancelRequestAlerts.requested(event, guest));
     }
 
     /** 다른 회원 닉네임이 없는 초안을 알림 시작 시각을 본 뒤 저장한다 */
