@@ -10,6 +10,8 @@ public class RealBillingResetListener extends AbstractTestExecutionListener {
 
     @Override
     public void beforeTestMethod(TestContext context) {
+        // spring.factories로 모든 앱의 테스트에 붙으므로 실제 billing을 켠 실행에서만 빈을 찾는다.
+        if (!Boolean.getBoolean("hapbang.billing.e2e.enabled")) return;
         var fixtures = context.getApplicationContext().getBeansOfType(RealBillingTestFixture.class);
         fixtures.values().forEach(RealBillingTestFixture::reset);
     }
