@@ -5,13 +5,17 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
 import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.out.billing.CouponBillingApiConfig.BudgetHttpResponse;
+import com.hapbang.shared.billing.domain.PromotionBudgetWorkKind;
 import com.hapbang.shared.billing.domain.PromotionBudgetWorkStatus;
 import com.hapbang.shared.billing.dto.PromotionBudgetReleaseCommand;
 import com.hapbang.shared.billing.dto.PromotionBudgetReleaseResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReservationDto;
 import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 import com.hapbang.shared.billing.dto.PromotionBudgetReserveCommand;
 import com.hapbang.shared.billing.dto.PromotionBudgetReserveResultDto;
@@ -98,8 +102,32 @@ public class HttpPromotionBudget implements PromotionBudget {
                     || result.amountHp() <= 0) {
                 throw new BudgetUnavailable("RESPONSE_MISMATCH");
             }
-            return succeeded(result.reservationId());
+            return confirmedWork(result);
         });
+    }
+
+    private BudgetResult confirmedWork(PromotionBudgetWorkDto work) {
+        PromotionBudgetReservationDto reservation;
+        try {
+            reservation = data(api.reservation(work.reservationId()));
+        } catch (BudgetHttpResponse response) {
+            if (response.status() >= 500) {
+                throw new BudgetUnavailable("STATUS_METADATA_UNAVAILABLE");
+            }
+            return unknown("STATUS_METADATA_UNAVAILABLE");
+        } catch (RestClientException unavailable) {
+            throw new BudgetUnavailable(unavailable instanceof ResourceAccessException
+                    ? "STATUS_METADATA_UNAVAILABLE" : "RESPONSE_MISMATCH", unavailable);
+        }
+        if (!Objects.equals(work.reservationId(), reservation.reservationId()) || reservation.couponId() <= 0
+                || reservation.amountHp() <= 0
+                || (work.kind() == PromotionBudgetWorkKind.RESERVE
+                    && work.amountHp() != reservation.amountHp())) {
+            throw new BudgetUnavailable("RESPONSE_MISMATCH");
+        }
+        return new BudgetResult(Outcome.SUCCEEDED, work.reservationId(), null,
+                new WorkMetadata(work.workId(), BudgetWorkKind.valueOf(work.kind().name()), reservation.couponId(),
+                        work.amountHp()));
     }
 
     private BudgetResult call(boolean lookup, Supplier<BudgetResult> request) {
@@ -119,7 +147,8 @@ public class HttpPromotionBudget implements PromotionBudget {
                     // 예약 존재 충돌·설정/인증 오류·형식 불명은 새 작업 거절로 확정하지 않는다.
                     return unknown(response.code() == null ? "HTTP_" + response.status() : response.code());
                 } catch (RestClientException unreadable) {
-                    throw new BudgetUnavailable("HTTP_UNAVAILABLE", unreadable);
+                    throw new BudgetUnavailable(lookup && !(unreadable instanceof ResourceAccessException)
+                            ? "RESPONSE_MISMATCH" : "HTTP_UNAVAILABLE", unreadable);
                 }
             });
         } catch (CallNotPermittedException open) {

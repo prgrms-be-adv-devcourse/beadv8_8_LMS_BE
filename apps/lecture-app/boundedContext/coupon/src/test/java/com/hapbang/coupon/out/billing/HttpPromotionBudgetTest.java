@@ -8,6 +8,8 @@ import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,6 +25,8 @@ import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
+import com.hapbang.coupon.app.port.PromotionBudget.WorkMetadata;
+import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.shared.billing.out.BillingClientProperties;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
@@ -48,10 +52,15 @@ class HttpPromotionBudgetTest {
             "workId":"coupon-42-release-member-901","reservationId":"PB-7","releasedHp":300,
             "remainingHp":9700,"replayed":false}}
             """;
+    private static final String RESERVATION = """
+            {"data":{"reservationId":"PB-7","couponId":42,"amountHp":10000,
+            "remainingHp":10000,"heldHp":0,"paidHp":0,"releasedHp":0}}
+            """;
 
     private HttpServer server;
     private ExecutorService executor;
     private final List<Request> requests = new CopyOnWriteArrayList<>();
+    private final Map<String, Response> responses = new ConcurrentHashMap<>();
     private volatile int status;
     private volatile String responseBody;
     private volatile long delayMillis;
@@ -67,12 +76,14 @@ class HttpPromotionBudgetTest {
                 if (delayMillis > 0) {
                     Thread.sleep(delayMillis);
                 }
-                byte[] bytes = responseBody == null ? new byte[0] : responseBody.getBytes(StandardCharsets.UTF_8);
+                Response response = responses.getOrDefault(exchange.getRequestURI().getPath(),
+                        new Response(status, responseBody));
+                byte[] bytes = response.body() == null ? new byte[0] : response.body().getBytes(StandardCharsets.UTF_8);
                 if (bytes.length > 0) {
                     exchange.getResponseHeaders().add("Content-Type",
-                            status >= 400 ? "application/problem+json" : "application/json");
+                            response.status() >= 400 ? "application/problem+json" : "application/json");
                 }
-                exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+                exchange.sendResponseHeaders(response.status(), bytes.length == 0 ? -1 : bytes.length);
                 if (bytes.length > 0) {
                     exchange.getResponseBody().write(bytes);
                 }
@@ -123,13 +134,16 @@ class HttpPromotionBudgetTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"RESERVE", "RELEASE"})
-    void 작업_조회는_DONE일_때만_성공한_예약_ID를_돌려준다(String kind) {
+    void 작업_조회는_DONE과_예약_소유_쿠폰을_확인해_작업_대조_근거를_돌려준다(String kind) {
         respond(200, """
                 {"statusCode":200,"message":"조회했습니다.","data":{"workId":"coupon-42-reserve-v1",
                 "kind":"%s","status":"DONE","reservationId":"PB-7","amountHp":10000}}
                 """.formatted(kind));
-        assertThat(adapter().status(RESERVE)).isEqualTo(new BudgetResult(Outcome.SUCCEEDED, "PB-7", null));
+        respondAt(PATH + "/reservations/PB-7", 200, RESERVATION);
+        assertThat(adapter().status(RESERVE)).isEqualTo(new BudgetResult(Outcome.SUCCEEDED, "PB-7", null,
+                new WorkMetadata(RESERVE, BudgetWorkKind.valueOf(kind), 42L, 10_000L)));
         assertThat(requests.getFirst()).isEqualTo(new Request("GET", PATH + "/works/" + RESERVE, API_KEY, ""));
+        assertThat(requests.getLast()).isEqualTo(new Request("GET", PATH + "/reservations/PB-7", API_KEY, ""));
     }
 
     @Test
@@ -200,11 +214,43 @@ class HttpPromotionBudgetTest {
     @ParameterizedTest
     @ValueSource(strings = {"{\"workId\":\"other\",\"status\":\"NOT_FOUND\"}",
             "{\"workId\":\"coupon-42-reserve-v1\",\"status\":\"DONE\",\"reservationId\":\"PB-7\",\"amountHp\":10000}",
+            "{\"workId\":\"coupon-42-reserve-v1\",\"kind\":\"OTHER\",\"status\":\"DONE\",\"reservationId\":\"PB-7\",\"amountHp\":10000}",
             "{\"workId\":\"coupon-42-reserve-v1\",\"kind\":\"RESERVE\",\"status\":\"DONE\",\"reservationId\":\"wrong\",\"amountHp\":10000}",
-            "{\"workId\":\"coupon-42-reserve-v1\",\"kind\":\"RESERVE\",\"status\":\"DONE\",\"reservationId\":\"PB-7\",\"amountHp\":0}"})
+            "{\"workId\":\"coupon-42-reserve-v1\",\"kind\":\"RESERVE\",\"status\":\"DONE\",\"reservationId\":\"PB-7\",\"amountHp\":0}",
+            "{\"workId\":\"coupon-42-reserve-v1\",\"kind\":\"RESERVE\",\"status\":\"DONE\",\"reservationId\":\"PB-7\"}"})
     void 조회_결과가_요청과_맞지_않거나_DONE의_근거가_빠지면_UNKNOWN이다(String data) {
         respond(200, "{\"data\":" + data + "}");
-        assertThat(adapter().status(RESERVE).outcome()).isEqualTo(Outcome.UNKNOWN);
+        assertThat(adapter().status(RESERVE)).isEqualTo(new BudgetResult(Outcome.UNKNOWN, null, "RESPONSE_MISMATCH"));
+        assertThat(requests).hasSize(1);
+    }
+
+    @Test
+    void 조회한_예약의_ID_쿠폰_총액이_깨졌으면_조회_성공으로_확정하지_않는다() {
+        respond(200, done("RESERVE", 10_000L));
+        for (String body : List.of(RESERVATION.replace("PB-7", "PB-8"),
+                RESERVATION.replace("\"couponId\":42", "\"couponId\":0"),
+                RESERVATION.replace("\"couponId\":42,", ""),
+                RESERVATION.replace("\"amountHp\":10000", "\"amountHp\":9999"))) {
+            respondAt(PATH + "/reservations/PB-7", 200, body);
+            assertThat(adapter().status(RESERVE)).isEqualTo(new BudgetResult(Outcome.UNKNOWN, null, "RESPONSE_MISMATCH"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {404, 503})
+    void 완료_작업의_예약_소유_근거를_조회하지_못하면_불명_사유를_구분한다(int status) {
+        respond(200, done("RESERVE", 10_000L));
+        respondAt(PATH + "/reservations/PB-7", status, "{\"code\":\"BUDGET_RESERVATION_NOT_FOUND\"}");
+        assertThat(adapter().status(RESERVE))
+                .isEqualTo(new BudgetResult(Outcome.UNKNOWN, null, "STATUS_METADATA_UNAVAILABLE"));
+    }
+
+    @Test
+    void 양수인_조회_내용도_영속_작업과_대조하도록_원래_메타데이터를_전달한다() {
+        respond(200, done("RELEASE", 999L));
+        respondAt(PATH + "/reservations/PB-7", 200, RESERVATION.replace("\"couponId\":42", "\"couponId\":43"));
+        assertThat(adapter().status(RESERVE)).isEqualTo(new BudgetResult(Outcome.SUCCEEDED, "PB-7", null,
+                new WorkMetadata(RESERVE, BudgetWorkKind.RELEASE, 43L, 999L)));
     }
 
     @Test
@@ -263,10 +309,24 @@ class HttpPromotionBudgetTest {
         responseBody = body;
     }
 
+    private void respondAt(String path, int status, String body) {
+        responses.put(path, new Response(status, body));
+    }
+
+    private static String done(String kind, long amount) {
+        return """
+                {"data":{"workId":"coupon-42-reserve-v1","kind":"%s","status":"DONE",
+                "reservationId":"PB-7","amountHp":%d}}
+                """.formatted(kind, amount);
+    }
+
     private static JsonNode json(String body) {
         return JsonMapper.shared().readTree(body);
     }
 
     private record Request(String method, String path, String key, String body) {
+    }
+
+    private record Response(int status, String body) {
     }
 }

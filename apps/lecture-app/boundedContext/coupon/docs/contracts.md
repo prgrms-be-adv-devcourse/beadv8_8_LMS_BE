@@ -86,7 +86,7 @@ billing 코드·공통 DTO는 billing이 소유한다. 쿠폰은 `CouponBillingI
 - 충전: fundingWorkId와 출처로 중복 충전을 방지한다.
 - 예약: `POST /api/v1/internal/billing/promotion-budgets/reservations`, `PromotionBudgetReserveCommand(workId, couponId, policyVersion, amountHp)`. 성공의 예약 ID는 `PB-{양수}` 형식이며 이후 받은 값을 그대로 쓴다.
 - 해제: 같은 경로 접두사의 `POST /releases`, `PromotionBudgetReleaseCommand(workId, reservationId, amountHp, target, reason)`. target은 1~200자로 필수이고 `UNISSUED:{수량}` 또는 `MEMBER_COUPON:{발급쿠폰ID}`를 기록한다. reason은 최대 500자다. 같은 쿠폰의 서로 다른 해제와 같은 작업의 재전송을 구분한다.
-- 결과 조회: 같은 경로 접두사의 `GET /works/{workId}`. DONE은 확정 결과이며 NOT_FOUND는 성공·거절 어느 쪽도 증명하지 않는다. billing은 거절 결과를 작업으로 저장하지 않으므로 쿠폰은 같은 workId로 원래 명령을 다시 보낸다.
+- 결과 조회: 같은 경로 접두사의 `GET /works/{workId}`. DONE이면 작업 ID·유형·예약 ID·금액을 받고, `GET /reservations/{reservationId}`의 기존 `PromotionBudgetReservationDto`로 예약 소유 couponId를 확인한다. 작업 조회 DTO에는 couponId가 없으므로 예약 조회를 추가하며 두 응답의 예약 ID도 같아야 한다. NOT_FOUND는 성공·거절 어느 쪽도 증명하지 않는다. billing은 거절 결과를 작업으로 저장하지 않으므로 쿠폰은 같은 workId로 원래 명령을 다시 보낸다.
 - 보류: 항목·구매자 부담과 `promotions[{couponId,memberCouponId,generation,amountHp}]`를 함께 처리한다. billing이 couponId로 예산 예약을 찾으며 보류 요청에 budgetReservationId를 싣지 않는다. 플랫폼 재원이 양수면 구매자 금액이 0이어도 billing 작업을 수행한다.
 - 지급/반환: 구매자·플랫폼 금액과 쿠폰별 복구 결과를 확인한 뒤 항목을 완료한다. 취소 완료 이벤트에는 billing이 확인한 `couponId, memberCouponId, generation, amountHp`를 담아 각 쿠폰 예약으로의 복구 근거를 전달한다. 0 HP 구매자 작업도 결과 조회의 기준으로 식별할 수 있다.
 
@@ -94,14 +94,17 @@ billing 코드·공통 DTO는 billing이 소유한다. 쿠폰은 `CouponBillingI
 
 관리자 열기와 예산 배치는 모두 `CouponBudgetWorkUseCase.execute(workId)`의 같은 lease·attempt fence를 사용한다. 이미 선점된 PENDING 작업은 HTTP를 중복 호출하지 않는다. 관리자는 실행 뒤 DB의 최신 결과를 읽어 DONE일 때만 열기를 이어 가고, FAILED는 409, PENDING은 503으로 응답한다. 늦은 성공·거절 응답이 다른 attempt의 확정 결과를 덮지 않는다. 예약 성공이 발급 기한 뒤에 확정되면 쿠폰 행 잠금 아래 만료 DRAFT의 무발급 조건을 확인해, 예약 DONE·쿠폰 예약 ID와 미발급 전액 해제 작업을 같은 트랜잭션에 기록한다. 이미 DONE인 만료 DRAFT도 주기적으로 수집하며 CLOSED와 같은 `release-unissued-v{정책버전}` workId·`UNISSUED:{수량}` target을 재사용한다. 확정 예약 ID·DRAFT·`issueEndAt <= now`·`issuedCount = 0`을 모두 확인해야 하며 불명 결과를 실패로 바꾸지 않는다.
 
+성공한 status는 `PromotionBudget.BudgetResult`의 `WorkMetadata(workId, kind, couponId, amount)`로 조회 근거를 전달한다. 저장된 `budget_work`의 작업 ID·kind·couponId·금액이 모두 같고 예약 ID가 유효한 `PB-{양수}`여야 한다. RELEASE는 기존 예약 ID까지 같아야 한다. RESERVE 조회는 예약 총액도 작업 금액과 일치해야 한다. 메타데이터가 없거나 다르면 작업은 PENDING으로 남기고 `[COUPON_BUDGET_WORK_RESPONSE_MISMATCH]` ERROR를 기록하며 그 회차에는 명령을 재전송하지 않는다. 예약 소유 조회 실패도 `STATUS_METADATA_UNAVAILABLE`로 같은 방식으로 남긴다. 다음 lease 뒤 다시 조회하며 근거를 확인한다. 조회 NOT_FOUND·일반 I/O·5xx의 UNKNOWN은 기존과 같이 동일 workId로 원래 명령을 재전송한다. 직접 reserve/release 성공은 어댑터가 원래 요청과 대조하므로 기존 3인자 BudgetResult를 유지한다.
+
 ### 예산 HTTP 결과 분류
 
 | HTTP·업무 결과 | 쿠폰 결과·처리 |
 | --- | --- |
-| 유효한 2xx 성공 응답 | SUCCEEDED. 예약은 workId·couponId·금액·예약 ID를, 해제는 workId·예약 ID·해제액·음수가 아닌 잔액을 확인한다. 조회 DONE도 workId·작업 유형·예약 ID·양수 금액이 있어야 한다 |
+| 유효한 2xx 성공 응답 | SUCCEEDED. 예약은 workId·couponId·금액·예약 ID를, 해제는 workId·예약 ID·해제액·음수가 아닌 잔액을 확인한다. 조회 DONE은 예약 조회의 couponId까지 WorkMetadata로 전달하고 영속 작업의 종류·쿠폰·금액·예약 ID와 대조한 뒤에만 완료한다 |
 | 명령의 확정 업무 4xx | `PROMOTION_BALANCE_INSUFFICIENT`, `BUDGET_RELEASE_EXCEEDS_REMAINING`, `BUDGET_RESERVATION_NOT_FOUND`, `IDEMPOTENCY_KEY_CONFLICT`, `INVALID_POINT_AMOUNT`만 REJECTED로 분류한다. 408·425·429는 제외한다 |
 | 408·425·429, 5xx, I/O·제한 시간 초과, 회로 열림 | UNKNOWN. 작업을 PENDING으로 남겨 같은 workId로 조회·재전송한다 |
 | `BUDGET_RESERVATION_EXISTS`, 인증·설정 오류, 알 수 없는 4xx·오류 본문, 조회 4xx | UNKNOWN. 기존 예약 존재나 해석 불가 응답을 새 작업의 확정 거절로 바꾸지 않는다 |
-| 조회 NOT_FOUND 또는 비어 있거나 깨진·요청과 다른 성공 응답 | UNKNOWN. NOT_FOUND는 회로 실패로 세지 않으며 같은 workId로 원래 명령을 재전송한다 |
+| 조회 NOT_FOUND | UNKNOWN. 회로 실패로 세지 않으며 같은 workId로 원래 명령을 재전송한다 |
+| 조회 메타데이터가 비거나 깨짐·영속 작업과 불일치, 예약 소유 조회 실패 | UNKNOWN/PENDING. ERROR 표식을 남기고 명령 재전송 없이 근거를 재확인한다. 형식이 맞더라도 다른 kind·양수 금액·couponId·예약 ID를 성공으로 기록하지 않는다 |
 
 어댑터는 요청을 한 번만 수행한다. 연결·응답 제한 시간과 circuit breaker는 기존 `hapbang.clients.billing.*` 설정을 사용하며 재시도는 영속 `budget_work`가 맡는다. 4xx·NOT_FOUND는 회로의 실패로 세지 않고 5xx·I/O·해석할 수 없는 성공 응답은 기술 실패로 센다. 로컬 DB 선점·결과 저장 트랜잭션 안에서 HTTP를 호출하지 않는다.

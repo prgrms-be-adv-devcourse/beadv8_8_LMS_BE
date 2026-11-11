@@ -70,6 +70,21 @@ public final class PromotionBudgetHttpStub implements AutoCloseable {
                     {"statusCode":200,"message":"완료","data":{"workId":"%s","kind":"RESERVE","status":"DONE",
                      "reservationId":"PB-%d","amountHp":%d}}
                     """.formatted(workId, work.couponId(), work.amountHp());
+        } else if (exchange.getRequestMethod().equals("GET")
+                && exchange.getRequestURI().getPath().contains("/reservations/")) {
+            String reservationId = exchange.getRequestURI().getPath()
+                    .substring(exchange.getRequestURI().getPath().lastIndexOf('/') + 1);
+            var work = works.values().stream()
+                    .filter(command -> ("PB-" + command.couponId()).equals(reservationId)).findFirst().orElse(null);
+            if (work == null) {
+                status = 404;
+                body = "{\"code\":\"BUDGET_RESERVATION_NOT_FOUND\"}";
+            } else {
+                body = """
+                        {"statusCode":200,"message":"예산 조회","data":{"reservationId":"%s","couponId":%d,
+                         "amountHp":%d,"remainingHp":%d,"heldHp":0,"paidHp":0,"releasedHp":0}}
+                        """.formatted(reservationId, work.couponId(), work.amountHp(), work.amountHp());
+            }
         } else {
             status = 404;
             body = "{}";

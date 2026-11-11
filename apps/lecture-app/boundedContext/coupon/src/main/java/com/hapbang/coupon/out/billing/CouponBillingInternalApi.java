@@ -9,6 +9,7 @@ import org.springframework.web.service.annotation.PostExchange;
 
 import com.hapbang.shared.billing.dto.PromotionBudgetReleaseCommand;
 import com.hapbang.shared.billing.dto.PromotionBudgetReleaseResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReservationDto;
 import com.hapbang.shared.billing.dto.PromotionBudgetReserveCommand;
 import com.hapbang.shared.billing.dto.PromotionBudgetReserveResultDto;
 import com.hapbang.shared.billing.dto.PromotionBudgetWorkDto;
@@ -27,6 +28,9 @@ public interface CouponBillingInternalApi {
 
     @GetExchange("/works/{workId}")
     ResponseEntity<Envelope<PromotionBudgetWorkDto>> status(@PathVariable("workId") String workId);
+
+    @GetExchange("/reservations/{reservationId}")
+    ResponseEntity<Envelope<PromotionBudgetReservationDto>> reservation(@PathVariable("reservationId") String reservationId);
 
     /** 쿠폰은 billing의 global 응답 클래스에 의존하지 않고 성공 봉투 모양만 읽는다. */
     record Envelope<T>(Integer statusCode, String message, T data) {

@@ -3,6 +3,7 @@ package com.hapbang.coupon.app;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -21,6 +22,7 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.out.BudgetWorkRepository;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -137,6 +139,15 @@ public class CouponBudgetWorkUseCase {
             return;
         }
         PromotionBudget.BudgetResult result = budget.status(id);
+        if (result != null && ((result.outcome() == PromotionBudget.Outcome.SUCCEEDED && !matches(work, result))
+                || (result.outcome() == PromotionBudget.Outcome.UNKNOWN && invalidLookup(result.reason())))) {
+            log.error("[COUPON_BUDGET_WORK_RESPONSE_MISMATCH] 프로모션 예산 조회 근거가 영속 작업과 달라 "
+                            + "완료·재전송하지 않는다 workId={}, couponId={}, kind={}, amount={}, reservationId={}, "
+                            + "returnedReservationId={}, returnedWork={}, reason={}", id, work.getCouponId(),
+                    work.getKind(), work.getAmount(), work.getReservationId(), result.reservationId(), result.work(),
+                    result.reason());
+            return;
+        }
         if (result == null || result.outcome() == PromotionBudget.Outcome.UNKNOWN) {
             if (work.getKind() == BudgetWorkKind.RESERVE) {
                 Coupon coupon = transaction.execute(status -> couponRepository.findById(work.getCouponId()).orElseThrow());
@@ -176,6 +187,21 @@ public class CouponBudgetWorkUseCase {
                 }
             }
         });
+    }
+
+    private static boolean matches(BudgetWork work, PromotionBudget.BudgetResult result) {
+        PromotionBudget.WorkMetadata returned = result.work();
+        return returned != null && Objects.equals(work.getWorkId(), returned.workId())
+                && work.getKind() == returned.kind() && Objects.equals(work.getCouponId(), returned.couponId())
+                && Objects.equals(work.getAmount(), returned.amount()) && result.reservationId() != null
+                && PromotionBudgetRequests.RESERVATION_ID.matcher(result.reservationId()).matches()
+                && (work.getKind() == BudgetWorkKind.RESERVE
+                    || Objects.equals(work.getReservationId(), result.reservationId()));
+    }
+
+    private static boolean invalidLookup(String reason) {
+        return "RESPONSE_MISMATCH".equals(reason) || "EMPTY_RESPONSE".equals(reason)
+                || "STATUS_METADATA_UNAVAILABLE".equals(reason);
     }
 
     private void recordReservation(BudgetWork work, String reservationId, Instant now) {
