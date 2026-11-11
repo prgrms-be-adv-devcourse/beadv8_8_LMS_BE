@@ -109,7 +109,7 @@ public class BillingCallException extends RuntimeException {
 
 | 항목 | 내용 |
 | --- | --- |
-| 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다 |
+| 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다. 지급 요청의 `sourceTitle`(알림용 출처 제목)에는 구매 때 강의 제목을 싣는다(D85 (6)) |
 | `Failed` | billing이 4xx(408·425·429 제외)로 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
 | `BillingCallException` | 연결 거부·주소를 찾지 못함, 408·425·429처럼 처리하지 않은 것이 확실함 → `RETRYABLE`. 연결·응답 시간 초과, 응답 도중 끊김, 5xx(코드가 있어도), 읽을 수 없는 2xx처럼 처리 여부를 모름 → `UNKNOWN_RESULT` (D64). 회로가 열려 보내지 않음(`rawCode` `CIRCUIT_OPEN`) → `RETRYABLE`, 시도 한 번의 전체 상한(8초) 초과 → `UNKNOWN_RESULT` (D66). `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
 | 회복성 | Client가 Resilience4j로 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다. `RETRYABLE`만 첫 호출 포함 3회(최대 약 0.7초) 다시 보내고 다 실패하면 마지막 예외를 그대로 던지므로, 실행기의 작업 재시도(D57)와 `classify`는 바뀌지 않는다. 회로가 열려 있으면(`isCircuitOpen()`) 실행기가 선점 직전에 보고 선점하지 않는다. 재시도 배치·주문 즉시 보류·구매 취소 즉시 반환이 모두 그렇고, 시도 횟수·시도 행은 그대로이며 처리 상태는 `PROCESSING`이다. 배치는 회차 시작과 작업마다 보고, 회차 도중에 열리면 남은 작업을 다음 회차로 넘긴다. 시험 중(HALF_OPEN)에 실제로 보낸 호출의 실패는 D57대로 센다(D67 → D79). 주문 요청 안 즉시 보류는 전체 10초 예산을 넘으면 남은 항목을 배치로 넘기고 202다(D68). 값과 지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장 (#411) |
