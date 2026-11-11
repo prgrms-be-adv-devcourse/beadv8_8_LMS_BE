@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer;
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer.MemberIndexResult;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.in.kafka.SearchKafkaConfig;
 import com.hapbang.auxiliary.search.in.kafka.SearchKafkaSettings;
 import com.hapbang.auxiliary.search.out.IndexNotReadyException;
@@ -30,7 +29,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 @ConditionalOnBooleanProperty(name = SearchKafkaConfig.ENABLED, matchIfMissing = true)
 @KafkaListener(id = "search-member", idIsGroup = false, topics = "#{__listener.topic}",
         groupId = "#{__listener.groupId}", containerFactory = SearchKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY)

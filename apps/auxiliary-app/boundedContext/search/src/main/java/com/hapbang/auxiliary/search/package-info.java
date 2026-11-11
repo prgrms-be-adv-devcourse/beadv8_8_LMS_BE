@@ -3,8 +3,6 @@
  * <p>
  * 공통 모듈({@code global})만 의존한다. 같은 앱의 다른 업무 모듈(챗봇·알림)을 직접 참조하지 않고, 챗봇의 ES index·client도 쓰지 않는다.
  * ES는 검색 전용 client({@code ES_SEARCH_API_KEY})로 {@code search-*} index에만 접근한다. 테이블은 {@code search} schema에만 둔다.
- * <p>
- * 모든 빈은 검색 기능 스위치({@link com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled})가 켜졌을 때만 만든다.
  */
 @ApplicationModule(displayName = "Search", allowedDependencies = "global")
 package com.hapbang.auxiliary.search;

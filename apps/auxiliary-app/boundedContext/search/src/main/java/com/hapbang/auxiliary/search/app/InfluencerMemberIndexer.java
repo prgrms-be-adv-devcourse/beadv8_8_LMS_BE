@@ -6,7 +6,6 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
@@ -27,7 +26,6 @@ import com.hapbang.shared.member.dto.UserDto;
  * </ul>
  */
 @Service
-@ConditionalOnSearchEnabled
 public class InfluencerMemberIndexer {
 
     static final Set<Role> INFLUENCER_ROLES = Set.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER);
