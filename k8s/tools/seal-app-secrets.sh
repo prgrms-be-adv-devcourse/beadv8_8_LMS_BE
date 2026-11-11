@@ -28,7 +28,8 @@ spec() {
     chat) echo "chat||" ;;
     customer-support) echo "customersupport||" ;;
     # auxiliary-app(#714). database는 앱 공통 auxiliary다. OpenAI·ES 키는 챗봇 FAQ(#715)부터 prod 프로필이 기본값 없이 읽어 필수다.
-    auxiliary) echo "auxiliary|OPENAI_API_KEY ES_API_KEY|" ;;
+    # 검색 key(ES_SEARCH_API_KEY, #806)도 필수다. 검색 기능 스위치를 지우면 prod 프로필이 기본값 없이 읽는다.
+    auxiliary) echo "auxiliary|OPENAI_API_KEY ES_API_KEY ES_SEARCH_API_KEY|" ;;
     *) echo "알 수 없는 앱: $1" >&2; return 1 ;;
   esac
 }
