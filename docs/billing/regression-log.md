@@ -6,6 +6,7 @@
 >
 > - 이 문서는 **실제로 실행한** 테스트 결과만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 검증 대상과 합격 기준은 [test-spec.md](test-spec.md)에 있다.
 > - 목표: JVM 분리(#356) 이후 기존 Billing 기능의 회귀 검증. 단계는 Compile → Unit → Integration → Contract 순서다.
+> - 최신 전체 회귀는 **R-013**(2026-11-11, f9a812bf, billing 1,513건 통과)이다. 아래 R-003은 분리 직후의 역사적 기준선이다.
 > - 분리 이후 기준선은 **R-003**(커밋 7dc89e0, U·S·I·R 전체 1,041건 통과)이다. Contract 단계는 테스트가 없어 실행하지 않았다.
 > - **실제 코드 회귀(F-CODE)로 분류한 기록은 0건이다**(2026-11-06 기준). 지금까지의 R 기록 3건은 Docker 환경 확인(R-001)과 분리 이후 기준선 확보(R-002·R-003)다.
 > - **2026-10-29(R-003) 뒤로 이 문서 형식의 실행 기록이 없다.** 그 뒤 Issue별 실행은 옛 `PROGRESS.md` 6장(지금은 이 문서 5.1로 옮김)과 당시 test-spec 상태 칸에만 남았다. test-spec 상태 칸의 값은 3.3(H 기록)과 4.2로 옮겼다. R-003 이후 테스트가 크게 늘어 R-003은 지금 코드 전체를 덮지 않는다(4.2).
@@ -87,6 +88,12 @@
 
 | ID | 날짜 | 커밋 | 명령 | 단계 | 결과 | 실패 원인 분류 | 기록 목적 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| R-013 | 2026-11-11 | f9a812bf | 전체 완료 명령(아래) | C·U·S·I | 통과, billing 1,513건(전체 4,652건) | 실패 없음 | #842 최종 회귀 |
+| R-012 | 2026-11-11 | f9a812bf와 같은 소스 + 조기404 임시 재현 | 지급 생성경합 테스트만 | I | 의도한 2건 실패, 소스 복원 | F-CODE(결함 재현) | 새 테스트 감지력 확인 |
+| R-011 | 2026-11-11 | 9bc029df + #842 작업 트리 | 첫 전체 완료 명령(아래) | C·U·S·I | 실패 | F-TEST | Enum CHECK 업무 규칙 분류 보완 |
+| R-010 | 2026-11-11 | 9bc029df + #842 작업 트리 | 두 번째 관련 명령(아래) | U·I | billing 통과·shared 실패 | F-CODE | 기존 JSON 누락 필드 호환 결함 검출 |
+| R-009 | 2026-11-11 | 9bc029df + #842 작업 트리 | 첫 관련 명령(아래) | U·I | billing 실패 | F-TEST | 추가 대사 검출 기대값 보완 |
+| R-008 | 2026-11-11 | 9bc029df + #842 작업 트리 | `:billing-app:compileTestJava :shared:compileTestJava` | C | 통과 | 실패 없음 | 인수 후 컴파일 |
 | R-007 | 2026-11-10 | bfe1b01c + 작업 트리(PR 리뷰 반영, 테스트·문서만) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 75건 | 실패 없음 | 회귀 확인(#822 PR 리뷰 반영) |
 | R-006 | 2026-11-10 | 40c94d7b + 작업 트리(#822, R-005와 같음) | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,331건 | 실패 없음 | 회귀 확인(#822 커밋 전 전체) |
 | R-005 | 2026-11-10 | 40c94d7b + 작업 트리(#822 리뷰 반영) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 74건 | 실패 없음 | 회귀 확인(#822 리뷰 반영) |
@@ -101,6 +108,19 @@
 ### 3.2 직접 실행한 기록 (R)
 
 _새 기록은 3.4 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙이고, 3.1 요약 표에도 한 줄 더한다._
+
+#### R-008~R-013 · 2026-11-11 · #842 인수·완료 검증
+
+- **소스:** Claude 미커밋 단계1을 인수해 1~4단계를 완성했다. R-008~011은 9bc029df + 작업 트리, R-013은 구현 커밋 f9a812bf와 같은 소스다. 작업 파일 목록은 `git show --name-only f9a812bf`의 billing/shared 57개 파일로 확인한다. 문서만 뒤에 커밋했다.
+- **환경:** 로컬 Java 25, Docker Desktop, PostgreSQL·Kafka·Redis Testcontainers. 운영 서비스 요청은 하지 않았다.
+- **R-008:** `./gradlew :billing-app:compileTestJava :shared:compileTestJava` 통과.
+- **R-009:** `./gradlew :billing-app:test --tests '*ApiV1BillingPromotion*Test' --tests '*BillingCommandValidatorTest' --tests '*PaymentHoldRequestsTest' :shared:test --tests '*BillingCommandsTest' --tests '*BillingApiClientTest'`. 새 대사 검사로 불일치 항목이 더 나와 기존 기대값이 실패했다. 기대값 보완.
+- **R-010:** R-009 명령에 billing `--tests '*PromotionWalletReconciliationIntegrationTest'` 추가. billing은 통과했고 shared는 기존 응답에 없는 새 primitive 필드가 Jackson 3에서 null→long 오류로 실패했다. 새 필드를 Long으로 읽어 null→0 정규화. 조회의 새 목록도 null→빈 목록으로 정규화했다.
+- **R-011:** `./gradlew verifyModuleStructure :billing-app:check :billing-app:bootJar :shared:check :lecture-app:check :appearance-app:check`. billing Enum 허용값 목록 검사가 `ck_promotion_hold_restoration`을 값 목록으로 오인했다. 기존 `NON_ENUM_CHECKS`에 교차 컬럼 업무 규칙으로 분류했다. 나머지 앱은 이 실패로 실행되지 않았다.
+- **R-012:** 조기404 회귀를 임시 삽입하고 `./gradlew :billing-app:test --tests '*ApiV1BillingPromotionPayoutTest.payoutWaitsForUncommittedHoldCreation'`. XML에서 프로모션 유무 두 경우 모두 HOLD_NOT_FOUND 실패를 확인했다. finally에서 수정된 소스를 복원했다. 이 결과는 회귀 결함을 의도적으로 재현한 것으로 최종 코드 실패가 아니다.
+- **R-013:** `./gradlew verifyModuleStructure :billing-app:check :billing-app:bootJar :shared:check :lecture-app:check :appearance-app:check --continue`. 통과. billing 1,513 · shared 193 · coupon 1,032 · lecture 1,001 · appearance 913건, 합계 4,652건 실패·오류·건너뜀 0(XML 기준). 모듈 구조 검사와 billing bootJar 성공, 8분 3초.
+- **자체 리뷰:** fresh review agent 1회. 지갑 락 전 보류 미존재 판정 회귀를 반영했고, 생성 중 지급이 실제 PostgreSQL 락을 기다리는 테스트 두 경우를 추가했다. 미해결 확정 지적 없음.
+- **검증 범위:** 기존 billing 활성 테스트 전체, 프로모션 P1~P7, 두 재원 원자성/롤백·replay·0원 앵커·기존 JSON·배포 중 이전 앱 지급 INSERT 호환. 쿠폰·강의 실제 호출 연결과 플랫폼 쿠폰 활성화는 #843이다.
 
 #### R-007 · 2026-11-10 · U·I(R 포함) · 통과
 
@@ -399,6 +419,8 @@ R-001~R-003 무렵 코드·문서 분석으로 본 위험이다. **테스트 실
 | (전체 I 단계) | 이전 기록상 메모리 부족으로 모듈별로 나눠 실행한 적이 있다(옛 PROGRESS 6장 → 5.1, #260) | F-ENV | — | 확인 안 됨 | R-003(billing-app만)에서는 생기지 않았다. 전체 프로젝트 `check`에서 다시 생기는지는 이 문서 형식으로 기록된 실행이 없다 |
 
 ### 4.2 BT별 마지막 기록
+
+2026-11-11 R-013: 현재 billing 활성 테스트 전체 및 신규 프로모션 불변식을 재검증했다(billing 1,513건, 실패·오류·건너뜀 0). 테스트가 없는 미구현 항목은 검증한 것으로 바꾸지 않는다.
 
 **출처: 당시 test-spec 상태 칸**(2026-11-06 정리 전 값). 이 정리에서 새로 실행한 것은 없다. 앞으로 R 기록을 남기면 해당 BT를 이 표에서 그 R-ID로 옮긴다.
 
