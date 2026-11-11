@@ -1,56 +1,40 @@
 package com.hapbang.auxiliary.search.influencer.out;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** 인플루언서 검색 index 정의: 레포 파일 읽기, 설정 해시와 index 이름(#771) */
+import com.hapbang.auxiliary.search.common.out.IndexDefinition;
+
+/** 인플루언서 검색 index 정의: 레포 파일 읽기(#771), 운영 index와 같은 설정 해시(#868) */
 class InfluencerIndexDefinitionTest {
 
-    private static final String TEMPLATE = """
-            {"settings":{"analysis":{"tokenizer":{"t":{"user_dictionary_rules":"__USER_DICTIONARY__"}},
-             "filter":{"s":{"synonyms_set":"__SYNONYMS_SET__"}}}}}""";
+    /**
+     * 운영 index 이름(2026-11-11, #860 배포 뒤). 사용자 사전·{@code influencers/index.json}·동의어 묶음 이름을 바꾸면 이 값이 바뀌고 배포 때
+     * 재색인이 한 번 돈다. 그때는 PR 본문 "병합 전 확인"에 적고 이 값을 함께 고친다
+     */
+    private static final String PRODUCTION_INDEX = "search-influencers-d656dfa35eee";
 
     @Test
     @DisplayName("레포 파일로 index 이름(search-influencers-해시 12자)과 본문을 만들고, 사용자 사전과 동의어 묶음 이름을 채운다")
     void loadsRepositoryFiles() {
-        InfluencerIndexDefinition definition = InfluencerIndexDefinition.load();
+        IndexDefinition definition = InfluencerIndexDefinition.load();
 
         assertThat(definition.indexName()).matches("search-influencers-[0-9a-f]{12}");
         assertThat(definition.indexBody())
-                .contains("\"치지직\"", "\"배그\"", "\"" + InfluencerIndexDefinition.SYNONYMS_SET + "\"")
+                .contains("\"치지직\"", "\"배그\"", "\"" + IndexDefinition.SYNONYMS_SET + "\"")
                 .doesNotContain("__USER_DICTIONARY__", "__SYNONYMS_SET__");
         assertThat(definition.synonymRules()).hasSize(10).contains("롤, 리그 오브 레전드, 리그오브레전드, LoL");
     }
 
     @Test
-    @DisplayName("동의어만 바뀌면 index 이름이 같다(재색인 없음). 사용자 사전이 바뀌면 이름이 바뀐다")
-    void hashExcludesSynonyms() {
-        InfluencerIndexDefinition base = InfluencerIndexDefinition.of(TEMPLATE, List.of("합방"), List.of("롤, LoL"));
+    @DisplayName("설정 해시가 운영 index와 같다. 사전·동의어 파일을 공통 폴더로 옮겨도 재색인하지 않는다(#868)")
+    void sameHashAsProduction() {
+        IndexDefinition definition = InfluencerIndexDefinition.load();
 
-        assertThat(InfluencerIndexDefinition.of(TEMPLATE, List.of("합방"), List.of("배그, PUBG")).indexName())
-                .isEqualTo(base.indexName());
-        assertThat(InfluencerIndexDefinition.of(TEMPLATE, List.of("합방", "치지직"), List.of("롤, LoL")).indexName())
-                .isNotEqualTo(base.indexName());
-    }
-
-    @Test
-    @DisplayName("사용자 사전에 공백·따옴표가 든 줄이 있으면 거절한다(한 단어 규칙만)")
-    void rejectsMultiWordDictionary() {
-        assertThatThrownBy(() -> InfluencerIndexDefinition.of(TEMPLATE, List.of("리그 오브 레전드"), List.of()))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> InfluencerIndexDefinition.of(TEMPLATE, List.of("합\"방"), List.of()))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    @DisplayName("파일에서 빈 줄과 #으로 시작하는 줄을 빼고 앞뒤 공백을 지운다")
-    void lines() {
-        assertThat(InfluencerIndexDefinition.lines("# 설명\n\n  합방  \r\n치지직\n"))
-                .containsExactly("합방", "치지직");
+        assertThat(definition.indexName()).isEqualTo(PRODUCTION_INDEX);
+        assertThat(definition.alias()).isEqualTo(InfluencerIndexDefinition.ALIAS);
+        assertThat(definition.indexPrefix()).isEqualTo(InfluencerIndexDefinition.INDEX_PREFIX);
     }
 }

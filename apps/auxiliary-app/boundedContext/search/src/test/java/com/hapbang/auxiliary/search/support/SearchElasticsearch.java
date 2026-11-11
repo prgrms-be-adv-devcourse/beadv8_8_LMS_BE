@@ -10,6 +10,7 @@ import co.elastic.clients.json.jackson.Jackson3JsonpMapper;
 import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
 import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 
+import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
 
@@ -58,7 +59,7 @@ public final class SearchElasticsearch {
             client.indices().delete(d -> d.index(indices));
         }
         try {
-            client.synonyms().deleteSynonym(d -> d.id(InfluencerIndexDefinition.SYNONYMS_SET));
+            client.synonyms().deleteSynonym(d -> d.id(IndexDefinition.SYNONYMS_SET));
         } catch (ElasticsearchException e) {
             if (e.status() != 404) {
                 throw e;

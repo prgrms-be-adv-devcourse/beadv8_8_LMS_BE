@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.common.out.IndexState;
 import com.hapbang.auxiliary.search.common.out.SynonymsRejectedException;
@@ -30,7 +31,7 @@ class InfluencerIndexSetupTest {
 
     private final ElasticsearchClient client = SearchElasticsearch.client();
 
-    private final InfluencerIndexDefinition definition = InfluencerIndexDefinition.load();
+    private final IndexDefinition definition = InfluencerIndexDefinition.load();
 
     private final InfluencerIndexSetup setup = new InfluencerIndexSetup(client, definition);
 
@@ -64,7 +65,7 @@ class InfluencerIndexSetupTest {
     @Test
     @DisplayName("ES의 동의어 묶음이 레포 파일과 다르면 묶음 전체를 바꾼다")
     void replacesDifferentSynonyms() throws Exception {
-        client.synonyms().putSynonym(p -> p.id(InfluencerIndexDefinition.SYNONYMS_SET)
+        client.synonyms().putSynonym(p -> p.id(IndexDefinition.SYNONYMS_SET)
                 .synonymsSet(s -> s.id("old").synonyms("스타, 스타크래프트")));
 
         setup.syncSynonyms();
@@ -94,7 +95,7 @@ class InfluencerIndexSetupTest {
             template = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         }
         // ES 9.5.5가 400(action_request_validation_exception)으로 거절하는 규칙. "=> 롤" 같은 규칙은 받고 무시한다(직접 확인)
-        InfluencerIndexDefinition broken = InfluencerIndexDefinition.of(template, List.of(), List.of("롤 => 리그 => LoL"));
+        IndexDefinition broken = InfluencerIndexDefinition.of(template, List.of(), List.of("롤 => 리그 => LoL"));
         InfluencerIndexSetup brokenSetup = new InfluencerIndexSetup(client, broken);
 
         assertThatThrownBy(brokenSetup::resyncSynonyms).isInstanceOf(SynonymsRejectedException.class);
@@ -177,7 +178,7 @@ class InfluencerIndexSetupTest {
     }
 
     private List<String> synonyms() throws Exception {
-        return client.synonyms().getSynonym(g -> g.id(InfluencerIndexDefinition.SYNONYMS_SET)).synonymsSet().stream()
+        return client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet().stream()
                 .map(SynonymRuleRead::synonyms).toList();
     }
 

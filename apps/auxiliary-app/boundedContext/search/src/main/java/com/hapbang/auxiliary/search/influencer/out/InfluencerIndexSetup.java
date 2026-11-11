@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.common.out.IndexState;
 import com.hapbang.auxiliary.search.common.out.SynonymsRejectedException;
@@ -48,7 +49,7 @@ import lombok.extern.slf4j.Slf4j;
 public class InfluencerIndexSetup {
 
     private final ElasticsearchClient client;
-    private final InfluencerIndexDefinition definition;
+    private final IndexDefinition definition;
     private volatile boolean synonymsSynced;
     private volatile boolean ready;
 
@@ -57,7 +58,7 @@ public class InfluencerIndexSetup {
         this(client, InfluencerIndexDefinition.load());
     }
 
-    InfluencerIndexSetup(ElasticsearchClient client, InfluencerIndexDefinition definition) {
+    InfluencerIndexSetup(ElasticsearchClient client, IndexDefinition definition) {
         this.client = client;
         this.definition = definition;
     }
@@ -129,21 +130,21 @@ public class InfluencerIndexSetup {
             if (!expected.equals(currentSynonyms())) {
                 List<SynonymRule> rules = new ArrayList<>();
                 expected.forEach((id, synonyms) -> rules.add(SynonymRule.of(r -> r.id(id).synonyms(synonyms))));
-                client.synonyms().putSynonym(p -> p.id(InfluencerIndexDefinition.SYNONYMS_SET).synonymsSet(rules));
-                log.info("검색 동의어 묶음을 바꿨다 synonymsSet={}, rules={}", InfluencerIndexDefinition.SYNONYMS_SET,
+                client.synonyms().putSynonym(p -> p.id(IndexDefinition.SYNONYMS_SET).synonymsSet(rules));
+                log.info("검색 동의어 묶음을 바꿨다 synonymsSet={}, rules={}", IndexDefinition.SYNONYMS_SET,
                         rules.size());
             }
         } catch (ElasticsearchException e) {
             if (e.status() >= 400 && e.status() < 500 && e.status() != 429) {
                 throw new SynonymsRejectedException("ES가 검색 동의어 묶음을 거절했습니다. synonyms.txt를 고쳐야 합니다 synonymsSet="
-                        + InfluencerIndexDefinition.SYNONYMS_SET + ", error="
+                        + IndexDefinition.SYNONYMS_SET + ", error="
                         + (e.error() == null ? null : e.error().type()), e);
             }
             throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
-                    + InfluencerIndexDefinition.SYNONYMS_SET, e);
+                    + IndexDefinition.SYNONYMS_SET, e);
         } catch (IOException e) {
             throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
-                    + InfluencerIndexDefinition.SYNONYMS_SET, e);
+                    + IndexDefinition.SYNONYMS_SET, e);
         }
         synonymsSynced = true;
     }
@@ -268,7 +269,7 @@ public class InfluencerIndexSetup {
         try {
             Map<String, String> rules = new LinkedHashMap<>();
             for (SynonymRuleRead rule : client.synonyms()
-                    .getSynonym(g -> g.id(InfluencerIndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet()) {
+                    .getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet()) {
                 rules.put(rule.id(), rule.synonyms());
             }
             return rules;

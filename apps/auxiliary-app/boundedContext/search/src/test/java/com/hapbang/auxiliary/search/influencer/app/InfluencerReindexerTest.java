@@ -25,6 +25,7 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import com.hapbang.auxiliary.global.scheduling.JobLock;
 import com.hapbang.auxiliary.search.common.app.SearchJob;
 import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
+import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerReindexer.ReindexReason;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerReindexer.ReindexResult;
 import com.hapbang.auxiliary.search.influencer.app.MemberChangeReconciler.CatchUp;
@@ -383,7 +384,7 @@ class InfluencerReindexerTest {
                 .isInstanceOf(com.hapbang.auxiliary.search.common.out.IndexNotReadyException.class);
         ReindexResult result = pod.reindexer.reindexIfNeeded();
         assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
-        assertThat(client.synonyms().getSynonym(g -> g.id(InfluencerIndexDefinition.SYNONYMS_SET)).synonymsSet())
+        assertThat(client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet())
                 .hasSize(10);
         assertThat(source(1)).containsEntry("hidden", false);
     }
