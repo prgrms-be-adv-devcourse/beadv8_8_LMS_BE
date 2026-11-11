@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-043 · 2026-11-11 · 통과 (#859 PR CI 실패 원인 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-043 |
+| 실행 날짜 | 2026-11-11 15:15~15:25 (KST) |
+| 실행자 | Claude Code (CI 실패는 GitHub Actions, 사용자가 로그 전달) |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `5bf3e3be`(CI 실패 커밋) + 작업 트리 |
+| 작업 트리 변경 | `NotificationAlertListenerStarterTest`: 대기 게이지 0 단정을 컨테이너 시작과 같은 `untilAsserted` 안으로 옮김(운영 코드 변경 없음) |
+| 대상 기능 | 시험 경합(CI에서만 실패) |
+| 관련 NT ID | NT-USR-09 |
+| 명령 | 재현: `[DEBUG-859a]` 임시 지연(컨테이너 시작과 게이지 0 사이 1.5초)을 넣고 `./gradlew :notification:test --tests "*NotificationAlertListenerStarterTest"` → 수정 뒤 같은 명령 → 지연 제거 뒤 같은 명령 → `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬은 NR-036과 같다. CI는 GitHub Actions(ubuntu) |
+| 결과 | CI 실패 → 로컬 재현(지연 주입, 같은 90행·`expected 0.0 but was 1.0`) → 수정 뒤 지연 있는 채로 통과 → 지연 제거 뒤 통과 → 3명령 통과(Gradle 종료 코드 0) |
+| 건수 | 3명령: `:notification` 성공 178, 실패 0, 오류 0, 건너뜀 0(새로 실행, XML 기준). `:auxiliary-app` test는 `UP-TO-DATE`(NR-042 결과 13, 실패 0) |
+| 실패 원인 분류 | 시험 경합. Starter는 출연·지갑 컨테이너를 시작한 **뒤에** 대기 게이지를 0으로 바꾸는데, 시험은 컨테이너가 실행 중인 것만 기다리고 게이지 0을 곧바로 단정했다. 느린 CI에서 단정이 게이지 갱신보다 먼저 실행됐다. 기각한 가설: CI의 여러 MeterRegistry(OTLP), Backfill 재실행으로 게이지가 다시 1 |
+| 수정 내용 | 게이지 0도 함께 기다리게 시험을 고쳤다. 운영 순서(시작 뒤 0)는 "기다리는 중"의 뜻에 맞아 그대로 둔다. 임시 지연은 지웠다(`DEBUG-859a` 검색 결과 없음) |
+| 재실행 결과 | 위와 같다 |
+| 미검증 항목 | CI 재실행 결과(Push 뒤 확인). NR-042의 미검증 항목은 그대로 |
+| 관련 변경 | #859 |
+
 #### NR-042 · 2026-11-11 · 통과 (#859 ND-095 알림 시작 시각 첫 기동 기록, 두 번째 실행)
 
 | 항목 | 값 |

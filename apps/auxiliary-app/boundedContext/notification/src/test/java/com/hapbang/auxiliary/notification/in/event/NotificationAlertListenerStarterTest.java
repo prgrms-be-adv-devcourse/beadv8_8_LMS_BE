@@ -80,14 +80,15 @@ class NotificationAlertListenerStarterTest {
 
         source.failNext(0);
 
+        // 게이지는 컨테이너를 시작한 뒤에 0이 된다(Starter 스레드). 시작을 본 것만으로 0을 단정하면 느린 환경(CI)에서 경합한다
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
             assertThat(registry.getListenerContainer(NotificationAppearanceEventListener.LISTENER_ID).isRunning())
                     .isTrue();
             assertThat(registry.getListenerContainer(NotificationBillingEventListener.LISTENER_ID).isRunning())
                     .isTrue();
+            assertThat(meters.get(NotificationAlertListenerStarter.WAITING_METRIC).gauge().value()).isZero();
         });
         assertThat(users.findById(MEMBER_ID)).isPresent();
-        assertThat(meters.get(NotificationAlertListenerStarter.WAITING_METRIC).gauge().value()).isZero();
     }
 
     /** 기동 전부터 계속 실패하는 회원 목록 소스 */
