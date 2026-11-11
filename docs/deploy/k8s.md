@@ -227,53 +227,65 @@ kubectl --context hapbang-k3s -n hapbang-platform get secret hapbang-es-http-cer
 es() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'user = "elastic:%s"\n' "$es_pw") -H 'Content-Type: application/json' "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
 ```
 
+만들 key의 값을 고른다. 모듈마다 아래 묶음 하나를 실행하고 나머지 단계는 같다. 한 번에 key 하나씩 끝까지 진행한다.
+
+```bash
+# 챗봇(#726)
+role=chatbot name=auxiliary-app-chatbot var=ES_API_KEY issue=726 other=search
+desc='{"cluster":["monitor"],"indices":[{"names":["chatbot-*"],"privileges":["all"]}]}'
+```
+
+```bash
+# 검색(#806). 동의어 묶음을 Synonyms API로 관리하므로 manage_search_synonyms가 더 있다
+role=search name=auxiliary-app-search var=ES_SEARCH_API_KEY issue=806 other=chatbot
+desc='{"cluster":["monitor","manage_search_synonyms"],"indices":[{"names":["search-*"],"privileges":["all"]}]}'
+```
+
 먼저 조회한다. role이 없으면 `{}`, 같은 이름의 유효한 key가 없으면 빈 목록이다.
 
 ```bash
 es /_security/_authenticate | jq '{username, roles}'
-es /_security/role/chatbot
-es '/_security/api_key?name=auxiliary-app-chatbot&active_only=true' | jq '[.api_keys[] | {id, name, expiration: (.expiration / 1000 | todate)}]'
+es "/_security/role/${role}"
+es "/_security/api_key?name=${name}&active_only=true" | jq '[.api_keys[] | {id, name, expiration: (.expiration / 1000 | todate)}]'
 ```
 
-role과 API key를 만든다. key 값(`encoded`)은 화면에 내지 않고 `~/.hapbang/prod-secrets.env`의 `ES_API_KEY` 줄로 바로 쓴다. API key의 권한은 만들 때 넣은 `role_descriptors`로 고정되므로 role을 바꾸면 key를 다시 만든다.
+role과 API key를 만든다. key 값(`encoded`)은 화면에 내지 않고 `~/.hapbang/prod-secrets.env`의 `$var` 줄로 바로 쓴다. API key의 권한은 만들 때 넣은 `role_descriptors`로 고정되므로 role을 바꾸면 key를 다시 만든다.
 
 ```bash
-desc='{"cluster":["monitor"],"indices":[{"names":["chatbot-*"],"privileges":["all"]}]}'
-es /_security/role/chatbot -X PUT -d "$desc"
-resp=$(es /_security/api_key -X POST -d "{\"name\":\"auxiliary-app-chatbot\",\"expiration\":\"90d\",\"role_descriptors\":{\"chatbot\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"issue\":726}}")
+es "/_security/role/${role}" -X PUT -d "$desc"
+resp=$(es /_security/api_key -X POST -d "{\"name\":\"${name}\",\"expiration\":\"90d\",\"role_descriptors\":{\"${role}\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"module\":\"${role}\",\"issue\":${issue}}}")
 printf '%s' "$resp" | jq '{id, name, expiration: (.expiration / 1000 | todate)}'
 key=$(printf '%s' "$resp" | jq -r '.encoded // empty')
 f=~/.hapbang/prod-secrets.env
-[ -n "$key" ] && ( umask 077; { grep -v '^ES_API_KEY=' "$f"; printf 'ES_API_KEY=%s\n' "$key"; } > "$f.tmp" ) && mv "$f.tmp" "$f" && grep -c '^ES_API_KEY=' "$f"
+[ -n "$key" ] && ( umask 077; { grep -v "^${var}=" "$f"; printf '%s=%s\n' "$var" "$key"; } > "$f.tmp" ) && mv "$f.tmp" "$f" && grep -c "^${var}=" "$f"
 unset resp key
 ```
 
-마지막 줄은 `1`을 출력해야 한다. 기존 `ES_API_KEY` 줄을 지우고 새 줄 하나만 남기므로 `seal-app-secrets.sh`와 아래 확인 단계가 새 key를 읽는다. `sed -i`는 macOS와 Linux의 문법이 달라 쓰지 않는다.
+마지막 줄은 `1`을 출력해야 한다. 기존 `$var` 줄을 지우고 새 줄 하나만 남기므로 `seal-app-secrets.sh`와 아래 확인 단계가 새 key를 읽는다. 다른 모듈의 key 줄은 그대로 남는다. `sed -i`는 macOS와 Linux의 문법이 달라 쓰지 않는다.
 
-key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403이다. 확인용 index는 바로 지운다.
+key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403(다른 모듈 index)이다. 확인용 index는 바로 지운다.
 
 ```bash
-k=$(grep -m1 '^ES_API_KEY=' ~/.hapbang/prod-secrets.env | cut -d= -f2-)
-esk() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'header = "Authorization: ApiKey %s"\n' "$k") "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
+k=$(grep -m1 "^${var}=" ~/.hapbang/prod-secrets.env | cut -d= -f2-)
+esk() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'header = "Authorization: ApiKey %s"\n' "$k") -H 'Content-Type: application/json' "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
 esk /_security/_authenticate | jq -r .authentication_type
 esk /_cluster/health -o /dev/null -w '%{http_code}\n'
-esk /chatbot-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
-esk /chatbot-check-726 -X DELETE -o /dev/null -w '%{http_code}\n'
-esk /search-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
+esk "/${role}-check-${issue}" -X PUT -o /dev/null -w '%{http_code}\n'
+esk "/${role}-check-${issue}" -X DELETE -o /dev/null -w '%{http_code}\n'
+esk "/${other}-check-${issue}" -X PUT -o /dev/null -w '%{http_code}\n'
+```
+
+검색 key는 동의어 권한도 확인한다. 기대 결과는 201, 200이다. 새 동의어 묶음을 만들면 200이 아니라 201이 나온다.
+
+```bash
+esk "/_synonyms/search-check-${issue}" -X PUT -d '{"synonyms_set":[{"id":"r1","synonyms":"롤, 리그 오브 레전드"}]}' -o /dev/null -w '%{http_code}\n'
+esk "/_synonyms/search-check-${issue}" -X DELETE -o /dev/null -w '%{http_code}\n'
+```
+
+확인이 끝나면 접속 정보를 지운다. 다른 key를 이어서 만들려면 이 줄을 실행하기 전에 위의 값 고르기부터 다시 한다.
+
+```bash
 unset k es_pw; rm -f "$ca"
-```
-
-검색 key(#806)도 같은 순서로 만든다. 위 명령의 role을 `search`, key 이름을 `auxiliary-app-search`, metadata를 `{"app":"auxiliary-app","module":"search","issue":806}`, env 줄을 `ES_SEARCH_API_KEY`로 바꾸고, `desc`는 아래 값을 쓴다.
-
-```bash
-desc='{"cluster":["monitor","manage_search_synonyms"],"indices":[{"names":["search-*"],"privileges":["all"]}]}'
-```
-
-권한 확인은 `/_cluster/health` 200, `search-*` index 생성·삭제 200·200, `chatbot-*` index 생성 403이다. 동의어 권한은 아래로 확인한다. 새 동의어 묶음을 만들면 200이 아니라 201이 나온다.
-
-```bash
-esk /_synonyms/search-check -X PUT -H 'Content-Type: application/json' -d '{"synonyms_set":[{"id":"r1","synonyms":"롤, 리그 오브 레전드"}]}' -o /dev/null -w '%{http_code}\n'
-esk /_synonyms/search-check -X DELETE -o /dev/null -w '%{http_code}\n'
 ```
 
 이전 key를 무효로 할 때는 `es /_security/api_key -X DELETE -d '{"ids":["<id>"]}'`를 쓴다.
