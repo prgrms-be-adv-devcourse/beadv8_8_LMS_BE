@@ -120,7 +120,7 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
         clearTasks();
         memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
         InfluencerIndexChecker starting = new InfluencerIndexChecker(handler, index, store,
-                new ContentCategoryNames(memberSource, properties, clockBean), indexTaskStore, properties, clockBean);
+                new ChatbotCategoryNames(memberSource, properties, clockBean), indexTaskStore, properties, clockBean);
 
         // 11(글 비교)·13(새 문서)은 이름이 필요해 건너뛴다
         assertThatThrownBy(starting::check).isInstanceOf(IllegalStateException.class).hasMessageContaining("skipped=2");

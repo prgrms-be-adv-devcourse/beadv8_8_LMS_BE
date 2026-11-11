@@ -41,7 +41,7 @@ public class InfluencerIndexChecker {
     private final InfluencerIndexTaskHandler handler;
     private final RecommendVectorIndex index;
     private final InfluencerRecommendStore store;
-    private final ContentCategoryNames categoryNames;
+    private final ChatbotCategoryNames categoryNames;
     private final IndexTaskStore indexTaskStore;
     private final ChatbotInfluencerRecommendProperties properties;
     private final Clock clock;
@@ -49,7 +49,7 @@ public class InfluencerIndexChecker {
     private final AtomicInteger consecutiveFailures = new AtomicInteger();
 
     InfluencerIndexChecker(InfluencerIndexTaskHandler handler, RecommendVectorIndex index, InfluencerRecommendStore store,
-            ContentCategoryNames categoryNames, IndexTaskStore indexTaskStore, ChatbotInfluencerRecommendProperties properties,
+            ChatbotCategoryNames categoryNames, IndexTaskStore indexTaskStore, ChatbotInfluencerRecommendProperties properties,
             @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.handler = handler;
         this.index = index;
@@ -91,7 +91,7 @@ public class InfluencerIndexChecker {
         handler.ensureIndex();
         int queued = 0;
         int skipped = 0;
-        ContentCategoryNames.Unavailable namesFailure = null;
+        ChatbotCategoryNames.Unavailable namesFailure = null;
         long afterId = 0;
         while (true) {
             List<Long> ids = store.memberIdsAfter(afterId, properties.checkPageSize());
@@ -108,7 +108,7 @@ public class InfluencerIndexChecker {
                     if (InfluencerIndexPlan.decide(profiles.get(id), categoryNames::current, indexed.get(docId)).needsWork()) {
                         stale.add(docId);
                     }
-                } catch (ContentCategoryNames.Unavailable e) {
+                } catch (ChatbotCategoryNames.Unavailable e) {
                     namesFailure = e;
                     skipped++;
                 }

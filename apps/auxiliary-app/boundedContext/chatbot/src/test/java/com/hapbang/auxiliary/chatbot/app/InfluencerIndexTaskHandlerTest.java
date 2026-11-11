@@ -188,7 +188,7 @@ class InfluencerIndexTaskHandlerTest extends InfluencerIntegrationTestBase {
         memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
         // 표를 한 번도 받지 못한 처리기(기동 직후)
         InfluencerIndexTaskHandler starting = new InfluencerIndexTaskHandler(index, embedder, store,
-                new ContentCategoryNames(memberSource, properties, clockBean));
+                new ChatbotCategoryNames(memberSource, properties, clockBean));
 
         Map<String, RuntimeException> failures = starting.handle(docs(INFLUENCER, 12L, 13L));
         index.refresh(IndexType.INFLUENCER);

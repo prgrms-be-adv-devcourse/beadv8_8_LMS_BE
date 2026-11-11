@@ -70,7 +70,7 @@ final class InfluencerIndexPlan {
      * @param profile       회원 사본(없으면 null)
      * @param categoryNames 분야 코드 → 한글 이름 표. 4번(글 해시)에서만 부른다
      * @param indexed       지금 색인 문서(없으면 null)
-     * @throws ContentCategoryNames.Unavailable 4번까지 와서 분야 이름 표를 받을 수 없을 때
+     * @throws ChatbotCategoryNames.Unavailable 4번까지 와서 분야 이름 표를 받을 수 없을 때
      */
     static Decision decide(@Nullable InfluencerProfile profile, Supplier<Map<String, String>> categoryNames,
             @Nullable IndexedProfile indexed) {
@@ -85,7 +85,7 @@ final class InfluencerIndexPlan {
             return new Decision(exists ? Action.DELETE : Action.NONE, null);
         }
         InfluencerProfileText text = InfluencerProfileText.of(
-                ContentCategoryNames.namesOf(profile.categories(), categoryNames.get()), profile.bio());
+                ChatbotCategoryNames.namesOf(profile.categories(), categoryNames.get()), profile.bio());
         if (!exists || !text.hash().equals(indexed.textHash())) {
             return new Decision(Action.EMBED, text);
         }

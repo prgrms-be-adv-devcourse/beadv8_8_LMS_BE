@@ -36,10 +36,10 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
     private final RecommendVectorIndex index;
     private final ChatbotEmbedder embedder;
     private final InfluencerRecommendStore store;
-    private final ContentCategoryNames categoryNames;
+    private final ChatbotCategoryNames categoryNames;
 
     InfluencerIndexTaskHandler(RecommendVectorIndex index, ChatbotEmbedder embedder, InfluencerRecommendStore store,
-            ContentCategoryNames categoryNames) {
+            ChatbotCategoryNames categoryNames) {
         this.index = index;
         this.embedder = embedder;
         this.store = store;

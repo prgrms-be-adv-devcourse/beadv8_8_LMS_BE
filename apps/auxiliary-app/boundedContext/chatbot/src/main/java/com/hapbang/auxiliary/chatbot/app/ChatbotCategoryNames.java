@@ -29,10 +29,12 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>한 번도 받지 못했으면 {@link #current()}는 {@link Unavailable} 예외다. 색인 처리기는 이름이 필요한 문서만 실패로 돌린다(마스킹 삭제·숨김은 이름 없이 한다).
  *     {@link #namesOf}는 코드를 그대로 보여 준다.</li>
  * </ul>
+ * 이름에 {@code Chatbot}을 붙인 것은 검색 모듈의 같은 일을 하는 {@code ContentCategoryNames}와 빈 이름이 겹치지 않게 하려는 것이다
+ * (한 앱 안의 모듈이라 빈 이름 공간을 같이 쓴다, 모듈 사이 코드 참조는 하지 않는다).
  */
 @Slf4j
 @Component
-public class ContentCategoryNames {
+public class ChatbotCategoryNames {
 
     private final MemberSyncSource memberSource;
     private final ChatbotInfluencerRecommendProperties properties;
@@ -43,7 +45,7 @@ public class ContentCategoryNames {
     private volatile @Nullable Instant nextFetchAt;
     private volatile @Nullable RuntimeException lastFailure;
 
-    ContentCategoryNames(MemberSyncSource memberSource, ChatbotInfluencerRecommendProperties properties,
+    ChatbotCategoryNames(MemberSyncSource memberSource, ChatbotInfluencerRecommendProperties properties,
             @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.memberSource = memberSource;
         this.properties = properties;

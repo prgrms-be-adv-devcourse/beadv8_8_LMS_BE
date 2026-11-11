@@ -24,18 +24,18 @@ import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
  * 분야 이름 표 (#719). 테스트 시계로 보관·재시도 시간을 넘긴다(시간에 기대지 않는다). 시간은 설정값에서 계산한다.
  * 테스트마다 새 객체를 만들어 앞 테스트의 표를 쓰지 않는다.
  */
-class ContentCategoryNamesTest extends ChatbotIntegrationTestBase {
+class ChatbotCategoryNamesTest extends ChatbotIntegrationTestBase {
 
     private static final Duration WAIT = Duration.ofSeconds(10);
 
     @Autowired
     private ChatbotInfluencerRecommendProperties properties;
 
-    private ContentCategoryNames names;
+    private ChatbotCategoryNames names;
 
     @BeforeEach
     void setUp() {
-        names = new ContentCategoryNames(memberSource, properties, clockBean);
+        names = new ChatbotCategoryNames(memberSource, properties, clockBean);
     }
 
     @Test
@@ -74,7 +74,7 @@ class ContentCategoryNamesTest extends ChatbotIntegrationTestBase {
     void neverFetched() {
         memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
 
-        assertThatThrownBy(names::current).isInstanceOf(ContentCategoryNames.Unavailable.class);
+        assertThatThrownBy(names::current).isInstanceOf(ChatbotCategoryNames.Unavailable.class);
         assertThat(names.namesOf(List.of("GAME", "MUSIC"))).containsExactly("GAME", "MUSIC");
         assertThat(memberSource.categoryCalls()).isEqualTo(1);
 

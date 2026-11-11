@@ -177,7 +177,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 항상 5명(추천 가능한 회원이 그보다 적을 때만 적게) | 임베딩 장애, index 없음(첫 배포·ES 오류) 때 인기순 | `InfluencerRecommendUseCaseTest` |
 | 회원 ID는 `ToolContext`에서만 | | `InfluencerRecommendApiTest.tool` |
 | 설명 API의 LLM 프롬프트에 닉네임·자기소개 원문·회원 ID를 보내지 않는다(Tool 결과에는 회원 ID가 있다) | | `explained`, `promptHasNoMemberIds` |
-| 표를 처음 받는 중이면 색인 쪽 호출은 기다리고, 화면용 호출은 기다리지 않는다 | 기동 직후(받기에 실패하면 재시도 시간까지는 기다리지 않고 실패) | `ContentCategoryNamesTest.waitsForFirstFetch`, `displayDoesNotWait` |
+| 표를 처음 받는 중이면 색인 쪽 호출은 기다리고, 화면용 호출은 기다리지 않는다 | 기동 직후(받기에 실패하면 재시도 시간까지는 기다리지 않고 실패) | `ChatbotCategoryNamesTest.waitsForFirstFetch`, `displayDoesNotWait` |
 
 ## 검색 (#771, #772)
 

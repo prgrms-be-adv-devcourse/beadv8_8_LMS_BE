@@ -26,7 +26,7 @@ class InfluencerRecommendMapper {
      */
     static final String REQUESTER_HIDDEN_NOTICE = "지금은 인플루언서를 추천할 수 없어요. 가입한 지 얼마 안 됐다면 잠시 뒤 다시 시도해 주세요.";
 
-    private final ContentCategoryNames categoryNames;
+    private final ChatbotCategoryNames categoryNames;
 
     /** 설명 없는 응답(위젯 API·Tool) */
     InfluencerRecommendResDto response(InfluencerRecommendation recommendation) {

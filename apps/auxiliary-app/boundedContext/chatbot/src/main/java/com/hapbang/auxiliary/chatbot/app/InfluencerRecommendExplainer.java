@@ -53,11 +53,11 @@ public class InfluencerRecommendExplainer {
 
     private final @Nullable ChatClient chatClient;
     private final LlmCallGuard llm;
-    private final ContentCategoryNames categoryNames;
+    private final ChatbotCategoryNames categoryNames;
     private final ChatbotInfluencerRecommendProperties properties;
 
     InfluencerRecommendExplainer(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder,
-            LlmCallGuard llm, ContentCategoryNames categoryNames, ChatbotInfluencerRecommendProperties properties) {
+            LlmCallGuard llm, ChatbotCategoryNames categoryNames, ChatbotInfluencerRecommendProperties properties) {
         // ChatClient.Builder 빈 정의는 모델이 없어도 있고, 그때 꺼내면 예외다. 모델이 있을 때만 꺼낸다
         this.chatClient = chatModel.getIfAvailable() == null ? null
                 : chatClientBuilder.getObject().defaultSystem(SYSTEM_PROMPT).build();

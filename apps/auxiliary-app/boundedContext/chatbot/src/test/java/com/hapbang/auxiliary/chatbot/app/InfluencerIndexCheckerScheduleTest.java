@@ -34,7 +34,7 @@ class InfluencerIndexCheckerScheduleTest {
     private final InfluencerIndexTaskHandler handler = mock(InfluencerIndexTaskHandler.class);
     private final ChatbotInfluencerRecommendProperties properties = properties(Map.of("check-alert-after-failures", "3"));
     private final InfluencerIndexChecker checker = new InfluencerIndexChecker(handler, mock(RecommendVectorIndex.class),
-            mock(InfluencerRecommendStore.class), mock(ContentCategoryNames.class), mock(IndexTaskStore.class), properties,
+            mock(InfluencerRecommendStore.class), mock(ChatbotCategoryNames.class), mock(IndexTaskStore.class), properties,
             Clock.fixed(Instant.parse("2026-11-11T00:00:00Z"), ZoneOffset.UTC));
 
     @Test
