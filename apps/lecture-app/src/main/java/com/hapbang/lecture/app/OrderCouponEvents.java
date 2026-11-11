@@ -17,6 +17,7 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
@@ -30,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>쿠폰을 쓴 항목(주문 쿠폰 계산 근거가 있는 항목)만, 항목마다 하나 낸다. 쿠폰 없는 주문은 내지 않는다.</li>
  *     <li>사용 시도는 발급 쿠폰 ID와 예약 generation이다.</li>
  *     <li>시각은 기록하는 트랜잭션의 지금 시각(KST)을 Instant로 바꾼 값이다.</li>
- *     <li>플랫폼 부담이 아직 없어 예산 복구 결과는 늘 빈 목록이다.</li>
+ *     <li>플랫폼 부담은 지갑이 확인한 예약 복구 결과를 같은 트랜잭션의 취소 완료 이벤트에 담는다.</li>
  * </ul>
  */
 @Slf4j
@@ -62,11 +63,17 @@ public class OrderCouponEvents {
     /**
      * 항목의 구매 취소·이의 제기 반환이 끝났다. 쿠폰을 쓴 항목이면 취소 완료 이벤트를 낸다.
      *
-     * @param billingReleaseRequestId 구매자 HP를 돌려준 지갑 작업의 요청 ID. 작업 없이 끝났으면(구매자 금액 0) {@code null}
+     * @param billingReleaseRequestId 구매자·플랫폼 HP를 돌려준 지갑 작업의 요청 ID. 두 몫이 모두 0이라 작업 없이 끝났으면 {@code null}
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void itemCancelCompleted(LectureOrder order, OrderItem item, String billingReleaseRequestId,
                                     LocalDateTime now) {
+        itemCancelCompleted(order, item, billingReleaseRequestId, List.of(), now);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void itemCancelCompleted(LectureOrder order, OrderItem item, String billingReleaseRequestId,
+                                    List<PromotionRestorationDto> restorations, LocalDateTime now) {
         List<OrderItemCoupon> itemCoupons = couponsByItem(List.of(item)).get(item.getId());
         if (itemCoupons == null || !hasGenerations(item, itemCoupons)) {
             return;
@@ -75,7 +82,9 @@ public class OrderCouponEvents {
                 order.getBuyerUserId(), itemCoupons.stream()
                         .map(coupon -> new OrderItemCancelCompletedEvent.Usage(coupon.getMemberCouponId(),
                                 coupon.getReservedGeneration()))
-                        .toList(), billingReleaseRequestId, List.of(), toInstant(now)));
+                        .toList(), billingReleaseRequestId, restorations.stream()
+                        .map(r -> new OrderItemCancelCompletedEvent.BudgetRestoration(r.couponId(), r.memberCouponId(),
+                                r.generation(), r.amountHp())).toList(), toInstant(now)));
     }
 
     private Map<Long, List<OrderItemCoupon>> couponsByItem(Collection<OrderItem> items) {

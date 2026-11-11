@@ -45,7 +45,7 @@ final class LectureHpReconciliationComparer {
         List<Finding> findings = new ArrayList<>();
         String lectureState = describe(target);
         String walletState = describe(wallet);
-        // 구매자 금액이 0인 항목은 지갑을 부르지 않았다: 보류가 없거나 닫혀 있고 지급 건도 없어야 한다
+        // 구매자·플랫폼 몫이 모두 0인 항목은 지갑을 부르지 않았다: 보류가 없거나 닫혀 있고 지급 건도 없어야 한다
         if (!target.expectsWalletHold()) {
             compareClosedHold(wallet, lectureState, walletState, findings);
             compareNoSettlement(wallet, lectureState, findings);
@@ -61,6 +61,9 @@ final class LectureHpReconciliationComparer {
             case PAID_OUT ->
                     compareActiveHold(target, wallet, 0, 0, held, lectureState, walletState, findings);
             case HOLD_PENDING, HOLD_COMPENSATING -> throw new IllegalStateException("위에서 막았다");
+        }
+        if (target.status() != OrderItemStatus.HOLD_FAILED) {
+            comparePromotions(target, wallet, lectureState, walletState, findings);
         }
         compareSettlements(target, wallet, lectureState, walletState, findings);
         return findings;
@@ -82,8 +85,11 @@ final class LectureHpReconciliationComparer {
     private static void compareClosedHold(HoldStateDto wallet, String lectureState, String walletState,
                                           List<Finding> findings) {
         HoldStateDto.Hold hold = wallet.hold();
-        if (hold != null && (hold.remaining().totalHp() > 0 || hold.paid().totalHp() > 0
-                || hold.captured().totalHp() > 0)) {
+        if ((hold != null && (hold.remaining().totalHp() > 0 || hold.paid().totalHp() > 0
+                || hold.captured().totalHp() > 0)) || (wallet.promotion() != null
+                && (wallet.promotion().held() > 0 || wallet.promotion().paid() > 0))
+                || wallet.promotions().stream().anyMatch(promotion -> promotion.amountHp() > 0
+                        && ("HELD".equals(promotion.status()) || "PAID".equals(promotion.status())))) {
             findings.add(new Finding(LectureHpReconciliationRule.HOLD_NOT_CLOSED, lectureState, walletState));
         }
     }
@@ -107,6 +113,38 @@ final class LectureHpReconciliationComparer {
         if (hold.remaining().totalHp() != expectedRemaining || hold.released().totalHp() != expectedReleased
                 || hold.paid().totalHp() != expectedPaid || hold.captured().totalHp() != 0) {
             findings.add(new Finding(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH, lectureState, walletState));
+        }
+    }
+
+    private static void comparePromotions(LectureHpReconciliationTarget target, HoldStateDto wallet,
+            String lectureState, String walletState, List<Finding> findings) {
+        long total = target.promotionAmountHp();
+        boolean restored = target.status() == OrderItemStatus.CANCELED || target.status() == OrderItemStatus.RETURNED;
+        boolean paid = target.status() == OrderItemStatus.PAID_OUT;
+        String status = restored ? "RESTORED" : paid ? "PAID" : "HELD";
+        HoldStateDto.PromotionAmount amount = wallet.promotion();
+        long heldHp = amount == null ? 0L : amount.held();
+        long paidHp = amount == null ? 0L : amount.paid();
+        long restoredHp = amount == null ? 0L : amount.restored();
+        if (heldHp != (restored || paid ? 0L : total) || paidHp != (paid ? total : 0L)
+                || restoredHp != (restored ? total : 0L)) {
+            findings.add(new Finding(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH, lectureState, walletState));
+        }
+        var actual = wallet.promotions().stream()
+                .sorted(java.util.Comparator.comparing(HoldStateDto.Promotion::couponId,
+                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))).toList();
+        var expected = target.promotions();
+        boolean matches = expected.size() == actual.size();
+        for (int i = 0; matches && i < expected.size(); i++) {
+            var e = expected.get(i);
+            var a = actual.get(i);
+            matches = Objects.equals(e.couponId(), a.couponId())
+                    && Objects.equals(e.memberCouponId(), a.memberCouponId())
+                    && Objects.equals(e.generation(), a.generation()) && e.amountHp() == a.amountHp()
+                    && status.equals(a.status());
+        }
+        if (!matches || LectureHpPromotions.total(expected) != total) {
+            findings.add(new Finding(LectureHpReconciliationRule.HOLD_MISMATCH, lectureState, walletState));
         }
     }
 
@@ -137,7 +175,14 @@ final class LectureHpReconciliationComparer {
                 && Objects.equals(settlement.sourceId(), target.orderItemId())
                 && settlement.payoutType() == PayoutType.NORMAL
                 && Objects.equals(settlement.receiverUserId(), target.sellerUserId())
+                && settlement.grossAmountHp() == target.sellerPayoutHp()
                 && settlement.paidAmountHp() == target.sellerPayoutHp()
+                && (target.promotionAmountHp() == 0
+                    ? (settlement.promotionPaidHp() == null || settlement.promotionPaidHp() == 0)
+                        && (settlement.buyerPaidHp() == null
+                            || Objects.equals(settlement.buyerPaidHp(), target.buyerAmountHp()))
+                    : Objects.equals(settlement.buyerPaidHp(), target.buyerAmountHp())
+                        && Objects.equals(settlement.promotionPaidHp(), target.promotionAmountHp()))
                 && settlement.status() == BillingSettlementStatus.COMPLETED;
     }
 
@@ -159,7 +204,8 @@ final class LectureHpReconciliationComparer {
                 : "무효화 %s %d".formatted(wallet.voided().outcome(), wallet.voided().releasedHp());
         String settlements = wallet.settlements().stream().map(LectureHpReconciliationComparer::describe)
                 .collect(Collectors.joining(", "));
-        return "%s; %s; 지급 건 [%s]".formatted(holdState, voided, settlements);
+        return "%s; %s; 지급 건 [%s]; 프로모션 %s %s".formatted(holdState, voided, settlements, wallet.promotion(),
+                wallet.promotions());
     }
 
     private static String describe(HoldStateDto.Settlement settlement) {
