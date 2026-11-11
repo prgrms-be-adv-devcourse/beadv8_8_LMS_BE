@@ -16,4 +16,8 @@ public interface LectureHpReconciliationRunRepository extends JpaRepository<Lect
 
     /** 마지막으로 시작한 실행 */
     Optional<LectureHpReconciliationRun> findFirstByOrderByStartedAtDescIdDesc();
+
+    /** 이 상태로 마지막에 끝난 실행 (지표 복원은 COMPLETED, #805) */
+    Optional<LectureHpReconciliationRun> findFirstByStatusOrderByFinishedAtDescIdDesc(
+            LectureHpReconciliationStatus status);
 }

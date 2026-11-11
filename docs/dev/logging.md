@@ -82,7 +82,8 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 - **4xx 업무 예외는 INFO다.** 사용자 입력이 틀렸거나 정책상 거절한 정상 응답이므로 WARN 패널과 alert를 채우지 않는다. 그래도 문의를 조사할 때 거절 사유(`code`)가 필요하므로 6개 앱의 `GlobalExceptionHandler`가 INFO로 남긴다. Envoy access log에는 상태 코드만 있다.
 - **Kafka 소비 처리 결과는 INFO 한 줄을 남긴다.** 복제본 반영, 명령 처리, 별점 반영처럼 받은 이벤트로 상태를 바꿨으면 리스너나 그 처리기가 한 줄을 남긴다. 그래야 `eventKey`·`traceId`로 찾을 줄이 생긴다. 쓰지 않는 이벤트를 넘기는 것은 DEBUG다.
 - 5xx 업무 예외와 처리하지 못한 예외는 ERROR다. 아래 "잠시 뒤 다시 보내면 되는 거절"은 5xx여도 예외다.
-- **잠시 뒤 다시 보내면 되는 거절은 요청마다 남기지 않는다.** 회원별 요청 한도 초과(429 `TOO_MANY_REQUESTS`)와 업로드 자리 없음(503 `FILE_UPLOAD_BUSY`)은 남용·혼잡 때 한꺼번에 몰려, 요청마다 남기면 로그가 쏟아지고 혼잡이 풀리면 저절로 회복된다. 그래서 공통 `GlobalExceptionHandler`는 이 예외(강의 `RetryLater`, 지갑 `RateLimitExceededException`)를 `Retry-After` 헤더와 함께 응답하고 DEBUG만 남긴다(4xx INFO·5xx ERROR 규칙의 예외). 거절은 지표(`lecture.rate_limit.rejected`·`hapbang.billing.rate.limit.rejected`, Envoy route별 5xx)와, 거절한 곳이 상태가 바뀔 때만 남기는 로그(상한에 닿기 시작할 때 WARN, 다시 받을 때 INFO)로 본다 (지갑 BD-140, 강의 D80·D81).
+- **잠시 뒤 다시 보내면 되는 거절은 요청마다 남기지 않는다.** 회원별 요청 한도 초과(429 `TOO_MANY_REQUESTS`)와 업로드 자리 없음(503 `FILE_UPLOAD_BUSY`)은 남용·혼잡 때 한꺼번에 몰려, 요청마다 남기면 로그가 쏟아지고 혼잡이 풀리면 저절로 회복된다. 그래서 공통 `GlobalExceptionHandler`는 이 예외(강의 `RetryLater`, 지갑·auxiliary-app `RateLimitExceededException`)를 `Retry-After` 헤더와 함께 응답하고 DEBUG만 남긴다(4xx INFO·5xx ERROR 규칙의 예외). 거절은 지표(`lecture.rate_limit.rejected`·`hapbang.billing.rate.limit.rejected`·`hapbang.chatbot.rate.limit.rejected`, Envoy route별 5xx)와, 거절한 곳이 상태가 바뀔 때만 남기는 로그(상한에 닿기 시작할 때 WARN, 다시 받을 때 INFO)로 본다 (지갑 BD-140, 강의 D80·D81, 챗봇은 회원 키마다 `KeyedRateLimiter` #715). auxiliary-app은 외부 의존이 잠시 안 되는 503도 오류 코드에 `isRetryLater()`를 켜 같은 방식으로 처리한다(챗봇 `LECTURE_RECOMMEND_UNAVAILABLE`: 장애가 시작될 때 WARN, 회복될 때 INFO, 건수는 `http.server.requests`(status=503)·Envoy route별 5xx, #718).
+- **쿠폰 선착순 매진도 요청마다 INFO로 남기지 않는다.** 매진(409 `COUPON_SOLD_OUT`)은 발급이 열리면 1초에 수백 건씩 몰리고, 줄마다 동기로 쓰면 로그 쓰기 lock에서 요청 스레드가 기다린다(로컬 측정, `docs/load-test/coupon-issue.md`). 그래서 쿠폰 모듈의 `CouponExceptionHandler`는 매진만 DEBUG로 남기고(4xx INFO 규칙의 예외), 건수는 지표 `coupon.issue.sold_out`(Counter)으로 본다. 그 밖의 쿠폰 4xx는 INFO다 (#826).
 - **HP 작업 등록과 결정 로그는 커밋 뒤에 찍는다.** 작업과 결정은 업무 트랜잭션 안에서 저장되고, 같은 요청 ID 동시 등록이나 커밋 때의 충돌처럼 롤백될 수 있다. 롤백된 변경이 "~했다" 로그로 남지 않도록 `TransactionSynchronization.afterCommit`에서 찍는다(앱마다 `app/AfterCommit`). HP 작업 결과도 결과를 기록한 트랜잭션이 커밋된 뒤에 찍는다(#681).
 - **결정 로그에는 결정한 회원 ID를 쓴다.** 수락·거절·취소·확인·검수처럼 회원이나 관리자가 돈 흐름이나 판매 상태를 바꾼 결정은 대상 ID와 결정한 회원 ID(`adminUserId`, `buyerUserId`, `hostId` 등 코드의 필드 이름)를 남긴다. 사유처럼 회원이 쓴 본문은 남기지 않는다.
 
@@ -98,6 +99,12 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 - 회원 개인정보: 이메일, 이름, 닉네임, 채널 URL
 
 다음 값은 남겨도 된다: 회원 ID, 엔티티 ID, Toss `orderId`, 금액, 오류 코드. 회원은 ID로만 가리킨다. 결제는 `orderId`로 추적한다.
+
+검색어는 요청마다 남기지 않는다(남의 이름·닉네임·연락처일 수 있고, `userId`가 붙으면 개인 검색 기록이 된다). 예외로 auxiliary-app 검색은 사전·동의어를 늘릴 근거로 **결과가 0건이던 검색어를 아래 조건을 모두 지킬 때만** 모아 남긴다(#771, PR #828 리뷰). 한 사람의 입력이 로그에 나오지 않게 하는 조건이다. 자세한 것은 [검색 모듈](../search/module.md) 8장.
+
+- 서로 다른 회원 2명 이상이 찾은 말만 남긴다. 회원 ID는 이 판단에만 메모리에서 쓰고 남기지 않는다.
+- 이메일·URL·전화번호 모양(숫자 8개 이상)과 30자를 넘는 말은 세지 않는다. 필터 때문에 0건인 요청도 세지 않는다.
+- 요청 스레드에서는 세기만 하고 배치 스레드가 주기마다 한 줄로 남긴다. 그래서 그 줄에는 검색한 회원의 `userId`·`traceId`가 붙지 않는다.
 
 비밀값 전반의 금지 사항은 [보안](../deploy/security.md)의 "금지 사항"이다.
 

@@ -30,15 +30,19 @@ import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureHpTaskType;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.billing.out.BillingApiClient;
@@ -76,6 +80,8 @@ public class LectureHpTaskExecutor {
     private final LectureHpTaskRepository lectureHpTaskRepository;
     private final LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository;
     private final BillingApiClient billingApiClient;
+    private final OrderItemCouponRepository orderItemCouponRepository;
+    private final LectureOrderRepository lectureOrderRepository;
     private final Map<LectureHpTaskPurpose, LectureHpTaskResultHandler> handlers;
     private final LectureHpTaskProperties properties;
     private final LectureHpTaskRetryPolicy retryPolicy;
@@ -88,12 +94,16 @@ public class LectureHpTaskExecutor {
     public LectureHpTaskExecutor(LectureHpTaskRepository lectureHpTaskRepository,
                                  LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository,
                                  BillingApiClient billingApiClient, List<LectureHpTaskResultHandler> handlers,
+                                 OrderItemCouponRepository orderItemCouponRepository,
+                                 LectureOrderRepository lectureOrderRepository,
                                  LectureHpTaskProperties properties, LectureHpTaskRetryPolicy retryPolicy,
                                  LectureHpTaskMetrics metrics, PlatformTransactionManager transactionManager,
                                  @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureHpTaskRepository = lectureHpTaskRepository;
         this.lectureHpTaskAttemptRepository = lectureHpTaskAttemptRepository;
         this.billingApiClient = billingApiClient;
+        this.orderItemCouponRepository = orderItemCouponRepository;
+        this.lectureOrderRepository = lectureOrderRepository;
         this.handlers = byPurpose(handlers);
         this.properties = properties;
         this.retryPolicy = retryPolicy;
@@ -145,7 +155,12 @@ public class LectureHpTaskExecutor {
                     "결과 처리기가 없는 목적이라 지갑을 부르지 않았다. purpose=" + claim.task().getPurpose()));
             return;
         }
-        record(claim, call(claim.task()));
+        if (claim.payloadError() != null) {
+            record(claim, new Attempt(LectureHpAttemptResult.INVARIANT_VIOLATION, "PROMOTION_PAYLOAD_INVALID", null,
+                    claim.payloadError()));
+            return;
+        }
+        record(claim, call(claim));
     }
 
     /** 선점한다. 한도에 닿은 채 선점이 만료된 작업은 {@code DEAD}로 닫는다. 선점하지 못하면 {@code null} */
@@ -166,15 +181,32 @@ public class LectureHpTaskExecutor {
         LectureHpTask task = lectureHpTaskRepository.findById(taskId).orElseThrow();
         lectureHpTaskAttemptRepository.save(
                 LectureHpTaskAttempt.start(taskId, task.getTotalAttemptCount(), token, now));
-        return new Claim(task, token);
+        var coupons = orderItemCouponRepository.findByOrderItemIdInOrderByOrderItemIdAscApplyOrderAsc(
+                List.of(task.getOrderItemId()));
+        var expected = lectureOrderRepository.findItemsWithOrderId(List.of(task.getOrderItemId())).stream()
+                .findFirst().map(row -> row.item().getPlatformDiscountHp());
+        try {
+            List<HoldPromotionDto> promotions = LectureHpPromotions.of(coupons);
+            long amount = LectureHpPromotions.total(promotions);
+            if (task.getAmountHp() == 0 && amount == 0) {
+                throw new IllegalStateException("구매자와 플랫폼 부담이 모두 0인 작업은 지갑을 부르지 않습니다.");
+            }
+            if (expected.isPresent() && expected.get() != amount) {
+                throw new IllegalStateException("항목의 플랫폼 부담과 쿠폰 스냅샷 합이 다릅니다.");
+            }
+            return new Claim(task, token, promotions, null);
+        } catch (IllegalArgumentException | IllegalStateException | ArithmeticException invalid) {
+            return new Claim(task, token, List.of(), invalid.getMessage());
+        }
     }
 
     /** 지갑을 부른다. 트랜잭션 밖이다 */
-    private Attempt call(LectureHpTask task) {
+    private Attempt call(Claim claim) {
+        LectureHpTask task = claim.task();
         try {
             BillingCallResult<?> result = switch (task.getTaskType()) {
                 case HOLD -> billingApiClient.hold(new HoldCommand(task.getPayerUserId(),
-                        BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getAmountHp()));
+                        BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getAmountHp(), claim.promotions()));
                 case RELEASE -> billingApiClient.release(ReleaseCommand.full(task.getPayerUserId(),
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getRequestId()));
                 case PAYOUT -> billingApiClient.payout(PayoutCommand.full(task.getPayerUserId(),
@@ -185,7 +217,7 @@ public class LectureHpTaskExecutor {
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId()));
             };
             return switch (result) {
-                case BillingCallResult.Succeeded<?> succeeded -> verifyAmount(task, succeeded.value());
+                case BillingCallResult.Succeeded<?> succeeded -> verifyAmount(task, claim.promotions(), succeeded.value());
                 case BillingCallResult.Failed<?> failed -> new Attempt(
                         LectureHpTaskClassifier.classify(task.getTaskType(), failed.code()), failed.code().name(),
                         failed.rawCode(), failed.httpStatus() + " " + failed.detail());
@@ -206,9 +238,10 @@ public class LectureHpTaskExecutor {
     }
 
     /** 결과 금액이 항목 가격과 다르면 불변식 위반이다 (D43). 같은 요청의 재현(replayed)은 정상이다 */
-    private static Attempt verifyAmount(LectureHpTask task, Object value) {
+    private static Attempt verifyAmount(LectureHpTask task, List<HoldPromotionDto> promotions, Object value) {
+        long promotionHp = LectureHpPromotions.total(promotions);
         if (value instanceof HoldVoidResultDto voided) {
-            return verifyVoid(task, voided);
+            return verifyVoid(task, promotions, voided);
         }
         long amount = switch (value) {
             case HoldResultDto hold -> hold.heldHp();
@@ -220,7 +253,26 @@ public class LectureHpTaskExecutor {
             return new Attempt(LectureHpAttemptResult.INVARIANT_VIOLATION, AMOUNT_MISMATCH, null,
                     "결과 금액 " + amount + " ≠ 작업 금액 " + task.getAmountHp() + ": " + value);
         }
-        return new Attempt(LectureHpAttemptResult.SUCCEEDED, null, null, null);
+        boolean matches = switch (value) {
+            case HoldResultDto hold -> hold.promotionHeldHp() == promotionHp
+                    && hold.promotions().equals(promotions);
+            case ReleaseResultDto release -> release.promotionRestoredHp() == promotionHp
+                    && LectureHpPromotions.restored(promotions, release.promotionRestorations());
+            case PayoutResultDto payout -> promotionHp == 0
+                    ? (payout.promotionPaidHp() == null || payout.promotionPaidHp() == 0)
+                            && (payout.buyerPaidHp() == null || payout.buyerPaidHp() == task.getAmountHp())
+                    : payout.promotionPaidHp() != null && payout.promotionPaidHp() == promotionHp
+                            && payout.buyerPaidHp() != null
+                            && payout.buyerPaidHp() == task.getAmountHp() - promotionHp;
+            default -> false;
+        };
+        if (!matches) {
+            return new Attempt(LectureHpAttemptResult.INVARIANT_VIOLATION, AMOUNT_MISMATCH, null,
+                    "플랫폼 재원 결과가 작업의 쿠폰 스냅샷과 다릅니다: " + value);
+        }
+        List<PromotionRestorationDto> restorations = value instanceof ReleaseResultDto release
+                ? release.promotionRestorations() : List.of();
+        return new Attempt(LectureHpAttemptResult.SUCCEEDED, null, null, null, restorations);
     }
 
     /**
@@ -228,7 +280,13 @@ public class LectureHpTaskExecutor {
      * 지갑은 이미 그 보류를 끝냈고 같은 요청에는 처음 결과만 돌려주므로, 예상과 달라도 DEAD로 두지 않고 성공으로 기록해 주문을 끝낸다.
      * 지갑 결과는 강의에 저장하지 않으며 기준 기록은 지갑의 무효화 기록이다
      */
-    private static Attempt verifyVoid(LectureHpTask task, HoldVoidResultDto result) {
+    private static Attempt verifyVoid(LectureHpTask task, List<HoldPromotionDto> promotions, HoldVoidResultDto result) {
+        List<HoldPromotionDto> expected = result.outcome() == HoldVoidOutcome.RELEASED ? promotions : List.of();
+        if (result.promotionRestoredHp() != LectureHpPromotions.total(expected)
+                || !LectureHpPromotions.restored(expected, result.promotionRestorations())) {
+            return new Attempt(LectureHpAttemptResult.INVARIANT_VIOLATION, AMOUNT_MISMATCH, null,
+                    "무효화의 플랫폼 예산 복구 결과가 다릅니다: " + result);
+        }
         long expectedHp = result.outcome() == HoldVoidOutcome.RELEASED ? task.getAmountHp() : 0L;
         if (result.releasedHp() != expectedHp) {
             log.error(VOID_AMOUNT_MISMATCH_LOG + " 보류 무효화의 반환 금액이 예상과 달라도 성공으로 기록한다 taskId={}, "
@@ -267,8 +325,10 @@ public class LectureHpTaskExecutor {
                 report(recorded);
             }
         } catch (ObjectOptimisticLockingFailureException conflict) {
-            log.warn("결과를 기록하는 사이 다시 선점돼 HP 작업 결과를 버린다 taskId={}, result={}", taskId,
-                    attempt.result());
+            // 작업이 다시 선점됐거나, 결과 처리기가 바꾼 행(반환 지연 회차를 올린 주문 항목 등, #818)이 먼저 바뀌었다.
+            // 결과 기록 전체가 롤백되고 작업은 선점이 만료된 뒤 다시 실행된다. 어느 행인지 entity로 가린다
+            log.warn("결과를 기록하는 사이 같은 행이 먼저 바뀌어 HP 작업 결과를 버린다 taskId={}, result={}, entity={}",
+                    taskId, attempt.result(), conflict.getPersistentClassName());
         }
     }
 
@@ -277,7 +337,7 @@ public class LectureHpTaskExecutor {
         switch (attempt.result()) {
             case SUCCEEDED -> {
                 task.complete(LectureHpTaskOutcome.SUCCEEDED, now);
-                handler.onSucceeded(task);
+                handler.onSucceeded(task, attempt.restorations());
             }
             // 보류의 확정 거절만 정상 결과다. 반환·지급의 확정 거절은 바로 DEAD다 (D57 (6))
             case TERMINAL_REJECTION -> {
@@ -361,10 +421,14 @@ public class LectureHpTaskExecutor {
     }
 
     /** 선점한 작업과 선점 표식 */
-    private record Claim(LectureHpTask task, UUID token) {
+    private record Claim(LectureHpTask task, UUID token, List<HoldPromotionDto> promotions, String payloadError) {
     }
 
     /** 시도 한 번의 결과 */
-    private record Attempt(LectureHpAttemptResult result, String errorCode, String rawErrorCode, String errorDetail) {
+    private record Attempt(LectureHpAttemptResult result, String errorCode, String rawErrorCode, String errorDetail,
+                           List<PromotionRestorationDto> restorations) {
+        private Attempt(LectureHpAttemptResult result, String errorCode, String rawErrorCode, String errorDetail) {
+            this(result, errorCode, rawErrorCode, errorDetail, List.of());
+        }
     }
 }

@@ -64,7 +64,8 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
     @PostMapping("/holds")
     public RsData<HoldResultDto> hold(@RequestBody HoldCommand command) {
         String request = "operation=HOLD userId=%d referenceType=%s referenceId=%d amountHp=%d".formatted(
-                command.userId(), command.referenceType(), command.referenceId(), command.amountHp());
+                command.userId(), command.referenceType(), command.referenceId(), command.amountHp())
+                + promotionsLog(command);
         HoldResultDto result = logged(request,
                 () -> BillingResultDtos.hold(holdFacade.hold(BillingCommands.hold(command))), HoldResultDto::replayed);
         return RsData.ok("HP를 보류했습니다.", result);
@@ -168,6 +169,16 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
         }
         return RsData.ok("바뀐 HP 보류 목록을 조회했습니다.", BillingResultDtos.holdStatePage(
                 holdQueryFacade.changes(referenceType, updatedAfter, afterId, size)));
+    }
+
+    // 플랫폼 몫이 있는 보류만 쿠폰·금액을 덧붙인다(없으면 지금까지의 로그와 같다)
+    private static String promotionsLog(HoldCommand command) {
+        if (command.promotions().isEmpty()) {
+            return "";
+        }
+        return " promotions=" + command.promotions().stream()
+                .map(promotion -> promotion.couponId() + ":" + promotion.amountHp())
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
     }
 
     // 처리 결과를 요청 값과 함께 한 줄로 남긴다. 업무 오류는 code만 남기고 그대로 던진다(응답·상세 로그는 GlobalExceptionHandler).

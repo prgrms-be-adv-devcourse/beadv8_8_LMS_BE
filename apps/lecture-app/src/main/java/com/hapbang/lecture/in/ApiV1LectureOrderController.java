@@ -1,5 +1,7 @@
 package com.hapbang.lecture.in;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -17,6 +19,7 @@ import com.hapbang.lecture.global.ratelimit.RateLimited;
 import com.hapbang.lecture.global.ratelimit.RateLimitedApi;
 import com.hapbang.lecture.global.response.RsData;
 import com.hapbang.lecture.app.LectureOrderFacade;
+import com.hapbang.lecture.app.dto.OrderCouponSelection;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
@@ -44,7 +47,13 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @RateLimited(RateLimitedApi.ORDER)
     public ResponseEntity<RsData<OrderResponse>> createOrder(@LoginUserId Long userId,
                                                              @Valid @RequestBody OrderCreateRequest request) {
-        OrderResponse order = lectureOrderFacade.createOrder(userId, request.lectureIds());
+        List<OrderCouponSelection> coupons = request.hasCoupons()
+                ? request.coupons().stream()
+                        .map(coupon -> new OrderCouponSelection(coupon.memberCouponId(), coupon.lectureId()))
+                        .toList()
+                : List.of();
+        OrderResponse order = lectureOrderFacade.createOrder(userId, request.lectureIds(), coupons,
+                request.expectedBuyerAmountHp());
         // 결제가 끝나지 않았으면 처리 중 주문을 202로 돌려준다. 프론트는 다시 주문하지 않고 주문 상세를 조회한다 (D58 (4))
         RsData<OrderResponse> body = order.status() == LectureOrderStatus.PAID
                 ? RsData.created("주문했습니다.", order)

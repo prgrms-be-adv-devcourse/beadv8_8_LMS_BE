@@ -32,6 +32,14 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_NICKNAME_SPACE(HttpStatus.BAD_REQUEST, "닉네임에 공백을 연속으로 쓸 수 없습니다."),
     /** 닉네임 중복 (#646). 대소문자만 달라도 같은 닉네임이고, 탈퇴 회원 닉네임도 쓸 수 없다 */
     DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "이미 쓰고 있는 닉네임이에요."),
+    /** 콘텐츠 분야는 0~5개 (#711) */
+    INVALID_CONTENT_CATEGORY_COUNT(HttpStatus.BAD_REQUEST, "콘텐츠 분야는 5개까지 고를 수 있어요."),
+    DUPLICATE_CONTENT_CATEGORY(HttpStatus.BAD_REQUEST, "같은 콘텐츠 분야를 두 번 고를 수 없어요."),
+    /** 빈 코드, 목록에 없는 코드, 새로 고르려는 꺼진(active 아님) 코드 (#711, Q50) */
+    INVALID_CONTENT_CATEGORY(HttpStatus.BAD_REQUEST, "고를 수 없는 콘텐츠 분야예요."),
+    INVALID_BIO_LENGTH(HttpStatus.BAD_REQUEST, "자기소개는 100자 이하로 입력해 주세요."),
+    /** 콘텐츠 분야·자기소개를 새로 넣거나 바꾸는 것은 인플루언서·인증된 인플루언서만 (#711). DB의 회원 역할로 판단하고, 지우기와 지금 값 그대로 보내기는 누구나(Q16) */
+    INFLUENCER_PROFILE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "콘텐츠 분야와 자기소개는 인플루언서만 설정할 수 있어요."),
     INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST, "비밀번호는 8~64자로 입력해 주세요."),
     INVALID_PASSWORD_CHARACTER(HttpStatus.BAD_REQUEST, "비밀번호는 영문·숫자·특수문자만 쓸 수 있습니다. 공백과 한글은 쓸 수 없습니다."),
     PASSWORD_LETTER_AND_DIGIT_REQUIRED(HttpStatus.BAD_REQUEST, "비밀번호에 영문과 숫자를 하나 이상씩 넣어 주세요."),

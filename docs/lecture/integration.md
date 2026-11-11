@@ -191,18 +191,19 @@ Kafka 토픽·key·헤더·재시도 규칙은 [`kafka.md`](../architecture/infr
 | `UserModifiedEvent` (`member.events.v1`, 회원 ID) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패 → 재시도 뒤 DLT, 옛 버전은 무시, D17·#429) |
 | `LectureObjectionResolutionRequestedEvent` (`customersupport.events.v1`, `inquiry:<문의 ID>`) | 고객센터 | 강의 | `commandId`(`RESOLVE:{inquiryId}`), `inquiryId`, `orderItemId`, `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RETURN 작업, 기각이면 `REJECTED` → 결과 이벤트 |
 | `LectureObjectionWithdrawalRequestedEvent` (`customersupport.events.v1`, `inquiry:<문의 ID>`) | 고객센터 | 강의 | `commandId`(`WITHDRAW:{inquiryId}`), `inquiryId`, `orderItemId`, `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
-| `LectureObjectionResolvedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `accepted` | 처리 중인 그 판단이면 `RESOLVED` + `ANSWERED` + `objectionResult` + 판단 답변, 인정이면 `hpReturnStatus` ≥ `PENDING` |
-| `LectureObjectionWithdrawnEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId` | 처리 중인 그 철회면 `WITHDRAWN` + `deleted_at` |
+| `LectureObjectionResolvedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터, 알림 | `commandId`, `inquiryId`, `orderItemId`, `accepted`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `resolvedAt` | 처리 중인 그 판단이면 `RESOLVED` + `ANSWERED` + `objectionResult` + 판단 답변, 인정이면 `hpReturnStatus` ≥ `PENDING` |
+| `LectureObjectionWithdrawnEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터, 알림 | `commandId`, `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `withdrawnAt` | 처리 중인 그 철회면 `WITHDRAWN` + `deleted_at` |
 | `LectureObjectionRequestRefusedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `commandType`(`RESOLVE`·`WITHDRAW`), `failureCode` | 처리 중인 그 명령이면 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED` + 사유 (운영 복구 #267) |
-| `LectureObjectionReturnCompletedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = COMPLETED` |
-| `LectureObjectionReturnActionRequiredEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 그대로) |
+| `LectureObjectionReturnCompletedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터, 알림 | `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `returnedAt` | `hpReturnStatus = COMPLETED` |
+| `LectureObjectionReturnActionRequiredEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터, 알림 | `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `returnDelaySequence`, `occurredAt` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 그대로) |
 | `LectureChangedEvent` (`lecture.events.v1`, `lecture:<강의 ID>`) | 강의 | aux-app (AI) | `LectureSyncDto` | 강의 사본 반영 (version이 크면). 등록·정보 수정·콘텐츠 교체·검수 승인·반려·재검수 신청·삭제 (D82) |
 | `LecturePurchaseChangedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | aux-app (AI) | `LecturePurchaseSyncDto` | 구매 사본 반영. 구매 결과·실린 값이 바뀌는 전이에서만 (D82) |
 | `CartItemChangedEvent` (`lecture.events.v1`, `cart-item:<장바구니 항목 ID>`) | 강의 | aux-app (AI) | `CartItemSyncDto` | 장바구니 사본 반영. 담기·빼기·결제 뒤 자동 빼기 (D82) |
 | `LectureReviewChangedEvent` (`lecture.events.v1`, `lecture-review:<리뷰 ID>`) | 강의 | aux-app (AI) | `LectureReviewSyncDto` | 리뷰 별점 사본 반영. 작성·수정·삭제·반환된 항목 리뷰 대체·이의 제기 인정으로 `counted` 변경 (D82) |
 
 - 강의 리스너(`lecture-app.objection-command`)는 예상된 업무 거절이면 **예외를 던지지 않고** 거절 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB 같은 기술 실패는 예외를 던져 Kafka 재시도(3회) 뒤 그룹별 DLT로 보낸다.
-- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`).
+- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`). 결과 이벤트 4종은 `LectureObjectionEvents`가 주문 항목으로 만든다.
+- 결과 이벤트 4종의 받는 사람 ID·강의 제목(구매 때 제목)·사건 시각(KST offset)·반환 지연 회차는 알림센터용이다(D83, #818). 반환 지연 회차는 반환 작업이 DEAD가 될 때 같은 트랜잭션에서 `order_item.return_delay_count`를 1 올린 값이다. 발행 기록에 JSON으로 남으므로 재발행해도 같다. 새 필드는 기존 필드 뒤에 붙였고 `null`을 허용한다(D83 (2)).
 - AI 추천용 동기화 이벤트 4종(D82, [계약](../api/internal-lecture-sync.md))은 대상을 바꾼 강의 트랜잭션에서 `LectureSyncEvents`가 flush한 뒤 엔티티의 `toSyncDto()`로 만들어 발행한다(flush 전이면 오르기 전 version이 실린다). 고객센터 리스너는 이 타입을 기본 처리기에서 무시한다.
 - 고객센터 리스너(`customer-support-app.objection-result`)는 문의 행을 잠그고, 처리 중인 명령(명령 ID가 같음)의 결과만 기록한다. 중복·늦은 결과는 무시하고, HP 반환 상태는 앞으로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.
 
@@ -441,9 +442,18 @@ sequenceDiagram
 
 - `lecture_hp_reconciliation_run`·`lecture_hp_reconciliation_mismatch`(reference.md 7.1). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031600`.
 - 로그: 어긋난 건마다 ERROR `[LECTURE_HP_RECONCILIATION_MISMATCH] 강의 HP 대사에서 어긋난 건을 찾았다 rule=…, runId=…, orderItemId=…, orderId=…, itemStatus=…, lectureState=[…], walletState=[…]`(D77). DEAD 작업 때문에 비교하지 않은 건(`HP_TASK_DEAD`)은 표식 없이 WARN 한 줄. 끝까지 하지 못하면 WARN 한 줄(`failureReason` 포함).
-- 지표: `lecture.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `lecture.hp_reconciliation.runs{status}`(끝난 실행 횟수). alert 규칙은 아직 없다(#343이 생기면 이 지표에 건다).
+- 지표: `lecture.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `lecture.hp_reconciliation.last.completed`(끝까지 비교한 마지막 실행이 끝난 시각, epoch 초, 없으면 0, Prometheus `lecture_hp_reconciliation_last_completed_seconds`, #805), `lecture.hp_reconciliation.runs{status}`(끝난 실행 횟수). 앞의 두 값은 앱 메모리에 있어, 기동할 때 `LectureHpReconciliationMetricsRestorer`가 DB의 마지막 COMPLETED 실행(`lecture_hp_reconciliation_run`)과 그 실행의 규칙별 어긋난 건(`lecture_hp_reconciliation_mismatch`)으로 채운다(#805). 채우지 않으면 앱이 다시 뜬 뒤 다음 대사 전까지 0이라 alert가 고치지 않았는데도 복구 통보를 보낸다. 같은 때 앱이 뜨기 전에 시작해 `RUNNING`으로 남은 실행(앱이 대사 도중 멈춤)은 `INCOMPLETE`(사유 "앱이 멈춰 끝나지 못한 실행")로 끝내고 `runs{status=INCOMPLETE}`를 올린다. 다음 실행의 정리만으로는 중단이 지표에 드러나지 않기 때문이다. 강의 앱 1대·maxSurge 0이라 기동할 때 다른 pod가 대사 중일 수 없고, 기동한 뒤 시작한 실행은 건드리지 않는다. DB를 읽지 못하면 WARN을 남기고 다음 대사까지 0으로 낸다. 이 지표에 Grafana alert "서비스 간 HP 대사 불일치"·"대사가 돌지 않음"·"대사 중단"(#804)이 걸려 있다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781)).
 - 관리자 API: reference.md 8.2.1.1.
 - 구조: `LectureHpReconciliationUseCase`(흐름·동시 실행·로그·지표), `LectureHpReconciliationComparer`(DB·지갑을 부르지 않는 순수 비교), `LectureHpReconciliationTarget`(항목 하나의 비교 값), `LectureHpReconciliationSupport`(트랜잭션 단위 읽기·기록, 지갑 호출은 트랜잭션 밖), `LectureHpReconciliationAdminFacade`. 지갑은 shared `BillingApiClient.queryHolds`·`listHolds`를 그대로 쓴다(회로·재시도 정책 같음).
 
 ---
 
+
+### 플랫폼 쿠폰 재원 연결 (#843)
+
+- 주문 계산의 F > 0 차단을 제거한다. 항목 금액과 쿠폰별 할인·플랫폼·판매자 몫의 합이 맞아야 주문을 저장한다.
+- 선점 트랜잭션에서 `OrderItemCoupon`의 쿠폰 ID·발급 쿠폰 ID·reservedGeneration·플랫폼 몫을 읽어 불변 요청으로 만든다. HTTP는 트랜잭션 밖에서 부른다.
+- HOLD는 구매자 금액 P−D와 플랫폼 F·목록, PAYOUT은 합 P−S와 재원별 값, RELEASE/VOID는 구매자 반환액과 쿠폰별 복구 목록을 대조한다. 사용 세대가 다르거나 누락·추가된 복구는 성공으로 기록하지 않는다.
+- 구매자 0·F > 0인 항목도 HP 작업을 실행한다. 구매자와 F가 모두 0인 항목만 지갑을 생략한다.
+- 성공한 취소·반환의 복구 목록은 결과 handler를 통해 `OrderCouponEvents`로 넘겨 같은 결과기록 트랜잭션에서 발행한다. 결과 기록 전 중단되면 같은 billing 요청 ID의 replay로 다시 얻는다.
+- `LectureHpReconciliationComparer`는 조회의 `promotion{held,paid,restored}`와 `promotions[]`, 지급 건의 buyerPaidHp·promotionPaidHp를 주문 쿠폰 스냅샷과 비교한다. 보류 결과 불명은 확인 전 성공으로 바꾸지 않는다. VOID의 구매자 금액 불일치는 기존 D73대로 보류 종료를 확인하면 로그 뒤 완료하며, 플랫폼 복구 목록·금액 불일치는 DEAD로 남긴다.

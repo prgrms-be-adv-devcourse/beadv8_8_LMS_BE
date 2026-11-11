@@ -137,6 +137,8 @@ public class ChargeProcessing {
         PointCharge charge = lockCharge(chargeId);
         if (charge.getStatus() == PointChargeStatus.PROCESSING) {
             charge.fail(reason, Instant.now().truncatedTo(ChronoUnit.MICROS));
+            // 충전 실패 이벤트는 실패로 바꾼 같은 트랜잭션에 남긴다 (#873). 승인 응답 처리와 복구 배치가 모두 여기를 지난다
+            billingEventPublisher.chargeFailed(charge);
         }
         return ChargeResult.from(charge);
     }

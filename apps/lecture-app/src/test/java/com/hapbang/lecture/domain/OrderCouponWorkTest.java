@@ -1,0 +1,179 @@
+package com.hapbang.lecture.domain;
+
+import static org.assertj.core.api.Assertions.*;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.Test;
+
+// 주문의 쿠폰 예약·해제 작업 상태 전이
+class OrderCouponWorkTest {
+
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 10, 10, 0);
+    private static final Duration RETRY_AFTER = Duration.ofSeconds(30);
+
+    @Test
+    void 예약_작업은_주문마다_정해진_작업_ID로_PENDING에서_시작한다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        assertThat(work.getWorkId()).isEqualTo("lecture-order:7:reserve");
+        assertThat(work.getKind()).isEqualTo(OrderCouponWorkKind.RESERVE);
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+        assertThat(work.getAttemptCount()).isZero();
+        assertThat(work.getNextAttemptAt()).isEqualTo(NOW);
+        assertThat(OrderCouponWork.release(7L, NOW).getWorkId()).isEqualTo("lecture-order:7:release");
+    }
+
+    @Test
+    void 시도를_기록하면_횟수가_오르고_다음_시도_시각이_재시도_간격만큼_밀린다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        work.startAttempt(NOW, RETRY_AFTER);
+        work.startAttempt(NOW.plusSeconds(30), RETRY_AFTER);
+
+        assertThat(work.getAttemptCount()).isEqualTo(2);
+        assertThat(work.getNextAttemptAt()).isEqualTo(NOW.plusSeconds(60));
+        assertThat(work.hasAttemptsLeft(3)).isTrue();
+        assertThat(work.hasAttemptsLeft(2)).isFalse();
+    }
+
+    @Test
+    void 예약_성공이_다시_와도_그대로_두고_다른_결과로는_바꾸지_않는다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        work.markReserved(NOW);
+        work.markReserved(NOW.plusSeconds(1));
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.RESERVED);
+        assertThat(work.getUpdatedAt()).isEqualTo(NOW);
+        assertThatThrownBy(() -> work.markRejected("COUPON_NOT_AVAILABLE", NOW))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> work.startAttempt(NOW, RETRY_AFTER)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 예약_거절은_거절_코드를_남기고_다시_와도_처음_코드를_둔다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        work.markRejected("COUPON_NOT_AVAILABLE", NOW);
+        work.markRejected("COUPON_EXPIRED", NOW);
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.REJECTED);
+        assertThat(work.getRejectCode()).isEqualTo("COUPON_NOT_AVAILABLE");
+        assertThatThrownBy(() -> work.markReserved(NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 특정_쿠폰_때문인_거절은_코드와_발급_쿠폰_ID를_함께_남기고_나눠_읽는다() {
+        OrderCouponWork byCoupon = OrderCouponWork.reserve(7L, NOW);
+        OrderCouponWork byWork = OrderCouponWork.reserve(8L, NOW);
+
+        byCoupon.markRejected("COUPON_GENERATION_MISMATCH", 502L, NOW);
+        byWork.markRejected("COUPON_WORK_CONFLICT", null, NOW);
+
+        assertThat(byCoupon.getRejectCode()).isEqualTo("COUPON_GENERATION_MISMATCH:502");
+        assertThat(byCoupon.rejectedCouponCode()).isEqualTo("COUPON_GENERATION_MISMATCH");
+        assertThat(byCoupon.rejectedMemberCouponId()).isEqualTo(502L);
+        assertThat(byWork.rejectedCouponCode()).isEqualTo("COUPON_WORK_CONFLICT");
+        assertThat(byWork.rejectedMemberCouponId()).isNull();
+    }
+
+    @Test
+    void 해제_작업은_해제_성공으로만_끝나고_예약_결과로는_끝나지_않는다() {
+        OrderCouponWork work = OrderCouponWork.release(7L, NOW);
+
+        assertThatThrownBy(() -> work.markReserved(NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> work.markRejected("X", NOW)).isInstanceOf(IllegalStateException.class);
+        work.markReleased(NOW);
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.RELEASED);
+        assertThatThrownBy(() -> OrderCouponWork.reserve(7L, NOW).markReleased(NOW))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 만든_직후에는_보낼_차례이고_시도를_기록하면_다음_시도_시각까지_차례가_아니다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        assertThat(work.isDue(NOW)).isTrue();
+        work.startAttempt(NOW, RETRY_AFTER);
+
+        assertThat(work.isDue(NOW.plusSeconds(29))).isFalse();
+        assertThat(work.isDue(NOW.plusSeconds(30))).isTrue();
+    }
+
+    @Test
+    void 시도_상한에_닿아_멈춘_작업은_다시_보내거나_결과를_받지_않는다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        work.markDead(NOW);
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.DEAD);
+        assertThat(work.isPending()).isFalse();
+        assertThatThrownBy(() -> work.startAttempt(NOW, RETRY_AFTER)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> work.markReserved(NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> work.markDead(NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 관리자_다시_시도는_DEAD를_PENDING으로_되돌리고_시도_횟수와_다음_시도_시각을_새로_한다() {
+        OrderCouponWork work = dead(OrderCouponWork.reserve(7L, NOW));
+
+        work.retryByAdmin(NOW.plusHours(1));
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+        assertThat(work.getAttemptCount()).isZero();
+        assertThat(work.getNextAttemptAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(work.isDue(NOW.plusHours(1))).isTrue();
+        OrderCouponWork release = dead(OrderCouponWork.release(7L, NOW));
+        release.retryByAdmin(NOW);
+        assertThat(release.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+    }
+
+    @Test
+    void 관리자_확정은_예약_작업만_RESERVED_REJECTED로_해제_작업만_RELEASED로_끝낸다() {
+        OrderCouponWork reserved = dead(OrderCouponWork.reserve(7L, NOW));
+        OrderCouponWork rejected = dead(OrderCouponWork.reserve(8L, NOW));
+        OrderCouponWork released = dead(OrderCouponWork.release(7L, NOW));
+
+        reserved.confirmReservedByAdmin(NOW);
+        rejected.confirmRejectedByAdmin("COUPON_NOT_USABLE", NOW);
+        released.confirmReleasedByAdmin(NOW);
+
+        assertThat(reserved.getStatus()).isEqualTo(OrderCouponWorkStatus.RESERVED);
+        assertThat(rejected.getStatus()).isEqualTo(OrderCouponWorkStatus.REJECTED);
+        assertThat(rejected.rejectedCouponCode()).isEqualTo("COUPON_NOT_USABLE");
+        assertThat(released.getStatus()).isEqualTo(OrderCouponWorkStatus.RELEASED);
+    }
+
+    @Test
+    void 관리자_조치는_DEAD가_아니거나_종류가_맞지_않으면_거절한다() {
+        OrderCouponWork pending = OrderCouponWork.reserve(7L, NOW);
+        OrderCouponWork reserved = OrderCouponWork.reserve(8L, NOW);
+        reserved.markReserved(NOW);
+
+        assertRejected(() -> pending.retryByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> reserved.retryByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> pending.confirmReservedByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> dead(OrderCouponWork.release(7L, NOW)).confirmReservedByAdmin(NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertRejected(() -> dead(OrderCouponWork.release(7L, NOW)).confirmRejectedByAdmin("X", NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertRejected(() -> dead(OrderCouponWork.reserve(7L, NOW)).confirmReleasedByAdmin(NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertThat(pending.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+        assertThat(reserved.getStatus()).isEqualTo(OrderCouponWorkStatus.RESERVED);
+    }
+
+    private static OrderCouponWork dead(OrderCouponWork work) {
+        work.markDead(NOW);
+        return work;
+    }
+
+    private static void assertRejected(ThrowingCallable action,
+                                       LectureErrorCode errorCode) {
+        assertThatThrownBy(action).isInstanceOf(LectureException.class).extracting("errorCode").isEqualTo(errorCode);
+    }
+}

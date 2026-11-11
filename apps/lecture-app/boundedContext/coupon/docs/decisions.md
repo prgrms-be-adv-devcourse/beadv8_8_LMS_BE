@@ -8,9 +8,10 @@
 - 플랫폼 쿠폰의 재원은 플랫폼이 프로모션 지갑에 충전하고 예약한다.
 - 특정 강의 정률 예산의 기본 계산은 강의 가격 × 할인율 × 수량이다. 정률 최대 할인액 필수 규칙은 삭제했고, 가격 변경으로 예산이 깨지는 문제는 가격 인상 제한으로 막는다.
 - 주문 전체 쿠폰의 금액 배분·재계산·할인 회수·추가 결제 초안과 반복 Q/D 이력은 현재 설계에서 제거했다. 후속 기능 도입 때 별도로 설계한다.
-- 기존에 확정한 Lua/Stream/Kafka, CAS·generation, 반환 완료 후 복원, 0 HP, 모듈 경계는 유지했다.
+- 기존에 확정한 Lua/Kafka, CAS·generation, 반환 완료 후 복원, 0 HP, 모듈 경계는 유지했다.
 - 모든 강의 대상 정률 쿠폰만 장당 최대 할인액을 입력한다. 예산 = 수량 × 최대 할인액.
 - `:lecture-app`은 유지하고 안에 Gradle 하위 프로젝트 `:coupon`을 둔다. 배포는 lecture-app pod 하나. JVM이 나뉘어 있다고 가정해 강의 ↔ 쿠폰은 내부 HTTP API + Kafka로만 통신하고 `@ApplicationModuleListener`는 쓰지 않는다. 트랜잭션은 연결하지 않는다(design.md "모듈 경계").
+- Caffeine(`com.github.ben-manes.caffeine:caffeine`, Spring Boot BOM 관리 버전)을 팀 공통 캐시 라이브러리로 들인다(2026-11-09 사용자 결정, chat-app `ChatRoomMembershipCache`와 공통). 쿠폰에서는 매진 캐시 `CouponSoldOutCache` 하나에 쓴다. Spring Cache 추상화(`@Cacheable`)는 쓰지 않는다.
 
 ## 검토를 반영한 설계 보완
 
@@ -41,17 +42,57 @@
 | 발행 시 강의 판매 상태 (확정, Q25) | 특정 강의 대상 쿠폰은 **판매 중(ON_SALE) 강의만** 발행·승인할 수 있다. 강의 조회 내부 API의 판매 상태로 검사한다 |
 | 예산 거절 뒤 재시도 (확정, Q27) | billing이 거절(FAILED)한 뒤 관리자가 다시 열면 attempt 번호를 붙인 새 작업 ID로 재예약한다. 이전 작업 이력은 남긴다 |
 | 발행 검증 (확정, #749) | FIXED 만료 시각 > 발급 종료 시각. `base_price` 0 거절. RATE 1~100 정수. 요청 ID 1~64자 `[A-Za-z0-9_-]`, 쿠폰 안에서 유일. 관리자 동시 조작(`@Version` 충돌)은 409. 발급 종료가 지난 쿠폰은 만들거나 열 수 없다(409). 만료 N일과 고정 만료는 `hapbang.coupon.max-expiry-days`(기본 3650, 확정 전) 이내 |
-| billing 계약 | 사용자 담당. 충전 출처·권한·원장, 재원별 요청 DTO·작업 조회·예산 복구/해제 계약 |
+| billing 계약 (연결 반영, #841~#843) | billing 소유의 기존 충전·원장·예산 예약/해제·작업 조회·주문 재원 DTO를 사용한다. 쿠폰 예산 HTTP와 강의 보류·지급·반환 연결은 아래 "플랫폼 재원 연결"을 따른다. 운영 충전 출처·권한은 billing 경계를 유지한다 |
 | 운영 수치 | 쿠폰·합산 용량, 계산 응답시간/규모, 작업 주기·재시도·DLT 운영 권한. 측정과 운영 계약으로 확정 |
 
 예산 기준은 모두 정해졌다(특정 강의: 가격 × 할인율 × 수량 + 가격 인상 제한, 모든 강의 정률: 장당 최대 할인액 × 수량). 미확정 정책을 임의 구현하거나 기능을 완료했다고 보고하지 않는다.
+
+## 플랫폼 재원 비활성 예외 이력 (2026-11-10, #811)
+
+아래는 billing 연결 전 단계의 결정이다. 기본값과 강의 차단은 #843에서 아래 "플랫폼 재원 연결"로 대체했으며 명시적인 false의 제외 동작은 유지한다.
+
+- billing 프로모션 지갑 계약이 붙기 전까지 설정 `hapbang.coupon.platform-funding-enabled`(코드 기본값 false)로 플랫폼 쿠폰을 사용 경로에서 뺀다. false면 쿠폰 모듈이 추천·`/me/usable`에서 PLATFORM을 빼고 직접 선택은 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)로 거절한다. 강의 모듈의 F > 0 차단(409 `COUPON_PLATFORM_FUNDING_UNAVAILABLE`)은 설정과 무관한 방어로 남는다. 기본 설정에서 강의 주문의 플랫폼 쿠폰 거절은 쿠폰 쪽이 먼저 막아 `COUPON_CALCULATION_REJECTED`(couponCode `COUPON_NOT_USABLE`)로 보인다.
+- 켜는 절차는 두 단계다: 쿠폰 설정 true + 강의 F > 0 차단 제거(billing 후속 이슈에서 함께). 설정만 켜면 추천은 되는데 주문은 409가 되므로 따로 켜지 않는다. 두 모듈은 JVM 분리 가정이라 한 설정을 공유하지 않는다.
+- F7("양수인 플랫폼 재원 처리는 생략하지 않는다")은 그대로다. 재원 처리가 없는 동안 플랫폼 쿠폰을 쓰지 못하게 하는 것이지 생략하는 것이 아니다.
+
+## 7단계 운영 결정 (2026-11-10, Q39~Q41)
+
+- DEAD 쿠폰 주문(예약 재전송 시도 상한)은 관리자 운영 API로 "다시 시도"와 "결제 실패 확정" 둘 다 할 수 있다. 결제 실패 확정은 쿠폰 쪽 예약을 확인한 뒤 해제까지 한다. 조회가 안 되면 아무것도 바꾸지 않는다.
+- 부하·장애 시나리오: 선착순 발급 k6 부하만 운영(팀 공지, 전용 테스트 데이터), 장애 주입과 reserve 부하는 로컬. 운영 공유 Redis·Kafka·PostgreSQL은 멈추지 않는다.
+- 관리자 "결제 실패 확정"이 `NOT_RESERVED`(쿠폰 쪽 예약 없음)로 끝나면 강의 예약 작업을 DEAD로 두지 않고 REJECTED(reject_code `ADMIN_FAILED_NOT_RESERVED`)로 닫는다. DEAD 목록에는 아직 처리할 작업만 남는다(PR #816 리뷰).
+- 선착순 발급 통과 기준(운영 발급 개방 조건): 1,000명 동시·재고 100, 접수 p95 ≤ 500ms, 5xx < 1%, 과발급·중복 0, 2분 안 확정.
+- 7단계 부하 측정은 로컬 결과로 마무리한다(2026-11-10 사용자 결정). 로컬 1,000 VU 실행 중 노트북 메모리 압박이 있어 재실행하지 않았다. 운영 선착순 측정(Q41)은 이번 이슈에서 하지 않았으므로, 운영 발급을 열기 전에 별도로 측정해 통과해야 한다. 확정 전 값도 운영 측정이 없어 바꾸지 않았다. 개방 조건은 operations.md "운영 발급 개방 체크리스트"다.
+- 관리자 fail의 결과는 셋이다(`RESERVED_RELEASING`·`REJECTED`·`NOT_RESERVED`, 모두 주문 HOLD_FAILED). 쿠폰에 PAID·CANCELED나 강의 근거에 없는 사용 시도가 있으면 409 `COUPON_RESERVATION_SETTLED` + ERROR 표식으로 사람에게 넘긴다. 이미 정산된 것이거나 정확히 해제할 수 없는 상태라 자동으로 고치지 않는다.
+- 관리자 resolve도 PAID·CANCELED가 보이면 409다. 결제 실패 주문에 PAID 사용 시도가 있는 것은 어긋난 상태다.
+- 당시 발급 쿠폰 만료 배치는 SELLER 쿠폰만 대상으로 정했다. PLATFORM 만료는 예산 해제와 같은 트랜잭션이어야 해 billing 계약 이슈로 미뤘다(Q35). 이 제한은 #843에서 만료 상태와 해제 작업의 동시 저장을 붙여 해소했다.
+- 주문 DLT 재처리 제한 시간(`dlt-replay-timeout`(25s, `2 ×` 제한 시간 `< lease`))은 관리자 재처리 경로에만 두고 Kafka 소비는 그대로다. 넘으면 PENDING으로 되돌리고 409 `COUPON_CONCURRENT_UPDATE`(다시 시도)다. 그대로 두면 관리자가 500을 받는다.
+
+## 플랫폼 재원 연결 (2026-11-11, #843)
+
+- `hapbang.coupon.platform-funding-enabled`의 기본값을 true로 바꾸면서 강의의 F > 0 차단을 함께 제거한다. false를 명시하면 쿠폰 추천·사용 가능 목록에서 PLATFORM을 제외하고 직접 선택을 409로 거절한다. 이 설정은 쿠폰의 발행·운영 상태를 바꾸지 않으며 플랫폼 쿠폰 발행은 관리자 발행 경로를 따른다.
+- 쿠폰은 `CouponBillingInternalApi`와 `HttpPromotionBudget`으로 billing의 기존 예산 예약·해제·작업 조회 DTO를 사용한다. 주소·내부 키·연결/응답 제한 시간·circuit breaker는 기존 billing 설정을 쓴다. HTTP 한 번의 결과만 분류하고 재시도는 영속 작업에 맡긴다. 응답 유실·일시 오류·`BUDGET_RESERVATION_EXISTS`·조회 NOT_FOUND는 UNKNOWN으로 두고 같은 workId를 재전송한다. 확정 업무 4xx만 FAILED로 기록한다. 자세한 분류는 contracts.md를 따른다.
+- PLATFORM의 AVAILABLE 만료는 EXPIRED 전이와 예산 해제 작업을 같은 트랜잭션에 저장한다. USED는 상태를 바꾸지 않고 기한 뒤 M-F를 해제 대상으로 등록한다. RESERVED는 시간만으로 해제하지 않는다. 기한 지난 예약 해제·취소 복원이 EXPIRED로 끝나면 M까지의 차액을 등록한다.
+- `member_coupon.budget_release_planned_hp`에 PENDING까지 포함한 해제 등록 누적액을 남긴다. 현재 generation·상태·누적액의 CAS와 작업 저장을 함께 수행하므로 USED 만료의 M-F 작업이 아직 불명이어도 뒤이은 취소는 차액 F만 등록한다. 완료 응답을 받은 금액만 누적하면 응답 유실 중 같은 금액을 다른 작업으로 다시 해제할 수 있어 등록 시점을 기준으로 삼는다.
+- `budget_release_checked_status`에 현재 USED/EXPIRED 상태의 목표액까지 해제 작업 등록을 확인한 상태를 남긴다. 현재 상태와 같으면 수집 쿼리에서 제외하고 M=F인 0 HP 해제도 누적액 CAS와 함께 확인한다. PENDING·FAILED도 등록 완료다. 복원 writer가 이 표식을 몰라도 USED→EXPIRED 상태가 달라지면 다시 수집되므로 추가 F를 놓치지 않는다. 금액 공식은 해제 등록기에만 둔다.
+- 만료 예산 수집은 미확인 만료 발급 쿠폰이 EXISTS로 확인된 PLATFORM 정책 ID를 먼저 고르고, 그 정책의 `coupon_id`·만료 기한 범위 안에서만 `(expires_at, id)` 복합 커서를 진행한다. 부분 인덱스를 `(coupon_id, expires_at, id)` 순서로 두고 미확인 조건은 쿼리와 일치시킨다. 미만료 USED가 많아도 미래 키 범위를 순회하지 않으며, 최초/후속 쿼리 분리로 nullable timestamp SQL 바인딩을 피한다. SELLER도 완료 표식을 쓰게 하거나 발급 쿠폰에 정책 타입을 복제하지 않는다. 완료 플랫폼 정책도 후보에서 제외한다. 실제 Repository 실행 SQL을 캡처한 로컬 EXPLAIN에 행 수·buffer·member Seq Scan 부재 단정을 붙인다. 미래 USED 단독 사례는 기존 인덱스로도 좁게 읽었고, 판매자 만료 이력과 함께 있는 분포에서 재현한 넓은 읽기를 회귀 대상으로 삼는다. 운영 성능 수치로 일반화하지 않는다.
+- AVAILABLE 만료는 `expires_at, id` 커서로 조회한다. 묶음 전이·해제 작업 등록이 실패하면 롤백 뒤 ID별 트랜잭션으로 격리하고, 실패 ID도 커서가 지나가 뒤의 정상 건을 처리한다. 실패 건은 AVAILABLE로 남겨 다음 회차에 재시도하며 ERROR로 남긴다. DB 연결·트랜잭션 생성 장애는 회차를 중단하여 ID별 timeout 반복을 막는다.
+- CLOSED 미발급 예산은 정상 대사가 발급 수량 일치와 requestsLeft·inProgress·pendingCompensation 0을 확인한 뒤에만 `(수량 - issued_count) × M`을 등록한다. 등록을 Redis 키의 최종 정리보다 먼저 커밋한다. issue-control 유실이나 고아 용량 정리만으로 발급 요청의 정리가 증명되지는 않으므로 해당 경로에서 예산을 해제하지 않는다.
+- 만료된 미개방 PLATFORM DRAFT는 확정 예약 ID·`issueEndAt <= now`·`issuedCount = 0`을 쿠폰 행 잠금 아래 확인해 전액 해제한다. OPEN 이력이 없고 Redis 접수 허용은 OPEN 커밋 뒤이므로 정상 CLOSED의 발급 대사와 다른 무발급 근거가 있다. 예약이 늦게 성공하면 DONE·쿠폰 예약 ID·해제 작업을 같은 트랜잭션에 남기고, 이미 DONE이지만 Redis 준비 실패로 남은 만료 DRAFT도 배치가 수집한다. 같은 쿠폰의 미발급 `RELEASE`·`UNISSUED:` 작업이 있으면 상태(PENDING·FAILED·DONE)와 관계없이 수집 쿼리에서 제외한다. 기존 `release-unissued-v{정책버전}`·`UNISSUED:{수량}`을 사용하며 불명 예약을 추정 실패로 바꾸지 않는다. 정상 CLOSED의 대사 조건과 Redis 유실 보류는 유지한다.
+- `budget_work`에 예약 ID·target·attempt·leaseUntil·version을 영속화한다. PENDING 선점은 짧은 DB 트랜잭션에서 attempt·version을 올리고, HTTP는 트랜잭션 밖에서 수행하며, 결과는 같은 attempt에만 반영한다. 작업 ID에는 `:`를 쓰지 않고 해제 target에는 미발급 수량 또는 발급 쿠폰 ID를 남긴다. 주기·lease·묶음 크기는 운영 측정 전 기본값이며 operations.md에 기록한다. 관리자 열기도 배치와 같은 `CouponBudgetWorkUseCase.execute(workId)`를 사용해 별도 HTTP·결과 기록 경로를 두지 않는다. 이미 선점된 PENDING은 503으로 두고 최신 DB 작업이 DONE일 때만 열기를 이어 간다. 같은 lease·attempt fence가 늦은 성공·거절의 덮어쓰기를 막는다.
+- 강의 HP 작업은 구매자 금액과 양수 플랫폼 재원을 함께 보류·지급·반환하고, 반환 시 billing이 확인한 쿠폰별 복구 결과를 취소 완료 이벤트에 싣는다. 구매자 금액이 0이어도 플랫폼 재원이 양수면 billing 작업과 조회 기준을 남긴다. 양수 재원 처리를 생략하지 않는 F7과 반환 완료 뒤 쿠폰을 복원하는 원칙은 유지한다.
+
+## 실제 billing 통합 검증 (2026-11-11, #866)
+
+- 사용자 요청과 범위 확인에 따라 쿠폰 E2E뿐 아니라 강의 Spring 통합 테스트 전체의 billing stub·fake를 제거한다. 실제 billing 앱을 별도 JVM·전용 DB로 띄우고 운영 HTTP API·원장 엔진을 검증한다.
+- 초기 충전/수익 데이터는 billing 소유 테스트 fixture로 준비하며 외부 PG 승인·회원 가입 검증은 포함하지 않는다. 업무 응답과 금융 결과는 가공하지 않는다. 실제 잔액/지갑/멱등 상태, 연결 단절·응답 유실, 호출 순서 제어로 거절·불명·경쟁을 검증한다.
+- 기존 도메인·어댑터 응답 분류 단위 테스트는 유지한다. 운영 jar에 fixture를 넣거나 강의 테스트에 billing Java 의존을 추가하지 않는다. 자세한 실행·정리 경계는 operations.md와 레포 docs/dev/testing.md를 따른다.
 
 ## 구현 순서와 담당 경계
 
 1. 정책·API 계약: 위 업무 결정을 확정하고 billing 계약을 연결한다. 공통 AGENTS·용어·정책·DB 문서에 스키마 예외와 공개 API 호출 경계를 반영한다.
 2. 구조 준비: `:coupon` 하위 프로젝트 뼈대(settings.gradle.kts 등록, `runtimeOnly` 의존, scan 범위, Flyway `coupon` 스키마, Modulith `verify()` 테스트, `hapbang.coupon.base-url`). `common/shared`에 쿠폰 DTO·이벤트 schema 자리. `verifyModuleStructure check bootJar` 통과가 완료 조건이다. 강의 코드는 옮기지 않는다.
 3. 쿠폰 기반: 스키마·마이그레이션·발행/승인·권한·발급과 요청 조회.
-4. 발급 복구: Stream/Kafka/DLT·epoch 복구·중복 보상 방지·용량 차단·대사.
+4. 발급 복구: 접수 직후 Kafka 전송·requests 재발행·소비자·DLT·epoch 복구·중복 보상 방지·용량 차단·대사.
 5. 사용: 계산·추천·매핑·원자적 일괄 예약·해제·사용 이력.
 6. 통합: 강의 예약 작업과 HP 작업, 할인 스냅샷, 0 HP, 결제·취소 이벤트, 가격 인상 제한, 수익 조회. billing 구현은 사용자가 담당한다.
 7. 운영 검증: 만료·예산 작업 재시도·부하·장애 시나리오. 통과 후 운영 발급을 연다.
@@ -67,8 +108,8 @@
 | 발급 판정은 Redis Lua | 쿠폰 행 pessimistic lock(`FOR UPDATE`) | 비관적 락은 처리량 ≈ 1 / 락 보유 시간이라 쿠폰당 초당 수백 건이 상한이고, Hikari pool(기본 10)을 강의 pod 전체와 공유해 다른 요청까지 막는다. 학습 저장소 실험에서 200 RPS에서는 두 방식 모두 정확히 1,000장을 발급했으므로 합방 규모면 락도 되지만, Redis Lua·Kafka·DLQ가 비기능 요구이자 학습 목표라 Lua를 택했다 |
 | 분산락은 SWR 조회 갱신에만 | 발급·사용에도 Redis 분산락 | 락으로 발급을 직렬화하면 Lua의 이점이 사라지고, 사용 판정은 DB가 기준이라 Redis 락이 보장을 주지 못한다 |
 | 사용 정합성은 generation CAS | 읽고 확인한 뒤 저장, 또는 `@Version` | 두 요청이 확인을 동시에 통과하면 한 쿠폰이 두 번 쓰인다. generation은 새 사용 시도에서만 오르고 명령·이벤트에 실려 나중에 비교되므로, 복원 뒤 재사용된 쿠폰을 늦게 온 옛 이벤트가 풀지 못한다 |
-| 발급 기록은 Lua와 같은 Redis Stream, 발급용 DB OUTBOX 없음 | Kafka 전송 확인 후 응답·실패 시 Redis 즉시 되돌리기 | Stream이 Lua와 같은 atomic 단위에 남으므로 Kafka 실패에 재고를 되돌릴 필요가 없고, 즉시 되돌리기는 이중 보상 위험을 만든다. DB OUTBOX는 Lua가 DB 트랜잭션 밖이라 "Lua 성공 → 앱 중단" 구간을 메우지 못한다 |
-| Stream → Kafka → DB 두 단계 | Stream 작업자가 DB에 직접 저장 | consumer group만으로도 at-least-once가 되지만 Kafka·DLQ는 비기능 요구이자 학습 목표다. Stream은 atomic 기록, Kafka는 소비·재시도·DLT 운영으로 역할을 나눈다. 비용은 at-least-once 경계 하나가 늘어 중복이 더 생기는 것이며 요청 ID 유일성과 `UNIQUE(member_id, coupon_id)`가 흡수한다 |
+| 접수 기록은 Lua가 쓰는 requests HASH. 발급용 DB OUTBOX·Redis Stream 없음 | (1) Kafka 전송 확인 후 응답·실패 시 Redis 즉시 되돌리기, (2) Redis Stream + 상시 작업자 | requests가 Lua와 같은 atomic 단위에 남으므로 Kafka 실패에 재고를 되돌릴 필요가 없고, 즉시 되돌리기는 이중 보상 위험을 만든다. Stream은 즉시 재전송을 주지만 상시 작업자·consumer group·pending 관리·복구 단계·공유 Redis 메모리를 요구해 합방 규모에는 과하다(2026-11-08 사용자 결정으로 Stream 제거). 대신 앱이 접수 직후 Kafka로 보내고, 재발행 배치가 requests에 있는데 DB에 없는 요청을 다시 보낸다. 복구가 즉시가 아니라 배치 주기 뒤라는 것이 비용이다 |
+| Kafka·DLT 유지 | 앱이 DB에 직접 저장 | Kafka·DLQ는 비기능 요구이자 학습 목표다. 핫패스에 DB 쓰기를 두지 않는다 |
 | 취소 이벤트는 취소 완료 하나 | 취소 진행 + 취소 완료 | `RESERVED`·`USED`면 어차피 재사용 불가이고, 취소 완료 뒤 늦은 결제 완료는 완료 우선 규칙이 막는다. 강의가 보내야 하는 이벤트가 하나 줄어든다 |
 | 부담은 enum이 아니라 쿠폰·항목별 f·s 금액 | `부담자 = PLATFORM` 같은 enum | 공동 부담이 와도 지급·취소·예산 코드는 기록된 금액만 읽으면 되므로 나누는 계산 한 곳만 바뀐다 |
 | 예산은 발행 시 한 번 예약 | 회원 발급마다 billing 호출 | 발급 경로에 billing이 끼면 Lua 빠른 경로가 무의미해지고 실패 경우의 수가 는다 |
@@ -102,4 +143,4 @@
 
 ## 검토 기준
 
-로컬 coupon-service.md의 2026-11-06 초안과 대화의 최신 정정을 기준으로 재작성했다. 현재 hapbang-backend의 주문 생성·HP 작업·수익 조회·billing 계약·Redis 설정을 참고했다. 문서 재작성만 수행했으며 코드·레포 공통 정책·원격 저장소는 변경하지 않았다.
+로컬 coupon-service.md의 2026-11-06 초안과 대화의 최신 정정을 기준으로 재작성했다. 이후 #843의 쿠폰 예산 HTTP·해제 작업·강의 HP 연결을 반영했다. 레포 공통 정책과 과거 결정의 업무 원칙은 유지한다.

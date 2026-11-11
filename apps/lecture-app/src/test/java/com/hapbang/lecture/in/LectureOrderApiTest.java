@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -25,17 +26,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
-import com.hapbang.shared.billing.out.BillingCallResult;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
+import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.jayway.jsonpath.JsonPath;
 
 // 주문·주문 조회·직접 구매 확정·구매 취소·재생 동의·시청 가능한 강의·판매 내역 API를 HTTP부터 DB까지 관통해 검증한다. 상태 전이·기한 규칙은 LectureOrderTest가 맡는다.
@@ -59,12 +58,17 @@ class LectureOrderApiTest {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
+
+    @Autowired
+    private FakeCouponApiClient coupon;
 
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+        coupon.reset();
     }
 
     @Test
@@ -78,6 +82,9 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.orderId").isNumber())
                 .andExpect(jsonPath("$.data.status").value("PAID"))
                 .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
+                // 쿠폰 없는 주문은 할인 0, 구매자 금액 = 가격
+                .andExpect(jsonPath("$.data.discountHp").value(0))
+                .andExpect(jsonPath("$.data.buyerAmountHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].lectureId").value(lecture.getId()))
                 .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"))
@@ -104,11 +111,59 @@ class LectureOrderApiTest {
     }
 
     @Test
+    void 쿠폰을_고르고_결제_금액을_보내지_않거나_주문하지_않는_강의에_쓰면_400_INVALID_REQUEST이고_쿠폰을_부르지_않는다()
+            throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], "
+                        + "\"coupons\": [{\"memberCouponId\": 501, \"lectureId\": " + lecture.getId() + "}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("expectedAmountPresentWithCoupons"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": 0, "
+                        + "\"coupons\": [{\"memberCouponId\": 501, \"lectureId\": 99999}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("couponLectureOrdered"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": -1, "
+                        + "\"coupons\": [{\"memberCouponId\": null, \"lectureId\": " + lecture.getId() + "}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(2));
+
+        assertThat(lectureOrderRepository.count()).isZero();
+        assertThat(coupon.calls()).isEmpty();
+    }
+
+    @Test
+    void 쿠폰_계산이_거절되면_409에_쿠폰_오류_코드와_발급_쿠폰_ID를_싣는다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 501L, null));
+
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": "
+                        + PRICE_HP + ", \"coupons\": [{\"memberCouponId\": 501, \"lectureId\": " + lecture.getId()
+                        + "}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_CALCULATION_REJECTED"))
+                .andExpect(jsonPath("$.couponCode").value("COUPON_NOT_USABLE"))
+                .andExpect(jsonPath("$.memberCouponId").value(501))
+                .andExpect(jsonPath("$.couponDetail").doesNotExist());
+
+        // 플랫폼 재원 비활성 거절은 FE가 만료 등 다른 거절과 구분하도록 사유를 couponDetail로 싣는다
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 502L,
+                "PLATFORM_FUNDING_DISABLED"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": "
+                        + PRICE_HP + ", \"coupons\": [{\"memberCouponId\": 502, \"lectureId\": " + lecture.getId()
+                        + "}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_CALCULATION_REJECTED"))
+                .andExpect(jsonPath("$.couponDetail").value("PLATFORM_FUNDING_DISABLED"));
+
+        assertThat(lectureOrderRepository.count()).isZero();
+    }
+
+    @Test
     void 보류_결과를_모르면_202와_결제_처리_중_주문을_응답한다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
@@ -124,8 +179,8 @@ class LectureOrderApiTest {
     @Test
     void 잔액이_부족하면_409_INSUFFICIENT_BALANCE다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
@@ -136,8 +191,9 @@ class LectureOrderApiTest {
     void 탈퇴로_닫힌_지갑이면_결제_실패로_409_WALLET_CLOSED다() throws Exception {
         // 결제 실패 사유를 보류 작업의 확정 거절 기록에서 읽어 잔액 부족과 나눈다 (D76)
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
-                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
+        billing.closeWallet(BUYER_ID);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
@@ -169,9 +225,7 @@ class LectureOrderApiTest {
                 .andReturn().getResponse().getContentAsString();
         Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
         Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         mockMvc.perform(cancelItem(orderId, orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
@@ -211,15 +265,17 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[0].orderId").value(order.getId()))
                 .andExpect(jsonPath("$.data.content[0].representativeTitle").value(TITLE))
                 .andExpect(jsonPath("$.data.content[0].itemCount").value(1))
-                .andExpect(jsonPath("$.data.content[0].progress").value("IN_PROGRESS"));
+                .andExpect(jsonPath("$.data.content[0].progress").value("IN_PROGRESS"))
+                // 쿠폰을 쓰지 않은 주문은 할인 0, 결제액 = 가격 합
+                .andExpect(jsonPath("$.data.content[0].totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(0))
+                .andExpect(jsonPath("$.data.content[0].buyerAmountHp").value(PRICE_HP));
     }
 
     @Test
     void 결제_처리_중인_주문도_목록과_상세에_보이고_처리_상태가_있다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
         String body = mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andReturn().getResponse().getContentAsString();
@@ -317,6 +373,40 @@ class LectureOrderApiTest {
     }
 
     @Test
+    void 쿠폰_할인_주문은_주문_상세와_목록에_할인과_구매자_금액을_싣고_판매_내역에_판매자_플랫폼_부담과_지급액을_싣는다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
+        // 할인 4,000 = 플랫폼 1,000 + 판매자 3,000. 판매자에게도 플랫폼 부담이 보인다
+        LectureOrder placed = LectureOrder.place(BUYER_ID, List.of(lecture), Set.of(), now);
+        placed.applyItemDiscount(lecture.getId(), 4_000L, 1_000L, 3_000L);
+        placed.markPaid(now);
+        LectureOrder order = lectureOrderRepository.save(placed);
+
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", order.getId())
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.buyerAmountHp").value(PRICE_HP - 4_000))
+                .andExpect(jsonPath("$.data.items[0].priceHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.items[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.items[0].buyerAmountHp").value(PRICE_HP - 4_000));
+        // 주문 목록 카드도 상세를 받기 전에 할인 뒤 결제액을 보인다
+        mockMvc.perform(get("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.content[0].buyerAmountHp").value(PRICE_HP - 4_000));
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.content[0].sellerDiscountHp").value(3_000))
+                .andExpect(jsonPath("$.data.content[0].platformDiscountHp").value(1_000))
+                .andExpect(jsonPath("$.data.content[0].sellerPayoutHp").value(PRICE_HP - 3_000));
+    }
+
+    @Test
     void 판매자는_판매_내역에서_항목_상태와_지급_예정_시각을_최근_구매순으로_본다() throws Exception {
         LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
         LectureOrder paidOut = save(BUYER_ID, now.minusDays(32));
@@ -345,6 +435,9 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(paidOut.getItems().getFirst().getLectureId()))
                 .andExpect(jsonPath("$.data.content[1].lectureTitle").value(TITLE))
                 .andExpect(jsonPath("$.data.content[1].priceHp").value(PRICE_HP))
+                // 쿠폰 없는 주문은 할인 0, 지급액 = 가격
+                .andExpect(jsonPath("$.data.content[1].discountHp").value(0))
+                .andExpect(jsonPath("$.data.content[1].sellerPayoutHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.content[1].status").value("PAID_OUT"))
                 .andExpect(jsonPath("$.data.content[1].purchasedAt").isString())
                 .andExpect(jsonPath("$.data.content[1].payoutScheduledAt").isString())
@@ -429,6 +522,13 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(deleted.getId()))
                 .andExpect(jsonPath("$.data.content[1].orderId").value(deletedOrder.getId()))
                 .andExpect(jsonPath("$.data.content[1].lectureDeleted").value(true));
+    }
+
+    private static MockHttpServletRequestBuilder createOrderWith(String body) {
+        return post("/api/v1/lectures/orders")
+                .with(GatewayLogin.as(BUYER_ID, Role.USER))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
     }
 
     private static MockHttpServletRequestBuilder createOrder(Long lectureId) {

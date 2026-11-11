@@ -1,5 +1,7 @@
 package com.hapbang.member.in;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,7 +34,7 @@ public class ApiV1MemberAdminAccountController implements ApiV1MemberAdminAccoun
                                            @Valid @RequestBody AdminAccountCreateRequest request) {
         User created = memberAdminAccountFacade.createAdmin(adminId, request.email(), request.password(),
                 request.nickname());
-        // 새 계정이라 프로필 사진이 없다
-        return RsData.created("관리자 계정을 만들었습니다.", MemberMeResponse.from(created, null));
+        // 새 계정이라 프로필 사진·콘텐츠 분야가 없다
+        return RsData.created("관리자 계정을 만들었습니다.", MemberMeResponse.from(created, null, Map.of()));
     }
 }

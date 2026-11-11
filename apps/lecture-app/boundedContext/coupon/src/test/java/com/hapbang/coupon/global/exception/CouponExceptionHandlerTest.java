@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -24,8 +25,13 @@ import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
+import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.ServletException;
 
 // 쿠폰 업무 예외가 강의 공통 핸들러와 같은 ProblemDetail + code로 응답하는지, 다른 예외는 고르지 않는지 본다.
@@ -38,6 +44,29 @@ class CouponExceptionHandlerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    void 매진은_DEBUG로_남기고_다른_4xx는_INFO로_남긴다() throws Exception {
+        // 테스트 로그 수준(INFO)에서는 DEBUG가 보이지 않으므로 로거를 DEBUG로 낮추고 남긴 이벤트의 수준을 직접 본다
+        Logger logger = (Logger) LoggerFactory.getLogger(CouponExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        Level previousLevel = logger.getLevel();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            mockMvc.perform(get("/api/v1/coupons/samples/sold-out")).andExpect(status().isConflict());
+            mockMvc.perform(get("/api/v1/coupons/samples/invalid-policy")).andExpect(status().isBadRequest());
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+        }
+
+        assertThat(appender.list).filteredOn(event -> event.getFormattedMessage().contains("code=COUPON_SOLD_OUT"))
+                .singleElement().satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.DEBUG));
+        assertThat(appender.list).filteredOn(event -> event.getFormattedMessage().contains("code=INVALID_COUPON_POLICY"))
+                .singleElement().satisfies(event -> assertThat(event.getLevel()).isEqualTo(Level.INFO));
+    }
 
     @Test
     void 쿠폰_예외는_오류_코드의_상태_기본_메시지_code로_응답한다() throws Exception {
@@ -101,6 +130,38 @@ class CouponExceptionHandlerTest {
     }
 
     @Test
+    void 쿠폰_사용_규칙_위반은_409와_실패한_발급_쿠폰_ID로_응답한다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/samples/usage-violation"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_STACKING_VIOLATION"))
+                .andExpect(jsonPath("$.detail").value(CouponDomainError.COUPON_STACKING_VIOLATION.getMessage()))
+                .andExpect(jsonPath("$.memberCouponId").value(31));
+    }
+
+    @Test
+    void 쿠폰_사용_예외는_발급_쿠폰_ID가_있을_때만_속성으로_싣는다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/samples/generation-mismatch"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_GENERATION_MISMATCH"))
+                .andExpect(jsonPath("$.memberCouponId").value(32));
+        mockMvc.perform(get("/api/v1/coupons/samples/work-conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_WORK_CONFLICT"))
+                .andExpect(jsonPath("$.memberCouponId").doesNotExist());
+    }
+
+    @Test
+    void 쿠폰_사용_도메인_오류는_같은_이름의_409_오류_코드다() {
+        assertThat(CouponExceptionHandler.errorCodeOf(CouponDomainError.COUPON_NOT_APPLICABLE))
+                .isEqualTo(CouponErrorCode.COUPON_NOT_APPLICABLE);
+        assertThat(CouponExceptionHandler.errorCodeOf(CouponDomainError.COUPON_NOT_USABLE))
+                .isEqualTo(CouponErrorCode.COUPON_NOT_USABLE);
+        assertThat(CouponExceptionHandler.errorCodeOf(CouponDomainError.COUPON_STACKING_VIOLATION))
+                .isEqualTo(CouponErrorCode.COUPON_STACKING_VIOLATION);
+        assertThat(CouponErrorCode.COUPON_NOT_USABLE.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
     void 쿠폰_예외가_아니면_고르지_않는다() {
         // 운영에서는 같은 JVM의 강의 공통 핸들러가 받는다. 이 슬라이스에는 그 핸들러가 없어 예외가 그대로 나온다
         assertThatThrownBy(() -> mockMvc.perform(get("/api/v1/coupons/samples/unexpected")))
@@ -144,6 +205,21 @@ class CouponExceptionHandlerTest {
         @GetMapping("/api/v1/coupons/samples/optimistic-lock")
         void optimisticLock() {
             throw new ObjectOptimisticLockingFailureException(Coupon.class, 1L);
+        }
+
+        @GetMapping("/api/v1/coupons/samples/usage-violation")
+        void usageViolation() {
+            throw new CouponUsageViolationException(CouponDomainError.COUPON_STACKING_VIOLATION, 31L);
+        }
+
+        @GetMapping("/api/v1/coupons/samples/generation-mismatch")
+        void generationMismatch() {
+            throw new CouponUsageException(CouponErrorCode.COUPON_GENERATION_MISMATCH, 32L);
+        }
+
+        @GetMapping("/api/v1/coupons/samples/work-conflict")
+        void workConflict() {
+            throw new CouponUsageException(CouponErrorCode.COUPON_WORK_CONFLICT, (Long) null);
         }
 
         @GetMapping("/api/v1/coupons/samples/unexpected")

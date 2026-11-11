@@ -1,11 +1,8 @@
 package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
-import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
-import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Entity;
@@ -416,27 +413,5 @@ public class Appearance extends BaseEntity {
     /** 이 출연의 HP가 걸린 보류 대상 ID (요청서 ID 또는 모집글 ID) */
     public Long holdRefId() {
         return isFromRecruit() ? recruitId : requestId;
-    }
-
-    /**
-     * 다른 모듈에 알리는 동기화용 사본 (#713). 출연 변경 이벤트와 동기화 내부 API가 같이 쓴다.
-     * 방송 예정 일시는 DB 컬럼(TIMESTAMP(6))과 같은 마이크로초까지만 둔다. 이벤트 값이 저장된 값(내부 API)과 같아야 하기 때문이다.
-     *
-     * @throws IllegalStateException 아직 DB에 반영되지 않은 출연. {@code @Version}은 flush 때 오르므로 반드시 flush 뒤에 만든다
-     */
-    public AppearanceSyncDto toSyncDto() {
-        if (id == null || version == null) {
-            throw new IllegalStateException("DB에 반영된 출연만 동기화 사본으로 만들 수 있습니다: " + id);
-        }
-        return new AppearanceSyncDto(id, hostId, guestId, status.result(), scheduledAt.truncatedTo(ChronoUnit.MICROS),
-                version);
-    }
-
-    /**
-     * 출연 변경 이벤트 (#713). 상태가 바뀐 뒤 flush하고 만든다. flush 전에 만들면 오르기 전 version이 실려
-     * 받는 쪽이 오래된 이벤트로 버린다.
-     */
-    public AppearanceChangedEvent toChangedEvent() {
-        return new AppearanceChangedEvent(toSyncDto());
     }
 }

@@ -10,6 +10,7 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
 /**
@@ -28,12 +29,14 @@ public class OrderObjectionFileUseCase {
         this.clock = clock;
     }
 
-    public void fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason) {
+    /** @return 접수한 주문 항목 */
+    public OrderItem fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason) {
         // 없는 항목은 남의 항목과 같게 본다 (D32)
         LectureOrder order = lectureOrderRepository.findByItemId(orderItemId)
                 .orElseThrow(() -> new LectureException(LectureErrorCode.OBJECTION_NOT_BUYER));
-        order.fileObjection(orderItemId, buyerUserId, inquiryId, reason, LocalDateTime.now(clock));
+        OrderItem item = order.fileObjection(orderItemId, buyerUserId, inquiryId, reason, LocalDateTime.now(clock));
         // 같은 항목을 동시에 바꾼 변경(지급 배치 등)과의 충돌을 이 호출 안에서 드러낸다
         lectureOrderRepository.flush();
+        return item;
     }
 }

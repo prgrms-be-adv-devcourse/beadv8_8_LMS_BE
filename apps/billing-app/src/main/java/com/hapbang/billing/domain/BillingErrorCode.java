@@ -88,6 +88,17 @@ public enum BillingErrorCode implements BaseErrorCode {
     WALLET_CLOSED(HttpStatus.CONFLICT, "탈퇴한 회원의 지갑이에요."),
     // 다시 열기를 이미 받은 탈퇴 작업의 늦은 닫기. 지갑을 닫지 않는다
     WITHDRAWAL_ALREADY_REOPENED(HttpStatus.CONFLICT, "이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다."),
+    // 프로모션 지갑의 예약되지 않은 가용 잔액이 요청 금액보다 적다. 예약·보류 칸은 회수에 쓰지 않는다. 아무것도 바꾸지 않는다
+    PROMOTION_BALANCE_INSUFFICIENT(HttpStatus.CONFLICT, "프로모션 지갑의 예약되지 않은 HP가 부족합니다."),
+    // 쿠폰 예산 예약은 쿠폰당 하나다. 다른 작업 ID로 같은 쿠폰을 다시 예약했다. 아무것도 바꾸지 않는다
+    BUDGET_RESERVATION_EXISTS(HttpStatus.CONFLICT, "이 쿠폰의 예산 예약이 이미 있습니다."),
+    BUDGET_RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "예산 예약을 찾을 수 없습니다."),
+    // 해제는 예약의 남은 예산에서만 한다(보류 중인 예산은 해제하지 않는다). 아무것도 바꾸지 않는다
+    BUDGET_RELEASE_EXCEEDS_REMAINING(HttpStatus.CONFLICT, "해제 금액이 예약의 남은 예산보다 많습니다."),
+    // 프로모션 보류가 있는 주문 항목은 구매자·플랫폼 재원을 함께 전액 반환·지급한다
+    PROMOTION_PARTIAL_NOT_SUPPORTED(HttpStatus.CONFLICT, "프로모션 보류는 전체 반환·지급만 가능합니다."),
+    // 주문 항목 보류의 플랫폼 몫이 그 쿠폰 예약의 남은 예산보다 많다. 구매자 보류까지 전부 롤백한다
+    PROMOTION_BUDGET_INSUFFICIENT(HttpStatus.CONFLICT, "쿠폰 예산이 부족합니다."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),

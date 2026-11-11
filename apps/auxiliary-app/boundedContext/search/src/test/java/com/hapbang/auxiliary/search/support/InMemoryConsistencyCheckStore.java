@@ -1,0 +1,43 @@
+package com.hapbang.auxiliary.search.support;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+
+import com.hapbang.auxiliary.search.common.out.ConsistencyCheck;
+import com.hapbang.auxiliary.search.common.out.ConsistencyCheckStore;
+
+/** DB 없이 정합성 점검 결과를 메모리에 두는 가짜(#772). SQL은 {@code ConsistencyCheckStoreTest}가 본다 */
+public class InMemoryConsistencyCheckStore extends ConsistencyCheckStore {
+
+    private final Map<String, ConsistencyCheck> checks = new HashMap<>();
+    private boolean failSave;
+
+    public InMemoryConsistencyCheckStore() {
+        super(null);
+    }
+
+    @Override
+    public Optional<ConsistencyCheck> find(String target) {
+        return Optional.ofNullable(checks.get(target));
+    }
+
+    /** 이후 저장을 실패시킨다(DB 장애 흉내) */
+    public InMemoryConsistencyCheckStore failSave() {
+        this.failSave = true;
+        return this;
+    }
+
+    @Override
+    public void save(ConsistencyCheck check) {
+        if (failSave) {
+            throw new IllegalStateException("DB 장애");
+        }
+        checks.put(check.target(), check);
+    }
+
+    @Override
+    public void clear(String target) {
+        checks.remove(target);
+    }
+}

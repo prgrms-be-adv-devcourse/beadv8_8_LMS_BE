@@ -20,6 +20,8 @@ dependencies {
     implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.bulkhead)
     implementation(libs.resilience4j.micrometer)
+    // 쿠폰 사용 내부 API 호출(CouponApiClient)의 circuit breaker. 쿠폰 모듈의 강의 조회 호출과 같은 라이브러리다
+    implementation(libs.resilience4j.circuitbreaker)
     // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
@@ -63,6 +65,16 @@ tasks.check {
 // 대용량 업로드 확인(@Tag("large-upload"))은 시간이 걸려 check에서 뺀다. 수동 실행: ./gradlew :lecture-app:largeUploadTest
 tasks.named<Test>("test") {
     useJUnitPlatform { excludeTags("large-upload") }
+}
+
+// billing의 Java 코드는 테스트 클래스패스에 넣지 않는다. 별도 실행 산출물만 HTTP 하네스에 전달한다.
+tasks.withType<Test>().configureEach {
+    dependsOn(":billing-app:e2eServerJar")
+    systemProperty("hapbang.billing.e2e.enabled", "true")
+    systemProperty("hapbang.billing.e2e.jar", rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar").absolutePath)
+    inputs.file(rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar"))
+        .withPropertyName("billingE2eServerJar")
+    systemProperty("sun.net.http.retryPost", "false")
 }
 
 // 힙보다 큰 본문을 올려 업로드가 본문을 메모리에 모으지 않는지 확인한다(모으면 OOM). docs/deploy/s3.md

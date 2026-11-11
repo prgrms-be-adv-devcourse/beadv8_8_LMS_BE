@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import java.util.List;
+import java.util.Map;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -9,15 +10,19 @@ import com.hapbang.shared.member.domain.Role;
 
 /**
  * 회원 프로필 상세 (공개 정보 + 등록된 채널 + 출연 평점). 목록용 MemberProfileResponse와 달리 채널을 넣고,
- * 출연 평점은 전체와 받은 역할별로 나눠 준다 (#555)
+ * 출연 평점은 전체와 받은 역할별로 나눠 준다 (#555).
+ * contentCategories는 고른 순서의 분야(코드·이름), 없으면 빈 배열. bio는 자기소개, 없으면 null (#711)
  */
 public record MemberProfileDetailResponse(Long id, String nickname, Role role, String profileImageUrl,
                                           List<ChannelResponse> channels,
-                                          AppearanceRatingResponse appearanceRating) {
+                                          AppearanceRatingResponse appearanceRating,
+                                          List<ContentCategoryResponse> contentCategories, String bio) {
 
     public static MemberProfileDetailResponse from(User user, String profileImageUrl, List<InfluencerChannel> channels,
-                                                   AppearanceRatingSummary appearanceRating) {
+                                                   AppearanceRatingSummary appearanceRating,
+                                                   Map<String, String> categoryNames) {
         return new MemberProfileDetailResponse(user.getId(), user.getNickname(), user.getRole(), profileImageUrl,
-                channels.stream().map(ChannelResponse::from).toList(), AppearanceRatingResponse.from(appearanceRating));
+                channels.stream().map(ChannelResponse::from).toList(), AppearanceRatingResponse.from(appearanceRating),
+                ContentCategoryResponse.of(user.getContentCategories(), categoryNames), user.getBio());
     }
 }

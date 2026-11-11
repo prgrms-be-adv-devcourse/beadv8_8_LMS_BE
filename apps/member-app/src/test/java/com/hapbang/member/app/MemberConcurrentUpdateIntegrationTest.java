@@ -51,7 +51,7 @@ class MemberConcurrentUpdateIntegrationTest {
         User user = userRepository.save(MemberFixture.user());
         assertThat(user.getVersion()).isZero();
 
-        inNewTransaction(() -> memberUpdateProfileUseCase.update(user.getId(), "새닉네임"));
+        inNewTransaction(() -> memberUpdateProfileUseCase.update(user.getId(), "새닉네임", null, null));
 
         assertThat(find(user).getVersion()).isEqualTo(1L);
         // 이벤트에도 올라간 버전이 담긴다 (flush 뒤 발행)
@@ -67,7 +67,7 @@ class MemberConcurrentUpdateIntegrationTest {
         assertConcurrentUpdate(() -> inNewTransaction(() -> {
             memberSupport.findUser(user.getId());          // 본인 수정이 먼저 읽음 (버전 0)
             changeRoleInAnotherTransaction(user.getId());  // 그 사이 관리자 역할 변경 커밋 (버전 1)
-            memberUpdateProfileUseCase.update(user.getId(), "새닉네임");
+            memberUpdateProfileUseCase.update(user.getId(), "새닉네임", null, null);
         }));
 
         User saved = find(user);
@@ -85,7 +85,7 @@ class MemberConcurrentUpdateIntegrationTest {
 
         assertConcurrentUpdate(() -> inNewTransaction(() -> {
             User loaded = memberSupport.findUser(user.getId());
-            inNewTransaction(() -> memberUpdateProfileUseCase.update(user.getId(), "새닉네임"));
+            inNewTransaction(() -> memberUpdateProfileUseCase.update(user.getId(), "새닉네임", null, null));
             memberSupport.changeRole(loaded, Role.INFLUENCER);
         }));
 

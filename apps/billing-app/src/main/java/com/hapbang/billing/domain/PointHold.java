@@ -150,6 +150,25 @@ public class PointHold extends BillingUpdatedEntity {
         return status == PointHoldStatus.HELD || status == PointHoldStatus.PARTIALLY_PROCESSED;
     }
 
+    // 구매자 몫이 0인 프로모션 전용 앵커를 끝낸다. 0 HP 상세·원장은 만들지 않는다.
+    public void completePromotionPayout() {
+        requirePromotionAnchor();
+        status = PointHoldStatus.PAID;
+    }
+
+    public void completePromotionRelease(Instant releasedAt) {
+        requirePromotionAnchor();
+        status = PointHoldStatus.RELEASED;
+        this.releasedAt = releasedAt;
+    }
+
+    private void requirePromotionAnchor() {
+        if (status != PointHoldStatus.HELD || originalTotalHp() != 0 || heldTotalHp() != 0
+                || referenceType != BillingReferenceType.LECTURE_ORDER_ITEM || holdType != PointHoldType.MIXED) {
+            throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        }
+    }
+
     // 남은 보류액에서 HP 종류별 지급액을 뺀다. 남은 보류가 0이 되면 반환 이력이 있으면 MIXED, 없으면 PAID로 끝나며,
     // 남으면 PARTIALLY_PROCESSED가 된다. 이미 끝난 보류는 HOLD_ALREADY_CLOSED, 남은 보류액을 넘으면 PAYOUT_AMOUNT_EXCEEDS_HELD로 거절한다.
     // released_at은 반환으로 끝날 때만 남긴다(지급으로 끝나면 비워 둔다).

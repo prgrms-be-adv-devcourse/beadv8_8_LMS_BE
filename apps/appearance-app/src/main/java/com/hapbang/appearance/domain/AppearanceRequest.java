@@ -3,7 +3,6 @@ package com.hapbang.appearance.domain;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Embedded;
@@ -129,11 +128,6 @@ public class AppearanceRequest extends BaseEntity {
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.REQUESTED;
         return true;
-    }
-
-    /** 다른 모듈에 넘기는 요청서 정보 (요청 도착 이벤트) */
-    public AppearanceRequestDto toDto() {
-        return new AppearanceRequestDto(id, hostId, guestId, getTitle(), fee, scheduledAt, acceptDeadline);
     }
 
     /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */

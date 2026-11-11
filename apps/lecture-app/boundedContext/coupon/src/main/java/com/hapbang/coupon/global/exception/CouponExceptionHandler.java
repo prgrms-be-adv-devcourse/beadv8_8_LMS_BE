@@ -14,6 +14,7 @@ import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
+import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -40,10 +41,16 @@ public class CouponExceptionHandler {
         return respond(exception.getErrorCode(), exception.getMessage(), exception.getProperties(), exception);
     }
 
-    /** 도메인 규칙 위반. detail은 어느 규칙인지 알리는 도메인 메시지다 */
+    /**
+     * 도메인 규칙 위반. detail은 어느 규칙인지 알리는 도메인 메시지다.
+     * 사용 규칙 위반({@link CouponUsageViolationException})은 실패한 발급 쿠폰 ID를 {@code memberCouponId} 속성으로 싣는다
+     */
     @ExceptionHandler(CouponDomainException.class)
     public ResponseEntity<ProblemDetail> handleCouponDomainException(CouponDomainException exception) {
-        return respond(errorCodeOf(exception.getError()), exception.getMessage(), Map.of(), exception);
+        Map<String, Object> properties = exception instanceof CouponUsageViolationException violation
+                ? Map.of(CouponUsageException.MEMBER_COUPON_ID, violation.getMemberCouponId())
+                : Map.of();
+        return respond(errorCodeOf(exception.getError()), exception.getMessage(), properties, exception);
     }
 
     /** 발급 저장소(Redis)에 닿지 못했다. 내부 메시지는 응답에 싣지 않는다 */
@@ -71,7 +78,7 @@ public class CouponExceptionHandler {
     /** 도메인 오류의 응답 코드. 도메인 오류가 늘면 컴파일 오류로 여기를 고치게 한다(default를 두지 않는다) */
     static CouponErrorCode errorCodeOf(CouponDomainError error) {
         return switch (error) {
-            case MISSING_TERMS, INVALID_QUANTITY, INVALID_ISSUE_PERIOD, INVALID_RATE, INVALID_AMOUNT,
+            case MISSING_TERMS, INVALID_NAME, INVALID_QUANTITY, INVALID_ISSUE_PERIOD, INVALID_RATE, INVALID_AMOUNT,
                  MAX_DISCOUNT_REQUIRED, MAX_DISCOUNT_NOT_ALLOWED, SELLER_TARGET_LECTURE_ONLY, LECTURE_TARGET_REQUIRED,
                  LECTURE_TARGET_NOT_ALLOWED, INVALID_BASE_PRICE, INVALID_RELATIVE_EXPIRY, INVALID_FIXED_EXPIRY,
                  EXPIRY_TOO_LONG, REJECT_REASON_REQUIRED, BUDGET_OVERFLOW -> CouponErrorCode.INVALID_COUPON_POLICY;
@@ -82,12 +89,17 @@ public class CouponExceptionHandler {
             case UNKNOWN_LUA_RESULT -> CouponErrorCode.COUPON_ISSUE_FAILED;
             case COUPON_NOT_FOUND -> CouponErrorCode.COUPON_NOT_FOUND;
             case NOT_COUPON_OWNER -> CouponErrorCode.NOT_COUPON_OWNER;
+            case COUPON_NOT_APPLICABLE -> CouponErrorCode.COUPON_NOT_APPLICABLE;
+            case COUPON_NOT_USABLE -> CouponErrorCode.COUPON_NOT_USABLE;
+            case COUPON_STACKING_VIOLATION -> CouponErrorCode.COUPON_STACKING_VIOLATION;
         };
     }
 
     /**
      * 오류 코드의 상태로 응답한다. 5xx는 원인과 함께 ERROR, 4xx는 사용자 입력·정책상 거절한 정상 응답이라 INFO로 남긴다
-     * (docs/dev/logging.md "레벨", 강의 공통 핸들러와 같다).
+     * (docs/dev/logging.md "레벨", 강의 공통 핸들러와 같다). 매진(409 {@code COUPON_SOLD_OUT})만 DEBUG다. 선착순 발급에서 매진은 한꺼번에
+     * 몰리고(1초에 수백 건), 줄마다 동기로 쓰면 로그 쓰기 lock에서 요청 스레드가 기다린다. 건수는 지표 {@code coupon.issue.sold_out}이
+     * 센다.
      *
      * @param detail     응답의 detail. {@code null}이면 오류 코드의 기본 메시지
      * @param properties 응답에 더할 속성
@@ -100,6 +112,8 @@ public class CouponExceptionHandler {
         properties.forEach(problemDetail::setProperty);
         if (errorCode.getStatus().is5xxServerError()) {
             log.error("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message, exception);
+        } else if (errorCode == CouponErrorCode.COUPON_SOLD_OUT) {
+            log.debug("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message);
         } else {
             log.info("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message);
         }

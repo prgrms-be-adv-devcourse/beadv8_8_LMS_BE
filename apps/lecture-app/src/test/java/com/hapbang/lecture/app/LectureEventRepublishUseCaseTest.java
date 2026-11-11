@@ -36,13 +36,13 @@ class LectureEventRepublishUseCaseTest {
 
     @Test
     void 대기_시간이_지난_강의_이벤트만_오래된_것부터_batchSize건_고른다() {
-        EventPublication first = publication(new LectureObjectionResolvedEvent("RESOLVE:1", 1L, 10L, true), 10);
+        EventPublication first = publication(resolved(1L, 10L), 10);
         // 강의 앱이 받기만 하는 고객센터 이벤트는 다시 보내지 않는다
         EventPublication received = publication(new LectureObjectionResolutionRequestedEvent("RESOLVE:2", 2L, 20L,
                 true, 3L), 9);
-        EventPublication second = publication(new LectureObjectionReturnCompletedEvent(1L, 10L), 8);
-        EventPublication overLimit = publication(new LectureObjectionReturnCompletedEvent(4L, 40L), 7);
-        EventPublication justPublished = publication(new LectureObjectionReturnCompletedEvent(5L, 50L), 0);
+        EventPublication second = publication(returnCompleted(1L, 10L), 8);
+        EventPublication overLimit = publication(returnCompleted(4L, 40L), 7);
+        EventPublication justPublished = publication(returnCompleted(5L, 50L), 0);
         List<EventPublication> selected = resubmitted(List.of(first, received, second, overLimit, justPublished));
 
         assertThat(useCase.republishDue()).isEqualTo(2);
@@ -52,7 +52,7 @@ class LectureEventRepublishUseCaseTest {
     @Test
     void 고를_기록이_없으면_0이다() {
         List<EventPublication> selected = resubmitted(List.of(
-                publication(new LectureObjectionReturnCompletedEvent(5L, 50L), 0)));
+                publication(returnCompleted(5L, 50L), 0)));
 
         assertThat(useCase.republishDue()).isZero();
         assertThat(selected).isEmpty();
@@ -68,6 +68,16 @@ class LectureEventRepublishUseCaseTest {
             return null;
         }).when(incompleteEventPublications).resubmitIncompletePublications(any(Predicate.class));
         return selected;
+    }
+
+    private static LectureObjectionResolvedEvent resolved(Long inquiryId, Long orderItemId) {
+        return new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true, 2L, 1L, "강의",
+                NOW.atOffset(ZoneOffset.UTC));
+    }
+
+    private static LectureObjectionReturnCompletedEvent returnCompleted(Long inquiryId, Long orderItemId) {
+        return new LectureObjectionReturnCompletedEvent(inquiryId, orderItemId, 2L, 1L, "강의",
+                NOW.atOffset(ZoneOffset.UTC));
     }
 
     private static EventPublication publication(Object event, long minutesAgo) {
