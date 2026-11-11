@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-049 · 2026-11-11 · 통과 (N6 #862 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-049 |
+| 실행 날짜 | 2026-11-11 17:17~17:25 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree) |
+| 커밋 | `987024b7` + origin/dev `70c3f3ac` 병합(커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(#869·#870·#878·#880) 병합. 충돌은 `kafka.md` 토픽 표 하나(member 행은 dev의 #874 이벤트 3종, appearance 행은 N6 설명) |
+| 대상 기능 | 병합 결과 회귀 |
+| 관련 NT ID | NR-047과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | 모두 새로 실행: `:notification` 210, `:chatbot` 244, `:search` 168, `:auxiliary-global` 109, `:auxiliary-app` 13. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-046과 같다. 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #862 |
+
 #### NR-048 · 2026-11-11 · 통과 (N6 #862 PR Bot 리뷰 반영 뒤)
 
 | 항목 | 값 |

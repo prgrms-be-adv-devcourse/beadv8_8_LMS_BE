@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
-import com.hapbang.auxiliary.search.app.InfluencerSearchFacade;
-import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
+import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchFacade;
+import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 
 import lombok.RequiredArgsConstructor;
 

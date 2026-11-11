@@ -21,7 +21,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
@@ -48,7 +48,7 @@ class OrderCouponCreateTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -59,7 +59,9 @@ class OrderCouponCreateTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
+
         coupon.reset();
     }
 

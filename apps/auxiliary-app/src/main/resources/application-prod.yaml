@@ -52,6 +52,12 @@ hapbang:
       lecture-name: chatbot-lectures-openai-1536
       influencer-name: chatbot-influencers-openai-1536
       dimensions: 1536
+    recommend:
+      lecture:
+        # 관심사 비율 α와 인기 비율 β. 임베딩 모델마다 유사도가 퍼지는 구간이 달라 프로필마다 둔다(기본값 없음).
+        # 임시값. 식에서 정한 추정 시작값이고, 추천 가중치 보정(#867)에서 다시 정한다
+        interest-weight: 0.3
+        popularity-weight: 0.05
   search:
     elasticsearch:
       # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806)

@@ -65,6 +65,7 @@ public class ChatbotMetrics {
         FAQ_SEARCH,
         FAQ_CHAT,
         FAQ_STREAM,
+        LECTURE_RECOMMEND,
         INFLUENCER_RECOMMEND
     }
 

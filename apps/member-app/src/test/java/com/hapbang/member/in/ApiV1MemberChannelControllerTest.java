@@ -48,6 +48,7 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.InfluencerChannelApprovedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
@@ -137,6 +138,12 @@ class ApiV1MemberChannelControllerTest {
                 });
         assertThat(events.stream(UserModifiedEvent.class)).singleElement()
                 .satisfies(event -> assertThat(event.user().role()).isEqualTo(Role.INFLUENCER));
+        // 등록하며 자동 승인돼도 심사 1회차의 채널 승인 이벤트가 나간다 (#874)
+        Long channelId = influencerChannelRepository.findAll().getFirst().getId();
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).singleElement()
+                .extracting(InfluencerChannelApprovedEvent::userId, InfluencerChannelApprovedEvent::channelId,
+                        InfluencerChannelApprovedEvent::reviewSequence, InfluencerChannelApprovedEvent::autoApproved)
+                .containsExactly(user.getId(), channelId, 1, true);
         verify(chzzkApiClient).revokeToken("token-1");
     }
 
@@ -210,6 +217,7 @@ class ApiV1MemberChannelControllerTest {
                 .satisfies(channel -> assertThat(channel.getVerificationStatus())
                         .isEqualTo(ChannelVerificationStatus.REGISTERED));
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).isEmpty();
     }
 
     @Test
@@ -288,6 +296,11 @@ class ApiV1MemberChannelControllerTest {
         assertThat(saved.getFollowerCount()).isEqualTo(15);
         assertThat(events.stream(UserModifiedEvent.class)).singleElement()
                 .satisfies(event -> assertThat(event.user().role()).isEqualTo(Role.INFLUENCER));
+        // 승인 요청으로 회차가 1이 되고, 자동 승인이라 심사한 관리자가 없다 (#874)
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).singleElement()
+                .extracting(InfluencerChannelApprovedEvent::userId, InfluencerChannelApprovedEvent::channelId,
+                        InfluencerChannelApprovedEvent::reviewSequence, InfluencerChannelApprovedEvent::autoApproved)
+                .containsExactly(user.getId(), channel.getId(), 1, true);
     }
 
     @Test
@@ -307,7 +320,9 @@ class ApiV1MemberChannelControllerTest {
         InfluencerChannel saved = influencerChannelRepository.findById(channel.getId()).orElseThrow();
         assertThat(saved.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.PENDING);
         assertThat(saved.getRequestedAt()).isNotNull();
+        assertThat(saved.getReviewCount()).isEqualTo(1);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerChannelApprovedEvent.class)).isEmpty();
     }
 
     @Test

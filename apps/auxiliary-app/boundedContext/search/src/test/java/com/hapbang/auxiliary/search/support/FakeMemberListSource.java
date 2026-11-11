@@ -5,7 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.hapbang.auxiliary.search.out.MemberListSource;
+import com.hapbang.auxiliary.search.influencer.out.MemberListSource;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 

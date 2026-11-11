@@ -3,11 +3,7 @@ package com.hapbang.coupon;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -62,9 +58,6 @@ import com.hapbang.coupon.app.CouponRepublishUseCase;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
 import com.hapbang.coupon.app.port.LectureCatalog;
-import com.hapbang.coupon.app.port.PromotionBudget;
-import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDltLog;
@@ -148,8 +141,8 @@ class CouponIssueDeliveryE2eTest {
     @MockitoSpyBean
     private CouponIssueConsumerUseCase couponIssueConsumerUseCase;
 
-    @MockitoBean
-    private PromotionBudget promotionBudget;
+    @Autowired
+    private com.hapbang.testsupport.billing.RealBillingTestFixture billing;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -288,8 +281,7 @@ class CouponIssueDeliveryE2eTest {
     }
 
     private long openPlatformCoupon() throws Exception {
-        given(promotionBudget.reserve(anyString(), anyLong(), anyInt(), anyLong()))
-                .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-" + run, null));
+        fundPromotion();
         Instant now = Instant.now();
         String body = """
                 {"name":"선착순 할인","targetType":"ANY_LECTURE","discountType":"AMOUNT","discountValue":%d,"quantity":%d,
@@ -371,6 +363,16 @@ class CouponIssueDeliveryE2eTest {
     }
 
     /** 회원 ID가 이름(getName)인 로그인. 운영에서는 강의 앱의 Gateway 사용자 헤더 필터가 같은 모양으로 만든다 */
+    private void fundPromotion() {
+        org.springframework.web.client.RestClient.create(billing.baseUrl()).post()
+                .uri("/api/v1/settlements/admin/promotion-wallet/fundings")
+                .header("X-User-Id", String.valueOf(ADMIN_ID)).header("X-User-Role", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(java.util.Map.of("fundingWorkId", "coupon-e2e-" + java.util.UUID.randomUUID(),
+                        "amountHp", 1_000_000L, "sourceType", "ADMIN_GRANT", "sourceRef", "coupon-e2e"))
+                .retrieve().toBodilessEntity();
+    }
+
     private static RequestPostProcessor login(long memberId, String role) {
         return user(String.valueOf(memberId)).roles(role);
     }
