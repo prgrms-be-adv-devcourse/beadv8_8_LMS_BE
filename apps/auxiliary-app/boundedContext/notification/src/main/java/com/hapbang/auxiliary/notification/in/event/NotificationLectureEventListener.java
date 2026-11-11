@@ -116,7 +116,11 @@ public class NotificationLectureEventListener {
         }
     }
 
-    /** 판단은 구매자·판매자 2건이다. 하나가 저장에 실패해 다시 처리하면 먼저 저장한 건은 중복으로 건너뛴다(ND-019) */
+    /**
+     * 레코드 하나가 처리 단위다. 판단은 구매자·판매자 2건이고, 한쪽 저장이 실패하면 레코드 전체를 다시 처리한다(먼저 저장한 건은 유일
+     * 인덱스로 건너뛴다, ND-019). 계속 실패하면(복제본 없음 등, ND-035) 다른 쪽 알림도 함께 DLT로 미뤄지고, DLT에서 다시 넣으면 둘 다
+     * 만든다. 받는 사람마다 따로 커밋하면 DLT 레코드가 절반만 처리된 상태가 되어 재처리 기준이 흐려지므로 나누지 않는다
+     */
     private void handle(Object event) {
         drafts(event).forEach(alerts::create);
     }

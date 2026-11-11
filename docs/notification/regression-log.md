@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-048 · 2026-11-11 · 통과 (N6 #862 PR Bot 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-048 |
+| 실행 날짜 | 2026-11-11 17:01~17:04 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-862`(worktree) |
+| 커밋 | `d7c5f4d3` + 작업 트리 |
+| 작업 트리 변경 | 시험 설정 두 곳(`hapbang-module-test.yaml`, `AuxiliaryApplicationTest`)에서 강의 알림 소비자를 끔. 주석(DLT partition 수, 대기 게이지 설명, 판단 이벤트 처리 단위)과 알림 AGENTS.md 현재 상태·3.2 |
+| 대상 기능 | Bot 리뷰 반영(운영 동작 변경 없음) |
+| 관련 NT ID | NR-047과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(`-p` worktree) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(종료 코드 0, `verifyModuleStructure` 실행) |
+| 건수 | 새로 실행: `:notification` 210, `:auxiliary-app` 13. 실패 0·건너뜀 0. `:chatbot` 188·`:search` 159·`:auxiliary-global` 108은 UP-TO-DATE(새 실행 아님, NR-045 결과). 전체 실행 시간이 NR-047(9분 44초)보다 짧은 3분 1초다(Kafka 없는 컨텍스트에서 강의 소비자가 연결을 시도하지 않음) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-046과 같다 |
+| 관련 변경 | #862 |
+
 #### NR-047 · 2026-11-11 · 통과 (N6 #862 S6 리뷰 반영 뒤)
 
 | 항목 | 값 |

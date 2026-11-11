@@ -70,7 +70,7 @@ public class NotificationAlertListenerStarter implements DisposableBean {
         this.retryMaxInterval = retryMaxInterval;
         this.stallAlertAfter = stallAlertAfter;
         meterRegistry.ifAvailable(meters -> Gauge.builder(WAITING_METRIC, waiting, AtomicInteger::get)
-                .description("출연·지갑 알림 소비자가 기동 Backfill을 기다리는 중이면 1(pod마다)")
+                .description("출연·지갑·강의 알림 소비자가 기동 Backfill을 기다리는 중이면 1(pod마다)")
                 .register(meters));
     }
 
