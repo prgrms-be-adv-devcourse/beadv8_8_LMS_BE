@@ -21,5 +21,11 @@ public enum BillingReferenceType {
     /** 수익 HP 환전 신청 */
     EXCHANGE,
     /** 수익 HP 지급 건 */
-    SETTLEMENT
+    SETTLEMENT,
+    /** 프로모션 지갑 충전 건. 관리자가 근거 번호를 붙여 프로모션 지갑에 새 HP를 넣은 기록이다. 보류 단위가 아니다 */
+    PROMOTION_FUNDING,
+    /** 프로모션 지갑 회수 건. 관리자가 예약되지 않은 프로모션 지갑 HP를 거둬들인 기록이다. 보류 단위가 아니다 */
+    PROMOTION_WITHDRAWAL,
+    /** 쿠폰 예산 예약. 쿠폰 하나에 프로모션 지갑 HP를 묶어 둔 예산이며 예약·해제 원장이 가리킨다. 보류 단위가 아니다 */
+    COUPON_BUDGET
 }

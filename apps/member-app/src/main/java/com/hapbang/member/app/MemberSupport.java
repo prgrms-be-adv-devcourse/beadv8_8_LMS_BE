@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -24,6 +25,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MemberSupport {
 
+    /** 인플루언서 목록·통계에 나오는 역할 (상태는 ACTIVE만) */
+    private static final List<Role> INFLUENCER_ROLES = List.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER);
+
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -43,8 +47,13 @@ public class MemberSupport {
 
     /** 정상 인플루언서·인증된 인플루언서 목록 */
     public Page<User> findInfluencers(Pageable pageable) {
-        return userRepository.findByRoleInAndStatus(List.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER),
-                UserStatus.ACTIVE, pageable);
+        return userRepository.findByRoleInAndStatus(INFLUENCER_ROLES, UserStatus.ACTIVE, pageable);
+    }
+
+    /** 정상 인플루언서를 afterId 다음부터 ID 오름차순으로 limit명 (인플루언서 통계 키셋, #769). 인플루언서 목록과 같은 기준이다 */
+    public List<User> findInfluencersAfter(long afterId, int limit) {
+        return userRepository.findByRoleInAndStatusAndIdGreaterThanOrderByIdAsc(INFLUENCER_ROLES, UserStatus.ACTIVE,
+                afterId, Limit.of(limit));
     }
 
     /**

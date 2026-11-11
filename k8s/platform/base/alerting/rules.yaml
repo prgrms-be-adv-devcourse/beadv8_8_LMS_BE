@@ -1,0 +1,650 @@
+# Grafana alert rule(#781). 정책과 alert마다의 조건·대응은 docs/architecture/infrastructure/observability.md "Alert 정책"(#629)이다.
+# 이 파일이 원본이다. provisioning된 rule은 Grafana UI에서 고칠 수 없다. 고친 뒤 Grafana를 다시 띄워야 읽는다(같은 문서 "적용").
+# - 각 rule은 A(Prometheus instant query)의 series마다 C(threshold)로 판정한다. 조건에 맞지 않는 series는 Normal이다.
+# - 지표가 없으면(NoData) OK로 둔다. pod가 내려가 지표가 사라진 것은 잡지 못한다(kube-state-metrics 없음, 같은 문서 "Dashboard").
+# - 쿼리가 실패하면(Prometheus 장애) Error로 두어 DatasourceError alert로 받는다. DatasourceError는 rule의 label(severity)을 이어받는다.
+# - annotation은 환경 변수로 바꾸지 않으므로 Grafana template의 $labels·$values를 그대로 쓴다.
+#   NoData일 때는 $values.A가 없어 template 오류가 나므로 값은 {{ with $values.A }}…{{ end }}로 감싼다.
+# - label severity(#787): critical은 돈·데이터가 이미 어긋났거나 서비스가 멈춘 것, warning은 스스로 회복되거나 대응까지 여유가 있는 것이다.
+#   critical은 @here 멘션과 1시간 반복, warning은 멘션 없이 4시간 반복으로 보낸다(policies.yaml).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: 돈·HP 정합성
+    folder: 합방 alert
+    interval: 1m
+    rules:
+      # 마지막으로 끝까지 비교한 실행의 규칙별 건수(gauge). 다음 실행이 끝날 때까지 값이 남는다.
+      # 값은 앱 메모리에 있지만 앱이 뜰 때 DB의 마지막 COMPLETED 실행으로 채우므로(강의 #805, 출연 #821) pod가 다시 떠도 남는다.
+      # 기동할 때 DB를 읽지 못하면 다음 대사 전까지 0이 되고 복구 통보가 간다.
+      - uid: hapbang-hp-reconciliation-mismatch
+        title: 서비스 간 HP 대사 불일치
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, rule) (
+                  {__name__=~"(lecture|appearance)_hp_reconciliation_mismatches"}
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }} HP 대사 규칙 {{ $labels.rule }}에서 {{ with $values.A }}{{ humanize .Value }}{{ end }}건이 어긋났다.'
+          description: >-
+            마지막으로 끝까지 비교한 대사 결과다. HP_TASK_DEAD는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수다(관리자 HP 작업 화면에서 재시도).
+            어긋난 건은 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "rule={{ $labels.rule }}"로 찾는다.
+            값은 다음 대사(매일 새벽)까지 남는다. 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations,
+            POST /api/v1/appearances/admin/hp-reconciliations)를 실행하면 다시 비교해 값이 바뀐다. 다만 대사는 최근 바뀐 건(강의는 HP 작업이 7일 안에 바뀐 항목)과
+            지갑 커서 뒤에 바뀐 보류만 보고, 바뀐 지 2시간이 안 된 건(진행 중 유예)은 빼므로, 방금 고친 건이나 범위 밖으로 밀려난 건은 비교하지 않고 0이 된다.
+            그래서 0이 되거나 복구 통보가 와도 고쳤다는 뜻은 아니다.
+            처음 잡힌 건(Loki의 orderItemId·rule)이 정말 고쳐졌는지 따로 확인한다. pod가 다시 떠도 앱이 뜰 때 DB의 마지막 완료 실행으로 값을 채운다.
+            앱 로그에 "DB에서 채우지 못해"가 있으면 다음 대사까지 0이라 복구 통보가 갈 수 있다.
+
+      # 마지막 잔액 대사의 결과별 지갑 수(gauge). failed는 재시도 뒤에도 대사하지 못한 지갑이다.
+      # 값은 앱 메모리에 있지만 billing-app이 뜰 때 DB의 마지막 실행 기록(wallet_reconciliation_run)으로 채우므로 pod가 다시 떠도 남는다(#822).
+      # 기동할 때 DB를 읽지 못하면 다음 대사 전까지 0이 되고 복구 통보가 간다.
+      - uid: hapbang-wallet-reconciliation-mismatch
+        title: 지갑 잔액 대사 불일치·실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, result) (
+                  hapbang_billing_reconciliation_wallets{result=~"mismatched|failed"}
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '지갑 잔액 대사에서 {{ $labels.result }} 지갑이 {{ with $values.A }}{{ humanize .Value }}{{ end }}개다.'
+          description: >-
+            mismatched는 잔액과 원장이 어긋난 지갑, failed는 재시도 뒤에도 대사하지 못한 지갑이다.
+            Loki {namespace="hapbang-prod", app="billing-app"} |= "잔액 대사"로 walletId와 bucket별 차이를 찾는다(docs/billing/module.md).
+            불일치는 자동으로 고치지 않는다. 값은 다음 대사까지 남고, pod가 다시 떠도 billing-app이 뜰 때 DB의 마지막 실행 기록으로 채운다.
+            billing-app 로그에 "DB에서 채우지 못해"가 있으면 다음 대사까지 0이라 고치지 않았는데도 복구 통보가 올 수 있다.
+
+      # 출연: 재시도 배치 시점의 DEAD 작업 수(gauge, 처리될 때까지 남는다).
+      # 강의: DEAD가 된 횟수(counter)라 최근 10분에 늘었을 때만 보낸다. 남은 DEAD는 위 대사 alert의 HP_TASK_DEAD가 매일 알린다.
+      # pod가 뜬 뒤 첫 수집 전에 DEAD가 나면 첫 값이 이미 1이라 increase()가 놓친다. 10분 안에 생긴 series가 0보다 크면 함께 친다.
+      - uid: hapbang-hp-task-dead
+        title: HP 작업 DEAD
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (appearance_hp_task_dead)
+                or
+                sum by (app_kubernetes_io_name) (
+                  (increase(lecture_hp_task_dead_total[10m]) > 0)
+                  or
+                  ((lecture_hp_task_dead_total > 0) unless lecture_hp_task_dead_total offset 10m)
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }} HP 작업이 DEAD가 됐다({{ with $values.A }}{{ humanize .Value }}{{ end }}).'
+          description: >-
+            재시도 한도를 넘었거나 다시 보내도 결과가 같은 실패라 격리된 HP 작업이다. 관리자 HP 작업 화면에서 원인을 보고 재시도한다.
+            로그는 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "HP_TASK_DEAD]"로 찾는다([HP_TASK_DEAD]·[LECTURE_HP_TASK_DEAD] 로그).
+            강의 값은 최근 10분에 DEAD가 된 수라, 10분 뒤 복구 통보가 와도 DEAD 작업은 남아 있다.
+
+      # 대사 배치(지갑 04:02, 출연 04:00, 강의 04:30, Asia/Seoul)가 26시간 넘게 끝까지 돌지 않음.
+      # 강의·출연은 마지막 완료 시각, 지갑은 failed 0으로 끝난 마지막 실행의 시작 시각(gauge)을 본다. 셋 다 앱이 뜰 때 DB의 실행 기록으로
+      # 채우므로(강의 #805, 출연 #821, 지갑 #822) pod 나이와 관계없이 본다(#814, #851).
+      # - 완료·성공한 실행이 한 번도 없거나, 기동할 때 DB를 읽지 못해 채우지 못하면 0이라 울린다(후자는 다음 대사가 끝날 때까지).
+      # - 기동 직후 채우기 전에 0이 한 번 수집될 수 있어 rule에 10분 지속을 둔다(#814).
+      # - pod가 아니라 앱별로 묶는다. 값이 DB 기준이라 pod마다 같고, pod로 묶으면 울리는 동안 배포할 때마다 옛 pod series가 사라져
+      #   고치지 않았는데도 복구 통보가 가고 새 pod series가 10분 뒤 다시 울린다. 출연·지갑(maxSurge 1)은 새 pod가 뜰 때까지 옛 pod가 남아
+      #   앱 series가 이어진다. 강의(maxSurge 0)는 옛 pod를 먼저 내려 새 pod가 수집될 때까지 끊기므로 여전히 복구 통보가 갈 수 있다.
+      - uid: hapbang-reconciliation-stale
+        title: 대사가 돌지 않음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (
+                  (time() - lecture_hp_reconciliation_last_completed_seconds > 93600)
+                  or
+                  (time() - appearance_hp_reconciliation_last_completed_seconds > 93600)
+                  or
+                  (time() - hapbang_billing_reconciliation_last_success_seconds > 93600)
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }} 대사가 26시간 넘게 끝까지 돌지 않았다.'
+          description: >-
+            지갑은 재시도 뒤 failed 0으로 끝난 실행, 강의·출연은 중단 없이 끝까지 비교한 실행을 성공으로 본다. 값은 DB의 실행 기록 기준이다.
+            강의·출연은 관리자 API GET /api/v1/lectures/admin/hp-reconciliations/latest, GET /api/v1/appearances/admin/hp-reconciliations/latest로
+            마지막 실행의 상태와 끝난 시각을 본다. 지갑은 관리자 API가 없어 Loki로 본다.
+            최근에 끝까지 돌았는데도 울리면, 기동할 때 DB를 읽지 못해 지표가 0으로 남은 것이다(앱 로그 "DB에서 채우지 못해"). 앱을 다시 띄우면 채워진다(강의·출연은 수동 대사로도 채워진다).
+            지갑은 failed 지갑이 남으면 성공으로 치지 않으므로, 지갑 잔액 대사 불일치·실패 alert가 함께 울리고 있으면 그쪽을 먼저 본다.
+            지갑 로그에 [BILLING_RECONCILIATION_RECORD_FAILED]가 있으면 그 회차의 실행 기록이 없어, pod가 다시 뜬 뒤 그 앞 성공 시각으로 채워져 대사는 돌았는데도 울릴 수 있다(다음 대사에서 풀린다).
+            배치가 실행됐는지와 중단 사유를 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "대사"로 찾는다.
+            대사가 돌지 않으면 불일치 alert도 오래된 값으로 남는다.
+
+      # 강의·출연 대사가 끝까지 비교하지 못하고 INCOMPLETE로 끝난 실행(#804). 지갑 조회 실패(회로 열림·결과 불명·거절)나 예외가 원인이고,
+      # 그 실행은 불일치 지표를 바꾸지 않는다. 실행 counter는 첫 실행 때 series가 생기므로 1시간 안에 늘었거나 새로 생긴 series를 친다.
+      # 대사 도중 pod가 내려가 RUNNING으로 남은 실행도 정리하며 counter를 올린다. 강의는 기동할 때 정리한다(#805, maxSurge 0).
+      # 출연은 배포 중 옛 pod가 아직 대사 중일 수 있어(maxSurge 1) 다음 실행이 abandon-after(1시간)보다 오래된 것만 정리한다(#821).
+      # 그래서 출연은 다음 실행(보통 다음 날 새벽 배치) 때 잡혀 최대 약 24시간 늦는다. 그사이 빠진 대사는 "대사가 돌지 않음"이 잡는다.
+      - uid: hapbang-reconciliation-incomplete
+        title: 대사 중단
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (
+                  (increase({__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"}[1h]) > 0)
+                  or
+                  (
+                    {__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"}
+                      unless {__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"} offset 1h
+                  )
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }} HP 대사가 끝까지 비교하지 못하고 중단됐다(최근 1시간).'
+          description: >-
+            중단된 실행은 일부만 비교해 불일치 지표를 바꾸지 않고, 다음 실행이 같은 범위를 다시 본다. 사유는 관리자 API GET .../admin/hp-reconciliations/latest의
+            실행 결과나 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "대사"로 찾는다(지갑 조회 실패면 circuit breaker·billing-app 상태).
+            원인을 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations, POST /api/v1/appearances/admin/hp-reconciliations)로 다시 돌릴 수 있다.
+            복구 통보는 마지막 중단 뒤 1시간이 지났거나 pod가 다시 떴다는 뜻일 뿐, 다시 돌아 끝까지 비교했다는 뜻이 아니다. GET .../latest로 실행 결과를 확인한다.
+            출연은 앱이 멈춰 RUNNING으로 남은 실행을 다음 실행이 정리하며 세므로 중단 시각보다 늦게 울릴 수 있다(로그 "끝나지 못한 HP 대사를 미완료로 정리했다").
+
+  - orgId: 1
+    name: 앱·인프라
+    folder: 합방 alert
+    interval: 1m
+    rules:
+      # Prometheus가 pod annotation으로 수집하는 앱·Envoy·cert-manager pod의 scrape 실패. 배포 중 기동 시간을 넘기도록 5분을 기다린다.
+      - uid: hapbang-scrape-down
+        title: 지표 수집 끊김
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                min by (app_kubernetes_io_name, pod) (up{job="kubernetes-pods"})
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.pod }}의 지표를 5분 넘게 수집하지 못했다.'
+          description: >-
+            pod는 있지만 관리 포트(/actuator/prometheus)가 응답하지 않는다. 기동 실패·재시작 반복·NetworkPolicy를 본다.
+            kubectl --context hapbang-k3s get pod -A | grep {{ $labels.app_kubernetes_io_name }}, 로그는 Loki {app="{{ $labels.app_kubernetes_io_name }}"}.
+            pod가 사라진 경우(Deployment 0개)는 이 alert로 알 수 없다.
+
+      # cAdvisor 컨테이너 ID 수로 센 재시작(Kubernetes dashboard "컨테이너 재생성"과 같은 방식). platform 컨테이너도 본다.
+      # 종료 사유(OOMKilled)는 kube-state-metrics가 없어 모르고, container_oom_events_total은 이 cluster에서 OOM을 기록하지 못한다.
+      # Deployment 배포는 pod 이름이 바뀌어 세지 않는다. 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다.
+      - uid: hapbang-container-restart
+        title: 컨테이너 재시작
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                count by (namespace, pod, container) (
+                  count by (namespace, pod, container, name) (
+                    last_over_time(container_start_time_seconds{container!="", container!="POD"}[15m])
+                  )
+                ) - 1
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.namespace }}/{{ $labels.pod }}의 {{ $labels.container }} 컨테이너가 최근 15분에 {{ with $values.A }}{{ humanize .Value }}{{ end }}번 다시 시작했다.'
+          description: >-
+            원인은 지표로 알 수 없다. kubectl --context hapbang-k3s -n {{ $labels.namespace }} describe pod {{ $labels.pod }}의 Last State를 본다.
+            Reason OOMKilled(Exit Code 137)면 컨테이너 메모리가 limit을 넘었다(Kubernetes 자원 dashboard "메모리 사용률 / limit").
+            앱 컨테이너가 Exit Code 3이면 JVM이 heap·metaspace 등을 할당하지 못한 OutOfMemoryError로 스스로 끝낸 것이다(-XX:+ExitOnOutOfMemoryError). 직전 로그의 "Terminating due to java.lang.OutOfMemoryError"와 JVM dashboard heap을 본다.
+            StatefulSet pod를 다시 만든 경우에도 한 번 울린다. 15분 동안 재시작이 없으면 복구 통보가 온다.
+
+      # 컨테이너 working set ÷ memory limit(#854). Kubernetes dashboard "메모리 사용률 / limit"과 같은 식이다.
+      # working set은 cgroup 사용량에서 회수하기 쉬운 page cache(inactive_file)를 뺀 값이다. 커널은 사용량이 limit에 닿고 회수에 실패할 때
+      # OOMKilled를 하므로 이 값이 OOM의 정확한 조건은 아니다. limit에 가까울수록 회수할 여지가 적다는 신호로 본다.
+      # 앱과 platform 컨테이너를 모두 본다. limit이 없는 컨테이너(kube-system의 local-path-provisioner·metrics-server·svclb)는 비율이 없어 빠진다.
+      # 기준 95%·10분은 운영 7일(2026-11-04~11) 기록에서 실제로 OOMKilled가 반복되던 Tempo만 울렸을 값이다. 90%·15분은 heap 설정을 바꾸던 무렵의 lecture·chat이 몇 시간씩 울렸다.
+      # 갑자기 치솟아 바로 OOMKilled되는 경우는 이 alert가 아니라 컨테이너 재시작 alert로 알게 된다. 다만 재시작 alert는 15분 안에 서로 다른
+      # 컨테이너 ID가 둘 이상 수집돼야 울리므로, 1분 수집 간격보다 짧게 살고 끝나기를 반복하는 컨테이너는 늦게 울리거나 놓친다(앱 pod는 지표 수집 끊김도 본다).
+      - uid: hapbang-container-memory
+        title: 컨테이너 메모리
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (namespace, pod, container) (container_memory_working_set_bytes{container!="", container!="POD"})
+                  / max by (namespace, pod, container) (container_spec_memory_limit_bytes{container!="", container!="POD"} > 0)
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.95]}
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.namespace }}/{{ $labels.pod }}의 {{ $labels.container }} 컨테이너 메모리가 10분 넘게 limit의 95%를 넘었다{{ with $values.A }}(지금 {{ humanizePercentage .Value }}){{ end }}.'
+          description: >-
+            회수할 page cache가 거의 없어 사용량이 limit에 닿으면 OOMKilled로 다시 시작할 수 있다. Kubernetes 자원 dashboard "메모리 사용률 / limit"으로 언제부터 올랐는지 보고,
+            앱이면 JVM dashboard에서 heap(-Xmx 상한)과 heap 밖(non-heap·buffer)을 나눠 본다. 계속 오르면 누수, 계단처럼 올랐으면 부하·설정 변경을 의심한다.
+            limit을 올릴 때는 node 메모리 예산(docs/architecture/infrastructure/k3s.md) 안에서 한다. 95% 아래로 내려가면 복구 통보가 온다.
+
+      # node 루트 디스크(/dev/root). PVC(local-path)도 여기에 있다. kubelet은 85%에서 안 쓰는 이미지를 지우므로(기본값),
+      # 15분 넘게 85%를 넘으면 이미지 정리로 내려가지 않는 것이다.
+      - uid: hapbang-node-disk
+        title: node 디스크 사용률
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                sum by (instance) (container_fs_usage_bytes{id="/", device="/dev/root"})
+                  / sum by (instance) (container_fs_limit_bytes{id="/", device="/dev/root"})
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.85]}
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: 'node {{ $labels.instance }}의 디스크가 {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} 찼다.'
+          description: >-
+            large(core-data)에는 PostgreSQL·Kafka·Elasticsearch data, medium(app-observe)에는 Prometheus·Loki·Tempo data가 있다(kubectl get node -L hapbang.io/pool).
+            Kubernetes 자원 dashboard "node 디스크"로 늘어난 시점을 보고, 보존 기간(Prometheus·Loki·Tempo·Kafka retention)과 안 쓰는 이미지를 줄인다.
+            가득 차면 kubelet이 pod를 내보낸다.
+
+      # cert-manager가 내는 인증서 만료 시각. Let's Encrypt 90일 인증서를 만료 30일 전에 갱신하므로, 21일 미만이면 갱신이 실패하고 있다.
+      - uid: hapbang-certificate-expiry
+        title: HTTPS 인증서 만료 임박
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                min by (namespace, name) (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [21]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '인증서 {{ $labels.namespace }}/{{ $labels.name }}가 {{ with $values.A }}{{ humanize .Value }}{{ end }}일 뒤 만료된다.'
+          description: >-
+            cert-manager가 만료 30일 전부터 갱신하는데 아직 새 인증서를 받지 못했다. 만료되면 모든 HTTPS 요청이 인증서 오류다.
+            kubectl --context hapbang-k3s -n {{ $labels.namespace }} describe certificate {{ $labels.name }}로 Order·Challenge(HTTP-01) 상태를 보고 cert-manager 로그를 본다(docs/deploy/gateway.md).
+
+      # Resilience4j circuit breaker가 닫히지 않은 상태(open·half_open)가 이어짐. open과 half_open을 오가도 울리도록 둘을 함께 본다.
+      # 지금 있는 것: lecture·appearance → billing(HP 보류·지급), billing → toss(결제), member·billing의 앱 사이 호출.
+      - uid: hapbang-circuit-breaker-open
+        title: circuit breaker 열림
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, name) (
+                  resilience4j_circuitbreaker_state{state=~"open|half_open|forced_open"}
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}의 circuit breaker {{ $labels.name }}가 2분 넘게 닫히지 않았다.'
+          description: >-
+            호출 대상({{ $labels.name }})이 실패하거나 느려 호출을 막고 있다. billing이면 HP 보류·지급이, toss면 충전 결제가 멈춘다(HP 작업은 닫힌 뒤 재시도한다).
+            JVM·Spring Boot dashboard의 circuit breaker 상태·호출 결과와 대상 앱의 pod·로그를 본다.
+
+      # Kafka 소비가 재시도 뒤에도 실패해 DLT로 보낸 레코드. 토픽별 producer 지표는 첫 전송 때 생기므로(1~2분 늦게),
+      # 10분 안에 늘었거나 10분 안에 새로 생긴 series를 적재로 친다. 10분 뒤 복구 통보가 와도 DLT 레코드는 남아 있다.
+      - uid: hapbang-kafka-dlt
+        title: Kafka DLT 적재
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, topic) (
+                  (increase(kafka_producer_topic_record_send_total{topic=~".+\\.DLT"}[10m]) > 0)
+                  or
+                  (
+                    kafka_producer_topic_record_send_total{topic=~".+\\.DLT"}
+                      unless kafka_producer_topic_record_send_total{topic=~".+\\.DLT"} offset 10m
+                  )
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}가 {{ $labels.topic }}에 레코드를 보냈다(최근 10분 약 {{ with $values.A }}{{ humanize .Value }}{{ end }}건).'
+          description: >-
+            이벤트 처리가 재시도 뒤에도 실패해 이 소비자에는 반영되지 않았다. Kafka UI에서 DLT 레코드의 예외 header를 보고, 원인을 고친 뒤 재처리한다
+            (docs/architecture/infrastructure/kafka.md "DLT 재처리 runbook"). Kafka dashboard "소비 그룹별 DLT 적재".
+
+      # 연결 풀에서 connectionTimeout 안에 연결을 얻지 못해 실패한 요청·작업. 2026-11-06 14:41 KST PostgreSQL 재시작(#731 limit 변경) 때
+      # lecture 약 230건, chat 3건, appearance 2건이 났다. 부하 시험·계획한 DB 재시작 때는 Grafana에서 silence를 건다.
+      - uid: hapbang-db-connection-timeout
+        title: DB 연결 timeout
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                sum by (app_kubernetes_io_name) (increase(hikaricp_connections_timeout_total[5m]))
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}가 최근 5분 동안 DB 연결을 {{ with $values.A }}{{ humanize .Value }}{{ end }}번 얻지 못했다.'
+          description: >-
+            연결을 기다리다 timeout이 나 요청·작업이 실패했다. PostgreSQL pod 상태(재시작·장애), JVM·Spring Boot dashboard의 HikariCP(활성·대기 연결)와
+            느린 쿼리, 요청 급증을 본다. 부하 시험이나 계획한 DB 재시작 중이면 silence를 건다.
+
+      # 채팅 전달 파이프라인의 멈춤 상태(target: redis, redis-write, subscription-DELIVERY, subscription-CONTROL, 1이면 멈춤).
+      - uid: hapbang-chat-delivery-paused
+        title: 채팅 전달 멈춤
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, pod, target) (chat_delivery_paused_state)
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.pod }}의 채팅 전달이 5분 넘게 멈췄다(target {{ $labels.target }}).'
+          description: >-
+            Redis 연결·쓰기 또는 Pub/Sub 구독이 실패해 메시지 실시간 전달을 멈췄다. 앱이 재확인해 스스로 다시 연다.
+            Redis pod 상태(메모리 상한·재시작)와 Loki {namespace="hapbang-prod", app="chat-app"}의 WARN·ERROR 로그를 본다.
+
+      # 알림 출연·지갑 소비자가 기동 회원 복제본 Backfill을 기다리는 상태(gauge, pod마다 1이면 기다리는 중, 시작하면 0, #859 ND-093).
+      # pod가 아니라 앱별 max로 묶는다: "어느 pod든 기다리는 중"이고, 배포 때 옛 pod series가 사라져도 새 pod가 기다리면 이어진다.
+      # 기동 직후의 짧은 대기(보통 몇 초)는 30분 지속 조건으로 거른다. 여러 pod가 번갈아 기다려도 앱 단위로 30분 넘게 끊김 없이 기다리면 울린다.
+      - uid: hapbang-notification-backfill-waiting
+        title: 알림 소비 대기(Backfill 미완료)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (hapbang_notification_alert_listeners_waiting)
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 30m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}의 알림 출연·지갑 소비가 30분 넘게 회원 복제본 Backfill을 기다리고 있다.'
+          description: >-
+            기동 Backfill이 회원 목록 내부 API·DB 장애나 잠금 경쟁으로 끝나지 않아 출연·지갑 알림을 만들지 않는 중이다(이벤트는 토픽에 72시간 남는다).
+            member-app 상태와 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "NOTIFICATION_BACKFILL_STALLED]" 또는 "Backfill" 로그를 본다.
+            원인을 고치면 앱이 스스로 다시 시도한다. 관리자 Backfill 재실행(POST /api/v1/notifications/admin/user-replica/backfill)은 같은 잠금이라 함께 돌지 않는다.
+
+      # @Scheduled 메서드가 예외로 끝난 실행(Spring 관측 지표 tasks.scheduled.execution의 exception tag).
+      # 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다. 예외 series는 첫 실패 때 생기므로 10분 안에 새로 생긴 series도 친다.
+      - uid: hapbang-scheduled-task-failure
+        title: 예약 작업 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, code_function, exception) (
+                  (increase(tasks_scheduled_execution_seconds_count{exception!="none"}[10m]) > 0)
+                  or
+                  (
+                    tasks_scheduled_execution_seconds_count{exception!="none"}
+                      unless tasks_scheduled_execution_seconds_count{exception!="none"} offset 10m
+                  )
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}의 예약 작업 {{ $labels.code_function }}가 {{ $labels.exception }}로 실패했다.'
+          description: >-
+            @Scheduled 실행이 예외로 끝났다. 다음 주기에 다시 실행되지만 같은 원인이면 계속 실패한다.
+            Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "{{ $labels.exception }}"로 stack trace를 본다.
+            DB 예외(DataAccessResourceFailureException 등)면 PostgreSQL 상태를 본다.

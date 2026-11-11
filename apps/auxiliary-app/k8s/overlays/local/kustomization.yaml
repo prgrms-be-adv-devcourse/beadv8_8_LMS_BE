@@ -19,3 +19,8 @@ secretGenerator:
     literals:
       - DB_PASSWORD=local-auxiliary-password
       - HAPBANG_INTERNAL_API_KEY=local-internal-api-key
+      # 운영 프로필이 값을 요구한다(#715). 가짜 값이라 챗봇 LLM·ES 호출은 실패하고 fallback으로 답한다
+      - OPENAI_API_KEY=local-placeholder
+      - ES_API_KEY=local-placeholder
+      # 검색 key(#806). 운영 프로필이 값을 요구한다. 가짜 값이라 검색 ES 호출은 실패한다
+      - ES_SEARCH_API_KEY=local-placeholder

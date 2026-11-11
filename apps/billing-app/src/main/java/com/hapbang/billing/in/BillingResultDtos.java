@@ -11,6 +11,8 @@ import com.hapbang.billing.app.PenaltyResult;
 import com.hapbang.billing.app.ReleaseResult;
 import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingSettlementStatus;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.HoldStateDto;
 import com.hapbang.shared.billing.dto.HoldStatePageDto;
@@ -19,6 +21,7 @@ import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 
@@ -30,18 +33,26 @@ final class BillingResultDtos {
     }
 
     static HoldResultDto hold(HoldResult result) {
-        return new HoldResultDto(result.referenceType(), result.referenceId(), result.totalHp(), result.replayed());
+        return new HoldResultDto(result.referenceType(), result.referenceId(), result.totalHp(),
+                result.promotionHeldHp(), result.promotions().stream()
+                        .map(promotion -> new HoldPromotionDto(promotion.couponId(), promotion.memberCouponId(),
+                                promotion.generation(), promotion.amountHp()))
+                        .toList(), result.replayed());
     }
 
     static ReleaseResultDto release(ReleaseCommand command, ReleaseResult result) {
         return new ReleaseResultDto(result.referenceType(), result.referenceId(), command.releaseRequestId(),
-                result.releasedHp(), result.remainingHeldHp(), result.replayed());
+                result.releasedHp(), result.remainingHeldHp(), result.promotionRestoredHp(),
+                result.promotionRestorations().stream().map(p -> new PromotionRestorationDto(p.couponId(),
+                        p.memberCouponId(), p.generation(), p.amountHp())).toList(), result.replayed());
     }
 
     // 받는 회원은 요청 값이다. 재요청에서 받는 지갑이 처음과 다르면 Billing이 IDEMPOTENCY_KEY_CONFLICT로 거절하므로 결과와 같다.
     static PayoutResultDto payout(PayoutCommand command, PayoutResult result) {
         return new PayoutResultDto(result.referenceType(), result.referenceId(), command.payoutRequestId(),
                 command.receiverUserId(), result.sourceType(), result.sourceId(), result.paidHp(),
+                result.promotionPaidHp() > 0 ? result.buyerPaidHp() : null,
+                result.promotionPaidHp() > 0 ? result.promotionPaidHp() : null,
                 result.remainingHeldHp(), result.replayed());
     }
 
@@ -66,7 +77,13 @@ final class BillingResultDtos {
                 state.settlements().stream().map(settlement -> new HoldStateDto.Settlement(settlement.sourceType(),
                         settlement.sourceId(), settlement.payoutType(), settlement.receiverUserId(),
                         settlement.grossAmountHp(), settlement.paidAmountHp(),
-                        BillingSettlementStatus.valueOf(settlement.status().name()))).toList());
+                        BillingSettlementStatus.valueOf(settlement.status().name()), settlement.buyerPaidHp(),
+                        settlement.promotionPaidHp())).toList(),
+                state.promotions().stream().map(p -> new HoldStateDto.Promotion(p.couponId(), p.memberCouponId(),
+                        p.generation(), PromotionBudgetRequests.reservationId(p.reservationId()), p.amountHp(),
+                        p.status())).toList(),
+                state.promotion() == null ? null : new HoldStateDto.PromotionAmount(state.promotion().held(),
+                        state.promotion().paid(), state.promotion().restored()));
     }
 
     private static HoldStateDto.Amount amount(HoldState.Amount amount) {
@@ -75,7 +92,9 @@ final class BillingResultDtos {
 
     static HoldVoidResultDto holdVoid(HoldVoidResult result) {
         return new HoldVoidResultDto(result.referenceType(), result.referenceId(), result.outcome(), result.releasedHp(),
-                result.replayed());
+                result.promotionRestoredHp(), result.promotionRestorations().stream()
+                        .map(p -> new PromotionRestorationDto(p.couponId(), p.memberCouponId(), p.generation(),
+                                p.amountHp())).toList(), result.replayed());
     }
 
     // 남은 보류액은 반환·지급을 모두 적용한 뒤인 지급 결과의 값이다.

@@ -5,8 +5,65 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
+  # 챗봇 로컬 모델은 Ollama다. ES·Ollama는 apps/auxiliary-app/compose.yaml로 따로 띄운다(README "챗봇 로컬 실행")
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: http://localhost:11434
+      init:
+        # 모델은 README대로 직접 받는다(qwen2.5:3b 약 2GB). 기동 중에 받지 않는다
+        pull-model-strategy: never
+      chat:
+        # 0.5b는 Tool을 거의 부르지 않는다(교안 부록 B)
+        model: qwen2.5:3b
+        temperature: 0.2
+      embedding:
+        model: nomic-embed-text
+  elasticsearch:
+    uris: http://localhost:9200
 hapbang:
+  notification:
+    websocket:
+      # 알림 웹소켓 핸드셰이크를 허용할 프론트 출처(chat-app과 같은 값)
+      allowed-origins: http://localhost:5173
+    alert:
+      # 알림 시작 시각(ND-076). 로컬은 과거 값으로 두어 모든 사건이 알림이 된다
+      start-at: 2000-01-01T00:00:00Z
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    member:
+      # 로컬 회원 앱(검색 통계 동기화 #771, 챗봇 회원 싱크 #717)
+      base-url: "${MEMBER_API_BASE_URL:http://localhost:8081}"
+    appearance:
+      # 로컬 출연 앱(챗봇 출연 싱크, #716)
+      base-url: "${APPEARANCE_API_BASE_URL:http://localhost:8083}"
+    lecture:
+      # 로컬 강의 앱(챗봇 강의 싱크, #717)
+      base-url: "${LECTURE_API_BASE_URL:http://localhost:8084}"
+  chatbot:
+    faq:
+      index-name: chatbot-faq-ollama-768
+      dimensions: 768
+      # nomic-embed-text는 문서·질문에 작업 접두어를 붙여야 검색 품질이 나온다
+      document-prefix: "search_document: "
+      query-prefix: "search_query: "
+      # 로컬은 호출이 되는지만 보는 개발용이다. 2026-11-09 평가에서 0.70 이하 어느 값도 범위 밖 질문을 거르지 못해
+      # (nomic-embed-text가 한국어에 약함) 품질로 정하지 않고 검색 결과가 나오는 값으로 둔다(README "테스트와 평가")
+      similarity-threshold: 0.6
+    index:
+      lecture-name: chatbot-lectures-ollama-768
+      influencer-name: chatbot-influencers-ollama-768
+      dimensions: 768
+      document-prefix: "search_document: "
+      query-prefix: "search_query: "
+    recommend:
+      lecture:
+        # 관심사 비율 α와 인기 비율 β. 임베딩 모델마다 유사도가 퍼지는 구간이 달라 프로필마다 둔다(기본값 없음).
+        # 임시값. 식에서 정한 추정 시작값이고, 추천 가중치 보정(#867)에서 다시 정한다
+        interest-weight: 0.3
+        popularity-weight: 0.05
 server:
   port: "${SERVER_PORT:8087}"

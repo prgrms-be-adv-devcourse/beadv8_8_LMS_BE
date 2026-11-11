@@ -1,0 +1,4 @@
+org.springframework.test.context.ContextCustomizerFactory=\
+com.hapbang.testsupport.billing.RealBillingContextCustomizerFactory
+org.springframework.test.context.TestExecutionListener=\
+com.hapbang.testsupport.billing.RealBillingResetListener

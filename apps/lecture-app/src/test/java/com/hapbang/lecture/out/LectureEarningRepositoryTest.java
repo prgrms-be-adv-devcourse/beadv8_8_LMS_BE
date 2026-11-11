@@ -70,6 +70,20 @@ class LectureEarningRepositoryTest {
     }
 
     @Test
+    void 쿠폰_할인_항목의_수익은_가격에서_판매자_부담_할인만_뺀_금액이다() {
+        // 가격 10,000, 할인 4,000 = 플랫폼 1,000 + 판매자 3,000 → 판매자 몫 7,000. 쿠폰 없는 항목은 가격 그대로다
+        LectureOrder discounted = discounted(RECENT_PURCHASE, 10_000L, 1_000L, 3_000L);
+        purchased(RECENT_PURCHASE.plusHours(1), 5_000L);
+        flushAndClear();
+
+        assertThat(summary()).containsOnly(entry(CONFIRMATION_PENDING, total(2, 12_000L)));
+        assertThat(lectureOrderRepository.findEarnings(SELLER_ID, UNPAID, NOW_AT, PageRequest.of(0, 10)).stream()
+                .filter(row -> row.item().getId().equals(itemId(discounted)))
+                .map(row -> row.item().sellerPayoutHp()))
+                .containsExactly(7_000L);
+    }
+
+    @Test
     void 구매_확정_뒤_지급_예정_시각_전이면_지급_예정이다() {
         confirmed(NOT_DUE_PURCHASE, 5_000L);
         flushAndClear();
@@ -332,6 +346,15 @@ class LectureEarningRepositoryTest {
 
     private LectureOrder purchased(LocalDateTime purchasedAt, long priceHp) {
         return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture(priceHp)), purchasedAt));
+    }
+
+    /** 쿠폰 할인(플랫폼 부담 {@code platform}, 판매자 부담 {@code seller})을 받아 산 주문 */
+    private LectureOrder discounted(LocalDateTime purchasedAt, long priceHp, long platform, long seller) {
+        Lecture lecture = lecture(priceHp);
+        LectureOrder order = LectureOrder.place(BUYER_ID, List.of(lecture), Set.of(), purchasedAt);
+        order.applyItemDiscount(lecture.getId(), platform + seller, platform, seller);
+        order.markPaid(purchasedAt);
+        return lectureOrderRepository.save(order);
     }
 
     /** 구매 확정하고 지급 예정 시각에 지급을 시작한 주문 */

@@ -6,6 +6,7 @@
 >
 > - 이 문서는 **실제로 실행한** 테스트 결과만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 검증 대상과 합격 기준은 [test-spec.md](test-spec.md)에 있다.
 > - 목표: JVM 분리(#356) 이후 기존 Billing 기능의 회귀 검증. 단계는 Compile → Unit → Integration → Contract 순서다.
+> - 최신 전체 회귀는 **R-013**(2026-11-11, f9a812bf, billing 1,513건 통과)이다. 아래 R-003은 분리 직후의 역사적 기준선이다.
 > - 분리 이후 기준선은 **R-003**(커밋 7dc89e0, U·S·I·R 전체 1,041건 통과)이다. Contract 단계는 테스트가 없어 실행하지 않았다.
 > - **실제 코드 회귀(F-CODE)로 분류한 기록은 0건이다**(2026-11-06 기준). 지금까지의 R 기록 3건은 Docker 환경 확인(R-001)과 분리 이후 기준선 확보(R-002·R-003)다.
 > - **2026-10-29(R-003) 뒤로 이 문서 형식의 실행 기록이 없다.** 그 뒤 Issue별 실행은 옛 `PROGRESS.md` 6장(지금은 이 문서 5.1로 옮김)과 당시 test-spec 상태 칸에만 남았다. test-spec 상태 칸의 값은 3.3(H 기록)과 4.2로 옮겼다. R-003 이후 테스트가 크게 늘어 R-003은 지금 코드 전체를 덮지 않는다(4.2).
@@ -87,6 +88,27 @@
 
 | ID | 날짜 | 커밋 | 명령 | 단계 | 결과 | 실패 원인 분류 | 기록 목적 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| R-024 | 2026-11-11 | 1b62ae0c + 작업 트리(PR 리뷰 반영 + 자체 리뷰 반영) | `:shared:test` + billing 지급 이벤트 4개 클래스 + 세 앱 `compileTestJava` `--rerun-tasks` | C·U·I | 통과, shared 208건·billing 79건 | 실패 없음 | PR 리뷰 반영 최종 |
+| R-023 | 2026-11-11 | 1b62ae0c + 작업 트리(PR 리뷰: 이벤트 제목 255자 상한) | `:shared:test`(RED → 결함 주입 → GREEN) | U | 통과, shared 207건 | 실패 없음 | PR 리뷰 반영 |
+| R-022 | 2026-11-11 | 1b62ae0c(origin/dev c503d46e 병합) | R-020 명령 `--rerun-tasks` | C·U·I | 통과, billing 239건·shared 205건 | 실패 없음 | 병합 뒤 Push 전 |
+| R-021 | 2026-11-11 | aec4fa6f + #873 작업 트리(R-020과 같음) | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,521건 | 실패 없음 | #873 커밋 전 전체 |
+| R-020 | 2026-11-11 | aec4fa6f + #873 작업 트리(S6 리뷰 반영) | R-017 클래스 + `BillingCommandValidatorTest`·`HoldCaptureIntegrationTest` + 세 앱 `compileTestJava` | C·U·I | 통과, billing 239건·shared 205건 | 실패 없음 | #873 리뷰 반영 재검증 |
+| R-019 | 2026-11-11 | aec4fa6f + #873 작업 트리(문서 반영 뒤, 코드는 R-017과 같음) | R-017 명령 `--rerun-tasks` | C·U·I | 통과, billing 200건·shared 205건 | 실패 없음 | #873 완료 전 재검증(S5) |
+| R-018 | 2026-11-11 | aec4fa6f + #873 작업 트리(R-017과 같음) | 바뀐 클래스를 쓰는 billing 11개 클래스 + appearance·lecture·notification `compileTestJava` | C·U·I | 통과, 181건 | 실패 없음 | #873 영향 범위 회귀 |
+| R-017 | 2026-11-11 | aec4fa6f + #873 작업 트리 | billing 8개 클래스 + `:shared:test` | U·I | 통과, billing 200건·shared 205건 | 실패 없음 | #873 GREEN |
+| R-016 | 2026-11-11 | aec4fa6f + #873 작업 트리(구현 전) | billing 7개 클래스 | I | 의도한 실패 16건(161건 중) | 의도한 실패(TDD red) | #873 RED |
+| R-015 | 2026-11-11 | aec4fa6f + #873 작업 트리(구현 전) | `:shared:test --tests 'com.hapbang.shared.billing.*'` | C·U | 컴파일 실패 → 의도한 실패 7건(111건 중) | 의도한 실패(TDD red) | #873 RED |
+| R-014 | 2026-11-11 | d60d9410 + PR #856 리뷰 반영 작업 트리 | 관련 8개 클래스(아래) | C·U·I | 통과, 216건 | 실패 없음 | #842 PR 리뷰 반영 |
+| R-013 | 2026-11-11 | f9a812bf | 전체 완료 명령(아래) | C·U·S·I | 통과, billing 1,513건(전체 4,652건) | 실패 없음 | #842 최종 회귀 |
+| R-012 | 2026-11-11 | f9a812bf와 같은 소스 + 조기404 임시 재현 | 지급 생성경합 테스트만 | I | 의도한 2건 실패, 소스 복원 | F-CODE(결함 재현) | 새 테스트 감지력 확인 |
+| R-011 | 2026-11-11 | 9bc029df + #842 작업 트리 | 첫 전체 완료 명령(아래) | C·U·S·I | 실패 | F-TEST | Enum CHECK 업무 규칙 분류 보완 |
+| R-010 | 2026-11-11 | 9bc029df + #842 작업 트리 | 두 번째 관련 명령(아래) | U·I | billing 통과·shared 실패 | F-CODE | 기존 JSON 누락 필드 호환 결함 검출 |
+| R-009 | 2026-11-11 | 9bc029df + #842 작업 트리 | 첫 관련 명령(아래) | U·I | billing 실패 | F-TEST | 추가 대사 검출 기대값 보완 |
+| R-008 | 2026-11-11 | 9bc029df + #842 작업 트리 | `:billing-app:compileTestJava :shared:compileTestJava` | C | 통과 | 실패 없음 | 인수 후 컴파일 |
+| R-007 | 2026-11-10 | bfe1b01c + 작업 트리(PR 리뷰 반영, 테스트·문서만) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 75건 | 실패 없음 | 회귀 확인(#822 PR 리뷰 반영) |
+| R-006 | 2026-11-10 | 40c94d7b + 작업 트리(#822, R-005와 같음) | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,331건 | 실패 없음 | 회귀 확인(#822 커밋 전 전체) |
+| R-005 | 2026-11-10 | 40c94d7b + 작업 트리(#822 리뷰 반영) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 74건 | 실패 없음 | 회귀 확인(#822 리뷰 반영) |
+| R-004 | 2026-11-10 | 40c94d7b + 작업 트리(#822) | `./gradlew :billing-app:test --rerun-tasks --tests …`(12개 클래스) | U·I(R 포함) | 통과, 73건 | 실패 없음 | 회귀 확인(#822) |
 | R-003 | 2026-10-29 | 7dc89e0 | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,041건 | 실패 없음 | 기준선 |
 | R-002 | 2026-10-29 | 7dc89e0 | test-spec 1.3 Unit 명령(당시 24개 패턴) | U | 통과, 318건 | 실패 없음 | 기준선(Unit) |
 | R-001 | 2026-10-29 | 5a4dc1a | `./gradlew check --continue --offline` | U·S·I | 중단, 366 통과·675 실패 | F-ENV 675건 | 환경 확인 |
@@ -97,6 +119,164 @@
 ### 3.2 직접 실행한 기록 (R)
 
 _새 기록은 3.4 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙이고, 3.1 요약 표에도 한 줄 더한다._
+
+#### R-015~R-024 · 2026-11-11 · #873 알림용 지갑 이벤트·출처 제목 · 통과
+
+- **소스:** `feature/tkt-873`(origin/dev aec4fa6f) + 미커밋 작업 트리. 결정 BD-162·BD-163.
+- **환경:** 로컬 Java 25, Docker Desktop, PostgreSQL·Kafka Testcontainers. 운영 서비스 요청 없음.
+- **R-015 (RED):** `./gradlew :shared:test --tests 'com.hapbang.shared.billing.*'`. 처음은 새 생성자·이벤트가 없어 컴파일 실패. 필드·오버로드만 둔 뒤 다시 실행해 111건 중 7건 실패: 제목 공백 제거·빈 값 null 4건, 제목 없을 때 JSON 생략 2건, 그리고 기존 `BillingApiClientTest#지급과_위약금_정산은_각자의_경로로_보낸다`(요청 본문에 `"sourceTitle":null`이 붙음). 마지막 실패로 null 제목을 JSON에 쓰지 않기로 하고(`@JsonInclude(NON_NULL)`) 그 테스트를 더했다.
+- **R-016 (RED):** `./gradlew :billing-app:test --tests '*BillingExternalEventsTest' --tests '*ExchangeReviewIntegrationTest' --tests '*RefundIntegrationTest' --tests '*ChargeIntegrationTest' --tests '*ApiV1BillingInternalControllerTest' --tests '*ApiV1BillingPromotionPayoutTest' --tests '*BillingEventKafkaTest'`. 161건 중 16건 실패, 모두 새 이벤트가 없거나 `sourceTitle`이 null인 이유. `BillingEventKafkaTest#notificationEvents`는 `eventType` 헤더가 null이어서 실패해, `BillingEventExternalizationConfig`에 헤더 등록이 필요함을 확인했다.
+- **R-017 (GREEN):** 구현 뒤 R-016 명령 + `--tests '*HoldPayoutIntegrationTest'` → XML 기준 8개 클래스 200건 통과. `./gradlew :shared:test` → 26개 클래스 205건 통과.
+- **R-018:** `./gradlew :billing-app:test --tests '*BillingCommandValidatorTest' --tests '*BillingKeysTest' --tests '*BillingSharedDtoAccessTest' --tests '*BillingUserBackfillIntegrationTest' --tests '*ExchangePayoutIntegrationTest' --tests '*ExchangeSettlementIntegrationTest' --tests '*PaymentHoldRequestsTest' --tests '*WalletMaskingIntegrationTest' --tests '*WalletTransactionQueryIntegrationTest' --tests '*ExchangeIntegrationTest' --tests '*HoldCaptureIntegrationTest' :appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava` → 11개 클래스 181건 통과, 세 앱 테스트 소스 컴파일 통과(출연·강의·알림 코드는 바꾸지 않음).
+- **R-019:** 문서를 고친 뒤 `./gradlew :shared:test :billing-app:test --tests …(R-017과 같은 8개 클래스) --rerun-tasks` → billing 8개 클래스 200건·shared 26개 클래스 205건 통과, 실패·오류 0.
+- **R-020:** 자체 리뷰(S6) 반영 뒤(운영 코드에서 안 쓰는 `PaymentPayoutCommand.full(…, sourceTitle)` 제거, 주석 축약, 계약 문서) R-017의 8개 클래스 + `BillingCommandValidatorTest`·`HoldCaptureIntegrationTest`, `:shared:test`, `:appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava` → billing 10개 클래스 239건·shared 26개 클래스 205건 통과, 컴파일 통과.
+- **R-021:** 커밋 전 `./gradlew :billing-app:test --rerun-tasks` → XML 기준 118개 클래스 1,521건 통과, 실패·오류·건너뜀 0, 7분 17초.
+- **R-022:** 커밋 944b7a0e에 origin/dev(c503d46e)를 병합한 1b62ae0c에서 R-020 명령 `--rerun-tasks` → billing 10개 클래스 239건·shared 26개 클래스 205건 통과, 세 앱 테스트 컴파일 통과. 그 뒤 Push.
+- **R-023 (PR 리뷰):** 이벤트 제목 255자 상한. `:shared:test --tests 'com.hapbang.shared.billing.*'` RED 113건 중 새 상한 테스트 2건 실패 → `PayoutCompletedEvent`에 code point 기준 자르기 → `:shared:test` 26개 클래스 207건 통과. 결함 주입(UTF-16 `substring(0, 255)`)으로 이모지 경계 테스트 1건 실패를 확인하고 원복했다.
+- **R-023 이어서:** 자체 리뷰(S6) 반영(상수 설명을 출처 칼럼과 독립으로, 문서 수치는 BD-163 참조로, 발행 기록 JSON 역직렬화 상한 테스트 추가) 뒤 결과는 R-024.
+- **R-024:** `./gradlew :shared:test :billing-app:test --tests '*ApiV1BillingInternalControllerTest' --tests '*ApiV1BillingPromotionPayoutTest' --tests '*BillingEventKafkaTest' --tests '*HoldPayoutIntegrationTest' :appearance-app:compileTestJava :lecture-app:compileTestJava :notification:compileTestJava --rerun-tasks` → shared 26개 클래스 208건·billing 4개 클래스 79건 통과, 컴파일 통과.
+- **실행하지 않음:** `./gradlew check`, appearance·lecture·notification 테스트 실행.
+
+#### R-014 · 2026-11-11 · PR #856 리뷰 반영 · 통과
+
+- **소스:** d60d9410 뒤 리뷰 반영 변경. `HoldWalletLocking` 추가, 지급·반환·무효화 락 계획, 조회 내부 예약 ID/응답 변환, 오류 주석, 기존 테스트 두 클래스 및 관련 문서.
+- **명령:** `./gradlew :billing-app:test --tests '*ApiV1BillingPromotionPayoutTest' --tests '*ApiV1BillingPromotionReleaseTest' --tests '*HoldPayoutIntegrationTest' --tests '*HoldReleaseIntegrationTest' --tests '*HoldVoidIntegrationTest' --tests '*HoldQueryApiTest' --tests '*ApiV1BillingPromotionBudgetInternalControllerTest' --tests '*BillingFailureCodeContractTest'`
+- **결과:** XML 기준 216건, 실패·오류·건너뜀 0, 24초. 로컬 PostgreSQL Testcontainers, 운영 요청 없음.
+- **검증:** 프로모션 지갑이 실제 다른 트랜잭션에 잠겨 있어도 기존 비프로모션 지급·반환·무효화가 그 락 해제 전에 끝나는 3건 추가. 미커밋 생성 중 지급 대기 2건, 이전 지급·반환·무효화, 예산 API와 보류 조회의 예약 ID 일치도 재검증했다.
+- **리뷰 결정:** 전역 지갑의 불필요한 직렬화 제거, 기존 공용 ID helper로 in 계층에서만 포맷, 오류 주석 정정. 호환 트리거는 기존 writer 전환 및 구버전 rollback 종료 확인 후 다음 신규 Flyway에서 제거하도록 BD-159/PROGRESS에 시점과 선행 조건을 남겼다. 운영 backfill 소요 시간은 측정하지 않았다.
+
+#### R-008~R-013 · 2026-11-11 · #842 인수·완료 검증
+
+- **소스:** Claude 미커밋 단계1을 인수해 1~4단계를 완성했다. R-008~011은 9bc029df + 작업 트리, R-013은 구현 커밋 f9a812bf와 같은 소스다. 작업 파일 목록은 `git show --name-only f9a812bf`의 billing/shared 57개 파일로 확인한다. 문서만 뒤에 커밋했다.
+- **환경:** 로컬 Java 25, Docker Desktop, PostgreSQL·Kafka·Redis Testcontainers. 운영 서비스 요청은 하지 않았다.
+- **R-008:** `./gradlew :billing-app:compileTestJava :shared:compileTestJava` 통과.
+- **R-009:** `./gradlew :billing-app:test --tests '*ApiV1BillingPromotion*Test' --tests '*BillingCommandValidatorTest' --tests '*PaymentHoldRequestsTest' :shared:test --tests '*BillingCommandsTest' --tests '*BillingApiClientTest'`. 새 대사 검사로 불일치 항목이 더 나와 기존 기대값이 실패했다. 기대값 보완.
+- **R-010:** R-009 명령에 billing `--tests '*PromotionWalletReconciliationIntegrationTest'` 추가. billing은 통과했고 shared는 기존 응답에 없는 새 primitive 필드가 Jackson 3에서 null→long 오류로 실패했다. 새 필드를 Long으로 읽어 null→0 정규화. 조회의 새 목록도 null→빈 목록으로 정규화했다.
+- **R-011:** `./gradlew verifyModuleStructure :billing-app:check :billing-app:bootJar :shared:check :lecture-app:check :appearance-app:check`. billing Enum 허용값 목록 검사가 `ck_promotion_hold_restoration`을 값 목록으로 오인했다. 기존 `NON_ENUM_CHECKS`에 교차 컬럼 업무 규칙으로 분류했다. 나머지 앱은 이 실패로 실행되지 않았다.
+- **R-012:** 조기404 회귀를 임시 삽입하고 `./gradlew :billing-app:test --tests '*ApiV1BillingPromotionPayoutTest.payoutWaitsForUncommittedHoldCreation'`. XML에서 프로모션 유무 두 경우 모두 HOLD_NOT_FOUND 실패를 확인했다. finally에서 수정된 소스를 복원했다. 이 결과는 회귀 결함을 의도적으로 재현한 것으로 최종 코드 실패가 아니다.
+- **R-013:** `./gradlew verifyModuleStructure :billing-app:check :billing-app:bootJar :shared:check :lecture-app:check :appearance-app:check --continue`. 통과. billing 1,513 · shared 193 · coupon 1,032 · lecture 1,001 · appearance 913건, 합계 4,652건 실패·오류·건너뜀 0(XML 기준). 모듈 구조 검사와 billing bootJar 성공, 8분 3초.
+- **자체 리뷰:** fresh review agent 1회. 지갑 락 전 보류 미존재 판정 회귀를 반영했고, 생성 중 지급이 실제 PostgreSQL 락을 기다리는 테스트 두 경우를 추가했다. 미해결 확정 지적 없음.
+- **검증 범위:** 기존 billing 활성 테스트 전체, 프로모션 P1~P7, 두 재원 원자성/롤백·replay·0원 앵커·기존 JSON·배포 중 이전 앱 지급 INSERT 호환. 쿠폰·강의 실제 호출 연결과 플랫폼 쿠폰 활성화는 #843이다.
+
+#### R-007 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-007 |
+| 실행 일시 | 2026-11-10 16:02 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | bfe1b01c |
+| 작업 트리 변경 | `WalletReconciliationRunIntegrationTest`(`carriesOnlyLatestRunFailedWallets` 추가, `insertProblemWallet` 도우미), 문서 test-spec·regression-log·observability. 운영 코드 변경 없음 |
+| 단계 | U / I (R 포함) |
+| 범위 | R-004와 같은 12개 클래스 |
+| 명령 | R-004의 명령과 같다 |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 60초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 PR 리뷰 반영) |
+
+**건수** (TEST-*.xml 12개 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| 합계 | 75 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: 새 테스트는 이미 있는 동작을 검증해 처음부터 통과했다. 변형 확인 2건: 이월 조회를 가장 오래된 실행(시작 시각 오름차순)으로 바꾸면, 또 ID 역순으로 바꾸면(최근 실행을 먼저 넣어 ID가 더 작다) 이 테스트 1건만 실패했다. 모두 되돌린 뒤 이 실행을 했다. billing-app 전체(R-006 뒤 운영 코드 변경 없음)와 `./gradlew check`는 다시 실행하지 않았다. 이 실행 뒤(16:05) 재리뷰에 따라 새 테스트의 같은 시각 식을 지역 변수로 뺀 뒤 `WalletReconciliationRunIntegrationTest`만 `--rerun-tasks`로 다시 실행해 4건 통과했다.
+
+#### R-006 · 2026-11-10 · U·S·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-006 |
+| 실행 일시 | 2026-11-10 15:35~15:42 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | R-005와 같다(#822 코드·테스트·문서, 커밋 전) |
+| 단계 | U / S / I (R 포함) |
+| 범위 | billing-app 전체 |
+| 명령 | `./gradlew :billing-app:test --rerun-tasks` |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 6분 32초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 커밋 전 전체) |
+
+**건수** (TEST-*.xml 107개 기준, `@Nested`는 파일이 따로 생긴다)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| 합계 | 1,331 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: test-spec 7.2(102개 클래스·소스 메서드 948개)의 지금 테스트 전체를 덮는 첫 R 기록이다. 단계별 건수는 나누지 않았다. 전체 `./gradlew check`는 미실행이다(PR CI).
+
+#### R-005 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-005 |
+| 실행 일시 | 2026-11-10 15:27 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | R-004 목록 + 코드 리뷰 반영: 엔티티 팩토리 `create`·`updatable = false`·UNIQUE 선언, 복원이 이 인스턴스의 대사 결과를 덮지 않음·마지막 성공 시각은 더 큰 값만, 저장 실패 ERROR 표식 `[BILLING_RECONCILIATION_RECORD_FAILED]`, Flyway 부분 인덱스 제거, `ChangedWalletReconciliationUseCaseTest#restoreDoesNotOverwriteRunInThisInstance` 추가 |
+| 단계 | U / I (R 포함) |
+| 범위 | R-004와 같은 12개 클래스 |
+| 명령 | R-004의 명령과 같다 |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 55초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 리뷰 반영) |
+
+**건수** (TEST-*.xml 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (5개 클래스) | 28 | 0 | 0 | 0 |
+| I (4개 클래스) | 19 | 0 | 0 | 0 |
+| R (3개 클래스) | 27 | 0 | 0 | 0 |
+| 합계 | 74 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: 새 테스트 `restoreDoesNotOverwriteRunInThisInstance`가 보호 로직 없이 실패하는 것을 먼저 확인했다(단위 14개 중 1개 실패). billing-app 전체 테스트와 `./gradlew check`는 미실행이다.
+
+#### R-004 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-004 |
+| 실행 일시 | 2026-11-10 15:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | 코드: `ChangedWalletReconciliationUseCase`, 새 `WalletReconciliationRunRecorder`·`WalletReconciliationMetricsRestorer`·`WalletReconciliationRun`·`WalletReconciliationRunWallet`·`WalletReconciliationResult`·`WalletReconciliationRunRepository`·`WalletReconciliationRunWalletRepository`, Flyway `V202611101530`. 테스트: `ChangedWalletReconciliationUseCaseTest`, `BillingSchemaTest`, `BillingEnumStorageTest`, 새 `WalletReconciliationRunIntegrationTest`·`WalletReconciliationMetricsRestorerTest`. 문서: decisions, test-spec, module, regression-log, billing AGENTS·PROGRESS, observability |
+| 단계 | U / I (R 포함) |
+| 범위 | #822 영향 범위 12개 클래스: BT-LED-10·11, BT-DB-01·03과 대사·스키마·저장소·아키텍처·지표 노출 관련 클래스 |
+| 명령 | `./gradlew :billing-app:test --rerun-tasks --tests 'com.hapbang.billing.out.BillingSchemaTest' --tests 'com.hapbang.billing.out.BillingEnumStorageTest' --tests 'com.hapbang.billing.out.BillingRepositoryTest' --tests 'com.hapbang.billing.app.WalletReconciliationRunIntegrationTest' --tests 'com.hapbang.billing.app.ChangedWalletReconciliationIntegrationTest' --tests 'com.hapbang.billing.app.ChangedWalletReconciliationUseCaseTest' --tests 'com.hapbang.billing.app.WalletReconciliationMetricsRestorerTest' --tests 'com.hapbang.billing.app.WalletReconciliationIntegrationTest' --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' --tests 'com.hapbang.billing.domain.WalletApplyLedgerAccessTest' --tests 'com.hapbang.billing.global.config.ManagementPortTest'` |
+| 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle wrapper, Docker 29.8.0 실행 중(PostgreSQL Testcontainers) |
+| 소요 시간 | 54초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822) |
+
+**건수** (TEST-*.xml 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (5개 클래스) | 27 | 0 | 0 | 0 |
+| I (4개 클래스) | 19 | 0 | 0 | 0 |
+| R (3개 클래스) | 27 | 0 | 0 | 0 |
+| 합계 | 73 | 0 | 0 | 0 |
+
+**Unit 실행 목록 대조**: 부분 실행이라 하지 않았다(전체 Unit 명령 미실행).
+
+**실패 목록**: 없음.
+
+**메모**: 처음 쓴 테스트가 기대한 이유로 실패하는 것을 먼저 확인했다(새 타입이 없어 컴파일 실패 → 껍데기에서 단위 13개 중 4개 실패 → 엔티티만 있고 Flyway가 없어 스키마 테스트 실패). 변형 확인 2건: 저장·이월 읽기 예외 처리를 빼면 `ChangedWalletReconciliationUseCaseTest` 2건만 실패하고, Recorder 조회를 틀리게 하면(성공 조건 제거, FAILED → MISMATCHED) `WalletReconciliationRunIntegrationTest` 2건이 실패했다. 모두 되돌린 뒤 이 실행을 했다. billing-app 전체 테스트와 `./gradlew check`는 미실행이다.
 
 #### R-003 · 2026-10-29 · U / S / I · 통과
 
@@ -276,13 +456,18 @@ R-001~R-003 무렵 코드·문서 분석으로 본 위험이다. **테스트 실
 
 ### 4.2 BT별 마지막 기록
 
+2026-11-11 R-013: 현재 billing 활성 테스트 전체 및 신규 프로모션 불변식을 재검증했다(billing 1,513건, 실패·오류·건너뜀 0). 테스트가 없는 미구현 항목은 검증한 것으로 바꾸지 않는다.
+
 **출처: 당시 test-spec 상태 칸**(2026-11-06 정리 전 값). 이 정리에서 새로 실행한 것은 없다. 앞으로 R 기록을 남기면 해당 BT를 이 표에서 그 R-ID로 옮긴다.
 
 R-003(7dc89e0)은 그때 있던 73개 클래스의 실행이다. R-003 뒤에 검증 기준이나 테스트가 바뀐 BT(예: #453의 BT-RFD-01·BT-EXC-01, #336의 BT-LED-03·08, #486의 BT-CHG-08, #537의 인증 방식)는 "R-003"이 지금 기준과 지금 테스트를 검증했다는 뜻이 아니다. test-spec 7.2의 지금 테스트 전체를 덮는 R 기록은 없다.
 
 | 마지막 기록 | BT | 당시 상태 칸 값 |
 | --- | --- | --- |
-| R-003 | BT-WAL-01, BT-LED-01~09, BT-HLD-01~06, BT-REL-01~05, BT-PAY-01·02·03·05·06, BT-PEN-01~04, BT-CAP-01~04, BT-CHG-01~07, BT-RFD-01~07, BT-EXC-02~05, BT-EXP-01~06, BT-MCK-01·02, BT-ERN-01, BT-SEC-03, BT-ERR-01·02, BT-DB-01~04, BT-CFG-01 | `R-003 통과` |
+| R-024 | BT-EVT-04 | (R-024 새 실행, 상태 칸 값 없음) |
+| R-020 | BT-EVT-03 | (R-020 새 실행, 상태 칸 값 없음) |
+| R-007 | BT-LED-10, BT-LED-11, BT-DB-01, BT-DB-03 | (R-007 새 실행, 상태 칸 값 없음) |
+| R-003 | BT-WAL-01, BT-LED-01~09, BT-HLD-01~06, BT-REL-01~05, BT-PAY-01·02·03·05·06, BT-PEN-01~04, BT-CAP-01~04, BT-CHG-01~07, BT-RFD-01~07, BT-EXC-02~05, BT-EXP-01~06, BT-MCK-01·02, BT-ERN-01, BT-SEC-03, BT-ERR-01·02, BT-DB-02·04, BT-CFG-01 | `R-003 통과` |
 | R-003 | BT-WAL-03·04, BT-CHG-08·09, BT-RFD-08, BT-EXC-01·06·07, BT-EXP-07, BT-ERN-02·03, BT-USR-01·03, BT-SEC-04 | `R-003 통과 (경계)` |
 | R-003 | BT-SEC-02 | `R-003 통과 (JVM 영향 미확인)` |
 | R-003 | BT-PAY-07 | `R-003 통과 (일부만 검증, 6.1)` |
@@ -291,7 +476,6 @@ R-003(7dc89e0)은 그때 있던 73개 클래스의 실행이다. R-003 뒤에 �
 | H-002 | BT-CFG-05 | `#562 통과` |
 | H-003 | BT-PORT-07 | `#577 통과` |
 | H-004 | BT-CFG-06 | `#598 통과` |
-| H-005 | BT-LED-10 | `#607 통과` |
 | H-006 | BT-CFG-07 | `#627 통과` |
 | 기록 없음 | BT-PORT-01~03 | `기록 없음 (R-003 이후 HTTP로 이동)` |
 | 기록 없음 | BT-PORT-06, BT-REL-06, BT-EVT-02, BT-EXP-08~10 | `기록 없음 (R-003 이후 추가)` |

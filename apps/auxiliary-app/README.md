@@ -12,13 +12,15 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 ├── src/main/resources/             application*.yaml (앱 설정)
 ├── global/                         :auxiliary-global   com.hapbang.auxiliary.global (공통 코드)
 └── boundedContext/                 Gradle 프로젝트가 아니라 모듈을 묶는 디렉터리
-    └── chatbot/                    :chatbot            com.hapbang.auxiliary.chatbot
+    ├── chatbot/                    :chatbot            com.hapbang.auxiliary.chatbot
+    ├── notification/               :notification       com.hapbang.auxiliary.notification
+    └── search/                     :search             com.hapbang.auxiliary.search
 ```
 
 | 프로젝트 | 의존할 수 있는 것 | 하는 일 |
 | --- | --- | --- |
 | `:auxiliary-app` | 모든 모듈 | 실행 진입점, 앱 설정, 앱 전체 테스트(기동·Flyway·포트, 모듈 경계) |
-| `:auxiliary-global` | `:shared` | 응답 `RsData`, `GlobalExceptionHandler`, 로그인 회원 `@LoginUserId`, 내부 API 키·포트, 스케줄링 조건, 로그 MDC. 업무 규칙은 두지 않는다 |
+| `:auxiliary-global` | `:shared` | 응답 `RsData`, `GlobalExceptionHandler`, 로그인 회원 `@LoginUserId`, 내부 API 키·포트, 스케줄링 조건, 배치 실행 락(`JobLock`, #716), 로그 MDC. 업무 규칙은 두지 않는다 |
 | 업무 모듈(`:chatbot` 등) | `:auxiliary-global`, `:shared` | 업무 기능. 다른 업무 모듈을 의존하지 않는다 |
 
 - global은 chat-app `global`을 복사해 시작했다. 다른 앱의 global을 의존하지 않는다(앱끼리 의존 금지).
@@ -52,7 +54,7 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 ## 권한
 
 - 업무 API는 비회원에게 열지 않는다. 공통 `SecurityConfig`가 Swagger·헬스체크 밖의 모든 요청에 로그인을 요구한다. 모듈이 공개 경로를 따로 열지 않는다.
-- 역할 검사는 각 모듈 Facade의 `@PreAuthorize`로 한다. 챗봇은 인플루언서 이상(`INFLUENCER`·`VERIFIED_INFLUENCER`)만 쓸 수 있다.
+- 역할 검사는 각 모듈 Facade의 `@PreAuthorize`로 한다. 챗봇은 로그인 회원 전체(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN`)가 쓴다(11/06 결정, #715).
 
 ## Flyway
 
@@ -70,6 +72,10 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 6. 외부 API가 있으면 `k8s/base/gateway.yaml`의 HTTPRoute `matches`에 그 모듈 경로(`/api/v1/<경로>`)를 더한다. 응답 시간 30초·본문 1MiB가 그 경로에도 걸린다. 오래 열어 두는 응답(SSE·WebSocket)은 chat-app처럼 경로를 따로 만들어 시간 제한을 따로 둔다. 보안 설정(`SecurityConfig`)은 경로와 상관없이 같다.
 7. `./gradlew verifyModuleStructure :auxiliary-app:check`로 확인한다. `AuxiliaryModularityTest`가 새 모듈을 찾는지도 본다.
 
+모듈 `build.gradle.kts`에는 `-parameters` 컴파일 옵션을 켠다(`:chatbot` 참고). Spring Boot 플러그인을 쓰는 실행 앱은 자동으로 켜지지만 하위 프로젝트는 아니다. 없으면 `@RequestParam`·`@PathVariable`이 인자 이름을 읽지 못한다.
+
+advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모듈이 `JobLockKey`를 구현한 enum을 만들고(챗봇 `ChatbotJob`), 락 번호는 앱 전체(database 하나)에서 겹치지 않게 **그 작업을 더한 이슈 번호 × 1000 + 순번**으로 정한다(예: 챗봇 FAQ 맞추기 `715_001`). 회원별 호출 제한은 global `KeyedRateLimiter`를 모듈이 API마다 빈으로 만든다(초과 시 429·`Retry-After`). `KeyedRateLimiter`는 지갑(billing-app)의 `UserRateLimiter` 구조를 빌려 왔지만 이 앱에 맞게 따로 고친다. 지갑 쪽과 맞춰 둘 필요는 없다.
+
 ## 실행과 설정
 
 | 항목 | 값 |
@@ -79,18 +85,124 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 | Swagger | `/api/v1/auxiliary/swagger-ui.html` (`global/src/main/resources/swagger.yml`). 모듈 셋의 API가 한 명세에 있고 컨트롤러 `@Tag`로 나뉜다 |
 | DB 연결 풀 | Hikari 5. PostgreSQL `max_connections` 100을 다른 앱과 나눠 쓴다 |
 | 배치 스레드 | `spring.task.scheduling.pool.size` 2 |
-| Kafka·Redis | common 라이브러리 자동 설정 |
+| Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`) |
+| 배치 실행 락 | global `JobLock`(PostgreSQL advisory lock). database를 모듈이 함께 쓰므로 락 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번(`JobLockKey`) |
+| 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL` / 검색 통계 동기화: `MemberApiClient`, `MEMBER_API_BASE_URL`) |
 | 메모리 | large node, limit 704Mi, `-Xmx256m`, `MALLOC_ARENA_MAX=2`(#684 예산) |
 
 DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
 
-STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 global 필터와 Gateway `claimToHeaders`에 없다. chat-app global에서 복사할 때 뺐으므로, 쓰는 모듈이 Gateway 설정과 함께 더한다.
+STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 Gateway `claimToHeaders`가 넘기고(#847), global 필터는 읽지 않는다. 알림 연결 티켓 API만 직접 읽는다(`docs/notification/decisions.md` ND-056·ND-064).
 
 로컬은 다른 앱과 같이 `./gradlew :auxiliary-app:bootRun`으로 띄운다. 로컬 PostgreSQL(docker compose)은 모든 앱이 database 하나를 schema로 나눠 쓰므로 따로 만들 것이 없다.
+
+## 챗봇 FAQ (#715)
+
+FAQ 원본은 `boundedContext/chatbot/src/main/resources/chatbot/faq-seed.json`(53건, 분류 11개)이다. 고객센터에 FAQ 기능이 없어 이 파일이 원본이고, 내용을 고치면 이 파일을 고쳐 배포한다.
+
+- 시작할 때 별도 스레드에서 시드를 `chatbot.faq`에 code로 맞춘다(없으면 넣고, 다르면 고치고, 빠진 code는 지운다). 이어서 내용 해시가 바뀐 FAQ만 임베딩해 ES index에 넣는다. advisory lock으로 한 pod만 하고, 실패해도 기동·다른 API는 그대로다. 색인 실패는 10분마다 점검해 다시 한다.
+- index 이름에 공급자·차원이 들어간다(`chatbot-faq-ollama-768`, `chatbot-faq-openai-1536`). 모델을 바꾸면 새 index에 모두 다시 색인한다.
+- Spring AI 자동 설정의 vector store 빈은 끈다(`spring.ai.vectorstore.type=none`). 그 빈은 만들어질 때 ES를 불러 ES가 죽어 있으면 앱이 뜨지 않는다. 챗봇이 `ElasticsearchVectorStore`를 직접 만들고 index mapping(양자화 없는 `hnsw`, cosine)도 직접 만든다.
+- ES·OpenAI가 죽어도 liveness·readiness는 UP이다. FAQ 목록은 그대로 되고, 검색은 빈 결과, 대화는 LLM 없이 검색 상위 1건 또는 안내 문구로 답한다(`fallback: true`). ES 헬스 지표는 전체 상태(`/actuator/health`)에만 들어간다.
+- API: `GET /api/v1/chatbot/faqs?category=`, `GET /api/v1/chatbot/faqs/search?q=`, `POST /api/v1/chatbot/chat/faq`, `POST /api/v1/chatbot/chat/faq/stream`(SSE). 검색·대화는 회원마다 분당 10회다(`hapbang.chatbot.faq.rate-limit.*`).
+- 스트림 경로(`/api/v1/chatbot/**/stream`)만 Gateway route를 따로 두어 60초다(`k8s/base/gateway.yaml`의 `auxiliary-app-stream`). 서버 스트림 상한 45초·MVC 비동기 상한 50초가 그보다 짧아 서버의 fallback·error 이벤트가 먼저 나간다.
+- 지표: `hapbang.chatbot.requests{feature}`, `hapbang.chatbot.faq.unmatched{feature}`, `hapbang.chatbot.faq.search.errors`, `hapbang.chatbot.fallbacks{feature,reason}`, `hapbang.chatbot.rate.limit.rejected{feature}`. 대화 내용은 저장하지 않고 로그에도 남기지 않는다.
+
+### 챗봇 로컬 실행
+
+로컬 모델은 Ollama(chat `qwen2.5:3b`, 임베딩 `nomic-embed-text`)다. 공용 `docker/compose.yaml`(PostgreSQL 등)과 별도로 ES·Ollama를 띄운다.
+
+```bash
+# 1) ES 9.5.5(보안 끔, 9200)와 Ollama(11434)
+docker compose -f apps/auxiliary-app/compose.yaml up -d
+# 2) 모델 받기(처음 한 번, 볼륨에 남는다). qwen2.5:3b는 약 2GB다. 0.5b는 Tool을 거의 부르지 않는다
+docker compose -f apps/auxiliary-app/compose.yaml exec ollama ollama pull qwen2.5:3b
+docker compose -f apps/auxiliary-app/compose.yaml exec ollama ollama pull nomic-embed-text
+# 3) 앱 실행(local 프로필). 뜬 뒤 로그에 "FAQ 색인을 맞췄다 ... indexed=53"이 나온다
+./gradlew :auxiliary-app:bootRun
+# 4) 호출. 로컬에는 Gateway가 없어 사용자 헤더를 직접 싣는다
+curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' -H 'X-User-Role: USER'   -H 'Content-Type: application/json' -d '{"message":"HP 충전은 어떻게 해요?"}'
+```
+
+- 루트 `.env`(Git에 올리지 않음, `.gitignore`)는 값에 따옴표를 쓰지 않는다. Spring은 `.env`를 properties로 읽어 따옴표까지 값으로 쓴다. 로컬 챗봇에는 OpenAI 키가 필요 없다.
+- 운영 모델은 OpenAI(chat `gpt-4o-mini`, 임베딩 `text-embedding-3-small`)이고 키는 Secret `OPENAI_API_KEY`로만 받는다.
+
+### 테스트와 평가
+
+- CI(`./gradlew :auxiliary-app:check`)는 가짜 모델(`src/test`의 `FakeChatModel`·`FakeEmbeddingModel`)과 ES Testcontainers(9.5.5)로 돈다. 실제 모델을 부르는 테스트는 `@Tag("llm")`이라 빠진다.
+- 로컬에서 실제 모델로: `./gradlew :chatbot:llmTest`(위 compose의 Ollama와 모델 필요).
+  - `FaqOllamaLlmTest`: 모델이 `searchFaq`를 부르고 스트림이 `done`까지 오는지(답의 품질은 보지 않는다)
+  - `FaqRetrievalEvaluationOllamaTest`: 평가셋(`src/test/resources/chatbot/faq-eval.json`, 다른 표현 148개 + 범위 밖 7개)의 hit@1·hit@3와 기준값별 범위 밖 거절률 표. 목표를 걸지 않는다
+  - `FaqRetrievalEvaluationOpenAiTest`: 같은 평가를 운영 임베딩(OpenAI)으로. hit@3 0.85 아래면 실패한다. `OPENAI_API_KEY`가 있을 때만 돈다. 배포 전에 한 번 돌려 `application-prod.yaml`의 `similarity-threshold`를 정한다
+- 기준값은 공급자마다 다르다(코사인 유사도). 운영(OpenAI) 값은 평가 전이라 "임시값"으로 표시한다.
+- 로컬 Ollama는 호출이 되는지 보는 개발용이고 품질은 운영 공급자로 본다. 2026-11-09 Ollama 평가는 hit@1 0.169, hit@3 0.399였고, 기준값 0.30~0.70 어디서도 범위 밖 질문 7개를 하나도 거르지 못했다(0.76에서 2개). `nomic-embed-text`가 영어 위주로 학습되어 한국어 문장의 뜻을 잘 가르지 못하는 것이 원인으로 보인다. 로컬에서 품질까지 보려면 다국어 임베딩 모델로 바꾸고 차원·index 이름을 함께 바꾼다.
+
+## 챗봇 추천 색인·LLM 공통 (#718)
+
+강의 추천(#718)·인플루언서 추천(#719)·자유 질문(#720)이 함께 쓰는 기반이다.
+
+- **추천 벡터 index**(`RecommendVectorIndex`): Spring AI `VectorStore` 대신 `ElasticsearchClient`로 직접 다룬다(취향 벡터 kNN, 저장된 벡터 읽기, 필드 일부 갱신). 이름은 설정값 `hapbang.chatbot.index.lecture-name`·`influencer-name`이고 규칙은 `chatbot-<종류>-<공급자>-<차원>`이다(ES role `chatbot-*`에 들어간다). ES 9는 벡터를 `_source`에서 빼고 저장한다. 저장된 벡터는 `_source.exclude_vectors: false`로 읽는다.
+- **색인 요청**(`chatbot.index_task`): 사본이 바뀐 트랜잭션에 요청을 적고, 실행기(`IndexTaskRunner`, 5초마다)가 커밋 뒤 가져가 종류별 처리기(`IndexTaskHandler`)에 그 종류의 문서를 한 번에 넘긴다(임베딩을 한 번의 공급자 호출로 묶을 수 있다). 처리기는 요청 값이 아니라 지금 사본 상태로 맞춘다.
+  - 문서 단위로 가져간다. 한 문서의 대기 요청을 모두 함께 임대하고(`next_attempt_at`), 임대 중이거나 다시 시도를 기다리는 요청이 있는 문서는 가져가지 않는다. 가져가기는 짧은 트랜잭션의 advisory lock(`718_001`)으로 pod 사이에 한 줄로 세운다. 그래서 한 문서를 두 pod가 함께 처리해 옛 상태가 새 상태를 덮는 일이 없다. 끝내기·다시 시도는 내 임대일 때만 바꾼다.
+  - 실패한 문서는 30초부터 두 배씩 1시간까지 늘려 다시 한다. 10번 이상 실패하면 `[CHATBOT_INDEX_TASK_STUCK]` ERROR. 회차가 임대(5분)의 절반을 넘기면 남은 종류는 돌려준다. 끝난 요청은 7일 뒤 지운다. 지표 `hapbang.chatbot.index.tasks{type,result}`.
+- 강의 사본은 값이 바뀌었거나 원본 없음 표시가 바뀔 때만 요청을 적는다. 값이 같은 매시 싱크는 요청을 적지 않는다.
+- 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
+- **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
+
+## 챗봇 강의 추천 (#718)
+
+`GET /api/v1/chatbot/recommendations/lectures?interest=`(로그인 회원). 후보는 코드가 정하고(LLM 없음), 설정은 `hapbang.chatbot.recommend.lecture.*`(`ChatbotLectureRecommendProperties`)다.
+
+- **색인**: 강의 사본 전부(판매 중이 아니어도)를 `LectureIndexTaskHandler`가 지금 사본 상태로 맞춘다. 임베딩 글(제목 + 소개 + 콘텐츠 제목)의 해시를 문서에 두어, 상태만 바뀌면 다시 임베딩하지 않는다.
+- **정합 점검**(`LectureIndexCheckBatch`): 앱이 뜬 뒤 한 번(처음 전체 색인)과 매시 :50(강의 싱크 :20 뒤, `index-check-cron`). 사본을 500개씩 읽어 ES 문서와 비교하고, 어긋난 강의만 색인 요청을 적는다(처리는 실행기). 끝나지 않은 요청이 이미 있는 강의는 다시 적지 않는다. 사본 읽기 + ES ids 검색만 하고 임베딩은 없다. 매시 점검은 앱 배치 스레드 하나를 잠깐 쓰고, 기동 때 한 번은 기동·readiness를 막지 않게 가상 스레드 하나에서 돈다(FAQ 기동 싱크와 같다).
+- **후보**: 신호(구매 1.0, 장바구니 0.6, 리뷰 별점 보정, 0 하한, 최근 50개)의 가중 평균 벡터, 관심사가 있으면 `(1−α)·신호 + α·관심사`(α 0.3, local·prod 같음). kNN 뒤 보유·결제 중·장바구니·본인 강의·숨김 판매자(탈퇴·마스킹·사본 없음)를 빼고 `(1−β)·유사도 + β·인기`(β 0.05, local·prod 같음), 판매자당 2개·5개, 모자라면 인기순(숨김 판매자는 SQL에서 거른다). α·β는 임베딩 모델마다 다를 값이라 코드 기본값 없이 프로필 yaml에 둔다. 가중치·상한·α·β는 평가 전 "임시값"이고 추천 가중치 보정(#867)에서 다시 정한다. 다시 정할 때 평가 결과를 설정 주석·PR에 적는다. 이유 코드는 강의마다 구매·장바구니·관심사 중 가까운 쪽(`LectureTaste`). 맞춤으로 고를 수 없으면(활동이 없거나 활동한 강의가 색인 전) 인기순과 `needsInterest=true`(관심사를 주면 맞춤). 모델·ES 연결이 없는 실행이면 관심사도 소용없어 `false`다. 실행 중 ES·임베딩 장애는 활동이 없는 회원의 요청으로는 알 수 없어 `true`일 수 있고, 그때 관심사 요청은 503이다.
+- **실패**: 색인·임베딩을 쓸 수 없으면 관심사 없는 요청은 인기순(`personalized=false`, `hapbang.chatbot.fallbacks{feature=lecture_recommend}`), 관심사 요청은 503 `LECTURE_RECOMMEND_UNAVAILABLE`. 로그는 호출 실패가 시작되거나 회복될 때만 남긴다. 503은 잠시 뒤 다시 보내면 되는 거절이라 공통 예외 처리기도 요청마다 ERROR로 남기지 않는다(오류 코드의 `isRetryLater()`, DEBUG). fallback 지표는 인기순 답이 나간 뒤에 센다. DB 오류는 그대로 500. API는 관심사 요청만 회원별 호출 제한(`chatbot-recommend-lecture`)을 세고, Tool·버튼 경로는 대화 진입점(#720)의 제한이 감싼다.
+- **LLM**: 대화 Tool `recommendLectures`(회원 ID는 `ToolContext`의 `memberId`)는 정해진 이유 문장만 준다. 결과를 바깥 대화 LLM이 읽으므로 회원이 산·담은 강의 제목은 넣지 않는다("구매하신 강의와 비슷해요"). 기준 강의 제목은 회원 본인 화면(API)에만 나간다. 관심사가 100자를 넘으면 Tool은 거절하지 않고 자른다(모델 인자라 거절하면 대화가 끊긴다. API는 400). 버튼 경로(`LectureRecommendExplainUseCase`, #720이 연결)만 `LlmCallGuard`로 강의마다 이유 문장을 받고, 후보 밖 강의는 버리고, 실패하면 정해진 문장이다.
+
+## 챗봇 인플루언서 추천 (#719)
+
+출연 상대로 어울리는 인플루언서 5명을 추천한다. 후보와 순서는 코드가 정하고(같은 상태면 같은 결과), LLM은 버튼 경로에서 이유만 쓴다.
+
+| 경로 | 취향 | LLM |
+|---|---|---|
+| `GET /api/v1/chatbot/recommendations/influencers` (위젯) | 내 프로필 + 함께 출연을 마친 상대들 | 없음. 회원별 호출 제한(연타 방지) |
+| `POST /api/v1/chatbot/recommendations/influencers/explained` (챗봇 버튼) | 같음 | 후보마다 이유(`.entity()`, 후보 밖은 버림, 실패하면 이유 코드 문장). 회원별 호출 제한 |
+| Tool `recommendInfluencers(interest?)` (자유 질문 #720) | 관심사 문장이 있으면 그 문장, 없으면 위와 같음 | 대화 LLM이 설명 |
+
+- **색인**(`chatbot-influencers-<공급자>-<차원>`): 회원 사본이 바뀐 트랜잭션에 `INFLUENCER` 요청을 적고 처리기(`InfluencerIndexTaskHandler`)가 지금 사본 상태로 맞춘다. 대상은 `INFLUENCER`·`VERIFIED_INFLUENCER`. 정지·강등·탈퇴는 `hidden=true`로만 바꾸고(다시 임베딩하지 않음, 글이 비어도 지우지 않음) 복구되면 `false`(글이 바뀌었는지 봐야 해서 분야 이름 표가 필요하다. 회원 API가 죽어 있으면 살아날 때까지 숨긴 채로 둔다). 마스킹하면 문서를 지운다. 추천 가능한데 분야와 자기소개가 모두 없으면 문서를 두지 않는다(벡터 없는 문서는 두지 않는다. 인기순 후보는 DB에서 고른다). 처리기는 쓴 묶음 끝에 refresh해 다음 묶음이 방금 쓴 상태를 본다. 임베딩 글은 분야 한글 이름(회원 API, `category-names-ttl` 10분 보관, 실패하면 `category-names-retry` 30초 뒤 다시 받음, 처음 받는 중에는 색인 쪽 호출만 기다리고 화면용 호출은 코드를 그대로 보여 줌) + 이메일·전화번호를 지운 자기소개이고, ES에는 글 해시만 둔다. 해시가 같으면 다시 임베딩하지 않는다.
+- **정합 점검**(`InfluencerIndexCheckBatch`, 매시 :45, `hapbang.chatbot.recommend.influencer.check-cron`): 모든 회원 사본을 문서와 비교해 어긋난 회원의 요청을 적는다. 첫 배포 뒤 첫 점검이 처음 전체 색인이다. 연속 3번 실패하면 `[CHATBOT_INFLUENCER_CHECK_FAILED]` ERROR(실패 수는 pod 메모리, FAQ 점검과 같다). 요청만 적으므로 배치 스레드를 짧게 쓰고, 임베딩·재시도는 실행기 한 곳이 한다. 사본 행은 지우지 않으므로(탈퇴·마스킹도 행을 남긴다) 사본만 훑는다. ES에만 남은 문서는 DB를 초기화했을 때만 생기고 그때는 index를 지우고 다시 색인한다(강의 추천 점검과 같다). 추천에는 DB 재확인으로 나오지 않는다.
+- **인기 점수**: 요청할 때 사본에서 센다(색인에 넣지 않으므로 출연·리뷰가 바뀌어도 재색인이 없다). 완료 출연 수(호스트·게스트) + 리뷰 수로 보정한 평균 별점(베이지안), 원본 없음 출연·리뷰는 뺀다. 후보 안에서 0~1로 맞춘 뒤 `(1 − β)·유사도 + β·인기`.
+- **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순. 요청 회원이 숨김(`MemberVisibility`: 사본 없음·탈퇴·마스킹, #717 규칙을 강의 추천과 같이 따름)이면 빈 목록과 `notice`(정해진 안내 문구). 사본이 없는 것은 대개 가입 직후 동기화 전이다. 인기 집계는 요청마다 추천 가능 회원 전체를 센다(강의 추천의 인기 후보 50개 같은 상한이 없다). 수천 명 규모라 캐시를 두지 않는 대신 전체 평균 별점은 요청마다 한 번만 세고, 위젯에도 회원별 호출 제한(분당 60회)을 걸어 한 회원의 연타가 앱 공용 DB 연결을 붙잡지 않게 한다. 그래도 느려지면 짧은 캐시를 둔다.
+- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `userId`에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 경로도 사용 지표 `INFLUENCER_RECOMMEND`로 센다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool 결과는 카드를 그리도록 회원 ID를 담아 대화 LLM에 가고, Tool 설명이 회원 ID를 답에 쓰지 말라고 한다.
+- 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한(설명 `rate-limit` 분당 10회, 위젯 `widget-rate-limit` 분당 60회, 따로 센다), 설명 시간 상한, Tool 관심사 최대 길이, 분야 이름 보관·재시도 시간, 점검 실패 알림 횟수.
+- LLM 설명은 후보를 순번으로 받아 코드가 회원 ID로 되돌린다. 범위 밖 순번·빈 문장·순번을 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 `fallback=true`.
+
+**지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
+
+| 보장 | 외부 장애 때도 | 테스트 |
+|---|---|---|
+| 마스킹 회원 문서는 지운다 | 회원 API(분야 이름)가 기동 때부터 죽어 있어도 | `InfluencerIndexTaskHandlerTest.categoryNamesDown`, `InfluencerIndexRequestTest.checkerWithoutCategoryNames` |
+| 정지·강등·탈퇴는 숨긴다. 복구되면 푼다 | 숨김: 회원 API 장애 때도. 복구: 정지 직후 복구(ES refresh 지연). 회원 API 장애 때는 살아날 때까지 숨긴 채 | `hideAndShowWithoutReembedding`, `restoreRightAfterSuspend`, `categoryNamesDown`, `checkerWithoutCategoryNames` |
+| 본인은 추천하지 않는다 | | `InfluencerRecommendUseCaseTest` |
+| 항상 5명(추천 가능한 회원이 그보다 적을 때만 적게) | 임베딩 장애, index 없음(첫 배포·ES 오류) 때 인기순 | `InfluencerRecommendUseCaseTest` |
+| 회원 ID는 `ToolContext`에서만 | | `InfluencerRecommendApiTest.tool` |
+| 설명 API의 LLM 프롬프트에 닉네임·자기소개 원문·회원 ID를 보내지 않는다(Tool 결과에는 회원 ID가 있다) | | `explained`, `promptHasNoMemberIds` |
+| 표를 처음 받는 중이면 색인 쪽 호출은 기다리고, 화면용 호출은 기다리지 않는다 | 기동 직후(받기에 실패하면 재시도 시간까지는 기다리지 않고 실패) | `ChatbotCategoryNamesTest.waitsForFirstFetch`, `displayDoesNotWait` |
+
+## 검색 (#771, #772, #868)
+
+인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
+
+- 코드는 대상과 상관없는 공통 코드(`search.common`: index·alias·동의어·재색인·tombstone 정리·지표)와 대상별 구현(`search.influencer`)으로 나뉜다(#868). 강의·모집 검색은 `search.<대상>`으로 더한다(`docs/search/module.md` 3장 "새 대상을 붙이는 법").
+- 검색 기능 스위치는 #860에서 지웠다. 검색 빈은 늘 뜨고, ES가 없어도 챗봇·알림은 그대로이며 검색 API만 503이다(`docs/search/module.md` 2장).
+- ES는 챗봇과 같은 cluster지만 검색 전용 client가 `ES_SEARCH_API_KEY`(role `search`, `search-*`)로 따로 붙는다(`hapbang.search.elasticsearch.*`). 검색 index는 nori를 쓰므로 로컬 `compose.yaml`의 ES는 nori를 설치한 이미지다.
+- Kafka: `member.events.v1`, 그룹 `auxiliary-app.search-member`. 배치: 통계 동기화·문서 수 정합성 점검(끝난 뒤 10분, `JobLock` 771_002), 회원 변경분 증분 보정(끝난 뒤 10분, 772_001), tombstone 정리(매일 04:30, 771_001), 0건 검색어 로그(10분, 락 없음).
+- 나눠 쓰는 자원: DB는 증분 보정 커서(`search.sync_cursor`, 보정 페이지마다 짧은 쓰기 1번)와 정합성 점검 결과(`search.consistency_check`, 10분에 쓰기 1번) 두 행, 지표 수집 때 읽기 2번, `JobLock` 연결만 쓴다. 배치 스레드 2개를 챗봇과 나눠 쓰지만 검색 작업은 짧은 ES·HTTP 호출이라 그대로 둔다. 메모리는 client와 10분 캐시(분야 이름, 평점 평균, 0건 검색어 최대 1,000개)뿐이라 limit을 바꾸지 않는다.
+- 로컬 실행: [`docs/search/module.md`](../../docs/search/module.md) 10장.
 
 ## 운영 배포
 
 - prod overlay는 `replicas: 0`으로 시작했고(#714), 운영 준비가 끝나 1로 올렸다(#726). dev에 병합하면 다른 앱처럼 자동으로 배포된다.
 - 운영 준비(#726): PostgreSQL role·database `auxiliary`, SealedSecret `k8s/overlays/prod/auxiliary-app-secrets.yaml`(`DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `ES_API_KEY`, `OPENAI_API_KEY`), ES role `chatbot`·API key, `hapbang-prod`의 ConfigMap `elasticsearch-ca`(키 `ca.crt`), large node 자리, `max_connections` 계산. 값과 절차는 `docs/deploy/k8s.md`의 "Secret"·"PostgreSQL database"·"Elasticsearch 앱 접근"에 있다.
 - 공용 인프라(`k8s/platform`, `k8s/tools`, `k8s/gateway`, `docker/`)와 인프라 문서는 이 앱 작업에서 고치지 않고 인프라 담당과 정한다.
-- 비밀값을 더하거나 바꾸면 `~/.hapbang/prod-secrets.env`에 넣고 `k8s/tools/seal-app-secrets.sh auxiliary`로 다시 봉인한다(선택 키 목록은 그 스크립트의 `auxiliary` spec).
+- 비밀값을 더하거나 바꾸면 `~/.hapbang/prod-secrets.env`에 넣고 `k8s/tools/seal-app-secrets.sh auxiliary`로 다시 봉인한다(필수·선택 키 목록은 그 스크립트의 `auxiliary` spec).

@@ -16,9 +16,11 @@ spec:
             memory: 128Mi
           limits:
             memory: 128Mi
+      # controller는 proxy와 같은 large(core-data)에 둔다. medium에 두면 medium 장애 중 proxy pod가 다시 뜰 때 설정을 받지 못한다.
+      # medium 메모리 예산 때문에 옮겼다(#774). 운영 7일 최대 working set 93Mi
       pod:
         nodeSelector: &id001
-          hapbang.io/pool: app-observe
+          hapbang.io/pool: core-data
     certgen:
       job:
         nodeSelector: *id001

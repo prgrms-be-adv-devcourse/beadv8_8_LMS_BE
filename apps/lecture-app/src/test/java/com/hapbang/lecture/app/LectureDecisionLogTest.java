@@ -17,10 +17,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.domain.Lecture;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.ObjectionCommands;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
  * 돈 흐름이나 판매 상태를 바꾼 결정이 결정한 회원 ID와 함께 INFO 한 줄을 남기는지 확인한다 (#681, docs/dev/logging.md 레벨).
@@ -51,7 +51,7 @@ class LectureDecisionLogTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -59,7 +59,8 @@ class LectureDecisionLogTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test

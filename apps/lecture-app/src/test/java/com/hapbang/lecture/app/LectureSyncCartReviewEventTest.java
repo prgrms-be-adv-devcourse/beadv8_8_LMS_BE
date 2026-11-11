@@ -15,7 +15,6 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.domain.Lecture;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.ObjectionCommands;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureReviewRepository;
@@ -24,6 +23,7 @@ import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
 import com.hapbang.shared.lecture.event.CartItemChangedEvent;
 import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
  * AI 추천용 장바구니 항목·리뷰 동기화 이벤트(#712, D82)가 바뀌는 지점마다 바뀐 뒤 상태로 나가는지 Facade부터 DB까지 확인한다.
@@ -64,7 +64,7 @@ class LectureSyncCartReviewEventTest {
     private LectureReviewRepository lectureReviewRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private ApplicationEvents events;
@@ -74,7 +74,8 @@ class LectureSyncCartReviewEventTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         objections = new ObjectionCommands(lectureObjectionFacade);
     }
 

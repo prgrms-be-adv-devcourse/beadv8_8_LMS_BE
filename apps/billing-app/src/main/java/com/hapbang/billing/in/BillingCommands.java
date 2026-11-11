@@ -1,6 +1,7 @@
 package com.hapbang.billing.in;
 
 import com.hapbang.billing.app.PaymentHoldCommand;
+import com.hapbang.billing.app.PaymentHoldPromotion;
 import com.hapbang.billing.app.PaymentHoldVoidCommand;
 import com.hapbang.billing.app.PaymentPayoutCommand;
 import com.hapbang.billing.app.PaymentPenaltyCommand;
@@ -20,7 +21,10 @@ final class BillingCommands {
 
     static PaymentHoldCommand hold(HoldCommand command) {
         return new PaymentHoldCommand(command.userId(), command.referenceType(), command.referenceId(),
-                command.amountHp());
+                command.amountHp(), command.promotions().stream()
+                        .map(promotion -> new PaymentHoldPromotion(promotion.couponId(), promotion.memberCouponId(),
+                                promotion.generation(), promotion.amountHp()))
+                        .toList());
     }
 
     static PaymentReleaseCommand release(ReleaseCommand command) {
@@ -31,13 +35,13 @@ final class BillingCommands {
     static PaymentPayoutCommand payout(PayoutCommand command) {
         return new PaymentPayoutCommand(command.payerUserId(), command.referenceType(), command.referenceId(),
                 command.payoutRequestId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
-                command.amountHp());
+                command.amountHp(), command.sourceTitle());
     }
 
     static PaymentPenaltyCommand penalty(PenaltyCommand command) {
         return new PaymentPenaltyCommand(command.payerUserId(), command.referenceType(), command.referenceId(),
                 command.cancellationId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
-                command.releaseAmountHp(), command.payoutAmountHp());
+                command.releaseAmountHp(), command.payoutAmountHp(), command.sourceTitle());
     }
 
     static PaymentHoldVoidCommand holdVoid(HoldVoidCommand command) {

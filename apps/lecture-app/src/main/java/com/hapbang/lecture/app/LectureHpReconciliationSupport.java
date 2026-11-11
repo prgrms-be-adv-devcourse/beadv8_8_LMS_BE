@@ -2,10 +2,13 @@ package com.hapbang.lecture.app;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -16,16 +19,19 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureHpReconciliationCursor;
 import com.hapbang.lecture.domain.LectureHpReconciliationMismatch;
+import com.hapbang.lecture.domain.LectureHpReconciliationRule;
 import com.hapbang.lecture.domain.LectureHpReconciliationRun;
 import com.hapbang.lecture.domain.LectureHpReconciliationStatus;
 import com.hapbang.lecture.domain.LectureHpReconciliationTrigger;
 import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.out.LectureHpReconciliationCursorRepository;
 import com.hapbang.lecture.out.LectureHpReconciliationMismatchRepository;
 import com.hapbang.lecture.out.LectureHpReconciliationRunRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.lecture.out.OrderItemWithOrderId;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
@@ -48,6 +54,7 @@ public class LectureHpReconciliationSupport {
     private final LectureHpReconciliationCursorRepository cursorRepository;
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskRepository lectureHpTaskRepository;
+    private final OrderItemCouponRepository orderItemCouponRepository;
 
     /** 지갑 보류 목록 커서. 저장한 적이 없으면 처음부터 ({@link Instant#EPOCH}, 0) */
     record Cursor(Instant updatedAfter, long afterId) {
@@ -105,10 +112,16 @@ public class LectureHpReconciliationSupport {
         Map<Long, List<LectureHpTask>> tasksByOrder = orderIds.isEmpty() ? Map.of()
                 : lectureHpTaskRepository.findByOrderIdIn(orderIds).stream()
                 .collect(Collectors.groupingBy(LectureHpTask::getOrderId));
+        Map<Long, List<OrderItemCoupon>> coupons = orderItemCouponRepository
+                .findByOrderItemIdInOrderByOrderItemIdAscApplyOrderAsc(orderItemIds).stream()
+                .collect(Collectors.groupingBy(OrderItemCoupon::getOrderItemId));
         Map<Long, LectureHpReconciliationTarget> targets = new LinkedHashMap<>();
         for (OrderItemWithOrderId row : items) {
             targets.put(row.item().getId(), LectureHpReconciliationTarget.of(row.item(), row.orderId(),
-                    tasksByOrder.getOrDefault(row.orderId(), List.of())));
+                    tasksByOrder.getOrDefault(row.orderId(), List.of()),
+                    // 예약 전·예약 거절 항목에는 generation이 없다. 완료된 보류에서 빠진 예약은 비교기의 금액 합으로 잡는다.
+                    LectureHpPromotions.of(coupons.getOrDefault(row.item().getId(), List.of()).stream()
+                            .filter(coupon -> coupon.getReservedGeneration() != null).toList())));
         }
         return targets;
     }
@@ -153,5 +166,43 @@ public class LectureHpReconciliationSupport {
     @Transactional(readOnly = true)
     public List<LectureHpReconciliationMismatch> findMismatches(Long runId) {
         return mismatchRepository.findByRunIdOrderByIdAsc(runId);
+    }
+
+    /**
+     * 앱이 대사 도중 멈춰 실행 중으로 남은 실행을 기동할 때 미완료로 끝낸다 (#805). {@link #start}도 같은 정리를 하지만 다음 실행 때라
+     * 그때까지 중단이 지표에 드러나지 않는다. 강의 앱 1대·maxSurge 0이라 기동할 때 다른 pod가 대사 중일 수 없다. 이 앱이 뜬 뒤 시작한
+     * 실행(기동 직후 배치)은 건드리지 않도록 {@code startedBefore} 전에 시작한 것만 끝낸다.
+     *
+     * @return 끝낸 실행 ID
+     */
+    @Transactional
+    public List<Long> abandonRunningStartedBefore(LocalDateTime startedBefore, LocalDateTime now) {
+        List<Long> abandonedIds = new ArrayList<>();
+        for (LectureHpReconciliationRun run : runRepository.findByStatus(LectureHpReconciliationStatus.RUNNING)) {
+            if (run.getStartedAt().isBefore(startedBefore)) {
+                run.incomplete(run.getCheckedCount(), run.getMismatchCount(), run.getDeadCount(), ABANDONED_REASON,
+                        now);
+                abandonedIds.add(run.getId());
+            }
+        }
+        return abandonedIds;
+    }
+
+    /** 끝까지 비교한 실행 하나의 지표 값: 끝난 시각과 규칙별 건수({@code HP_TASK_DEAD} 표시 포함) */
+    record CompletedRun(Long runId, LocalDateTime finishedAt, Map<LectureHpReconciliationRule, Long> counts) {
+    }
+
+    /** 마지막으로 끝까지 비교한({@code COMPLETED}) 실행. 기동할 때 지표를 채우는 데 쓴다 (#805) */
+    @Transactional(readOnly = true)
+    public Optional<CompletedRun> findLatestCompletedRun() {
+        return runRepository.findFirstByStatusOrderByFinishedAtDescIdDesc(LectureHpReconciliationStatus.COMPLETED)
+                .map(run -> {
+                    Map<LectureHpReconciliationRule, Long> counts = new EnumMap<>(LectureHpReconciliationRule.class);
+                    for (LectureHpReconciliationMismatch mismatch : mismatchRepository.findByRunIdOrderByIdAsc(
+                            run.getId())) {
+                        counts.merge(mismatch.getRule(), 1L, Long::sum);
+                    }
+                    return new CompletedRun(run.getId(), run.getFinishedAt(), counts);
+                });
     }
 }

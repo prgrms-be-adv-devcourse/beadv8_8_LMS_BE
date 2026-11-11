@@ -37,7 +37,10 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureUser;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.out.coupon.CouponCallResult;
+import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
@@ -106,8 +109,12 @@ class LectureApiTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private FakeCouponApiClient coupon;
+
     @BeforeEach
     void setUp() {
+        coupon.reset();
         lectureUserRepository.save(LectureUser.from(
                 new UserDto(SELLER_ID, "판매자", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE)));
     }
@@ -461,6 +468,23 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의 (개정판)"))
                 .andExpect(jsonPath("$.data.description").value("2026년 장비 기준"))
                 .andExpect(jsonPath("$.data.priceHp").value(15000));
+    }
+
+    @Test
+    void 플랫폼_쿠폰이_걸린_강의의_가격을_올리면_409_LECTURE_PRICE_RAISE_BLOCKED이고_정보는_그대로다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(
+                new CouponPriceRaiseBlockedResponse((Long) request, true)));
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateInfoBody(SELLER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("LECTURE_PRICE_RAISE_BLOCKED"));
+
+        assertThat(lectureRepository.findById(lectureId).orElseThrow().getTitle()).isNotEqualTo("방송 장비 세팅 강의 (개정판)");
     }
 
     @Test

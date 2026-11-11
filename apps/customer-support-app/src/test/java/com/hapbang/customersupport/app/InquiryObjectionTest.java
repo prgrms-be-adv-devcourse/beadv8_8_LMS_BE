@@ -38,6 +38,7 @@ import com.hapbang.customersupport.domain.ObjectionLinkStatus;
 import com.hapbang.customersupport.domain.ObjectionResult;
 import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.customersupport.fixture.LectureObjectionResults;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
 import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
@@ -46,9 +47,6 @@ import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
 import com.hapbang.shared.lecture.event.LectureObjectionRequestRefusedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
 import com.hapbang.shared.lecture.out.LectureApiCallExceptions;
 import com.hapbang.shared.lecture.out.LectureApiClient;
 import com.hapbang.testsupport.IntegrationTest;
@@ -223,8 +221,7 @@ class InquiryObjectionTest {
     void 강의가_인정을_반영하면_답변_완료와_반환_처리_중이_되고_같은_결과가_다시_와도_한_번만_기록한다() {
         Long inquiryId = filedDispute();
         inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
-        LectureObjectionResolvedEvent resolved = new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId,
-                ORDER_ITEM_ID, true);
+        LectureObjectionResolvedEvent resolved = LectureObjectionResults.resolved(inquiryId, ORDER_ITEM_ID, true);
 
         results.apply(resolved);
         results.apply(resolved);
@@ -249,7 +246,7 @@ class InquiryObjectionTest {
         Long inquiryId = filedDispute();
         inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, false, "기각합니다.");
 
-        results.apply(new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, ORDER_ITEM_ID, false));
+        results.apply(LectureObjectionResults.resolved(inquiryId, ORDER_ITEM_ID, false));
 
         Inquiry inquiry = inquiry(inquiryId);
         assertThat(inquiry.getObjectionResult()).isEqualTo(ObjectionResult.REJECTED);
@@ -261,10 +258,10 @@ class InquiryObjectionTest {
         Long inquiryId = filedDispute();
         inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
 
-        results.apply(new LectureObjectionReturnActionRequiredEvent(inquiryId, ORDER_ITEM_ID));
-        results.apply(new LectureObjectionReturnCompletedEvent(inquiryId, ORDER_ITEM_ID));
-        results.apply(new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, ORDER_ITEM_ID, true));
-        results.apply(new LectureObjectionReturnActionRequiredEvent(inquiryId, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.returnActionRequired(inquiryId, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.returnCompleted(inquiryId, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.resolved(inquiryId, ORDER_ITEM_ID, true));
+        results.apply(LectureObjectionResults.returnActionRequired(inquiryId, ORDER_ITEM_ID));
 
         Inquiry inquiry = inquiry(inquiryId);
         assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED);
@@ -331,7 +328,7 @@ class InquiryObjectionTest {
         assertRefused(() -> inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"),
                 CustomerSupportErrorCode.OBJECTION_IN_PROGRESS);
 
-        results.apply(new LectureObjectionWithdrawnEvent("WITHDRAW:" + inquiryId, inquiryId, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.withdrawn(inquiryId, ORDER_ITEM_ID));
 
         assertThat(inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)).isEmpty();
         assertThat(inquiry(inquiryId).getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.WITHDRAWN);
@@ -399,10 +396,10 @@ class InquiryObjectionTest {
         Long general = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         Long filed = filedDispute();
 
-        results.apply(new LectureObjectionReturnCompletedEvent(999_999L, ORDER_ITEM_ID));
-        results.apply(new LectureObjectionReturnCompletedEvent(general, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.returnCompleted(999_999L, ORDER_ITEM_ID));
+        results.apply(LectureObjectionResults.returnCompleted(general, ORDER_ITEM_ID));
         // 주문 항목이 다르다
-        results.apply(new LectureObjectionReturnCompletedEvent(filed, ORDER_ITEM_ID + 1));
+        results.apply(LectureObjectionResults.returnCompleted(filed, ORDER_ITEM_ID + 1));
 
         assertThat(inquiry(filed).getHpReturnStatus()).isNull();
     }

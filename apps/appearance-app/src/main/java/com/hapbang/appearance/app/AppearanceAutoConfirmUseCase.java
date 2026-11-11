@@ -78,7 +78,7 @@ public class AppearanceAutoConfirmUseCase {
         appearance.confirmAutomatically(appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         return taskId;
     }
 }

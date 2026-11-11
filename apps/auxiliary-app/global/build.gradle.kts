@@ -10,8 +10,13 @@ dependencies {
     // Swagger 명세용 어노테이션(@Tag, @Operation)과 SwaggerConfig의 OpenAPI 모델
     api(libs.swagger.annotations)
     implementation(rootProject.libs.springdoc.openapi.webmvc.ui)
+    // 회원별 요청 한도(ratelimit/KeyedRateLimiter, #715): 키별 limiter와 그 캐시
+    implementation(libs.resilience4j.ratelimiter)
+    implementation(libs.caffeine)
     // ObservationConfig(trace 제외 규칙, 비동기 trace 전파)
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    // JobLock(#716)의 건너뜀 지표
+    implementation("io.micrometer:micrometer-core")
 
     testImplementation(project(":test-support"))
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")

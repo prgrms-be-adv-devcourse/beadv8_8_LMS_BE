@@ -10,7 +10,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
+import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.PointLedger;
+import com.hapbang.billing.domain.PointType;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // HP 원장 항목 정보의 저장·조회를 담당하며 금융 데이터 삭제 메서드는 제공하지 않는다.
 public interface PointLedgerRepository extends Repository<PointLedger, Long> {
@@ -34,6 +37,25 @@ public interface PointLedgerRepository extends Repository<PointLedger, Long> {
             where l.walletId = :walletId
             group by l.pointType, l.balanceBucket""")
     List<LedgerBucketSum> sumAmountByWalletId(@Param("walletId") Long walletId);
+
+    // 지갑의 한 HP 종류·잔액 칸 원장 증감을 거래 유형별로 합한다(프로모션 지갑 대사의 가용 칸 식). 원장이 없는 유형은 빠진다.
+    @Query("""
+            select new com.hapbang.billing.out.LedgerTransactionSum(l.transactionType, sum(l.amountHp))
+            from PointLedger l
+            where l.walletId = :walletId and l.pointType = :pointType and l.balanceBucket = :balanceBucket
+            group by l.transactionType""")
+    List<LedgerTransactionSum> sumAmountByTransactionType(@Param("walletId") Long walletId,
+            @Param("pointType") PointType pointType, @Param("balanceBucket") BalanceBucket balanceBucket);
+
+    // 지갑에서 한 참조 유형의 원장 증감을 참조 ID·거래 유형·잔액 칸별로 합한다(예산 예약별 예약·해제 원장 합).
+    @Query("""
+            select new com.hapbang.billing.out.LedgerReferenceSum(l.referenceId, l.transactionType, l.balanceBucket,
+                sum(l.amountHp))
+            from PointLedger l
+            where l.walletId = :walletId and l.referenceType = :referenceType
+            group by l.referenceId, l.transactionType, l.balanceBucket""")
+    List<LedgerReferenceSum> sumAmountByReference(@Param("walletId") Long walletId,
+            @Param("referenceType") BillingReferenceType referenceType);
 
     // 기준 시각 이후 원장이 기록된 지갑 ID를 찾는다 (#607, 잔액 대사 대상). idx_point_ledger_5(created_at)를 탄다
     @Query("select distinct l.walletId from PointLedger l where l.createdAt >= :since")

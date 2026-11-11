@@ -14,6 +14,7 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.Version;
 
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -67,6 +68,21 @@ public class BudgetWork implements Persistable<String> {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Column(length = 100)
+    private String reservationId;
+
+    @Column(length = 200)
+    private String target;
+
+    @Column(nullable = false)
+    private long attempt;
+
+    private Instant leaseUntil;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @Transient
     @Getter(AccessLevel.NONE)
     private boolean persisted;
@@ -105,12 +121,29 @@ public class BudgetWork implements Persistable<String> {
                 coupon.budgetAmount(), null, now);
     }
 
+    /** 해제는 항상 양수이며, 작업 ID는 대상의 누적 해제 예정액에서 결정한다. */
+    public static BudgetWork release(Coupon coupon, String suffix, long amount, String target, String reason,
+                                     Instant now) {
+        if (amount <= 0 || coupon.getBudgetReservationId() == null) {
+            throw new IllegalArgumentException("양수 해제액과 예약 ID가 필요합니다.");
+        }
+        BudgetWork work = new BudgetWork("coupon-" + coupon.getId() + "-release-" + suffix, coupon.getId(),
+                BudgetWorkKind.RELEASE, amount, reason, now);
+        work.reservationId = coupon.getBudgetReservationId();
+        work.target = Objects.requireNonNull(target, "target");
+        if (!work.workId.matches("[A-Za-z0-9_-]{1,100}")) {
+            throw new IllegalArgumentException("예산 작업 ID 형식이 잘못됐습니다.");
+        }
+        return work;
+    }
+
     /** 예약 성공: PENDING → DONE. 같은 예약 ID로 다시 기록하면 아무것도 바꾸지 않는다 */
     public void markDone(String resultValue, Instant now) {
         if (status == BudgetWorkStatus.DONE && Objects.equals(result, resultValue)) {
             return;
         }
         requirePending();
+        this.leaseUntil = null;
         this.status = BudgetWorkStatus.DONE;
         this.result = resultValue;
         this.updatedAt = now;
@@ -122,6 +155,7 @@ public class BudgetWork implements Persistable<String> {
             return;
         }
         requirePending();
+        this.leaseUntil = null;
         this.status = BudgetWorkStatus.FAILED;
         this.result = failureReason;
         this.updatedAt = now;

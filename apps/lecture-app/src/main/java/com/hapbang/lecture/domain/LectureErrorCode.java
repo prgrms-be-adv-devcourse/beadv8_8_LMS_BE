@@ -12,6 +12,12 @@ import lombok.RequiredArgsConstructor;
 public enum LectureErrorCode implements BaseErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
     INVALID_PRICE(HttpStatus.BAD_REQUEST, "강의 가격은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    /** 가격 인상 제한: 그 강의 대상 플랫폼 쿠폰이 발급 중이거나 쓸 수 있는 발급 쿠폰이 남아 있다 */
+    LECTURE_PRICE_RAISE_BLOCKED(HttpStatus.CONFLICT, "이 강의에 쓸 수 있는 플랫폼 쿠폰이 있어 가격을 올릴 수 없습니다."),
+    /** 가격 인상 제한: 쿠폰 모듈에 닿지 못했거나 결과를 모른다. 막는 쪽으로 처리한다 */
+    LECTURE_PRICE_RAISE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가격을 올릴 수 있는지 확인할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    /** 강의 정보 수정: 가격 인상 제한을 확인한 뒤 수정하기 전에 다른 요청이 가격을 바꿨다 */
+    LECTURE_PRICE_CHANGED(HttpStatus.CONFLICT, "그 사이 강의 가격이 바뀌었습니다. 강의 정보를 다시 불러와 수정해 주세요."),
     CONTENT_REQUIRED(HttpStatus.BAD_REQUEST, "강의 콘텐츠는 1개 이상이어야 합니다."),
     NOT_LECTURE_SELLER(HttpStatus.FORBIDDEN, "강의 판매자만 처리할 수 있습니다."),
     LECTURE_NOT_FOUND(HttpStatus.NOT_FOUND, "강의를 찾을 수 없습니다."),
@@ -27,6 +33,29 @@ public enum LectureErrorCode implements BaseErrorCode {
     INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
     /** 탈퇴로 닫힌 지갑이라 결제(보류)가 거절됐다 (D76, 지갑 #623). 지갑 응답과 같은 코드·문구다 */
     WALLET_CLOSED(HttpStatus.CONFLICT, "탈퇴한 회원의 지갑이에요."),
+    /** 쿠폰 주문: 서버가 다시 계산한 구매자 금액 합이 구매자가 본 금액({@code expectedBuyerAmountHp})과 다르다. 다시 계산해 주문한다 */
+    ORDER_QUOTE_CHANGED(HttpStatus.CONFLICT, "결제 금액이 바뀌었습니다. 쿠폰 할인을 다시 확인해 주세요."),
+    /** 쿠폰 주문: 쿠폰 할인 계산이 거절됐다. 응답에 쿠폰 오류 코드({@code couponCode})와 실패한 발급 쿠폰({@code memberCouponId})이 있다 */
+    COUPON_CALCULATION_REJECTED(HttpStatus.CONFLICT, "선택한 쿠폰을 쓸 수 없습니다. 쿠폰을 다시 골라 주세요."),
+    /** 쿠폰 주문: 쿠폰 예약이 거절되어 결제 실패로 끝났다. 응답에 쿠폰 오류 코드({@code couponCode})와 실패한 발급 쿠폰({@code memberCouponId})이 있다 */
+    COUPON_RESERVATION_REJECTED(HttpStatus.CONFLICT, "쿠폰을 예약하지 못해 결제하지 못했습니다. 쿠폰을 다시 골라 주세요."),
+    /** 쿠폰 주문: 플랫폼이 부담하는 할인이 있다. 플랫폼 부담 재원 처리가 생기기 전까지 막는다 */
+    /** 쿠폰 주문: 쿠폰 모듈에 닿지 못했거나 결과를 모른다. 주문을 만들지 않았다 */
+    COUPON_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 쿠폰을 확인할 수 없습니다. 잠시 후 다시 주문해 주세요."),
+    /** 쿠폰 작업 관리: 작업 ID의 쿠폰 작업이 없다 */
+    COUPON_WORK_NOT_FOUND(HttpStatus.NOT_FOUND, "쿠폰 작업을 찾을 수 없습니다."),
+    /** 쿠폰 작업 관리: 자동 처리가 멈춘(DEAD) 작업이 아니다 */
+    COUPON_WORK_NOT_DEAD(HttpStatus.CONFLICT, "자동 처리가 멈춘(DEAD) 쿠폰 작업만 처리할 수 있습니다."),
+    /** 쿠폰 작업 관리: 이 작업 종류(예약·해제)에는 쓸 수 없는 조치다 */
+    COUPON_WORK_ACTION_NOT_ALLOWED(HttpStatus.CONFLICT, "이 쿠폰 작업 종류에는 쓸 수 없는 조치입니다."),
+    /** 쿠폰 작업 관리: 주문이 조치에 맞는 결제 단계가 아니다(예약은 결제 처리 중, 해제는 결제 실패) */
+    COUPON_WORK_ORDER_STATE_MISMATCH(HttpStatus.CONFLICT, "주문이 이 조치를 할 수 있는 상태가 아닙니다."),
+    /** 쿠폰 작업 관리: 쿠폰 사용 시도가 이미 결제 완료·취소로 끝나 있다. 자동으로 고치지 않고 확인이 필요하다 */
+    COUPON_RESERVATION_SETTLED(HttpStatus.CONFLICT, "쿠폰 사용 시도가 이미 결제 완료나 취소로 끝나 있어 처리할 수 없습니다. 확인이 필요합니다."),
+    /** 쿠폰 작업 관리: 해제 확인 완료를 하려는데 쿠폰 쪽에 예약된 사용 시도가 남아 있다. 다시 시도로 해제를 보낸다 */
+    COUPON_RESERVATION_STILL_HELD(HttpStatus.CONFLICT, "쿠폰 예약이 아직 남아 있습니다. 다시 시도로 해제를 보내 주세요."),
+    /** 쿠폰 작업 관리: 처리하는 사이 다른 요청이 같은 작업을 바꿨다 */
+    COUPON_WORK_CHANGED(HttpStatus.CONFLICT, "다른 요청이 쿠폰 작업을 먼저 바꿨습니다. 다시 조회해 주세요."),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 항목을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),

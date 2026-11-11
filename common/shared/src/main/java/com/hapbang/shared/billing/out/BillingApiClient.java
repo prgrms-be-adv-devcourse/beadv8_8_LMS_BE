@@ -38,6 +38,13 @@ import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReleaseCommand;
+import com.hapbang.shared.billing.dto.PromotionBudgetReleaseResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
+import com.hapbang.shared.billing.dto.PromotionBudgetReservationDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReserveCommand;
+import com.hapbang.shared.billing.dto.PromotionBudgetReserveResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetWorkDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
@@ -78,6 +85,10 @@ public class BillingApiClient {
     static final String HOLD_VOIDS_PATH = BASE_PATH + "/hold-voids";
     static final String HOLD_QUERY_PATH = HOLDS_PATH + "/query";
     static final String WITHDRAWALS_PATH = BASE_PATH + "/withdrawals";
+    static final String PROMOTION_BUDGETS_PATH = BASE_PATH + "/promotion-budgets";
+    static final String BUDGET_RESERVATIONS_PATH = PROMOTION_BUDGETS_PATH + "/reservations";
+    static final String BUDGET_RELEASES_PATH = PROMOTION_BUDGETS_PATH + "/releases";
+    static final String BUDGET_WORKS_PATH = PROMOTION_BUDGETS_PATH + "/works";
 
     /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
     private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
@@ -114,6 +125,18 @@ public class BillingApiClient {
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<WithdrawalReopenResultDto>> WITHDRAWAL_REOPEN =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<PromotionBudgetReserveResultDto>> BUDGET_RESERVE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<PromotionBudgetReleaseResultDto>> BUDGET_RELEASE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<PromotionBudgetWorkDto>> BUDGET_WORK =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<PromotionBudgetReservationDto>> BUDGET_RESERVATION =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -263,6 +286,39 @@ public class BillingApiClient {
                 .queryParam("afterId", afterId)
                 .queryParam("size", size)
                 .build()), HOLD_STATE_PAGE);
+    }
+
+    /**
+     * 쿠폰 예산 예약. 프로모션 지갑 가용 HP를 쿠폰 하나의 예산(예약 칸)으로 옮긴다. 작업 ID가 멱등 키이고 쿠폰당 예약은 하나다.
+     * 가용 HP가 모자라면 {@code Failed(PROMOTION_BALANCE_INSUFFICIENT)}, 같은 쿠폰에 다른 작업 ID의 예약이 있으면
+     * {@code Failed(BUDGET_RESERVATION_EXISTS)}이고 둘 다 아무것도 바꾸지 않는다
+     */
+    public BillingCallResult<PromotionBudgetReserveResultDto> reserveBudget(PromotionBudgetReserveCommand command) {
+        return post(BUDGET_RESERVATIONS_PATH, command, BUDGET_RESERVE);
+    }
+
+    /**
+     * 쿠폰 예산 해제. 예약의 남은 예산에서 빼 프로모션 지갑 가용 칸으로 되돌린다. 작업 ID가 멱등 키다.
+     * 남은 예산보다 많으면 {@code Failed(BUDGET_RELEASE_EXCEEDS_REMAINING)}, 예약이 없으면 {@code Failed(BUDGET_RESERVATION_NOT_FOUND)}다
+     */
+    public BillingCallResult<PromotionBudgetReleaseResultDto> releaseBudget(PromotionBudgetReleaseCommand command) {
+        return post(BUDGET_RELEASES_PATH, command, BUDGET_RELEASE);
+    }
+
+    /**
+     * 쿠폰 예산 작업 조회(응답 유실 복구용). 지갑에 기록이 없으면 {@code status = NOT_FOUND}이고 같은 작업 ID로 다시 보내면 된다.
+     * 조회라 HP는 움직이지 않는다
+     */
+    public BillingCallResult<PromotionBudgetWorkDto> getBudgetWork(String workId) {
+        PromotionBudgetRequests.requireWorkId(workId);
+        return execute(() -> restClient.get().uri(BUDGET_WORKS_PATH + "/{workId}", workId), BUDGET_WORK);
+    }
+
+    /** 쿠폰 예산 예약 상태(총액과 남은·보류·지급·해제 예산). 예약이 없으면 {@code Failed(BUDGET_RESERVATION_NOT_FOUND)}다 */
+    public BillingCallResult<PromotionBudgetReservationDto> getBudgetReservation(String reservationId) {
+        PromotionBudgetRequests.requireReservationId(reservationId);
+        return execute(() -> restClient.get().uri(BUDGET_RESERVATIONS_PATH + "/{reservationId}", reservationId),
+                BUDGET_RESERVATION);
     }
 
     private <T> BillingCallResult<T> post(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
