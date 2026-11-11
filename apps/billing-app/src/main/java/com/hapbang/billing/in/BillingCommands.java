@@ -35,13 +35,13 @@ final class BillingCommands {
     static PaymentPayoutCommand payout(PayoutCommand command) {
         return new PaymentPayoutCommand(command.payerUserId(), command.referenceType(), command.referenceId(),
                 command.payoutRequestId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
-                command.amountHp());
+                command.amountHp(), command.sourceTitle());
     }
 
     static PaymentPenaltyCommand penalty(PenaltyCommand command) {
         return new PaymentPenaltyCommand(command.payerUserId(), command.referenceType(), command.referenceId(),
                 command.cancellationId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
-                command.releaseAmountHp(), command.payoutAmountHp());
+                command.releaseAmountHp(), command.payoutAmountHp(), command.sourceTitle());
     }
 
     static PaymentHoldVoidCommand holdVoid(HoldVoidCommand command) {

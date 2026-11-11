@@ -1,6 +1,6 @@
 # 로그
 
-업무 앱 6개가 함께 따르는 로그 표준이다. 요청 하나·회원 한 명·이벤트 하나의 로그를 Loki에서 모으고 Tempo trace와 오갈 수 있게 하는 것이 목적이다. 결정은 #582(2026-11-04)에서 했다.
+업무 앱 7개가 함께 따르는 로그 표준이다. 요청 하나·회원 한 명·이벤트 하나의 로그를 Loki에서 모으고 Tempo trace와 오갈 수 있게 하는 것이 목적이다. 결정은 #582(2026-11-04)에서 했다.
 
 ## 형식
 
@@ -79,10 +79,10 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 | INFO | 상태 변경, 돈·HP 이동의 시작과 결과, 요청을 거절한 업무 사유 | 주문 생성, HP 작업 등록·결과, 관리자·회원이 돈 흐름을 바꾼 결정(결정한 회원 ID 포함), 보류 무효화 결과, 배치 처리 건수, 4xx 업무 예외(`code`·`message`) |
 | DEBUG | 개발 중에만 본다. 운영에서는 끈다 | 이미 처리한 이벤트라 무시 |
 
-- **4xx 업무 예외는 INFO다.** 사용자 입력이 틀렸거나 정책상 거절한 정상 응답이므로 WARN 패널과 alert를 채우지 않는다. 그래도 문의를 조사할 때 거절 사유(`code`)가 필요하므로 6개 앱의 `GlobalExceptionHandler`가 INFO로 남긴다. Envoy access log에는 상태 코드만 있다.
+- **4xx 업무 예외는 INFO다.** 사용자 입력이 틀렸거나 정책상 거절한 정상 응답이므로 WARN 패널과 alert를 채우지 않는다. 그래도 문의를 조사할 때 거절 사유(`code`)가 필요하므로 7개 앱의 `GlobalExceptionHandler`가 INFO로 남긴다. Envoy access log에는 상태 코드만 있다.
 - **Kafka 소비 처리 결과는 INFO 한 줄을 남긴다.** 복제본 반영, 명령 처리, 별점 반영처럼 받은 이벤트로 상태를 바꿨으면 리스너나 그 처리기가 한 줄을 남긴다. 그래야 `eventKey`·`traceId`로 찾을 줄이 생긴다. 쓰지 않는 이벤트를 넘기는 것은 DEBUG다.
 - 5xx 업무 예외와 처리하지 못한 예외는 ERROR다. 아래 "잠시 뒤 다시 보내면 되는 거절"은 5xx여도 예외다.
-- **잠시 뒤 다시 보내면 되는 거절은 요청마다 남기지 않는다.** 회원별 요청 한도 초과(429 `TOO_MANY_REQUESTS`)와 업로드 자리 없음(503 `FILE_UPLOAD_BUSY`)은 남용·혼잡 때 한꺼번에 몰려, 요청마다 남기면 로그가 쏟아지고 혼잡이 풀리면 저절로 회복된다. 그래서 공통 `GlobalExceptionHandler`는 이 예외(강의 `RetryLater`, 지갑·auxiliary-app `RateLimitExceededException`)를 `Retry-After` 헤더와 함께 응답하고 DEBUG만 남긴다(4xx INFO·5xx ERROR 규칙의 예외). 거절은 지표(`lecture.rate_limit.rejected`·`hapbang.billing.rate.limit.rejected`·`hapbang.chatbot.rate.limit.rejected`, Envoy route별 5xx)와, 거절한 곳이 상태가 바뀔 때만 남기는 로그(상한에 닿기 시작할 때 WARN, 다시 받을 때 INFO)로 본다 (지갑 BD-140, 강의 D80·D81, 챗봇은 회원 키마다 `KeyedRateLimiter` #715).
+- **잠시 뒤 다시 보내면 되는 거절은 요청마다 남기지 않는다.** 회원별 요청 한도 초과(429 `TOO_MANY_REQUESTS`)와 업로드 자리 없음(503 `FILE_UPLOAD_BUSY`)은 남용·혼잡 때 한꺼번에 몰려, 요청마다 남기면 로그가 쏟아지고 혼잡이 풀리면 저절로 회복된다. 그래서 공통 `GlobalExceptionHandler`는 이 예외(강의 `RetryLater`, 지갑·auxiliary-app `RateLimitExceededException`)를 `Retry-After` 헤더와 함께 응답하고 DEBUG만 남긴다(4xx INFO·5xx ERROR 규칙의 예외). 거절은 지표(`lecture.rate_limit.rejected`·`hapbang.billing.rate.limit.rejected`·`hapbang.chatbot.rate.limit.rejected`, Envoy route별 5xx)와, 거절한 곳이 상태가 바뀔 때만 남기는 로그(상한에 닿기 시작할 때 WARN, 다시 받을 때 INFO)로 본다 (지갑 BD-140, 강의 D80·D81, 챗봇은 회원 키마다 `KeyedRateLimiter` #715). auxiliary-app은 외부 의존이 잠시 안 되는 503도 오류 코드에 `isRetryLater()`를 켜 같은 방식으로 처리한다(챗봇 `LECTURE_RECOMMEND_UNAVAILABLE`: 장애가 시작될 때 WARN, 회복될 때 INFO, 건수는 `http.server.requests`(status=503)·Envoy route별 5xx, #718).
 - **쿠폰 선착순 매진도 요청마다 INFO로 남기지 않는다.** 매진(409 `COUPON_SOLD_OUT`)은 발급이 열리면 1초에 수백 건씩 몰리고, 줄마다 동기로 쓰면 로그 쓰기 lock에서 요청 스레드가 기다린다(로컬 측정, `docs/load-test/coupon-issue.md`). 그래서 쿠폰 모듈의 `CouponExceptionHandler`는 매진만 DEBUG로 남기고(4xx INFO 규칙의 예외), 건수는 지표 `coupon.issue.sold_out`(Counter)으로 본다. 그 밖의 쿠폰 4xx는 INFO다 (#826).
 - **HP 작업 등록과 결정 로그는 커밋 뒤에 찍는다.** 작업과 결정은 업무 트랜잭션 안에서 저장되고, 같은 요청 ID 동시 등록이나 커밋 때의 충돌처럼 롤백될 수 있다. 롤백된 변경이 "~했다" 로그로 남지 않도록 `TransactionSynchronization.afterCommit`에서 찍는다(앱마다 `app/AfterCommit`). HP 작업 결과도 결과를 기록한 트랜잭션이 커밋된 뒤에 찍는다(#681).
 - **결정 로그에는 결정한 회원 ID를 쓴다.** 수락·거절·취소·확인·검수처럼 회원이나 관리자가 돈 흐름이나 판매 상태를 바꾼 결정은 대상 ID와 결정한 회원 ID(`adminUserId`, `buyerUserId`, `hostId` 등 코드의 필드 이름)를 남긴다. 사유처럼 회원이 쓴 본문은 남기지 않는다.

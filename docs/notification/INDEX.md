@@ -15,7 +15,7 @@
 
 ## 2. 현재 구현 상태
 
-**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)도 있다. Gateway route(N4, #847, PR #853)도 있다. 이벤트를 소비해 알림을 만드는 코드는 N5(#859)에서 만든다. 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
+**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)도 있다. Gateway route(N4, #847, PR #853)도 있다. 이벤트를 소비해 알림을 만드는 코드(출연 2종·지갑 7종·회원 2종)와 회원 복제본 Backfill도 있다(N5, #859, PR #865). 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
 
 | 무엇 | 어디서 확인하나 |
 | --- | --- |
@@ -39,7 +39,7 @@
 | 이벤트 계약 요청 | [`event-contracts.md`](event-contracts.md) | 알림이 발행 모듈에 요청하는 이벤트 계약과 그 진행 상태(ND-037) |
 | 테스트 요구사항 | [`test-spec.md`](test-spec.md) | `NT-*` 요구사항과 합격 기준 |
 | 실행 기록 | [`regression-log.md`](regression-log.md) | 실제로 실행한 테스트 결과 |
-| API 계약 | [`docs/api/notification.md`](../api/notification.md) | 알림센터 API (미구현) |
+| API 계약 | [`docs/api/notification.md`](../api/notification.md) | 알림센터 API |
 
 진행 문서는 `docs/notification/`이 아니라 모듈 디렉터리에 있다.
 
@@ -97,7 +97,7 @@
 
 | 계약 | 문서 | 알림의 역할 |
 | --- | --- | --- |
-| 알림 API | [`docs/api/notification.md`](../api/notification.md) | 제공 (미구현) |
+| 알림 API | [`docs/api/notification.md`](../api/notification.md) | 제공 |
 | 공통 API 규칙 | [`docs/api/conventions.md`](../api/conventions.md) | 따름 |
 | Kafka 토픽·key·소비·DLT 규칙 | [`kafka.md`](../architecture/infrastructure/kafka.md) | 소비 (consumer group 이름은 ND-047) |
 | 발행 모듈 이벤트 계약 요청(M1~M8) | [`event-contracts.md`](event-contracts.md). 지금 이벤트 판정은 [`notification-catalog.md`](notification-catalog.md) 행별, [`module.md`](module.md) 5장 | 계약을 정함(ND-037), 소비 예정 |
@@ -106,7 +106,7 @@
 | Gateway·관측성 | [`docs/deploy/gateway.md`](../deploy/gateway.md), [`observability.md`](../architecture/infrastructure/observability.md) | 따름 |
 | 원본 설계 | [`docs/architecture/infrastructure/notification.md`](../architecture/infrastructure/notification.md) | 이 문서 체계의 원천(보존) |
 
-`final-project-infrastructure.md`에는 폐기된 notification-app 서술이 남아 있다([ND-903](decisions.md)). 현재 구조는 ND-006·ND-007이다.
+현재 구조는 ND-006·ND-007이다. 폐기된 notification-app 계획은 [ND-903](decisions.md)에 남아 있고, `final-project-infrastructure.md`는 auxiliary-app의 알림 모듈로 맞췄다(#876).
 
 ## 8. 정책 결정과 미결 사항 찾기
 

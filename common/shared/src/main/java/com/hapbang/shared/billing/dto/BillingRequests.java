@@ -33,6 +33,15 @@ final class BillingRequests {
         }
     }
 
+    // 출처 제목을 정리한다: 앞뒤 공백을 지우고 빈 값은 null. 길이는 검사하지 않는다 (#873, BD-163).
+    static String normalizeTitle(String title) {
+        if (title == null) {
+            return null;
+        }
+        String stripped = title.strip();
+        return stripped.isEmpty() ? null : stripped;
+    }
+
     // 요청 ID가 있고 형식에 맞는지 확인한다.
     static void requireRequestId(String requestId, String name) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) {

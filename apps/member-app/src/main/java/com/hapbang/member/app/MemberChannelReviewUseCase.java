@@ -17,16 +17,18 @@ public class MemberChannelReviewUseCase {
 
     private final MemberChannelSupport memberChannelSupport;
 
-    /** 승인 후 F4와 같이 역할 변경·이벤트 (이미 인플루언서면 그대로) */
+    /** 승인 후 F4와 같이 역할 변경·이벤트 (이미 인플루언서면 역할은 그대로, 채널 승인 이벤트는 낸다) */
     public ChannelVerificationResult approve(Long adminId, Long channelId) {
         InfluencerChannel channel = findReviewable(channelId);
         channel.approve(adminId, LocalDateTime.now());
         return memberChannelSupport.applyResult(channel.getUser(), channel);
     }
 
-    /** 반려 (역할은 그대로) */
+    /** 반려 (역할은 그대로). 채널 반려 이벤트를 낸다 (#874) */
     public void reject(Long adminId, Long channelId, String reason) {
-        findReviewable(channelId).reject(adminId, reason, LocalDateTime.now());
+        InfluencerChannel channel = findReviewable(channelId);
+        channel.reject(adminId, reason, LocalDateTime.now());
+        memberChannelSupport.publishRejected(channel);
     }
 
     /** 잠가서 읽고, 채널 주인이 정상 회원이 아니면 409 (목록을 거치지 않은 호출도 막는다) */

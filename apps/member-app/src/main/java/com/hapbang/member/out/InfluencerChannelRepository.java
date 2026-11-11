@@ -43,6 +43,14 @@ public interface InfluencerChannelRepository extends JpaRepository<InfluencerCha
     @Query("select c from InfluencerChannel c where c.id = :id and c.deletedAt is null")
     Optional<InfluencerChannel> findByIdForUpdate(@Param("id") Long id);
 
+    /**
+     * 승인 요청용 조회: 이 회원의 채널일 때만(삭제된 채널 제외) 행을 잠근다(FOR UPDATE). 동시 요청이나 관리자 심사와 겹쳐
+     * 심사 회차가 덮어써지면 같은 회차의 심사 이벤트가 두 번 나가므로 막는다 (#874)
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from InfluencerChannel c where c.id = :id and c.user.id = :userId and c.deletedAt is null")
+    Optional<InfluencerChannel> findMyChannelForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
     /** 팔로워 갱신 대상: 이 플랫폼의 삭제되지 않은 채널 중 회원이 이 상태인 것 (ID·채널 ID만, ID 순) */
     @Query("""
             select new com.hapbang.member.out.FollowerRefreshTarget(c.id, c.channelIdentifier)

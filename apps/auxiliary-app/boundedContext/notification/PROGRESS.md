@@ -8,7 +8,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-11. 상태는 `dev` `35735bf1`(N4 #847 병합 PR #853 포함) 기준 git log로 확인했다.
+마지막 갱신: 2026-11-11. 상태는 `dev` `6a11400d`(N5 #859 병합 PR #865 포함) 기준 git log로 확인했다.
 
 ## 1. 현재 상태
 
@@ -20,7 +20,7 @@
 | `boundedContext/notification` 디렉터리 | N1·N2 구현 | `build.gradle.kts`, `src/`(회원 복제본, Kafka 소비·DLT 설정, 알림 저장·REST·파기 닉네임). [module.md](../../../../docs/notification/module.md) 2장 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1~N4 완료, N5 진행 중(#859) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
+| 기능 구현 | N1~N5 완료, N6 진행 중(#862) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
 | 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-038 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
@@ -52,10 +52,10 @@
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 완료 | #801(PR #819, dev `0debc874`). 정책 ND-050~ND-054, 테스트 NR-015 |
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 완료 | #829(PR #834, dev `40c94d7b`). 정책 ND-055~ND-061, 자원 U13 미결 |
 | N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 완료 | #847(PR #853, dev `671244aa`). 정책 ND-062~ND-068 |
-| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승급 승인 2종, 회원 복제본 Backfill | 알림 | N0, N2 | 진행 중 | #859. 정책 ND-069~ND-081·ND-088~ND-095. 구현·테스트 완료, PR 리뷰 중(브랜치 `feature/tkt-859`, NR-036~). U20은 ND-095로 해소 |
-| M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
+| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승급 승인 2종, 회원 복제본 Backfill | 알림 | N0, N2 | 완료 | #859(PR #865, dev `6a11400d`). 정책 ND-069~ND-081·ND-088~ND-095. U20은 ND-095로 해소 |
+| M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 완료 | #817(PR #839, dev `167f3ee6`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 1장 |
 | M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 완료 | #818(PR #827, dev `1f2f353b`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
-| N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 미착수 | 코드 없음 |
+| N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 진행 중 | #862. 정책 ND-082~ND-087·ND-096. 구현·테스트 완료, PR 전 |
 | M3 | P1 | 출연 새 이벤트 12종 | 출연 | N0 | 미착수 | 2026-11-06 조사: 12종 레코드가 shared·출연 앱에 없다. `AppearanceChangedEvent`(#713)는 AI 추천용 상태 사본(id, hostId, guestId, result, scheduledAt, version)이라 M3 전체를 대체할 수 없다(요청 수락/지원 수락, 일방/합의 취소, HOST/AUTO 확인을 구분할 수 없고 요청서·지원·모집글 단계 전이를 담지 않는다). 부분 충족 5, 미충족 7 |
 | M4 | P1 | 강의 새 이벤트 7종 | 강의 | N0 | 미착수 | 2026-11-06 조사: 7종 레코드가 없다(`LectureObjectionFiledEvent` 없음, `LectureObjectionFiledDto`만 있음). #712 `LectureChangedEvent`·`LecturePurchaseChangedEvent`는 부분 재사용 후보다(제목·금액·검수 상태·사유가 부족). 구매 확정 전이는 동기화 이벤트도 없다(`apps/lecture-app/src/main/java/com/hapbang/lecture/app/LectureSyncEvents.java:59`). 부분 4, 미충족 3 |
 | M5 | P1 | 지갑 새 이벤트 4종, 지급 이벤트 제목(ND-040) | 지갑 | N0 | 미착수 | 2026-11-06 조사: `ChargeFailed`·`RefundFailed`·`RefundManualReviewRequired`·`ExchangeApprovedEvent` 4종 모두 발행하지 않는다(미충족) |

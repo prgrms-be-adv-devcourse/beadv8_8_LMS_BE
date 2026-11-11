@@ -14,6 +14,7 @@
 > - 2026-11-09 PR 리뷰 반영(#794, 2차): 7장 ND-040 근거에 강의 지급 경로(`LectureHpTaskExecutor`)와 출연·강의 HP 작업 엔티티에 제목이 없는 점을 더했다. 채팅 토픽 key를 ND-044·kafka.md 규칙대로 방 ID(접두어 없음)로 고쳤다.
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
+> - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
 
 ## 0. 읽는 법
 
@@ -107,11 +108,11 @@
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ChargeFailedEvent` | 🆕 (M5) | `point-charge:<충전 ID>` | `chargeId`, `userId`, 금액, `failedAt` | `chargeId` | `failedAt` | 충전한 회원 | `CHARGE_FAILED` | 확정 |
-| `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 확정 |
-| `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 | `refundRequestId` | 발생 시각 | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 확정 |
-| `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 확정 |
-| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 확정 |
+| `ChargeFailedEvent` | 🆕 (M5) | `point-charge:<충전 ID>` | `chargeId`, `userId`, 금액, `failedAt` (구현: `amountHp`·`paymentAmountKrw`) | `chargeId` | `failedAt` | 충전한 회원 | `CHARGE_FAILED` | 구현됨 (#873) |
+| `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` (구현: `requestedAmountHp`. 환불 요청 FAILED만, 일부 환불은 `RefundCompletedEvent`) | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 구현됨 (#873) |
+| `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 (구현: `requestedAmountHp`·`manualReviewRequiredAt`) | `refundRequestId` | `manualReviewRequiredAt` | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 구현됨 (#873) |
+| `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` (구현: `requestedAmountHp`) | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 구현됨 (#873) |
+| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목, `String`. 길이 상한은 지갑 BD-163. 제목 없는 요청은 null이고 JSON에 쓰지 않는다) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 구현됨 (#873) |
 
 - ND-040 변경 범위: 지급 요청 `PayoutCommand`(정상 지급)와 `PenaltyCommand`(위약금 지급)에 출처 제목을 더하고, 출연·강의가 지급을 요청할 때 넘긴다. 출연·강의는 저장해 둔 HP 작업으로 나중에 요청하므로, 작업에 제목을 어떻게 보관할지는 출연·강의 담당이 정한다. 지갑은 그 값을 `PayoutCompletedEvent.sourceTitle`로 담는다. 이벤트는 지급 건(`Settlement`)에서 만들므로 값을 어떻게 보관할지(저장 칸 추가 등)는 지갑 담당이 정한다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
 - 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`).
@@ -122,11 +123,18 @@ key는 회원 ID다(토픽 표). 회원 이벤트는 `xxxId`, `Instant xxxAt` �
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `InfluencerChannelRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 반려 사유, 반려 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 반려 시각 | 회원 | `INFLUENCER_CHANNEL_REJECTED` | 확정 |
-| `InfluencerUpgradeRequestRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 승급 신청 ID, 반려 사유, 반려 시각 | 승급 신청 ID | 반려 시각 | 회원 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 확정 |
-| `InfluencerChannelApprovedEvent` | 🆕 (ND-042) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 승인 방식(자동·관리자), 승인 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 승인 시각 | 회원 | `INFLUENCER_CHANNEL_APPROVED` | 확정 |
+| `InfluencerChannelRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 반려 사유, 반려 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 반려 시각 | 회원 | `INFLUENCER_CHANNEL_REJECTED` | 구현됨(#874) |
+| `InfluencerUpgradeRequestRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 승급 신청 ID, 반려 사유, 반려 시각 | 승급 신청 ID | 반려 시각 | 회원 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 구현됨(#874) |
+| `InfluencerChannelApprovedEvent` | 🆕 (ND-042) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 승인 방식(자동·관리자), 승인 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 승인 시각 | 회원 | `INFLUENCER_CHANNEL_APPROVED` | 구현됨(#874) |
 
-심사 회차는 채널이 승인 요청(`requestApproval`)될 때마다 1씩 늘어나는 값이다. 승인 방식은 `verifiedBy`가 없으면 자동, 있으면 관리자다.
+심사 회차는 채널의 심사가 시작된 횟수다. 등록만 되면 0이고, 등록하며 바로 자동 승인되면 1이며, 승인 요청(`requestApproval`)마다 1씩 는다. 승인·반려 이벤트는 그때의 회차를 담으므로 1부터 시작한다. 승인 방식은 `verifiedBy`가 없으면 자동, 있으면 관리자다. 자동 승인은 등록 때와 승인 요청 때 모두 승인 이벤트를 낸다.
+
+- M6 구현(#874, 회원): 3종 모두 `@Externalized`로 key 회원 ID(접두어 없음)에 나간다. `eventType` 헤더는 레코드 이름과 같다. 필드는 다음과 같다(시각은 `Instant`).
+  - `InfluencerChannelApprovedEvent(userId, channelId, reviewSequence, autoApproved, approvedAt)`: `reviewSequence`는 `Integer`, `autoApproved`는 `boolean`(자동 승인이면 `true`)이다.
+  - `InfluencerChannelRejectedEvent(userId, channelId, reviewSequence, rejectionReason, rejectedAt)`
+  - `InfluencerUpgradeRequestRejectedEvent(userId, upgradeRequestId, rejectionReason, rejectedAt)`
+- 심사 회차는 회원이 채널(`members.influencer_channel.review_count`)에 저장하고, 승인 요청은 채널 행을 잠가 회차가 동시 요청에 덮어써지지 않게 한다. #874 배포 전 채널은 등록만 된 채널 0, 나머지(심사 대기·반려·승인) 1로 채웠다(지난 요청 횟수는 기록이 없어 최소값). 배포 전 심사 결과는 이벤트로 나간 적이 없어 사건 ID가 겹치지 않는다. 그래서 회차는 사건을 구분하는 데만 쓰고, 실제 심사 횟수로 화면에 보여 주거나 통계에 쓰지 않는다.
+- 사건 시각은 상태를 바꾼 처리의 시각(채널 `verifiedAt`, 승급 신청 `reviewedAt`)이다. 승인은 역할 변경(`UserModifiedEvent`)과 같은 트랜잭션에서 나가고, 역할이 바뀌지 않는 승인(이미 인플루언서인 회원의 채널)에도 나간다. 예: 심사 대기 채널이 있는 회원이 다른 채널의 자동 승인이나 관리자 인플루언서 지정(#724)으로 먼저 인플루언서가 된 뒤 그 채널이 승인될 때.
 
 ## 5. 고객센터 (`customersupport.events.v1`, M7)
 
@@ -182,7 +190,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | #818 | 구현됨 |
 | M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | #871 | 12종 구현됨. 출처 제목은 출연 HP 작업에 보관하고, 지갑 요청에 싣는 것은 #873(shared 필드) 뒤 |
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
-| M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | — | 계약 확정, Issue 발송 전 |
-| M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(미병합, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
+| M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨 |
 | M7 | 고객센터 | 고객센터 🆕 3종(수정 회차 포함) | — | 계약 확정, Issue 발송 전 |
 | M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |
