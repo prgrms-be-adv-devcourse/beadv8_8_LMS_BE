@@ -7,6 +7,6 @@ package com.hapbang.shared.appearance.domain;
 public enum AppearanceConfirmType {
     /** 호스트가 확인 기간 안에 출연을 확인했다 */
     HOST,
-    /** 확인 기간(방송 예정 일시 + 7일)까지 호스트 응답이 없어 배치가 자동 확인했다 */
+    /** 확인 기간이 끝날 때까지 호스트 응답이 없어 배치가 자동 확인했다 */
     AUTO
 }

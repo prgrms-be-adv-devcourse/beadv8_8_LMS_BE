@@ -71,7 +71,8 @@ public class HpTask extends BaseEntity {
     private Long payoutAmount;
 
     /**
-     * 지급 알림에 보일 출처(요청서·모집글) 제목 (#871). 위약금 정산·지급에서만 기록해 Billing 요청에 싣는다.
+     * 지급 알림에 보일 출처(요청서·모집글) 제목 (#871). 위약금 정산·지급 작업을 만들 때만 기록한다.
+     * Billing 요청에는 아직 싣지 않는다(지갑이 shared 요청에 필드를 더하는 #873 뒤에 싣는다).
      * 반환 작업과 이 값을 기록하기 전에 만든 작업은 null이다
      */
     private String sourceTitle;

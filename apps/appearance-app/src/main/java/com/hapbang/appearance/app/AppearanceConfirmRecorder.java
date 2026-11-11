@@ -32,6 +32,8 @@ public class AppearanceConfirmRecorder {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
+     * 확인한 출연의 지급 작업을 기록하고 출연 확인 이벤트({@code AppearanceConfirmedEvent})를 낸다.
+     *
      * @param title 출처 요청서·모집글의 제목
      * @return 기록한 지급 작업 ID (커밋 후 실행한다)
      */
@@ -46,6 +48,8 @@ public class AppearanceConfirmRecorder {
     }
 
     /**
+     * 불참한 출연의 반환 작업을 기록하고 불참 이벤트({@code AppearanceAbsentEvent})를 낸다.
+     *
      * @param title 출처 요청서·모집글의 제목
      * @return 기록한 반환 작업 ID (커밋 후 실행한다)
      */

@@ -11,7 +11,7 @@ import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
  * 수락·취소·만료 이벤트와 함께 나가지 않는다. 거절 사유는 담지 않는다.
  * <p>
  * Kafka {@value AppearanceEventTopic#NAME} 토픽에 key {@code appearance-request:<요청서 ID>}로 나간다. 최소 한 번 전달이라
- * 받는 쪽은 {@code requestId}로 중복을 거른다.
+ * 받는 쪽은 {@code (eventType, requestId)}로 중복을 거른다(같은 대상의 다른 이벤트와 구분한다).
  *
  * @param request    거절된 요청서
  * @param rejectedAt 게스트가 거절한 시각 (KST)

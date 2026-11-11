@@ -12,7 +12,7 @@ import com.hapbang.shared.appearance.dto.AppearanceRecruitDto;
  * (마감한 모집글을 나중에 모집 전체 취소하면 모집 취소 이벤트가 따로 나간다).
  * <p>
  * Kafka {@value AppearanceEventTopic#NAME} 토픽에 key {@code appearance-recruit:<모집글 ID>}로 나간다. 최소 한 번 전달이라
- * 받는 쪽은 {@code recruitId}로 중복을 거른다.
+ * 받는 쪽은 {@code (eventType, recruitId)}로 중복을 거른다(같은 대상의 다른 이벤트와 구분한다).
  *
  * @param recruit   마감된 모집글
  * @param closeType 마감 방식 (기한·조기)

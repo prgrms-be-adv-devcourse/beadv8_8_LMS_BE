@@ -11,7 +11,7 @@ import com.hapbang.shared.appearance.dto.AppearanceRecruitDto;
  * 이벤트, 대기 중인 지원마다 미선정 이벤트가 같은 처리에서 따로 나간다. 취소 사유는 담지 않는다.
  * <p>
  * Kafka {@value AppearanceEventTopic#NAME} 토픽에 key {@code appearance-recruit:<모집글 ID>}로 나간다. 최소 한 번 전달이라
- * 받는 쪽은 {@code recruitId}로 중복을 거른다.
+ * 받는 쪽은 {@code (eventType, recruitId)}로 중복을 거른다(같은 대상의 다른 이벤트와 구분한다).
  *
  * @param recruit    취소된 모집글
  * @param canceledAt 호스트가 취소한 시각 (KST)

@@ -1,7 +1,6 @@
 package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -40,16 +39,10 @@ public class AppearanceRecruitCloseRecorder {
      * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
      */
     public Long closeApplicationsAndRecordRelease(AppearanceRecruit recruit, LocalDateTime now) {
-        List<AppearanceApplication> pending = appearanceApplicationSupport.findPendingByRecruit(recruit.getId());
-        for (AppearanceApplication application : pending) {
-            application.closeUnselected();
-        }
+        closePendingApplications(recruit, now);
         appearanceRecruitSupport.flushOrConflict();
         eventPublisher.publishEvent(new AppearanceRecruitClosedEvent(AppearanceContractMapper.toRecruitDto(recruit),
                 AppearanceContractMapper.toCloseType(recruit), now));
-        for (AppearanceApplication application : pending) {
-            eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
-        }
 
         long unfilledFee = recruit.unfilledFee();
         if (unfilledFee == 0) {
@@ -62,5 +55,16 @@ public class AppearanceRecruitCloseRecorder {
         HpTask task = HpTask.release(HpTaskRefType.APPEARANCE_RECRUIT, recruit.getId(), recruit.getHostId(),
                 unfilledFee, HpTaskReason.RECRUIT_CLOSED, releaseRequestId, now);
         return hpTaskSupport.save(task).getId();
+    }
+
+    /**
+     * 대기 중인 지원을 모두 미선정으로 바꾸고 지원마다 미선정 이벤트를 낸다 (#871). 마감 뒷정리와 모집 전체 취소가 함께 쓴다.
+     * 바뀐 지원은 호출한 쪽의 flush로 반영되고, 롤백되면 이벤트도 나가지 않는다.
+     */
+    public void closePendingApplications(AppearanceRecruit recruit, LocalDateTime now) {
+        for (AppearanceApplication application : appearanceApplicationSupport.findPendingByRecruit(recruit.getId())) {
+            application.closeUnselected();
+            eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
+        }
     }
 }

@@ -837,7 +837,7 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `AppearanceRequestCanceledEvent(request, canceledAt)` | 〃 | 응답 전 호스트 취소 (`AppearanceRequestCancelUseCase`) | 게스트 |
 | `AppearanceRequestExpiredEvent(request, expiredAt)` | 〃 | 수락 기한 만료 배치 (`AppearanceRequestExpireUseCase`) | 호스트·게스트 |
 | `AppearanceApplicationSelectedEvent(application, appearanceId, scheduledAt, selectedAt)` | `AppearanceApplicationDto` + 출연 ID·방송 예정 일시 | 호스트가 지원을 수락해 출연이 성립 (`AppearanceApplicationRespondUseCase.accept`) | 게스트 |
-| `AppearanceApplicationNotSelectedEvent(application, scheduledAt, notSelectedAt)` | 〃 (출연 ID 없음) | 지원 거절(`…RespondUseCase.reject`), 마감 때 대기 지원마다(`AppearanceRecruitCloseRecorder`, 조기·기한 공통), 모집 전체 취소 때 대기 지원마다(`AppearanceRecruitCancelUseCase`) | 게스트 |
+| `AppearanceApplicationNotSelectedEvent(application, scheduledAt, notSelectedAt)` | 〃 (출연 ID 없음) | 지원 거절(`…RespondUseCase.reject`), 마감(조기·기한)과 모집 전체 취소 때 대기 지원마다(둘 다 `AppearanceRecruitCloseRecorder.closePendingApplications`) | 게스트 |
 | `AppearanceRecruitOpenedEvent(recruit, openedAt)` | `AppearanceRecruitDto`(`recruitId`, `hostId`, `title`, `recruitDeadline`) | 모집글이 `HOLD_PENDING` → `RECRUITING`으로 **실제로 바뀔 때 한 번** (`AppearanceRecruitHoldUseCase.markRecruiting`, 올리기·보류 재확인 배치 공통) | 호스트 (예약 키만) |
 | `AppearanceRecruitClosedEvent(recruit, closeType, closedAt)` | 〃 + `closeType`(shared `AppearanceRecruitCloseType`: `DEADLINE`·`EARLY`) | 조기 마감·기한 마감 배치 (`AppearanceRecruitCloseRecorder`) | 호스트 (알림은 `DEADLINE`만) |
 | `AppearanceRecruitCanceledEvent(recruit, canceledAt)` | 〃 | 모집 전체 취소 (`AppearanceRecruitCancelUseCase`) | 호스트 (예약 취소 키만, 알림 없음) |

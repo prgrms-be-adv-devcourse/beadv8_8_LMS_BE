@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
-import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.HpTask;
@@ -43,9 +42,9 @@ public class AppearanceRecruitCancelUseCase {
 
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceSupport appearanceSupport;
-    private final AppearanceApplicationSupport appearanceApplicationSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceHostCancelRecorder appearanceHostCancelRecorder;
+    private final AppearanceRecruitCloseRecorder appearanceRecruitCloseRecorder;
     private final HpTaskSupport hpTaskSupport;
     private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
@@ -78,10 +77,7 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, recruit.getTitle(), hostId,
                     confirmPendingCancelRequest, recruit.getCancelReason(), now));
         }
-        List<AppearanceApplication> pending = appearanceApplicationSupport.findPendingByRecruit(recruitId);
-        for (AppearanceApplication application : pending) {
-            application.closeUnselected();
-        }
+        appearanceRecruitCloseRecorder.closePendingApplications(recruit, now);
         if (vacancyFee > 0) {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
@@ -90,12 +86,9 @@ public class AppearanceRecruitCancelUseCase {
         for (Appearance appearance : appearances) {
             eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         }
-        // 알림센터가 모집 마감 임박 예약을 지운다. 성립한 출연의 일방 취소 이벤트는 위 Recorder가 출연마다 냈다 (#871)
+        // 알림센터가 모집 마감 임박 예약을 지운다. 일방 취소·미선정 이벤트는 위 두 Recorder가 출연·지원마다 냈다 (#871)
         eventPublisher.publishEvent(new AppearanceRecruitCanceledEvent(AppearanceContractMapper.toRecruitDto(recruit),
                 now));
-        for (AppearanceApplication application : pending) {
-            eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
-        }
         AfterCommit.run(() -> {
             log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,
                     hostId, appearances.size(), vacancyFee, taskIds);

@@ -37,6 +37,8 @@ public class AppearanceHostCancelRecorder {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
+     * 출연을 일방 취소하고 위약금 정산 작업을 기록하며 호스트 일방 취소 이벤트({@code AppearanceCanceledByHostEvent})를 낸다.
+     *
      * @param title 출처 요청서·모집글의 제목 (지급 알림·취소 알림에 쓴다)
      * @return 기록한 위약금 정산 작업 ID
      * @throws AppearanceException {@link Appearance#cancelByHost}와 같다
