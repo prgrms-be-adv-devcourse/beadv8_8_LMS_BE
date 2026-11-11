@@ -183,6 +183,45 @@ class InfluencerChannelTest {
         assertThat(channel.getVerifiedBy()).isNull();
     }
 
+    @Test
+    @DisplayName("심사 회차: 등록만 되면 0, 등록하며 자동 승인되면 1이다 (#874)")
+    void reviewCount_register() {
+        assertThat(register(9).getReviewCount()).isZero();
+        assertThat(register(10).getReviewCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("심사 회차: 승인 요청마다 1씩 늘고, 관리자 승인·반려는 그 회차를 그대로 둔다 (#874)")
+    void reviewCount_request() {
+        InfluencerChannel channel = register(5);
+
+        channel.requestApproval(5, NOW);
+        assertThat(channel.getReviewCount()).isEqualTo(1);
+        channel.reject(ADMIN_ID, "방송 시간 부족", NOW.plusDays(1));
+        assertThat(channel.getReviewCount()).isEqualTo(1);
+
+        channel.requestApproval(7, NOW.plusDays(2));
+        assertThat(channel.getReviewCount()).isEqualTo(2);
+        channel.approve(ADMIN_ID, NOW.plusDays(3));
+        assertThat(channel.getReviewCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("심사 회차: 승인 요청으로 바로 자동 승인돼도 1 늘고, 요청할 수 없는 상태면 늘지 않는다 (#874)")
+    void reviewCount_requestAutoApproved() {
+        InfluencerChannel channel = register(5);
+        channel.requestApproval(5, NOW);
+        channel.reject(ADMIN_ID, "방송 시간 부족", NOW);
+
+        channel.requestApproval(12, NOW.plusDays(1));
+
+        assertThat(channel.isApproved()).isTrue();
+        assertThat(channel.getReviewCount()).isEqualTo(2);
+        assertThatThrownBy(() -> channel.requestApproval(20, NOW.plusDays(2)))
+                .isInstanceOf(MemberException.class);
+        assertThat(channel.getReviewCount()).isEqualTo(2);
+    }
+
     private InfluencerChannel register(int followerCount) {
         return InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-1", "테스트 채널", followerCount, NOW);
     }
