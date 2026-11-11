@@ -11,7 +11,8 @@ import java.util.Set;
  * 검색 index·alias의 지금 상태(#773). 처음 적재·재색인을 할지 정하는 데 쓴다.
  *
  * @param aliasTargets  alias({@code search-<대상>})가 가리키는 index. alias가 없으면 빈 집합
- * @param indices       이 대상의 index 전부({@code search-<대상>-*})
+ * @param indices       이 대상의 index 전부. 이름이 정확히 {@code search-<대상>-} + 해시인 것만이다({@link IndexDefinition#ownsIndex}). 이름이 대상 +
+ *                      "-…"인 다른 대상의 index는 뺀다({@link #leftovers()}가 남은 index로 지우지 않게)
  * @param expectedIndex 지금 코드 설정(mapping·분석기·사용자 사전)의 index 이름
  * @param createdAt     index마다 ES가 만든 시각({@code index.creation_date}). 읽지 못한 index는 빠진다
  */

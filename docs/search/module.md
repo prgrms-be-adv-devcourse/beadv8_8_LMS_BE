@@ -288,7 +288,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
 | `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
-| `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 1분 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림(#868) |
+| `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 부품의 겹쳐 읽기부터 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림, 이름이 겹치는 다른 대상 index를 지우지 않음(#868) |
 | `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
 | `SearchReindexWiringTest` | 기동·10분 확인이 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링·기동 재색인을 켠 컨텍스트, 재색인은 가짜) |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀 |
