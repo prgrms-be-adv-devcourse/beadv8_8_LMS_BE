@@ -8,7 +8,8 @@ import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 /**
  * 강의 추천 결과 (#718).
  *
- * @param needsInterest 활동 신호도 관심사도 없어 인기순만 줬다. 관심사를 물어볼 때다
+ * @param needsInterest 지금은 맞춤으로 고를 수 없어 인기순을 줬고, 관심사를 주면 맞춤으로 찾을 수 있다(활동 신호가 없거나 신호 강의가
+ *                      아직 색인 전). 관심사를 물어볼 때다. 색인·임베딩을 못 쓰는 동안은 관심사도 소용없어 false다
  * @param personalized  맞춤 후보가 하나라도 있다. false면 모두 인기순이다(신호 없음, 또는 색인·임베딩을 못 써서 인기순으로 답함)
  */
 public record LectureRecommendation(List<Item> items, boolean needsInterest, boolean personalized) {

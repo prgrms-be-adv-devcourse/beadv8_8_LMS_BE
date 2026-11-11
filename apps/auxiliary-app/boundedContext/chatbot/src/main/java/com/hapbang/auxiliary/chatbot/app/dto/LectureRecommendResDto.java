@@ -9,8 +9,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /** 강의 추천 응답 (#718) */
 public record LectureRecommendResDto(
-        @Schema(description = "추천 강의(최대 5개, 순서대로 보여 준다). 요청 회원이 탈퇴 상태면 빈 목록") List<Item> items,
-        @Schema(description = "true면 활동 기록과 관심사가 없어 인기 강의만 줬다. 관심사를 입력받아 interest로 다시 부른다")
+        @Schema(description = "추천 강의(서버 설정 수까지, 순서대로 보여 준다). 요청 회원이 탈퇴 상태면 빈 목록") List<Item> items,
+        @Schema(description = "true면 지금은 맞춤으로 고를 수 없어 인기 강의를 줬다(활동 기록이 없거나 활동한 강의가 아직 색인 전). "
+                + "관심사를 입력받아 interest로 다시 부르면 맞춤으로 찾는다")
         boolean needsInterest,
         @Schema(description = "false면 모두 맞춤이 아닌 인기 강의다(제목을 '지금 인기 있는 강의'로). 활동이 없거나, 잠시 색인을 쓸 수 없을 때")
         boolean personalized) {

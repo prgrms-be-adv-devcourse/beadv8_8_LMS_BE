@@ -31,11 +31,11 @@ public class ChatbotLectureRecommendFacade {
     }
 
     /**
-     * @param interest 관심사(1~100자, 앞뒤 공백 제외). 없으면 null
+     * @param interest 관심사(앞뒤 공백을 뺀 길이로 검증된 값). 없거나 공백뿐이면 null로 본다
      */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public LectureRecommendResDto recommend(long userId, @Nullable String interest) {
-        String normalized = interest == null ? null : interest.strip();
+        String normalized = interest == null || interest.isBlank() ? null : interest.strip();
         if (normalized != null) {
             try {
                 rateLimiter.acquire(String.valueOf(userId));

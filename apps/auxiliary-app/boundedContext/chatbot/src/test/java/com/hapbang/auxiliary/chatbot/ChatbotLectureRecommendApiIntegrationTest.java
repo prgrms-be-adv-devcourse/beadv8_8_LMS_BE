@@ -72,12 +72,16 @@ class ChatbotLectureRecommendApiIntegrationTest extends ChatbotIntegrationTestBa
     }
 
     @Test
-    @DisplayName("관심사는 1~100자: 빈 값·공백만·101자는 400 INVALID_REQUEST, 100자는 통과(ES가 없어 503)")
+    @DisplayName("관심사는 앞뒤 공백을 뺀 1~100자: 빈 값·공백만·101자는 400 INVALID_REQUEST, 100자는 앞뒤 공백이 있어도 통과(ES가 없어 503)")
     void interestValidation() throws Exception {
         mockMvc.perform(get(PATH).param("interest", "").with(login(1L))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(get(PATH).param("interest", "   ").with(login(1L))).andExpect(status().isBadRequest());
         mockMvc.perform(get(PATH).param("interest", "가".repeat(101)).with(login(1L))).andExpect(status().isBadRequest());
+        mockMvc.perform(get(PATH).param("interest", " " + "가".repeat(99) + " 가 ").with(login(1L)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get(PATH).param("interest", "  " + "가".repeat(100) + "\n ").with(login(2L)))
+                .andExpect(status().isServiceUnavailable());
         mockMvc.perform(get(PATH).param("interest", "가".repeat(100)).with(login(2L)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("LECTURE_RECOMMEND_UNAVAILABLE"));

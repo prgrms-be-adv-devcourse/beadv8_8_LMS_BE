@@ -9,13 +9,13 @@ import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 /**
  * 강의 추천 설정 {@code hapbang.chatbot.recommend.lecture} (#718). 정책 숫자(가중치·상한·혼합 비율)는 모두 여기 둔다.
- * index 이름·차원은 공통 {@link ChatbotIndexProperties}에 있다.
+ * index 이름·차원은 공통 {@link ChatbotIndexProperties}에 있다. 정합 점검 시각(cron)은 배치 빈의 {@code @Scheduled}
+ * 플레이스홀더({@code index-check-cron})에 있다(싱크 배치와 같다).
  *
  * @param resultSize       추천 수
  * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성)
@@ -30,8 +30,8 @@ import jakarta.validation.constraints.Positive;
  * @param popularPoolSize  인기순으로 채울 때 미리 읽는 강의 수
  * @param explainTimeout   버튼 경로의 LLM 이유 문장 시간 상한. 넘으면 정해진 문장으로 답한다
  * @param reasonMaxLength  LLM 이유 문장의 최대 글자 수. 넘으면 자른다(카드 크기)
+ * @param explainDescriptionMaxLength 버튼 경로 프롬프트에 넣는 강의 소개의 최대 글자 수(입력 토큰 상한)
  * @param rateLimit        관심사를 넣은 요청(임베딩 비용)의 회원별 호출 제한
- * @param indexCheckCron   색인 정합 점검 시각(강의 싱크 뒤)
  * @param indexCheckBatch  정합 점검이 한 번에 읽는 강의 수
  */
 @Validated
@@ -48,8 +48,8 @@ public record ChatbotLectureRecommendProperties(
         @DefaultValue("50") @Positive int popularPoolSize,
         @DefaultValue("10s") @NotNull Duration explainTimeout,
         @DefaultValue("80") @Positive int reasonMaxLength,
+        @DefaultValue("300") @Positive int explainDescriptionMaxLength,
         @DefaultValue @Valid RateLimit rateLimit,
-        @DefaultValue("0 50 * * * *") @NotBlank String indexCheckCron,
         @DefaultValue("500") @Positive int indexCheckBatch) {
 
     /**

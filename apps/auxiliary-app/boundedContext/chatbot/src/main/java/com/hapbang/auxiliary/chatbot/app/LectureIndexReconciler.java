@@ -62,11 +62,11 @@ public class LectureIndexReconciler {
             if (lectures.isEmpty()) {
                 return requested;
             }
-            List<String> ids = lectures.stream().map(lecture -> String.valueOf(lecture.id())).toList();
+            List<String> ids = lectures.stream().map(lecture -> LectureIndexDocument.docId(lecture.id())).toList();
             Map<String, LectureIndexDocument> stored = index.documents(IndexType.LECTURE, ids, LectureIndexDocument.class);
             List<String> stale = new ArrayList<>();
             for (LectureSnapshot lecture : lectures) {
-                String id = String.valueOf(lecture.id());
+                String id = LectureIndexDocument.docId(lecture.id());
                 if (!LectureIndexDocument.of(lecture).equals(stored.get(id))) {
                     stale.add(id);
                 }

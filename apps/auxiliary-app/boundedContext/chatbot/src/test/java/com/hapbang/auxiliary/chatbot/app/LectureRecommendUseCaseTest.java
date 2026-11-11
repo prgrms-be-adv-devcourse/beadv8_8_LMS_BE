@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
@@ -51,6 +53,9 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
 
     @Autowired
     private FakeEmbeddingModel embedding;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private RecommendRows data;
 
@@ -151,6 +156,40 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         LectureRecommendation result = useCase.recommend(3, null);
 
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(31L, 30L, 32L, 33L);
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
+        assertThat(result.needsInterest()).isTrue();
+        assertThat(result.personalized()).isFalse();
+    }
+
+    @Test
+    @DisplayName("인기순 채우기는 숨김 판매자를 거른 뒤 센다: 탈퇴 판매자 강의가 인기 상위를 모두 차지해도 보이는 강의로 채운다")
+    void popularFillSkipsHiddenSellersBeforeLimit() {
+        data.member(4);
+        data.member(800, "WITHDRAWN");
+        // 인기순으로 미리 읽는 수(기본 50)보다 많은 탈퇴 판매자 강의가 더 많이 팔렸다
+        for (long id = 1000; id < 1051; id++) {
+            data.lecture(id, 800, "탈퇴 판매자 강의 " + id);
+            owned(id, 1);
+        }
+        data.lecture(1100, 100, "보이는 강의");
+
+        LectureRecommendation result = useCase.recommend(4, null);
+
+        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(1100L);
+    }
+
+    @Test
+    @DisplayName("활동이 있어도 그 강의가 아직 색인 전이면 인기순과 needsInterest(관심사를 주면 맞춤으로 찾을 수 있다)")
+    void unindexedSignalNeedsInterest() {
+        data.member(5);
+        lecture(50, 100, "색인된 강의", FakeEmbeddingModel.axis(0));
+        data.lecture(51, 200, "방금 산 강의");
+        data.purchase(5, 5, 51, "OWNED", RecommendRows.AT);
+        indexAll(50);
+
+        LectureRecommendation result = useCase.recommend(5, null);
+
+        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(50L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
         assertThat(result.needsInterest()).isTrue();
         assertThat(result.personalized()).isFalse();
@@ -264,15 +303,19 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         data.purchase(100, 10, 100, "OWNED", RecommendRows.AT);
         indexAll(100);
         deleteIndex();
+        double fallbacks = fallbacks("error");
 
         LectureRecommendation result = useCase.recommend(10, null);
 
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(101L);
         assertThat(result.personalized()).isFalse();
         assertThat(result.needsInterest()).isFalse();
+        // 인기순으로 대신 답한 것만 센다(503은 세지 않는다)
+        assertThat(fallbacks("error")).isEqualTo(fallbacks + 1);
         assertThatThrownBy(() -> useCase.recommend(10, "데이터"))
                 .isInstanceOf(ChatbotException.class)
                 .extracting("errorCode").isEqualTo(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE);
+        assertThat(fallbacks("error")).isEqualTo(fallbacks + 1);
     }
 
     @Test
@@ -285,6 +328,12 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         assertThatThrownBy(() -> useCase.recommend(11, "데이터"))
                 .isInstanceOf(ChatbotException.class)
                 .extracting("errorCode").isEqualTo(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE);
+    }
+
+    private double fallbacks(String reason) {
+        var counter = meterRegistry.find("hapbang.chatbot.fallbacks").tag("feature", "lecture_recommend")
+                .tag("reason", reason).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private void lecture(long id, long sellerId, String title, float[] vector) {

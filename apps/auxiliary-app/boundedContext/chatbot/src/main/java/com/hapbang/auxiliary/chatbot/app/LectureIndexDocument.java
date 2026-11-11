@@ -41,6 +41,16 @@ record LectureIndexDocument(
     /** 추천 후보 kNN 필터: 판매 중, 삭제 안 됨, 원본에 있음 */
     static final Map<String, Object> RECOMMENDABLE = Map.of(ON_SALE, true, DELETED, false, MISSING_IN_SOURCE, false);
 
+    /** 강의 ID의 문서 ID(강의 ID 문자열) */
+    static String docId(long lectureId) {
+        return String.valueOf(lectureId);
+    }
+
+    /** 문서 ID의 강의 ID. 숫자가 아니면 {@link NumberFormatException} */
+    static long lectureId(String docId) {
+        return Long.parseLong(docId);
+    }
+
     /** 사본의 지금 상태로 만든 문서 */
     static LectureIndexDocument of(LectureSnapshot lecture) {
         return new LectureIndexDocument(lecture.onSale(), lecture.deleted(), lecture.missingInSource(), lecture.sellerId(),

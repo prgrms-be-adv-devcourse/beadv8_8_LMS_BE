@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  *     AI가 죽어도 후보 목록은 나간다.</li>
  *     <li>프롬프트에는 강의 제목·소개(공개 정보)와 이유 코드 설명만 넣는다. 회원 정보·회원이 산 강의는 넣지 않는다.</li>
  *     <li>대화 Tool({@link LectureRecommendTools})은 이것을 부르지 않는다. 바깥 대화 LLM이 Tool 결과로 답을 쓰므로 중복이다.</li>
+ *     <li>회원별 호출 제한은 여기서 세지 않는다. 버튼을 연결하는 대화 진입점(#720)의 제한이 이 호출(관심사 임베딩·LLM)을 감싼다.</li>
  * </ul>
  */
 @Slf4j
@@ -45,7 +46,6 @@ public class LectureRecommendExplainUseCase {
             - 문장마다 %d자를 넘기지 않는다.
             """;
 
-    private static final int DESCRIPTION_LIMIT = 300;
     private static final ParameterizedTypeReference<List<LlmReason>> REASONS = new ParameterizedTypeReference<>() {
     };
 
@@ -110,17 +110,18 @@ public class LectureRecommendExplainUseCase {
     }
 
     private String userPrompt(LectureRecommendation recommendation) {
+        List<Long> ids = recommendation.items().stream().map(LectureRecommendation.Item::lectureId).toList();
         Map<Long, LectureSnapshot> lectures = new HashMap<>();
-        for (LectureSnapshot lecture : store.lectures(recommendation.items().stream().map(LectureRecommendation.Item::lectureId)
-                .toList())) {
+        for (LectureSnapshot lecture : store.lectures(ids)) {
             lectures.put(lecture.id(), lecture);
         }
+        int descriptionMax = properties.explainDescriptionMaxLength();
         StringBuilder prompt = new StringBuilder("아래 강의마다 추천 이유를 써라.\n");
         for (LectureRecommendation.Item item : recommendation.items()) {
             LectureSnapshot lecture = lectures.get(item.lectureId());
             String description = lecture == null || lecture.description() == null ? "" : lecture.description();
-            if (description.length() > DESCRIPTION_LIMIT) {
-                description = description.substring(0, DESCRIPTION_LIMIT);
+            if (description.length() > descriptionMax) {
+                description = description.substring(0, descriptionMax);
             }
             prompt.append("\n- 강의 ID: ").append(item.lectureId())
                     .append("\n  제목: ").append(item.title())

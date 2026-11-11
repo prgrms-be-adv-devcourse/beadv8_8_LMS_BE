@@ -115,7 +115,7 @@ public class LectureRecommendStore {
 
     /**
      * 인기순 강의: 추천할 수 있는 상태(판매 중·삭제 안 됨·원본에 있음)이고 본인 강의와 {@code excluded}가 아닌 강의를
-     * 구매 수 내림차순, 같으면 강의 ID 내림차순으로 limit개. 판매자 숨김은 부르는 쪽이 거른다.
+     * 구매 수 내림차순, 같으면 강의 ID 내림차순으로 limit개. 숨김 판매자(탈퇴·마스킹·사본 없음)는 SQL 안에서 거른 뒤 센다.
      */
     public List<LectureRanker.Popular> popular(long memberId, Collection<Long> excluded, int limit) {
         MapSqlParameterSource params = new MapSqlParameterSource("memberId", memberId).addValue("limit", limit);
@@ -130,7 +130,7 @@ public class LectureRecommendStore {
                 FROM chatbot.lecture_copy l
                 LEFT JOIN chatbot.lecture_purchase_copy p ON p.lecture_id = l.id
                 WHERE l.on_sale AND NOT l.deleted AND NOT l.missing_in_source AND l.seller_user_id <> :memberId
-                """ + excludeClause + """
+                """ + "AND " + MemberCopyStore.visibleCondition("l.seller_user_id") + "\n" + excludeClause + """
 
                 GROUP BY l.id, l.seller_user_id
                 ORDER BY owned DESC, l.id DESC
