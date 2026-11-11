@@ -72,8 +72,8 @@ public class HpTask extends BaseEntity {
 
     /**
      * 지급 알림에 보일 출처(요청서·모집글) 제목 (#871). 위약금 정산·지급 작업을 만들 때만 기록한다.
-     * Billing 요청에는 아직 싣지 않는다(지갑이 shared 요청에 필드를 더하는 #873 뒤에 싣는다).
-     * 반환 작업과 이 값을 기록하기 전에 만든 작업은 null이다
+     * 작업을 실행할 때 Billing 지급·위약금 정산 요청의 {@code sourceTitle}로 싣는다(#873 필드).
+     * 반환 작업과 이 값을 기록하기 전에 만든 작업은 null이고, 이때 요청 본문에 제목이 빠진다
      */
     private String sourceTitle;
 

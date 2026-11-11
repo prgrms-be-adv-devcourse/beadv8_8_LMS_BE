@@ -1708,4 +1708,4 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceContractMapperTest` | `toAppearanceDto`·`toRecruitDto` / 마감 방식·확인 방식 / 마감·확인 전 | 값 그대로 / 내부 값과 같은 이름으로 매핑, 모두 쓰임 / `IllegalStateException` |
 
 - 핵심 보장은 운영 코드를 일부러 깨서 위 테스트가 실패하는지 확인했다: 모집 시작 한 번 가드 제거, 마감·모집 취소 때 미선정 누락, 헤더 등록 누락, 지급 작업 제목 저장 누락, 자동 확인 배치의 제목 미리 읽기 누락.
-- 지갑 요청에 출처 제목을 싣는 것은 #873(shared 필드) 뒤에 한다. 그때 `HpTaskExecuteUseCase`의 지급·위약금 요청 테스트를 더한다.
+- 작업 실행: 확인 흐름(요청서·모집 출처)의 지급 요청과 호스트 일방 취소의 위약금 정산 요청에 작업의 출처 제목이 `sourceTitle`로 실린다.
