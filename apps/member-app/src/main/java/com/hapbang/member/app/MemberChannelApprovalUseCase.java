@@ -22,8 +22,9 @@ public class MemberChannelApprovalUseCase {
     @Transactional
     public ChannelVerificationResult request(Long userId, Long channelId, int followerCount) {
         User user = memberSupport.findActiveUser(userId);
-        // 트랜잭션 안에서 다시 조회: 치지직을 기다리는 사이 상태가 바뀌었을 수 있다 (도메인이 상태를 다시 검사)
-        InfluencerChannel channel = memberChannelSupport.findMyChannel(userId, channelId);
+        // 트랜잭션 안에서 잠가서 다시 조회: 치지직을 기다리는 사이 상태가 바뀌었을 수 있고 (도메인이 상태를 다시 검사),
+        // 동시 요청·관리자 심사가 심사 회차를 덮어쓰지 않게 한다 (#874)
+        InfluencerChannel channel = memberChannelSupport.findMyChannelForUpdate(userId, channelId);
         channel.requestApproval(followerCount, LocalDateTime.now());
         return memberChannelSupport.applyResult(user, channel);
     }

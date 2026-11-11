@@ -38,6 +38,12 @@ public class MemberChannelSupport {
                 .orElseThrow(() -> new MemberException(MemberErrorCode.CHANNEL_NOT_FOUND));
     }
 
+    /** 승인 요청할 내 채널을 잠가서 조회 (#874). 남의 채널이거나 없으면 CHANNEL_NOT_FOUND */
+    public InfluencerChannel findMyChannelForUpdate(Long userId, Long channelId) {
+        return influencerChannelRepository.findMyChannelForUpdate(channelId, userId)
+                .orElseThrow(() -> new MemberException(MemberErrorCode.CHANNEL_NOT_FOUND));
+    }
+
     /** 승인·반려할 채널을 잠가서 조회. 없거나 삭제됐으면 CHANNEL_NOT_FOUND */
     public InfluencerChannel findChannelForUpdate(Long channelId) {
         return influencerChannelRepository.findByIdForUpdate(channelId)

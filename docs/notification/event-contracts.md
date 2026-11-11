@@ -132,8 +132,8 @@ key는 회원 ID다(토픽 표). 회원 이벤트는 `xxxId`, `Instant xxxAt` �
   - `InfluencerChannelApprovedEvent(userId, channelId, reviewSequence, autoApproved, approvedAt)`: `reviewSequence`는 `Integer`, `autoApproved`는 `boolean`(자동 승인이면 `true`)이다.
   - `InfluencerChannelRejectedEvent(userId, channelId, reviewSequence, rejectionReason, rejectedAt)`
   - `InfluencerUpgradeRequestRejectedEvent(userId, upgradeRequestId, rejectionReason, rejectedAt)`
-- 심사 회차는 회원이 채널(`members.influencer_channel.review_count`)에 저장한다. #874 배포 전 채널은 등록만 된 채널 0, 나머지(심사 대기·반려·승인) 1로 채웠다. 배포 전 심사 결과는 이벤트로 나간 적이 없어 사건 ID가 겹치지 않는다.
-- 사건 시각은 상태를 바꾼 처리의 시각(채널 `verifiedAt`, 승급 신청 `reviewedAt`)이다. 승인은 역할 변경(`UserModifiedEvent`)과 같은 트랜잭션에서 나가고, 역할이 바뀌지 않는 승인(이미 인플루언서인 회원의 채널)에도 나간다. 채널 연동과 승인 요청은 유저만 할 수 있어, 이 경우는 심사 대기 중 관리자 인플루언서 지정(#724)을 받은 회원의 채널을 관리자가 승인할 때다.
+- 심사 회차는 회원이 채널(`members.influencer_channel.review_count`)에 저장하고, 승인 요청은 채널 행을 잠가 회차가 동시 요청에 덮어써지지 않게 한다. #874 배포 전 채널은 등록만 된 채널 0, 나머지(심사 대기·반려·승인) 1로 채웠다(지난 요청 횟수는 기록이 없어 최소값). 배포 전 심사 결과는 이벤트로 나간 적이 없어 사건 ID가 겹치지 않는다. 그래서 회차는 사건을 구분하는 데만 쓰고, 실제 심사 횟수로 화면에 보여 주거나 통계에 쓰지 않는다.
+- 사건 시각은 상태를 바꾼 처리의 시각(채널 `verifiedAt`, 승급 신청 `reviewedAt`)이다. 승인은 역할 변경(`UserModifiedEvent`)과 같은 트랜잭션에서 나가고, 역할이 바뀌지 않는 승인(이미 인플루언서인 회원의 채널)에도 나간다. 예: 심사 대기 채널이 있는 회원이 다른 채널의 자동 승인이나 관리자 인플루언서 지정(#724)으로 먼저 인플루언서가 된 뒤 그 채널이 승인될 때.
 
 ## 5. 고객센터 (`customersupport.events.v1`, M7)
 
