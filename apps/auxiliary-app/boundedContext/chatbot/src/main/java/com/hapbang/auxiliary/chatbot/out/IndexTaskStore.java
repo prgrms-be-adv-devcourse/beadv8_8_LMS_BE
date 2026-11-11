@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -55,6 +56,21 @@ public class IndexTaskStore {
                 INSERT INTO chatbot.index_task (index_type, doc_id, action, next_attempt_at, created_at)
                 VALUES (:indexType, :docId, :action, :now, :now)
                 """, batch);
+    }
+
+    /**
+     * 끝나지 않은 요청(대기·임대 중·다시 시도 대기)이 있는 문서 ID. 정합 점검이 이미 요청이 있는 문서를 또 적지 않으려고 쓴다.
+     * 그 요청은 처리될 때 지금 사본 상태로 맞추므로 같은 문서를 다시 적을 필요가 없다.
+     */
+    public Set<String> pendingDocIds(IndexType type, Collection<String> docIds) {
+        if (docIds.isEmpty()) {
+            return Set.of();
+        }
+        List<String> pending = jdbc.queryForList("""
+                SELECT DISTINCT doc_id FROM chatbot.index_task
+                WHERE done_at IS NULL AND index_type = :indexType AND doc_id IN (:docIds)
+                """, new MapSqlParameterSource().addValue("indexType", type.name()).addValue("docIds", docIds), String.class);
+        return Set.copyOf(pending);
     }
 
     /**

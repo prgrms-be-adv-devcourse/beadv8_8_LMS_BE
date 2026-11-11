@@ -188,6 +188,23 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
         assertThat(pendingDocs()).containsExactlyInAnyOrder("1", "2", "3");
     }
 
+    @Test
+    @DisplayName("정합 점검: 끝나지 않은 요청이 이미 있는 문서는 다시 적지 않는다. 끝난 요청만 있는 문서는 어긋나면 적는다")
+    void reconcileSkipsPendingDocs() {
+        data.lecture(1, 100, "스프링 입문");
+        data.lecture(2, 100, "파이썬 기초");
+        data.lecture(3, 200, "자바 기초");
+        handle(docs("3"));
+        jdbcTemplate.update("INSERT INTO chatbot.index_task (index_type, doc_id, action, next_attempt_at, created_at, done_at)"
+                + " VALUES ('LECTURE', '3', 'UPSERT', now(), now(), now())");
+        jdbcTemplate.update("UPDATE chatbot.lecture_copy SET title = '자바 기초 개정판' WHERE id = 3");
+
+        assertThat(reconciler.check()).isEqualTo(3);
+        // 실행기가 아직 처리하지 않았어도(첫 전체 색인이 길어짐, pod 재기동) 다음 점검은 같은 문서를 또 적지 않는다
+        assertThat(reconciler.check()).isZero();
+        assertThat(pendingDocs()).containsExactlyInAnyOrder("1", "2", "3");
+    }
+
     private LectureSnapshot lecture(long id) {
         return store.lectures(List.of(id)).get(id);
     }

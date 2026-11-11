@@ -98,15 +98,10 @@ public class LectureRecommendExplainUseCase {
         }
         for (LlmReason reason : reasons) {
             if (reason != null && reason.lectureId() != null && reason.reason() != null && !reason.reason().isBlank()) {
-                byId.put(reason.lectureId(), truncate(reason.reason().strip()));
+                byId.put(reason.lectureId(), TextCut.head(reason.reason().strip(), properties.reasonMaxLength()));
             }
         }
         return byId;
-    }
-
-    private String truncate(String text) {
-        int max = properties.reasonMaxLength();
-        return text.length() <= max ? text : text.substring(0, max);
     }
 
     private String userPrompt(LectureRecommendation recommendation) {
@@ -116,10 +111,8 @@ public class LectureRecommendExplainUseCase {
         StringBuilder prompt = new StringBuilder("아래 강의마다 추천 이유를 써라.\n");
         for (LectureRecommendation.Item item : recommendation.items()) {
             LectureSnapshot lecture = lectures.get(item.lectureId());
-            String description = lecture == null || lecture.description() == null ? "" : lecture.description();
-            if (description.length() > descriptionMax) {
-                description = description.substring(0, descriptionMax);
-            }
+            String description = lecture == null || lecture.description() == null ? ""
+                    : TextCut.head(lecture.description(), descriptionMax);
             prompt.append("\n- 강의 ID: ").append(item.lectureId())
                     .append("\n  제목: ").append(item.title())
                     .append("\n  소개: ").append(description)

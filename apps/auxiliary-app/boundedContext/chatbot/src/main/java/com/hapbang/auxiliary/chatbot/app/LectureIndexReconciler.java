@@ -24,6 +24,8 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
  *     index가 새로 생겼거나 비었으면 모든 강의가 "문서 없음"이라 전체 색인이 된다.</li>
  *     <li>요청을 적기만 한다. 처리는 색인 실행기가 하고, 같은 문서에 쌓인 요청은 한 번에 처리한다.
  *     그래서 두 pod가 함께 점검해도 결과가 같다(요청이 겹칠 뿐이다).</li>
+ *     <li>끝나지 않은 요청이 이미 있는 문서는 적지 않는다. 그 요청이 처리될 때 지금 사본 상태로 맞춘다. 첫 전체 색인이 한 시간 안에
+ *     끝나지 않거나 pod가 여러 번 떠도, 점검마다 같은 문서 요청이 쌓여 요청 행과 {@code requested} 건수가 부풀지 않는다.</li>
  *     <li>평소에는 사본을 바꾼 트랜잭션이 요청을 적으므로 할 일이 없다. 요청 유실·ES 재설치·처리 버그로 어긋난 것을 잡는 안전망이다.</li>
  * </ul>
  */
@@ -71,6 +73,7 @@ public class LectureIndexReconciler {
                     stale.add(id);
                 }
             }
+            stale.removeAll(taskStore.pendingDocIds(IndexType.LECTURE, stale));
             if (!stale.isEmpty()) {
                 taskStore.addAll(IndexType.LECTURE, stale, IndexAction.UPSERT, CopyTimes.now(clock));
                 requested += stale.size();

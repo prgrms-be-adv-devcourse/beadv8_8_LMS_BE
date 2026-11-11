@@ -60,13 +60,9 @@ public class LectureRecommendTools {
         throw new IllegalStateException("ToolContext에 " + MEMBER_ID + "가 없어 강의 추천을 거절한다");
     }
 
-    // 코드포인트로 센다: API 검사(정규식의 .)와 같은 기준이고, 이모지 같은 서로게이트 쌍을 반으로 자르지 않는다
+    // 코드포인트로 센다(TextCut): API 검사(정규식의 .)와 같은 기준이다
     static @Nullable String truncate(@Nullable String interest) {
-        int max = LectureRecommendUseCase.INTEREST_MAX_LENGTH;
-        if (interest == null || interest.codePointCount(0, interest.length()) <= max) {
-            return interest;
-        }
-        return interest.substring(0, interest.offsetByCodePoints(0, max)).strip();
+        return interest == null ? null : TextCut.head(interest, LectureRecommendUseCase.INTEREST_MAX_LENGTH).strip();
     }
 
     /** Tool 결과 */
