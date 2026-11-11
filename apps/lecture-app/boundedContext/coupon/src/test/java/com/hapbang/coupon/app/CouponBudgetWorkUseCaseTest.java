@@ -32,6 +32,7 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.out.BudgetWorkRepository;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.coupon.out.MemberCouponExpiryTarget;
 
 /** 조회 결과 검증·선점 분기를 독립적으로 확인한다. 저장소의 실제 lease·CAS와 트랜잭션 격리는 검증하지 않는다. */
 class CouponBudgetWorkUseCaseTest {
@@ -67,10 +68,10 @@ class CouponBudgetWorkUseCaseTest {
                 new CouponBudgetWorkProperties(null, LEASE, 2), CouponUsageFixture.transactionManager(), CLOCK);
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(2))).thenReturn(List.of(1L, 2L));
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2))).thenReturn(List.of(3L));
-        when(members.findExpiredPlatformBudgetIds(1, NOW, 0, Limit.of(2))).thenReturn(List.of(11L, 12L));
-        when(members.findExpiredPlatformBudgetIds(1, NOW, 12, Limit.of(2))).thenReturn(List.of(13L));
-        when(members.findExpiredPlatformBudgetIds(2, NOW, 0, Limit.of(2))).thenReturn(List.of(21L));
-        when(members.findExpiredPlatformBudgetIds(3, NOW, 0, Limit.of(2))).thenReturn(List.of(31L));
+        when(members.findExpiredPlatformBudgetTargets(1, NOW, null, 0, Limit.of(2))).thenReturn(List.of(new MemberCouponExpiryTarget(11, NOW), new MemberCouponExpiryTarget(12, NOW)));
+        when(members.findExpiredPlatformBudgetTargets(1, NOW, NOW, 12, Limit.of(2))).thenReturn(List.of(new MemberCouponExpiryTarget(13, NOW)));
+        when(members.findExpiredPlatformBudgetTargets(2, NOW, null, 0, Limit.of(2))).thenReturn(List.of(new MemberCouponExpiryTarget(21, NOW)));
+        when(members.findExpiredPlatformBudgetTargets(3, NOW, null, 0, Limit.of(2))).thenReturn(List.of(new MemberCouponExpiryTarget(31, NOW)));
         doThrow(new IllegalArgumentException("잘못된 한 발급 쿠폰")).when(releaseRecorder).recordDue(11, NOW);
 
         useCase.runDue();
@@ -80,7 +81,7 @@ class CouponBudgetWorkUseCaseTest {
         }
         verifyNoMoreInteractions(releaseRecorder);
         verify(coupons).findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2));
-        verify(members).findExpiredPlatformBudgetIds(1, NOW, 12, Limit.of(2));
+        verify(members).findExpiredPlatformBudgetTargets(1, NOW, NOW, 12, Limit.of(2));
     }
 
     @Test

@@ -55,13 +55,15 @@ DEAD가 될 때 강의가 기다리는 예약 요청은 없다. 작업은 보낼
 
 예산 해제는 상태 변경과 함께 작업을 저장하고 트랜잭션 밖에서 billing을 호출한다. `member_coupon.budget_release_planned_hp`는 PENDING을 포함해 해제 작업으로 등록한 누적액이다. 현재 generation·상태·누적액을 조건으로 CAS해 누적액을 늘리고 차액만 새 작업에 넣는다. EXPIRED 기록 후 HTTP 실패나 응답 유실이 나도 작업과 누적액이 남는다.
 
-`member_coupon.budget_release_checked_status`는 현재 USED/EXPIRED 상태의 목표액까지 해제 작업을 등록했음을 뜻한다. 누적액 CAS와 같은 트랜잭션에 현재 상태를 기록하고, M=F라 해제액이 0인 USED도 기록한다. 이 값이 현재 상태와 같으면 만료 예산 수집 쿼리에서 제외한다. 먼저 미확인 만료 발급 쿠폰이 존재하는 PLATFORM 정책 ID를 정책 ID 커서로 고르고, 각 정책의 발급 쿠폰만 ID 커서로 수집한다. 후보 정책과 발급 쿠폰의 묶음 크기는 모두 `budget-work.batch-size`를 쓴다. `idx_member_coupon_budget_unchecked(coupon_id, id, expires_at)`의 같은 미확인 조건과 명시적인 `coupon_id` 범위를 사용하므로 판매자의 미확인 만료 키 범위를 전역 ID 순으로 순회하지 않는다. 모든 등록이 끝난 플랫폼 정책은 후보에서 빠져 정책별 발급 쿠폰 조회를 반복하지 않는다. PENDING·FAILED 작업도 등록 완료이며 HTTP 완료 표식이 아니다. 이전 writer가 USED를 EXPIRED로 복원해도 현재 상태가 표식과 달라져 다시 선택되고 추가 F를 등록한다.
+`member_coupon.budget_release_checked_status`는 현재 USED/EXPIRED 상태의 목표액까지 해제 작업을 등록했음을 뜻한다. 누적액 CAS와 같은 트랜잭션에 현재 상태를 기록하고, M=F라 해제액이 0인 USED도 기록한다. 이 값이 현재 상태와 같으면 만료 예산 수집 쿼리에서 제외한다. 먼저 미확인 만료 발급 쿠폰이 존재하는 PLATFORM 정책 ID를 정책 ID 커서로 고르고, 각 정책의 발급 쿠폰을 `(expires_at, id)` 복합 커서로 수집한다. 후보 정책과 발급 쿠폰의 묶음 크기는 모두 `budget-work.batch-size`를 쓴다. `idx_member_coupon_budget_unchecked(coupon_id, expires_at, id)`의 같은 미확인 조건과 명시적인 `coupon_id` 범위를 사용하므로 판매자의 미확인 만료 키 범위를 전역 ID 순으로 순회하지 않는다. 모든 등록이 끝난 플랫폼 정책은 후보에서 빠져 정책별 발급 쿠폰 조회를 반복하지 않는다. 기한을 두 번째 인덱스 키로 두어 미만료 USED는 `expires_at <= now` 범위 밖에 남긴다. 최초 페이지와 후속 페이지 쿼리는 나누고, 후속 페이지는 `(expires_at, id) > (마지막 만료 시각, 마지막 ID)`로 시작하여 처리한 기한 범위를 다시 순회하지 않는다. PENDING·FAILED 작업도 등록 완료이며 HTTP 완료 표식이 아니다. 이전 writer가 USED를 EXPIRED로 복원해도 현재 상태가 표식과 달라져 다시 선택되고 추가 F를 등록한다.
 
 PLATFORM의 AVAILABLE 만료는 M, USED 만료는 M-F가 목표 누적액이다. 기한 지난 예약 해제나 취소 복원이 EXPIRED로 끝나면 상태 전이와 같은 트랜잭션에서 목표를 M으로 올린다. 이미 M-F를 등록했다면 차액 F만 추가하며, 먼저 등록한 작업이 PENDING이어도 중복 등록하지 않는다. 취소는 잠근 PLATFORM·F > 0 사용 스냅샷과 이벤트의 쿠폰별 복구 결과가 ID·generation·금액으로 1:1 일치한 뒤 처리한다. 누락·추가·중복·불일치는 쿠폰을 복원하지 않고 주문 DLT로 격리한다. SELLER/F = 0에는 복구 결과가 없어야 한다. RESERVED의 단순 기한 경과는 해제 근거가 아니다.
 
 예약·해제 작업이 UNKNOWN이면 같은 workId로 조회·재전송하며 새 ID를 만들거나 완료로 추정하지 않는다. FAILED는 확정 업무 거절이므로 자동 재전송하지 않고 사유와 재원을 확인한다. 예약 거절 뒤 관리자가 다시 여는 경우에만 새 예약 시도 ID를 발급한다. 관리자와 배치는 동일한 lease·attempt fence로 결과를 저장하며, 배치의 예약 성공은 Redis 접수나 쿠폰 OPEN을 자동으로 진행하지 않는다. 기한 지난 미개방 DRAFT는 확정 예약 결과를 기록한 뒤 같은 트랜잭션에서 해제 작업을 남긴다.
 
-로컬 조회 계획은 `MemberCouponRepositoryTest`의 판매자 다수·완료 플랫폼 이력·미확인 플랫폼 소수 회귀에서 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`으로 재현한다. 정책 후보 EXISTS와 정책별 발급 쿠폰 조회의 결과를 `coupon/build/reports/budget-release-query-plan.json`에 남긴다. 계획 모양을 고정 assert하지 않고 정책·발급 쿠폰 선택과 커서의 정확성을 검증한다. 이 자료는 해당 로컬 데이터와 통계의 실행 계획이며 운영 처리량·지연·운영 수치의 근거가 아니다.
+로컬 조회 계획은 `MemberCouponRepositoryTest`의 판매자·완료 플랫폼 이력 회귀와 미래 USED 누적 회귀에서 검증한다. 기존 Logback 캡처 방식으로 테스트 스레드가 실제 Repository 호출에서 실행한 SQL을 얻고, 알려진 바인딩으로 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`을 실행한다. 결과는 `coupon/build/reports/budget-release-query-plan.json`과 `budget-release-future-used-query-plan.json`에 SQL·파라미터·계획을 함께 남긴다. 최초/후속 페이지가 실제 1행, 대상 소진 뒤 0행인지 확인하고 buffer 필드의 존재·숫자 여부, member_coupon Seq Scan 부재, shared hit+read 32 blocks 미만을 단정한다. 이 한도는 고정 로컬 fixture의 읽기 회귀 기준이며 운영 설정·처리량·지연 기준이 아니다.
+
+미래 USED 20,000행만 둔 단독 사례에서는 기존 status/expires 인덱스도 좁은 범위를 읽었다. 판매자 EXPIRED 20,000행과 미래 USED 20,000행이 함께 있는 사례에서 기존 키 순서의 넓은 읽기를 재현했고, 기한 우선 인덱스·복합 커서로 바꾼 뒤 같은 분포의 읽기 회귀를 검증한다. 데이터 분포·통계에 따른 로컬 결과를 운영 성능으로 일반화하지 않는다.
 
 ## 용량과 캐시
 

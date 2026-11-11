@@ -370,7 +370,7 @@ class CouponUsageE2eTest {
         assertThat(budgetWorkRepository.findAll()).singleElement().extracting(com.hapbang.coupon.domain.BudgetWork::getAmount)
                 .isEqualTo(1_100L);
         assertThat(memberCouponRepository.findBudgetState(memberId).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now, 0, org.springframework.data.domain.Limit.of(10)))
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
                 .isEmpty();
         com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent canceled =
                 com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent.of(900L, 901L, MEMBER_A,
@@ -468,17 +468,17 @@ class CouponUsageE2eTest {
             assertThat(state.checkedStatus()).isEqualTo(MemberCouponStatus.USED);
         });
         assertThat(budgetWorkRepository.findAll()).isEmpty();
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now, 0, org.springframework.data.domain.Limit.of(10)))
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
                 .isEmpty();
 
         // 이전 writer처럼 완료 표식을 건드리지 않고 상태만 EXPIRED로 복원해도 다시 수집한다.
         tx.executeWithoutResult(status -> memberCouponRepository.restore(id, 1, now));
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now, 0, org.springframework.data.domain.Limit.of(10)))
-                .containsExactly(id);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
+                .extracting(com.hapbang.coupon.out.MemberCouponExpiryTarget::id).containsExactly(id);
         budgetReleaseRecorder.recordDue(id, now);
         assertThat(memberCouponRepository.findBudgetState(id).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getAmount).isEqualTo(1_500L);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now, 0, org.springframework.data.domain.Limit.of(10)))
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
                 .isEmpty();
     }
 

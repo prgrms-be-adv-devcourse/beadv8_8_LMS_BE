@@ -239,15 +239,34 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
             @Param("status") MemberCouponStatus status, @Param("before") long before,
             @Param("planned") long planned, @Param("now") Instant now);
 
-    /** 플랫폼 후보 정책을 고른 뒤 그 정책의 키 범위만 읽는다. 전역 ID 순서로 판매자 만료 이력을 훑지 않는다. */
+    /** 정책·만료 기한 범위만 읽고, 후속 페이지는 (expiresAt, id) 복합 커서로 진행한다. */
+    default List<MemberCouponExpiryTarget> findExpiredPlatformBudgetTargets(long couponId, Instant now,
+            Instant afterExpiresAt, long afterId, Limit limit) {
+        return afterExpiresAt == null ? findFirstExpiredPlatformBudgetTargets(couponId, now, limit)
+                : findNextExpiredPlatformBudgetTargets(couponId, now, afterExpiresAt, afterId, limit);
+    }
+
     @Query("""
-            select mc.id from MemberCoupon mc
-            where mc.couponId = :couponId and mc.id > :afterId and mc.expiresAt <= :now
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
+            where mc.couponId = :couponId and mc.expiresAt <= :now
               and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
                                 com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
               and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
-            order by mc.id
+            order by mc.expiresAt, mc.id
             """)
-    List<Long> findExpiredPlatformBudgetIds(@Param("couponId") long couponId, @Param("now") Instant now,
+    List<MemberCouponExpiryTarget> findFirstExpiredPlatformBudgetTargets(@Param("couponId") long couponId,
+            @Param("now") Instant now, Limit limit);
+
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponExpiryTarget(mc.id, mc.expiresAt) from MemberCoupon mc
+            where mc.couponId = :couponId and mc.expiresAt <= :now
+              and (mc.expiresAt, mc.id) > (:afterExpiresAt, :afterId)
+              and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
+                                com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
+              and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
+            order by mc.expiresAt, mc.id
+            """)
+    List<MemberCouponExpiryTarget> findNextExpiredPlatformBudgetTargets(@Param("couponId") long couponId,
+            @Param("now") Instant now, @Param("afterExpiresAt") Instant afterExpiresAt,
             @Param("afterId") long afterId, Limit limit);
 }

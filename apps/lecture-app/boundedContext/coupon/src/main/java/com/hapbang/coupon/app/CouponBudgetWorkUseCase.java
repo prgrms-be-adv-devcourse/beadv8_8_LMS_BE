@@ -22,6 +22,7 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.out.BudgetWorkRepository;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.coupon.out.MemberCouponExpiryTarget;
 import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 
 import lombok.extern.slf4j.Slf4j;
@@ -119,22 +120,24 @@ public class CouponBudgetWorkUseCase {
     }
 
     private void registerExpiredRemainders(long couponId, Instant now) {
-        long afterId = 0;
+        MemberCouponExpiryTarget after = null;
         while (true) {
-            long cursor = afterId;
-            List<Long> ids = transaction.execute(status -> memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now,
-                    cursor, Limit.of(properties.batchSize())));
-            for (Long id : ids) {
+            MemberCouponExpiryTarget cursor = after;
+            List<MemberCouponExpiryTarget> targets = transaction.execute(status ->
+                    memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now,
+                            cursor == null ? null : cursor.expiresAt(), cursor == null ? 0 : cursor.id(),
+                            Limit.of(properties.batchSize())));
+            for (MemberCouponExpiryTarget target : targets) {
                 try {
-                    releaseRecorder.recordDue(id, now);
+                    releaseRecorder.recordDue(target.id(), now);
                 } catch (RuntimeException exception) {
-                    log.warn("만료된 플랫폼 쿠폰 예산 해제를 등록하지 못해 다음 회차로 넘긴다 memberCouponId={}", id, exception);
+                    log.warn("만료된 플랫폼 쿠폰 예산 해제를 등록하지 못해 다음 회차로 넘긴다 memberCouponId={}", target.id(), exception);
                 }
             }
-            if (ids.size() < properties.batchSize()) {
+            if (targets.size() < properties.batchSize()) {
                 return;
             }
-            afterId = ids.getLast();
+            after = targets.getLast();
         }
     }
 

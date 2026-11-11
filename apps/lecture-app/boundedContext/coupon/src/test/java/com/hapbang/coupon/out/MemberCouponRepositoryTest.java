@@ -5,10 +5,14 @@ import static org.assertj.core.api.Assertions.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.function.Supplier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
@@ -21,6 +25,13 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @RepositoryTest
 class MemberCouponRepositoryTest {
@@ -281,7 +292,7 @@ class MemberCouponRepositoryTest {
         memberCouponRepository.expire(List.of(expired), NOW);
         flushAndClear();
 
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).containsExactly(used, expired);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, NOW, null, 0, Limit.of(10))).extracting(MemberCouponExpiryTarget::id).containsExactly(used, expired);
         assertThat(memberCouponRepository.planBudgetRelease(used, 0, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 1, 1, NOW)).isZero();
@@ -289,14 +300,14 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(expired, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
         assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, NOW, null, 0, Limit.of(10))).isEmpty();
 
         // 완료 표식을 모르는 이전 writer의 복원 UPDATE도 status 변경 자체로 재선택된다.
         memberCouponRepository.restore(used, 1, NOW);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).containsExactly(used);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, NOW, null, 0, Limit.of(10))).extracting(MemberCouponExpiryTarget::id).containsExactly(used);
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
         assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, NOW, null, 0, Limit.of(10))).isEmpty();
     }
 
     @Test
@@ -328,31 +339,81 @@ class MemberCouponRepositoryTest {
         jdbc.execute("analyze coupon.coupon");
         jdbc.execute("analyze coupon.member_coupon");
 
-        assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(100))).containsExactly(platform);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(platform, NOW, 0, Limit.of(100)))
-                .containsExactly(platformMember);
-        String policiesPlan = jdbc.queryForObject("""
-                explain (analyze, buffers, format json)
-                select c.id from coupon.coupon c
-                where c.type = 'PLATFORM' and c.id > 0
-                  and exists (select 1 from coupon.member_coupon mc where mc.coupon_id = c.id and mc.expires_at <= ?
-                    and mc.status in ('USED', 'EXPIRED')
-                    and (mc.budget_release_checked_status is null or mc.budget_release_checked_status <> mc.status))
-                order by c.id limit 100
-                """, String.class, java.sql.Timestamp.from(NOW));
-        String membersPlan = jdbc.queryForObject("""
-                explain (analyze, buffers, format json)
-                select mc.id from coupon.member_coupon mc
-                where mc.coupon_id = ? and mc.id > 0 and mc.expires_at <= ?
-                  and mc.status in ('USED', 'EXPIRED')
-                  and (mc.budget_release_checked_status is null or mc.budget_release_checked_status <> mc.status)
-                order by mc.id limit 100
-                """, String.class, platform, java.sql.Timestamp.from(NOW));
-        Path artifact = Path.of("build", "reports", "budget-release-query-plan.json");
-        Files.createDirectories(artifact.getParent());
-        Files.writeString(artifact, "{\"sellerExpiredRows\":" + sellerCount
-                + ",\"platformCompletedRows\":" + completedPlatformCount
-                + ",\"platformPendingRows\":1,\"policies\":" + policiesPlan + ",\"members\":" + membersPlan + "}");
+        var policies = captureRepositorySql(() -> couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(100)));
+        var members = captureRepositorySql(() -> memberCouponRepository.findExpiredPlatformBudgetTargets(platform, NOW, null, 0, Limit.of(100)));
+        assertThat(policies.result()).containsExactly(platform);
+        assertThat(members.result()).extracting(MemberCouponExpiryTarget::id).containsExactly(platformMember);
+        var policyPlan = explain("policies", policies, 0L, java.sql.Timestamp.from(NOW), 100);
+        var memberPlan = explain("members", members, platform, java.sql.Timestamp.from(NOW), 100);
+        writePlans("budget-release-query-plan.json", Map.of("sellerExpiredRows", sellerCount,
+                "platformCompletedRows", completedPlatformCount, "platformPendingRows", 1), policyPlan, memberPlan);
+        assertBoundedPlan(policyPlan, 1);
+        assertBoundedPlan(memberPlan, 1);
+    }
+
+    @Test
+    void 미래_USED가_많아도_만료_소수와_0건_조회는_기한_범위만_읽는다() throws Exception {
+        final int futureUsedCount = 20_000;
+        final int sellerExpiredCount = 20_000;
+        long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().quantity(futureUsedCount + 2).build(), NOW));
+        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().quantity(sellerExpiredCount).build(), NOW));
+        entityManager.flush();
+        jdbc.update("""
+                insert into coupon.member_coupon (member_id, coupon_id, issue_request_id, status, generation,
+                    issued_at, expires_at, created_at, updated_at)
+                select n, ?, 'plan-seller-' || n, 'EXPIRED', 0, ?, ?, ?, ?
+                from generate_series(1, ?) n
+                """, seller, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW),
+                java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW), sellerExpiredCount);
+        jdbc.update("""
+                insert into coupon.member_coupon (member_id, coupon_id, issue_request_id, status, generation,
+                    issued_at, expires_at, created_at, updated_at)
+                select n, ?, 'plan-future-' || n, 'USED', 1, ?, ?, ?, ?
+                from generate_series(1, ?) n
+                """, platform, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW.plusSeconds(86_400)),
+                java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW), futureUsedCount);
+        MemberCoupon newer = MemberCoupon.issue(futureUsedCount + 1L, platform, "plan-due-newer", NOW, NOW, NOW);
+        ReflectionTestUtils.setField(newer, "status", MemberCouponStatus.EXPIRED);
+        long newerId = memberCouponRepository.saveAndFlush(newer).getId();
+        Instant earlierExpiry = NOW.minusSeconds(60);
+        MemberCoupon older = MemberCoupon.issue(futureUsedCount + 2L, platform, "plan-due-older", NOW, earlierExpiry, NOW);
+        ReflectionTestUtils.setField(older, "status", MemberCouponStatus.EXPIRED);
+        long olderId = memberCouponRepository.saveAndFlush(older).getId();
+        jdbc.execute("analyze coupon.coupon");
+        jdbc.execute("analyze coupon.member_coupon");
+
+        var policies = captureRepositorySql(() -> couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(100)));
+        var members = captureRepositorySql(() -> memberCouponRepository.findExpiredPlatformBudgetTargets(platform, NOW, null, 0, Limit.of(1)));
+        var after = captureRepositorySql(() -> memberCouponRepository.findExpiredPlatformBudgetTargets(platform, NOW, earlierExpiry, olderId, Limit.of(1)));
+        var tail = captureRepositorySql(() -> memberCouponRepository.findExpiredPlatformBudgetTargets(platform, NOW, NOW, newerId, Limit.of(1)));
+        assertThat(policies.result()).containsExactly(platform);
+        assertThat(members.result()).extracting(MemberCouponExpiryTarget::id).containsExactly(olderId);
+        assertThat(after.result()).extracting(MemberCouponExpiryTarget::id).containsExactly(newerId);
+        assertThat(tail.result()).isEmpty();
+        var duePolicies = explain("due-policies", policies, 0L, java.sql.Timestamp.from(NOW), 100);
+        var dueMembers = explain("first-members", members, platform, java.sql.Timestamp.from(NOW), 1);
+        var afterMembers = explain("after-members", after, platform, java.sql.Timestamp.from(NOW),
+                java.sql.Timestamp.from(earlierExpiry), olderId, 1);
+        var tailMembers = explain("after-tail", tail, platform, java.sql.Timestamp.from(NOW),
+                java.sql.Timestamp.from(NOW), newerId, 1);
+        memberCouponRepository.planBudgetRelease(olderId, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW);
+        memberCouponRepository.planBudgetRelease(newerId, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW);
+        var emptyPolicies = captureRepositorySql(() -> couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(100)));
+        var emptyMembers = captureRepositorySql(() -> memberCouponRepository.findExpiredPlatformBudgetTargets(platform, NOW, null, 0, Limit.of(100)));
+        assertThat(emptyPolicies.result()).isEmpty();
+        assertThat(emptyMembers.result()).isEmpty();
+        var noPolicies = explain("no-due-policies", emptyPolicies, 0L, java.sql.Timestamp.from(NOW), 100);
+        var noMembers = explain("no-due-members", emptyMembers, platform, java.sql.Timestamp.from(NOW), 100);
+        writePlans("budget-release-future-used-query-plan.json", Map.of("futureUsedRows", futureUsedCount,
+                "sellerExpiredRows", sellerExpiredCount,
+                "dueRowsBeforeCompletion", 2, "dueRowsAfterCompletion", 0),
+                duePolicies, dueMembers, afterMembers, tailMembers, noPolicies, noMembers);
+        assertBoundedPlan(duePolicies, 1);
+        assertBoundedPlan(dueMembers, 1);
+        assertBoundedPlan(afterMembers, 1);
+        assertBoundedPlan(tailMembers, 0);
+        assertBoundedPlan(noPolicies, 0);
+        assertBoundedPlan(noMembers, 0);
     }
 
     @Test
@@ -371,15 +432,81 @@ class MemberCouponRepositoryTest {
 
         assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(1))).containsExactly(pendingA);
         assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, pendingA, Limit.of(10))).containsExactly(pendingB);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingA, NOW, 0, Limit.of(10)))
-                .containsExactly(first);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingB, NOW, 0, Limit.of(10)))
-                .containsExactly(second);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingA, NOW, first, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(pendingA, NOW, null, 0, Limit.of(10)))
+                .extracting(MemberCouponExpiryTarget::id).containsExactly(first);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(pendingB, NOW, null, 0, Limit.of(10)))
+                .extracting(MemberCouponExpiryTarget::id).containsExactly(second);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(pendingA, NOW, NOW, first, Limit.of(10))).isEmpty();
         memberCouponRepository.planBudgetRelease(first, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW);
         memberCouponRepository.planBudgetRelease(second, 0, MemberCouponStatus.USED, 0, 0, NOW);
         assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(10))).isEmpty();
     }
+
+    /** 기존 Logback 캡처 패턴을 사용하며 테스트 스레드의 실제 Repository SQL만 모은다. */
+    private static <T> CapturedQuery<T> captureRepositorySql(Supplier<T> query) {
+        Logger logger = (Logger) LoggerFactory.getLogger("org.hibernate.SQL");
+        Level previousLevel = logger.getLevel();
+        boolean previousAdditivity = logger.isAdditive();
+        String testThread = Thread.currentThread().getName();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                if (testThread.equals(event.getThreadName())) super.append(event);
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        logger.setAdditive(false);
+        T result;
+        try {
+            result = query.get();
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            logger.setAdditive(previousAdditivity);
+            appender.stop();
+        }
+        assertThat(appender.list).as("Repository가 실행한 SQL 한 건").hasSize(1);
+        return new CapturedQuery<>(result, appender.list.getFirst().getFormattedMessage());
+    }
+
+    private ExplainedQuery explain(String name, CapturedQuery<?> query, Object... parameters) {
+        String json = jdbc.queryForObject("explain (analyze, buffers, format json) " + query.sql(), String.class, parameters);
+        return new ExplainedQuery(name, query.sql(), java.util.Arrays.stream(parameters).map(Object::toString).toList(),
+                JsonMapper.builder().build().readTree(json));
+    }
+
+    /** 시간 대신 고정 로컬 fixture의 읽기 범위를 검증한다. 32 blocks는 운영 설정/처리량 기준이 아니다. */
+    private static void assertBoundedPlan(ExplainedQuery query, long expectedRows) {
+        JsonNode root = query.plan().get(0).get("Plan");
+        for (String field : List.of("Actual Rows", "Shared Hit Blocks", "Shared Read Blocks")) {
+            assertThat(root.get(field)).as(query.name() + " " + field + " 존재").isNotNull();
+            assertThat(root.get(field).isNumber()).as(query.name() + " " + field + " 숫자").isTrue();
+        }
+        assertThat(root.get("Actual Rows").asDouble()).as(query.name() + " actual rows (바인딩 검증)").isEqualTo(expectedRows);
+        long blocks = root.path("Shared Hit Blocks").asLong() + root.path("Shared Read Blocks").asLong();
+        assertThat(blocks).as(query.name() + " shared hit + read blocks").isLessThan(32);
+        List<JsonNode> nodes = new ArrayList<>();
+        collectPlanNodes(root, nodes);
+        assertThat(nodes).as(query.name() + " member_coupon full scan 없음")
+                .noneMatch(node -> "member_coupon".equals(node.path("Relation Name").asText())
+                        && "Seq Scan".equals(node.path("Node Type").asText()));
+    }
+
+    private static void collectPlanNodes(JsonNode node, List<JsonNode> result) {
+        result.add(node);
+        for (JsonNode child : node.path("Plans")) collectPlanNodes(child, result);
+    }
+
+    private static void writePlans(String filename, Map<String, Integer> fixture, ExplainedQuery... plans) throws Exception {
+        Path artifact = Path.of("build", "reports", filename);
+        Files.createDirectories(artifact.getParent());
+        Files.writeString(artifact, JsonMapper.builder().build().writeValueAsString(Map.of("fixture", fixture, "queries", plans)));
+    }
+
+    private record CapturedQuery<T>(T result, String sql) { }
+    private record ExplainedQuery(String name, String sql, List<String> parameters, JsonNode plan) { }
 
     private long budgetMember(long couponId, MemberCouponStatus status, MemberCouponStatus checked, Instant expiresAt) {
         MemberCoupon member = MemberCoupon.issue(MEMBER_ID, couponId, "budget-member", NOW, expiresAt, NOW);
