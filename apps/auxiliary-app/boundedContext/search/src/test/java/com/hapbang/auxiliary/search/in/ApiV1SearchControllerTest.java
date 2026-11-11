@@ -20,12 +20,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
-import com.hapbang.auxiliary.search.app.ZeroResultKeywords;
+import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
-import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
-import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
-import com.hapbang.auxiliary.search.out.InfluencerStats;
-import com.hapbang.auxiliary.search.out.MemberProfile;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerStats;
+import com.hapbang.auxiliary.search.influencer.out.MemberProfile;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.auxiliary.search.support.SearchElasticsearchTestcontainersConfig;
 import com.hapbang.testsupport.IntegrationTest;

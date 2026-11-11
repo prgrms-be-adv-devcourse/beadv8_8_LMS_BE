@@ -10,8 +10,8 @@ import co.elastic.clients.json.jackson.Jackson3JsonpMapper;
 import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
 import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 
-import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
-import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
 
 /**
  * Spring 컨텍스트 없이 검색 ES를 쓰는 테스트 도우미(#771). 컨테이너는 {@link SearchElasticsearchTestcontainersConfig}가 JVM에 하나 띄운다.
