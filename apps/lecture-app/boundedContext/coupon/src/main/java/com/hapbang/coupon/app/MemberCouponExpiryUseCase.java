@@ -20,15 +20,15 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 발급 쿠폰 만료(배치): 기한이 지난({@code expiresAt <= now}) AVAILABLE 판매자 쿠폰의 발급 쿠폰을 EXPIRED로 바꾼다. 경계는
+ * 발급 쿠폰 만료(배치): 기한이 지난({@code expiresAt <= now}) AVAILABLE 쿠폰의 발급 쿠폰을 EXPIRED로 바꾼다. 경계는
  * {@link com.hapbang.coupon.domain.MemberCoupon#isExpiredAt}과 같다. 사용 경로는 이미 {@code expiresAt > now}로 막으므로 이 배치는
- * 쿠폰함 표시용 상태를 맞추는 일이다.
+ * 쿠폰함 표시용 상태를 맞추고, 플랫폼 쿠폰이면 예산 해제 작업도 함께 남긴다.
  * <ul>
  *     <li>회차 시작 시각 하나로 판정한다. 묶음마다 짧은 트랜잭션에서 대상 ID를 만료 시각 → ID 순으로
  *     {@code hapbang.coupon.expiry.batch-size}개 고르고, 같은 조건의 조건부 갱신으로 바꾼다. 고른 수가 묶음 크기보다 작거나 한 행도
  *     바꾸지 못하면 회차를 끝낸다. 이미 EXPIRED인 쿠폰은 고르지 않아 두 번 돌아도 결과가 같다.</li>
  *     <li>RESERVED·USED는 건드리지 않는다(할인은 예약 성공 시점 기준으로 인정하고, 돌려받을 때 기한을 본다).</li>
- *     <li>플랫폼 쿠폰의 발급 쿠폰은 건너뛴다. 만료와 쿠폰 예산 해제를 같은 트랜잭션에 둬야 해 지갑 계약이 붙을 때 함께 만든다.</li>
+ *     <li>플랫폼 쿠폰은 만료와 한 장의 최대 부담 M 해제 작업을 같은 트랜잭션에 남긴다. 지갑 호출은 예산 작업 배치가 커밋 뒤 실행한다.</li>
  *     <li>generation은 바꾸지 않는다.</li>
  * </ul>
  * lecture-app replica 1을 전제한다(다른 쿠폰 배치와 같다). 여럿이 돌아도 조건부 갱신이라 같은 쿠폰을 두 번 바꾸지 않는다.
@@ -40,16 +40,19 @@ public class MemberCouponExpiryUseCase {
     /** 만료한 발급 쿠폰 수 */
     static final String EXPIRED_METRIC = "coupon.expiry.expired";
 
+    private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final MemberCouponRepository memberCouponRepository;
     private final CouponExpiryProperties properties;
     private final MeterRegistry meterRegistry;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public MemberCouponExpiryUseCase(MemberCouponRepository memberCouponRepository, CouponExpiryProperties properties,
+    public MemberCouponExpiryUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
+                                     MemberCouponRepository memberCouponRepository, CouponExpiryProperties properties,
                                      ObjectProvider<MeterRegistry> meterRegistryProvider,
                                      PlatformTransactionManager transactionManager,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
+        this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.memberCouponRepository = memberCouponRepository;
         this.properties = properties;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -80,11 +83,15 @@ public class MemberCouponExpiryUseCase {
     }
 
     private Batch expireBatch(Instant now, int batchSize) {
-        List<Long> ids = memberCouponRepository.findExpiredSellerCouponIds(now, Limit.of(batchSize));
+        List<Long> ids = memberCouponRepository.findExpiredCouponIds(now, Limit.of(batchSize));
         if (ids.isEmpty()) {
             return new Batch(0, 0);
         }
-        return new Batch(ids.size(), memberCouponRepository.expire(ids, now));
+        int expired = memberCouponRepository.expire(ids, now);
+        for (Long id : ids) {
+            budgetReleaseRecorder.recordExpired(id, now);
+        }
+        return new Batch(ids.size(), expired);
     }
 
     /**

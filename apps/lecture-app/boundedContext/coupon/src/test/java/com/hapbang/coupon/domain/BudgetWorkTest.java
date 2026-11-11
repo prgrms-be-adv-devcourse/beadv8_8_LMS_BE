@@ -72,6 +72,24 @@ class BudgetWorkTest {
         assertThat(failed.getResult()).isEqualTo("예산 부족");
     }
 
+    @Test
+    void 해제_작업은_예약과_대상_금액을_보존하고_콜론_없는_결정적_ID를_쓴다() {
+        Coupon coupon = savedPlatformCoupon(42L);
+        coupon.recordBudgetReserved("PB-7", NOW);
+        BudgetWork work = BudgetWork.release(coupon, "member-12-to-1000", 700, "MEMBER_COUPON:12", "만료", NOW);
+        assertThat(work.getWorkId()).isEqualTo("coupon-42-release-member-12-to-1000").doesNotContain(":");
+        assertThat(work.getReservationId()).isEqualTo("PB-7");
+        assertThat(work.getTarget()).isEqualTo("MEMBER_COUPON:12");
+        assertThat(work.getAmount()).isEqualTo(700);
+        assertThat(work.getKind()).isEqualTo(BudgetWorkKind.RELEASE);
+        assertThatThrownBy(() -> BudgetWork.release(coupon, "bad:id", 1, "MEMBER_COUPON:12", null, NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> BudgetWork.release(coupon, "x", 0, "MEMBER_COUPON:12", null, NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> BudgetWork.release(savedPlatformCoupon(43L), "x", 1, "MEMBER_COUPON:12", null, NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static Coupon savedPlatformCoupon(long id) {
         Coupon coupon = platformCoupon();
         ReflectionTestUtils.setField(coupon, "id", id);

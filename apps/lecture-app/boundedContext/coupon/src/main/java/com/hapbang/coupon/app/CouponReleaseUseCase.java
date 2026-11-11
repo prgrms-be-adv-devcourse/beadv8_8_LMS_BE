@@ -48,6 +48,7 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponReleaseUseCase {
 
+    private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final CouponUsageSupport usageSupport;
     private final MemberCouponRepository memberCouponRepository;
     private final CouponUsageRepository couponUsageRepository;
@@ -55,11 +56,12 @@ public class CouponReleaseUseCase {
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public CouponReleaseUseCase(CouponUsageSupport usageSupport, MemberCouponRepository memberCouponRepository,
+    public CouponReleaseUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, CouponUsageSupport usageSupport, MemberCouponRepository memberCouponRepository,
                                 CouponUsageRepository couponUsageRepository,
                                 ProcessedOperationRepository processedOperationRepository,
                                 PlatformTransactionManager transactionManager,
                                 @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
+        this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.usageSupport = usageSupport;
         this.memberCouponRepository = memberCouponRepository;
         this.couponUsageRepository = couponUsageRepository;
@@ -110,6 +112,9 @@ public class CouponReleaseUseCase {
                 throw notAllowed(usage.getMemberCouponId(), "예약 중인 사용 시도가 아닙니다: " + usage.getStatus());
             }
             MemberCouponStatus releasedTo = casRelease(usage, now);
+            if (releasedTo == MemberCouponStatus.EXPIRED) {
+                budgetReleaseRecorder.recordExpired(usage.getMemberCouponId(), now);
+            }
             usage.release(request.workId(), request.reason(), request.compensationRef(), releasedTo, now);
             released.add(new CouponReleaseResponse.Usage(usage.getMemberCouponId(), usage.getGeneration(),
                     releasedTo.name()));

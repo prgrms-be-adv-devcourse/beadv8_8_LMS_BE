@@ -44,7 +44,7 @@ class CouponReleaseUseCaseTest {
     @BeforeEach
     void setUp() {
         var transactionManager = transactionManager();
-        useCase = new CouponReleaseUseCase(support(memberCouponRepository, processedOperationRepository,
+        useCase = new CouponReleaseUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), support(memberCouponRepository, processedOperationRepository,
                 transactionManager), memberCouponRepository, couponUsageRepository, processedOperationRepository,
                 transactionManager, CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),

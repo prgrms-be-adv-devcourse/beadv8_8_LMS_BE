@@ -207,7 +207,7 @@ class MemberCouponRepositoryTest {
     }
 
     @Test
-    void 만료_대상은_기한이_지난_AVAILABLE_판매자_쿠폰만_만료_시각_순이고_조건부_갱신은_그것만_EXPIRED로_바꾼다() {
+    void 만료_대상은_기한이_지난_AVAILABLE_쿠폰을_유형과_관계없이_고른다() {
         Long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
         Long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         Long atNow = memberCouponRepository.save(MemberCoupon.issue(1L, seller, "req-1", NOW, NOW, NOW)).getId();
@@ -222,13 +222,13 @@ class MemberCouponRepositoryTest {
         memberCouponRepository.reserve(reserved, 4L, 0, 500L, NOW.minusSeconds(100));
         flushAndClear();
 
-        // 만료 시각(expiresAt == now) 포함, 만료 시각 → ID 순. 미래 만료·RESERVED·플랫폼 쿠폰은 고르지 않는다
-        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(10)))
-                .containsExactly(earlier, atNow);
-        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(1))).containsExactly(earlier);
+        // 만료 시각(expiresAt == now) 포함, 플랫폼도 함께 고르고 미래 만료·RESERVED는 고르지 않는다
+        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10)))
+                .containsExactly(platformExpired, earlier, atNow);
+        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(1))).containsExactly(platformExpired);
 
         // 조건부 갱신은 넘긴 ID 중 AVAILABLE이고 기한이 지난 것만 바꾼다
-        assertThat(memberCouponRepository.expire(List.of(earlier, atNow, future, reserved), NOW)).isEqualTo(2);
+        assertThat(memberCouponRepository.expire(List.of(earlier, atNow, future, reserved, platformExpired), NOW)).isEqualTo(3);
         assertThat(memberCouponRepository.findStateById(atNow)).get().satisfies(state -> {
             assertThat(state.status()).isEqualTo(MemberCouponStatus.EXPIRED);
             assertThat(state.generation()).isZero();
@@ -242,11 +242,11 @@ class MemberCouponRepositoryTest {
             assertThat(state.generation()).isEqualTo(1);
         });
         assertThat(memberCouponRepository.findStateById(platformExpired)).get()
-                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.AVAILABLE);
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
 
         // 두 번 돌아도 결과가 같다
         assertThat(memberCouponRepository.expire(List.of(earlier, atNow), NOW)).isZero();
-        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10))).isEmpty();
     }
 
     private Long saveCoupon(Coupon coupon) {

@@ -170,18 +170,17 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
     Optional<MemberCouponState> findStateById(@Param("id") long id);
 
     /**
-     * 만료 배치 대상: 기한이 지난(expiresAt <= now) AVAILABLE 발급 쿠폰 중 판매자 쿠폰의 것. 만료 시각 → ID 순으로 {@code limit}개의 ID.
-     * 플랫폼 쿠폰은 만료와 예산 해제를 같은 트랜잭션에 둬야 해 고르지 않는다. 조건은 {@code idx_member_coupon_status_expires_at}
+     * 만료 배치 대상: 기한이 지난(expiresAt <= now) 판매자·플랫폼의 모든 AVAILABLE 발급 쿠폰.
+     * 만료 시각 → ID 순으로 {@code limit}개의 ID를 고른다. 조건은 {@code idx_member_coupon_status_expires_at}
      * (status, expires_at)의 앞 컬럼 등호·뒤 컬럼 범위라 그 인덱스를 탈 수 있다.
      */
     @Query("""
-            select mc.id from MemberCoupon mc join Coupon c on c.id = mc.couponId
+            select mc.id from MemberCoupon mc
             where mc.status = com.hapbang.coupon.domain.MemberCouponStatus.AVAILABLE
               and mc.expiresAt <= :now
-              and c.type = com.hapbang.coupon.domain.CouponType.SELLER
             order by mc.expiresAt asc, mc.id asc
             """)
-    List<Long> findExpiredSellerCouponIds(@Param("now") Instant now, Limit limit);
+    List<Long> findExpiredCouponIds(@Param("now") Instant now, Limit limit);
 
     /**
      * 만료 조건부 갱신: 고른 ID 중 아직 AVAILABLE이고 기한이 지난(expiresAt <= now) 것만 EXPIRED로 바꾼다. generation은 그대로다. 고른 뒤
@@ -197,4 +196,30 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
               and mc.expiresAt <= :now
             """)
     int expire(@Param("ids") Collection<Long> ids, @Param("now") Instant now);
+
+    @Query("""
+            select new com.hapbang.coupon.out.MemberCouponBudgetState(mc.id, mc.couponId, mc.status,
+                mc.generation, mc.expiresAt, mc.budgetReleasePlannedHp)
+            from MemberCoupon mc where mc.id = :id
+            """)
+    Optional<MemberCouponBudgetState> findBudgetState(@Param("id") long id);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update MemberCoupon mc set mc.budgetReleasePlannedHp = :planned, mc.updatedAt = :now
+            where mc.id = :id and mc.generation = :generation and mc.status = :status
+                and mc.budgetReleasePlannedHp = :before and mc.expiresAt <= :now
+            """)
+    int planBudgetRelease(@Param("id") long id, @Param("generation") long generation,
+            @Param("status") MemberCouponStatus status, @Param("before") long before,
+            @Param("planned") long planned, @Param("now") Instant now);
+
+    @Query("""
+            select mc.id from MemberCoupon mc join Coupon c on c.id = mc.couponId
+            where mc.id > :afterId and c.type = com.hapbang.coupon.domain.CouponType.PLATFORM and mc.expiresAt <= :now
+              and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
+                                com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
+            order by mc.id
+            """)
+    List<Long> findExpiredPlatformBudgetIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
 }
