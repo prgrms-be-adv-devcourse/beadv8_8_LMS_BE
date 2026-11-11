@@ -149,6 +149,16 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
 - **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
 
+## 챗봇 강의 추천 (#718)
+
+`GET /api/v1/chatbot/recommendations/lectures?interest=`(로그인 회원). 후보는 코드가 정하고(LLM 없음), 설정은 `hapbang.chatbot.recommend.lecture.*`(`ChatbotLectureRecommendProperties`)다.
+
+- **색인**: 강의 사본 전부(판매 중이 아니어도)를 `LectureIndexTaskHandler`가 지금 사본 상태로 맞춘다. 임베딩 글(제목 + 소개 + 콘텐츠 제목)의 해시를 문서에 두어, 상태만 바뀌면 다시 임베딩하지 않는다.
+- **정합 점검**(`LectureIndexCheckBatch`): 앱이 뜬 뒤 한 번(처음 전체 색인)과 매시 :50(강의 싱크 :20 뒤, `index-check-cron`). 사본을 500개씩 읽어 ES 문서와 비교하고, 어긋난 강의만 색인 요청을 적는다(처리는 실행기). 끝나지 않은 요청이 이미 있는 강의는 다시 적지 않는다. 사본 읽기 + ES ids 검색만 하고 임베딩은 없다. 매시 점검은 앱 배치 스레드 하나를 잠깐 쓰고, 기동 때 한 번은 기동·readiness를 막지 않게 가상 스레드 하나에서 돈다(FAQ 기동 싱크와 같다).
+- **후보**: 신호(구매 1.0, 장바구니 0.6, 리뷰 별점 보정, 0 하한, 최근 50개)의 가중 평균 벡터, 관심사가 있으면 `(1−α)·신호 + α·관심사`(α 0.3, local·prod 같음). kNN 뒤 보유·결제 중·장바구니·본인 강의·숨김 판매자(탈퇴·마스킹·사본 없음)를 빼고 `(1−β)·유사도 + β·인기`(β 0.05, local·prod 같음), 판매자당 2개·5개, 모자라면 인기순(숨김 판매자는 SQL에서 거른다). α·β는 임베딩 모델마다 다를 값이라 코드 기본값 없이 프로필 yaml에 둔다. 가중치·상한·α·β는 평가 전 "임시값"이고 추천 가중치 보정(#867)에서 다시 정한다. 다시 정할 때 평가 결과를 설정 주석·PR에 적는다. 이유 코드는 강의마다 구매·장바구니·관심사 중 가까운 쪽(`LectureTaste`). 맞춤으로 고를 수 없으면(활동이 없거나 활동한 강의가 색인 전) 인기순과 `needsInterest=true`(관심사를 주면 맞춤). 모델·ES 연결이 없는 실행이면 관심사도 소용없어 `false`다. 실행 중 ES·임베딩 장애는 활동이 없는 회원의 요청으로는 알 수 없어 `true`일 수 있고, 그때 관심사 요청은 503이다.
+- **실패**: 색인·임베딩을 쓸 수 없으면 관심사 없는 요청은 인기순(`personalized=false`, `hapbang.chatbot.fallbacks{feature=lecture_recommend}`), 관심사 요청은 503 `LECTURE_RECOMMEND_UNAVAILABLE`. 로그는 호출 실패가 시작되거나 회복될 때만 남긴다. 503은 잠시 뒤 다시 보내면 되는 거절이라 공통 예외 처리기도 요청마다 ERROR로 남기지 않는다(오류 코드의 `isRetryLater()`, DEBUG). fallback 지표는 인기순 답이 나간 뒤에 센다. DB 오류는 그대로 500. API는 관심사 요청만 회원별 호출 제한(`chatbot-recommend-lecture`)을 세고, Tool·버튼 경로는 대화 진입점(#720)의 제한이 감싼다.
+- **LLM**: 대화 Tool `recommendLectures`(회원 ID는 `ToolContext`의 `memberId`)는 정해진 이유 문장만 준다. 결과를 바깥 대화 LLM이 읽으므로 회원이 산·담은 강의 제목은 넣지 않는다("구매하신 강의와 비슷해요"). 기준 강의 제목은 회원 본인 화면(API)에만 나간다. 관심사가 100자를 넘으면 Tool은 거절하지 않고 자른다(모델 인자라 거절하면 대화가 끊긴다. API는 400). 버튼 경로(`LectureRecommendExplainUseCase`, #720이 연결)만 `LlmCallGuard`로 강의마다 이유 문장을 받고, 후보 밖 강의는 버리고, 실패하면 정해진 문장이다.
+
 ## 챗봇 인플루언서 추천 (#719)
 
 출연 상대로 어울리는 인플루언서 5명을 추천한다. 후보와 순서는 코드가 정하고(같은 상태면 같은 결과), LLM은 버튼 경로에서 이유만 쓴다.
@@ -179,10 +189,11 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 설명 API의 LLM 프롬프트에 닉네임·자기소개 원문·회원 ID를 보내지 않는다(Tool 결과에는 회원 ID가 있다) | | `explained`, `promptHasNoMemberIds` |
 | 표를 처음 받는 중이면 색인 쪽 호출은 기다리고, 화면용 호출은 기다리지 않는다 | 기동 직후(받기에 실패하면 재시도 시간까지는 기다리지 않고 실패) | `ChatbotCategoryNamesTest.waitsForFirstFetch`, `displayDoesNotWait` |
 
-## 검색 (#771, #772)
+## 검색 (#771, #772, #868)
 
 인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
 
+- 코드는 대상과 상관없는 공통 코드(`search.common`: index·alias·동의어·재색인·tombstone 정리·지표)와 대상별 구현(`search.influencer`)으로 나뉜다(#868). 강의·모집 검색은 `search.<대상>`으로 더한다(`docs/search/module.md` 3장 "새 대상을 붙이는 법").
 - 검색 기능 스위치는 #860에서 지웠다. 검색 빈은 늘 뜨고, ES가 없어도 챗봇·알림은 그대로이며 검색 API만 503이다(`docs/search/module.md` 2장).
 - ES는 챗봇과 같은 cluster지만 검색 전용 client가 `ES_SEARCH_API_KEY`(role `search`, `search-*`)로 따로 붙는다(`hapbang.search.elasticsearch.*`). 검색 index는 nori를 쓰므로 로컬 `compose.yaml`의 ES는 nori를 설치한 이미지다.
 - Kafka: `member.events.v1`, 그룹 `auxiliary-app.search-member`. 배치: 통계 동기화·문서 수 정합성 점검(끝난 뒤 10분, `JobLock` 771_002), 회원 변경분 증분 보정(끝난 뒤 10분, 772_001), tombstone 정리(매일 04:30, 771_001), 0건 검색어 로그(10분, 락 없음).
