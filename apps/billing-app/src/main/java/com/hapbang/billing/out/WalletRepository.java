@@ -1,5 +1,8 @@
 package com.hapbang.billing.out;
 
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Lock;
@@ -31,4 +34,24 @@ public interface WalletRepository extends Repository<Wallet, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from Wallet w where w.id = :id")
     Optional<Wallet> findByIdForUpdate(@Param("id") Long id);
+
+    // 지갑 ID로 회원 ID를 찾는다 (#577, 서비스 간 HP 대사의 보류한 회원)
+    List<Wallet> findAllByIdIn(Collection<Long> ids);
+
+    // 기준 시각 이후 캐시 잔액 등이 바뀐 지갑 ID를 찾는다 (#607, 잔액 대사 대상). idx_wallet_1(updated_at)을 탄다
+    @Query("select w.id from Wallet w where w.updatedAt >= :since")
+    List<Long> findIdsUpdatedSince(@Param("since") Instant since);
+
+    // 탈퇴·파기로 닫혔는데 쓸 수 있는 충전·수익 HP가 남은 지갑 ID (#623, BD-141, #674). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어 묶인다
+    @Query("""
+            select w.id from Wallet w
+            where w.closedAt is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)
+            order by w.id""")
+    List<Long> findClosedIdsWithBalance();
+
+    // 잔액이 남은 닫힌 지갑 수 (#623, 지표). 닫힌 지갑만 담은 부분 인덱스 idx_wallet_2를 탄다
+    @Query("""
+            select count(w) from Wallet w
+            where w.closedAt is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)""")
+    long countClosedWithBalance();
 }

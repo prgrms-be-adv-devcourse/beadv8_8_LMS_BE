@@ -4,6 +4,7 @@ import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.lecture.app.LectureObjectionCommandResult;
 import com.hapbang.lecture.app.LectureObjectionFacade;
 import com.hapbang.lecture.config.LectureKafkaConfig;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
@@ -45,17 +46,22 @@ public class LectureObjectionRequestListener {
 
     @KafkaHandler
     public void on(LectureObjectionResolutionRequestedEvent event) {
-        lectureObjectionFacade.resolve(event);
+        logResult(lectureObjectionFacade.resolve(event));
     }
 
     @KafkaHandler
     public void on(LectureObjectionWithdrawalRequestedEvent event) {
-        lectureObjectionFacade.withdraw(event);
+        logResult(lectureObjectionFacade.withdraw(event));
     }
 
     /** 강의가 쓰지 않는 고객센터 이벤트. 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다. */
+    private static void logResult(LectureObjectionCommandResult result) {
+        log.info("이의 제기 명령을 처리했다 commandId={}, commandType={}, orderItemId={}, failureCode={}, replayed={}",
+                result.commandId(), result.commandType(), result.orderItemId(), result.failureCode(), result.replayed());
+    }
+
     @KafkaHandler(isDefault = true)
     public void ignore(Object event) {
-        log.debug("강의가 쓰지 않는 고객센터 이벤트라 무시한다 type={}", event.getClass().getSimpleName());
+        log.debug("강의가 쓰지 않는 고객센터 이벤트라 무시한다 eventType={}", event.getClass().getSimpleName());
     }
 }

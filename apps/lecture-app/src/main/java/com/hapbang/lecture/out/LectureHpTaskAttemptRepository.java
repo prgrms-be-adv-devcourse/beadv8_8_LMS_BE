@@ -10,11 +10,25 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.hapbang.lecture.domain.LectureHpAttemptResult;
 import com.hapbang.lecture.domain.LectureHpTaskAttempt;
+import com.hapbang.lecture.domain.LectureHpTaskType;
 
 public interface LectureHpTaskAttemptRepository extends JpaRepository<LectureHpTaskAttempt, Long> {
 
     Optional<LectureHpTaskAttempt> findByTaskIdAndClaimToken(Long taskId, UUID claimToken);
+
+    /**
+     * 주문의 보류가 이 지갑 실패 코드로 확정 거절됐는지 (D76, 결제 실패 사유). 결제 실패 응답을 사유별로 나눌 때 쓴다.
+     * 사유는 주문에 저장하지 않고 보류 작업의 시도 기록에서 읽는다
+     */
+    @Query("""
+            select count(a) > 0 from LectureHpTaskAttempt a, LectureHpTask t
+            where a.taskId = t.id and t.orderId = :orderId
+              and t.taskType = :taskType and a.result = :result and a.errorCode = :errorCode""")
+    boolean existsByOrderAndResult(@Param("orderId") Long orderId, @Param("taskType") LectureHpTaskType taskType,
+                                   @Param("result") LectureHpAttemptResult result,
+                                   @Param("errorCode") String errorCode);
 
     /** 작업의 시도 이력 (시도 순) */
     List<LectureHpTaskAttempt> findByTaskIdOrderByAttemptNo(Long taskId);

@@ -13,7 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 // Kafka로 못 보낸 지갑 이벤트를 실행 중에 다시 보낸다 (#497, kafka.md "발행": 발행 앱마다 반드시 둔다).
 // Modulith는 기동할 때만 미완료 발행 기록을 다시 보내므로(republish-outstanding-events-on-restart), 서버가 계속 떠 있는 동안
 // Kafka가 잠깐 끊겼던 기록은 이 배치가 보낸다. 방금 발행돼 아직 보내는 중인 기록과 겹치지 않게 유예 시간(pending-grace)이
-// 지난 것만, 한 번에 batch-size개까지 보낸다. replica 여럿이 같은 기록을 다시 보내도 받는 쪽 멱등이 흡수하므로 분산 락은 두지 않는다.
+// 지난 것만, 한 번에 batch-size개까지 보낸다. 이 UseCase는 락을 잡지 않는다. 스케줄 실행은 BillingEventRepublishBatch가
+// 실행 락(BillingJob.EVENT_REPUBLISH, advisory lock 598005, #598)으로 감싸 pod 사이에서 한 곳만 돈다. 기동 때 Modulith 재발행처럼
+// 락 밖에서 같은 기록이 다시 나가도 받는 쪽 멱등이 흡수한다.
 @Slf4j
 @Service
 public class BillingEventRepublishUseCase {

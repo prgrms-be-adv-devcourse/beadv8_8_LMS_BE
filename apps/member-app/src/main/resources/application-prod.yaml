@@ -1,5 +1,9 @@
 # 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
 spring:
+  # 가입 이메일 인증 메일 계정 (#557). 기본값이 없어 Secret에 없으면 앱이 시작하지 않는다
+  mail:
+    username: "${MAIL_USERNAME}"
+    password: "${MAIL_PASSWORD}"
   datasource:
     url: "${DB_URL}"
     username: "${DB_USERNAME}"
@@ -11,3 +15,8 @@ hapbang:
       key-prefix: prod
 server:
   forward-headers-strategy: native
+logging:
+  structured:
+    format:
+      # 운영 로그는 JSON 한 줄(Boot 내장 logstash 형식)로 쓴다. 로컬·테스트는 평문이다. 필드·MDC 키·조회는 docs/dev/logging.md (#582)
+      console: logstash

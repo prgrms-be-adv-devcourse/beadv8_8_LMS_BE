@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.MemberException;
+import com.hapbang.member.domain.WithdrawnRestorableException;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 
@@ -44,6 +45,9 @@ public class MemberOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                     googleUser.getName(),                // sub (구글 회원 고유 ID)
                     googleUser.getAttribute("email"),
                     googleUser.getAttribute("name"));
+        } catch (WithdrawnRestorableException e) {
+            // 복구할 수 있는 탈퇴 회원: 실패 처리가 복구 티켓을 붙여 프론트의 "복구할까요?" 화면으로 보낸다 (#593)
+            throw new RestorableOAuth2AuthenticationException(e);
         } catch (MemberException e) {
             // 업무 실패(예: 이미 비밀번호로 가입된 이메일, #499)는 로그인 실패로 넘겨 실패 처리가 프론트로 보내게 한다
             throw new OAuth2AuthenticationException(

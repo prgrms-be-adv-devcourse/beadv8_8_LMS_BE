@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,7 +46,12 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 import com.hapbang.appearance.config.AppearanceKafkaConfig;
+import com.hapbang.appearance.domain.AppearanceBasicInfo;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.domain.AppearanceRequest;
+import com.hapbang.appearance.fixture.AppearanceRequestFixture;
+import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.AppearanceUserRepository;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
@@ -53,8 +59,16 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
+
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 회원 앱이 {@code member.events.v1}에 보낸 회원 이벤트가 출연 회원 복제본에 반영되는지 실제 Kafka로 확인한다 (#394).
@@ -66,8 +80,11 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
  * 강의 앱의 같은 테스트(#429 {@code LectureMemberEventListenerTest})와 같은 경우를 확인한다.
  */
 @AppearanceIntegrationTest
-@Import({KafkaTestcontainersConfig.class, AppearanceUserEventListenerTest.MemberTopicConfig.class})
-@TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true"})
+@Import({KafkaTestcontainersConfig.class, AppearanceUserEventListenerTest.MemberTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 샘플링 비율을 1로 둔다
+@TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
+        "management.tracing.sampling.probability=1.0"})
 @DirtiesContext
 class AppearanceUserEventListenerTest {
 
@@ -91,7 +108,36 @@ class AppearanceUserEventListenerTest {
     KafkaAdmin kafkaAdmin;
 
     @Autowired
+    MeterRegistry meterRegistry;
+
+    @Autowired
     AppearanceUserRepository appearanceUserRepository;
+
+    @Autowired
+    RecordedSpans spans;
+
+    @Autowired
+    AppearanceRequestRepository appearanceRequestRepository;
+
+    @Autowired
+    AppearancePolicy appearancePolicy;
+
+    @Test
+    @DisplayName("회원 앱이 보낸 trace를 이어받아 처리한다 (#630)")
+    void continuesSenderTrace() throws Exception {
+        long userId = 108L;
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+
+        send(userId, new UserJoinedEvent(user(userId, "추적", Role.INFLUENCER, 0L)),
+                TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(userId)).isPresent());
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER));
+        assertThat(spans.all()).filteredOn(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER)
+                .extracting(SpanData::getParentSpanId).containsOnly(parentSpanId);
+    }
 
     @Test
     @DisplayName("회원 가입 이벤트를 받으면 출연 회원을 만든다 (닉네임·역할·상태·회원 버전)")
@@ -166,6 +212,30 @@ class AppearanceUserEventListenerTest {
     }
 
     @Test
+    @DisplayName("탈퇴 회원 파기 이벤트를 받으면 그 회원이 호스트인 끝난 요청서의 채널 URL을 withdrawn으로 덮는다, 두 번 받아도 같다 (#675)")
+    void masked() {
+        long hostId = 107L;
+        LocalDateTime now = LocalDateTime.now();
+        AppearanceRequest request = AppearanceRequest.create(hostId, 1071L, AppearanceRequestFixture.content(now),
+                appearancePolicy, now);
+        request.markHoldFailed();
+        Long requestId = appearanceRequestRepository.saveAndFlush(request).getId();
+
+        UserMaskedEvent masked = new UserMaskedEvent(hostId, Instant.now());
+        send(hostId, masked);
+        send(hostId, masked);
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceRequestRepository.findById(requestId))
+                .hasValueSatisfying(saved -> assertThat(saved.getHostChannelUrl())
+                        .isEqualTo(AppearanceBasicInfo.WITHDRAWN_HOST_CHANNEL_URL)));
+        // 같은 key로 보낸 표지가 반영되면 두 번째 파기 이벤트도 처리가 끝난 것이다
+        long markerId = 1072L;
+        send(hostId, new UserJoinedEvent(user(markerId, "파기표지", Role.USER, 0L)));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(markerId)).isPresent());
+        assertThat(deadLettersOf(hostId, Duration.ofSeconds(1))).isEmpty();
+    }
+
+    @Test
     @DisplayName("가입보다 먼저 온 변경 이벤트는 출연 회원을 만들지 않고, 재시도(1·2·4초) 뒤 출연 DLT로 보낸다")
     void modifiedBeforeJoinedGoesToDeadLetter() {
         long userId = 105L;
@@ -196,6 +266,7 @@ class AppearanceUserEventListenerTest {
         assertThat(deadLetters).hasSize(1);
         assertThat(deadLetters.getFirst().value()).isEqualTo(broken);
         assertThat(delayUntilDeadLetter(deadLetters.getFirst())).isLessThan(Duration.ofSeconds(1));
+        assertDeadLetterSendCounted();
     }
 
     @Test
@@ -222,10 +293,19 @@ class AppearanceUserEventListenerTest {
 
     /** 회원 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. key는 userId다 */
     private void send(long userId, Object event) {
+        send(userId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 회원 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long userId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(producerProperties(),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(AppearanceKafkaConfig.MEMBER_EVENTS_TOPIC, String.valueOf(userId), event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(AppearanceKafkaConfig.MEMBER_EVENTS_TOPIC,
+                    String.valueOf(userId), event);
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -287,5 +367,16 @@ class AppearanceUserEventListenerTest {
 
     private static String header(ConsumerRecord<?, ?> record, String name) {
         return new String(record.headers().lastHeader(name).value(), StandardCharsets.UTF_8);
+    }
+
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339). 토픽별 지표는 Micrometer가 60초마다 새로 등록하므로 바로 생기는 client 지표로 본다. */
+    private void assertDeadLetterSendCounted() {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(meterRegistry
+                .find("kafka.producer.record.send.total").functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(AppearanceKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
     }
 }

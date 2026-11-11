@@ -30,38 +30,47 @@ public class ReviewWriteUseCase {
     private final LectureReviewRepository lectureReviewRepository;
     private final LectureSupport lectureSupport;
     private final LectureOrderSupport lectureOrderSupport;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public ReviewWriteUseCase(LectureReviewRepository lectureReviewRepository, LectureSupport lectureSupport,
-                              LectureOrderSupport lectureOrderSupport, @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                              LectureOrderSupport lectureOrderSupport, LectureSyncEvents lectureSyncEvents,
+                              @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureReviewRepository = lectureReviewRepository;
         this.lectureSupport = lectureSupport;
         this.lectureOrderSupport = lectureOrderSupport;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
     public Long write(Long userId, Long lectureId, Long orderItemId, int rating, String content) {
         Lecture lecture = lectureSupport.findLecture(lectureId);
+        // 이의 제기 인정과 같은 주문 행을 먼저 잠근다(D46 순서: 주문 → 리뷰). 인정이 먼저면 항목이 반환 처리 중이라 쓸 수 없고,
+        // 작성이 먼저면 인정이 커밋된 리뷰를 보고 version을 올려 평점 반영 여부(counted)를 다시 보낸다 (#712, D82).
+        // 남의 항목·없는 항목이면 잠그지 않고 ORDER_ITEM_NOT_FOUND다. 항목은 잠근 뒤에 읽어야 최신 상태다
+        lectureOrderSupport.lockOrderOfBuyerItem(userId, orderItemId);
         OrderItem item = lectureOrderSupport.findItem(userId, orderItemId);
         if (!item.getLectureId().equals(lecture.getId())) {
             throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND);
         }
         LocalDateTime now = LocalDateTime.now(clock);
         LectureReview review = LectureReview.write(item, userId, rating, content, now);
-        lectureReviewRepository.findAlive(lectureId, userId)
+        lectureReviewRepository.findAliveForUpdate(lectureId, userId)
                 .ifPresent(existing -> replaceReturned(existing, userId, now));
         // 같은 강의에 동시에 쓴 요청이 먼저 커밋했으면 부분 유일 인덱스에 걸린다. 커밋 전에 확인해 409로 바꾼다.
         // 그 밖의 무결성 위반은 예상하지 못한 실패라 그대로 던진다(공통 핸들러가 500으로 응답)
+        LectureReview saved;
         try {
-            LectureReview saved = lectureReviewRepository.save(review);
+            saved = lectureReviewRepository.save(review);
             lectureReviewRepository.flush();
-            return saved.getId();
         } catch (DataIntegrityViolationException exception) {
             if (!UniqueIndexViolation.isOf(exception, ORDER_ITEM_INDEX, LECTURE_REVIEWER_INDEX)) {
                 throw exception;
             }
             throw new LectureException(LectureErrorCode.ALREADY_REVIEWED);
         }
+        lectureSyncEvents.reviewChanged(saved);
+        return saved.getId();
     }
 
     /**
@@ -74,7 +83,7 @@ public class ReviewWriteUseCase {
             throw new LectureException(LectureErrorCode.ALREADY_REVIEWED);
         }
         existing.delete(userId, now);
-        // 부분 유일 인덱스 검사 전에 삭제 표시를 먼저 반영한다. INSERT가 UPDATE보다 먼저 실행되지 않게 한다
-        lectureReviewRepository.flush();
+        // 부분 유일 인덱스 검사 전에 삭제 표시를 먼저 반영한다(이벤트 발행이 flush한다). INSERT가 UPDATE보다 먼저 실행되지 않게 한다
+        lectureSyncEvents.reviewChanged(existing);
     }
 }

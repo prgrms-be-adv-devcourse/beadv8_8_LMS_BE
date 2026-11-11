@@ -15,10 +15,15 @@ import org.springframework.web.client.RestClientException;
 
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
+import com.hapbang.shared.lecture.dto.CartItemSyncPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureSyncPageDto;
+import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 
 /**
  * 강의 내부 HTTP API Client (D62, #300). 다른 모듈은 강의 Java 타입 대신 이 Client로 강의를 부른다.
@@ -35,6 +40,8 @@ public class LectureApiClient {
     static final String EARNINGS_PATH = "/api/v1/internal/lectures/earnings";
     static final String EARNINGS_SUMMARY_PATH = EARNINGS_PATH + "/summary";
     static final String OBJECTION_FILE_PATH = "/api/v1/internal/lectures/objections/file";
+    static final String WITHDRAWAL_BLOCKS_PATH = "/api/v1/internal/lectures/users/{userId}/withdrawal-blocks";
+    static final String SYNC_PATH = "/api/v1/internal/lectures/sync";
 
     private static final ParameterizedTypeReference<Body<LectureEarningSummaryDto>> SUMMARY =
             new ParameterizedTypeReference<>() {
@@ -43,6 +50,21 @@ public class LectureApiClient {
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<LectureEarningPageDto>> PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalBlocksDto>> WITHDRAWAL_BLOCKS =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<LectureSyncPageDto>> SYNC_LECTURES =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<LecturePurchaseSyncPageDto>> SYNC_PURCHASES =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<CartItemSyncPageDto>> SYNC_CART_ITEMS =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<LectureReviewSyncPageDto>> SYNC_REVIEWS =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -86,6 +108,51 @@ public class LectureApiClient {
                     }
                     return builder.queryParam("page", page).queryParam("size", size).build();
                 }), PAGE);
+    }
+
+    /**
+     * 회원 탈퇴가 막힌 강의 쪽 이유 (#625, docs/api/internal-withdrawals.md 3장). 막힌 이유가 없으면 빈 목록이다.
+     * 읽기만 하므로 {@link LectureApiCallException.Reason#UNAVAILABLE}이면 그대로 다시 불러도 안전하다
+     */
+    public WithdrawalBlocksDto getWithdrawalBlocks(long userId) {
+        return call(restClient.get().uri(WITHDRAWAL_BLOCKS_PATH, userId), WITHDRAWAL_BLOCKS);
+    }
+
+    /**
+     * AI 추천용 강의 동기화 목록 (#712, docs/api/internal-lecture-sync.md). 모든 상태의 강의(삭제 포함)를 강의 ID 오름차순으로 준다.
+     * 다음 페이지는 응답의 {@code nextAfterId}를 {@code afterId}로 넘기고, {@code nextAfterId}가 {@code null}이면 마지막 페이지다.
+     * 읽기만 하므로 {@link LectureApiCallException.Reason#UNAVAILABLE}이면 그대로 다시 불러도 안전하다
+     *
+     * @param afterId 이 ID보다 큰 항목부터. {@code null}이면 처음부터
+     * @param size    페이지 크기 (1~{@value LectureSyncPageDto#MAX_SIZE})
+     */
+    public LectureSyncPageDto getSyncLectures(Long afterId, int size) {
+        return call(syncPage("/lectures", afterId, size), SYNC_LECTURES);
+    }
+
+    /** AI 추천용 구매(주문 항목) 동기화 목록. 주문 항목 ID 오름차순이고 모든 결과를 싣는다. 규칙은 {@link #getSyncLectures}와 같다 */
+    public LecturePurchaseSyncPageDto getSyncPurchases(Long afterId, int size) {
+        return call(syncPage("/purchases", afterId, size), SYNC_PURCHASES);
+    }
+
+    /** AI 추천용 장바구니 항목 동기화 목록. 뺀 항목도 싣는다. 규칙은 {@link #getSyncLectures}와 같다 */
+    public CartItemSyncPageDto getSyncCartItems(Long afterId, int size) {
+        return call(syncPage("/cart-items", afterId, size), SYNC_CART_ITEMS);
+    }
+
+    /** AI 추천용 리뷰 동기화 목록. 지운 리뷰도 싣는다. 규칙은 {@link #getSyncLectures}와 같다 */
+    public LectureReviewSyncPageDto getSyncReviews(Long afterId, int size) {
+        return call(syncPage("/reviews", afterId, size), SYNC_REVIEWS);
+    }
+
+    private RestClient.RequestHeadersSpec<?> syncPage(String kind, Long afterId, int size) {
+        return restClient.get().uri(builder -> {
+            builder.path(SYNC_PATH + kind);
+            if (afterId != null) {
+                builder.queryParam("afterId", afterId);
+            }
+            return builder.queryParam("size", size).build();
+        });
     }
 
     /**

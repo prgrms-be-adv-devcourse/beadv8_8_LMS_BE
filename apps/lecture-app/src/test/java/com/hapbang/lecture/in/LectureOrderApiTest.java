@@ -1,6 +1,7 @@
 package com.hapbang.lecture.in;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -9,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,6 +86,24 @@ class LectureOrderApiTest {
     }
 
     @Test
+    void 한_주문에_강의를_100개보다_많이_담으면_400_INVALID_REQUEST이고_주문하지_않는다() throws Exception {
+        String lectureIds = LongStream.rangeClosed(1, 101)
+                .mapToObj(String::valueOf)
+                .collect(Collectors.joining(","));
+
+        mockMvc.perform(post("/api/v1/lectures/orders")
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\": [" + lectureIds + "]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("lectureIds"));
+
+        assertThat(lectureOrderRepository.count()).isZero();
+        assertThat(billing.calls()).isEmpty();
+    }
+
+    @Test
     void 보류_결과를_모르면_202와_결제_처리_중_주문을_응답한다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
         billing.respond(command -> {
@@ -109,6 +130,19 @@ class LectureOrderApiTest {
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
+    }
+
+    @Test
+    void 탈퇴로_닫힌_지갑이면_결제_실패로_409_WALLET_CLOSED다() throws Exception {
+        // 결제 실패 사유를 보류 작업의 확정 거절 기록에서 읽어 잔액 부족과 나눈다 (D76)
+        Lecture lecture = saveOnSaleLecture();
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
+                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+
+        mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WALLET_CLOSED"))
+                .andExpect(jsonPath("$.detail").value("탈퇴한 회원의 지갑이에요."));
     }
 
     @Test

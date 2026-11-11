@@ -32,32 +32,39 @@ import jakarta.validation.Valid;
         오류는 Problem Detail로 응답하며 `code`로 구분한다.""")
 public interface ApiV1AppearanceRequestSpec {
 
-    String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=REJECTED&status=CANCELED). 생략하면 전체. "
+    String SENT_STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=REJECTED&status=CANCELED). "
+            + "생략하면 보류 처리 중(HOLD_PENDING)·실패(HOLD_FAILED)를 포함한 전체. 없는 값이면 400";
+
+    String RECEIVED_STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=REJECTED&status=CANCELED). 생략하면 전체. "
             + "REQUESTED·ACCEPTED·REJECTED·EXPIRED·CANCELED만 가능 (그 밖은 400)";
 
     @Operation(summary = "출연 요청서 보내기", description = """
             요청서를 저장하고 출연료만큼 호스트의 HP를 보류한다. 보류에 성공하면 `REQUESTED`로 201 응답한다.
             - 같은 게스트에게 처리 중이거나 응답 대기 중인 요청이 있으면 409 `DUPLICATE_APPEARANCE_REQUEST`
-            - HP 보류를 지갑이 거절하면 요청서는 기록으로만 남고 목록에 보이지 않는다.
-              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
-            - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 처리가 끝나면 보낸 요청 목록에 나타난다""")
+            - HP 보류를 지갑이 거절하면 요청서는 `HOLD_FAILED`로 남아 보낸 요청 목록·상세에서만 보인다(게스트에게는 보이지 않는다).
+              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 탈퇴로 닫힌 지갑이면 409 `WALLET_CLOSED`,
+              그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
+            - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 요청서는 `HOLD_PENDING`으로 보낸 요청 목록에 보이고,
+              보류 재확인 배치가 보통 1~2분 안에 `REQUESTED` 또는 `HOLD_FAILED`로 바꾼다(1시간이 지나도 결과를 모르면 보류를 무효화해 `HOLD_FAILED`)""")
     RsData<AppearanceRequestResDto> create(Long userId, @Valid CreateAppearanceRequestReqDto request);
 
     @Operation(summary = "보낸 요청 목록", description = """
             내가 호스트인 요청서. 최신순 고정(sort 값은 무시), 페이지는 page·size(기본 20, 최대 100).
-            보류가 끝나지 않았거나 실패한 요청서는 나오지 않는다.""")
+            보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`)한 요청서도 나온다. 두 상태는 수정·취소를 할 수 없다(404).""")
     RsData<Page<AppearanceRequestSummaryResDto>> getSent(Long userId,
-            @Parameter(description = STATUS_FILTER) List<AppearanceRequestStatus> statuses,
+            @Parameter(description = SENT_STATUS_FILTER) List<AppearanceRequestStatus> statuses,
             @Parameter(hidden = true) Pageable pageable);
 
     @Operation(summary = "받은 요청 목록", description = """
-            내가 게스트인 요청서. 최신순 고정(sort 값은 무시), 페이지는 page·size(기본 20, 최대 100).""")
+            내가 게스트인 요청서. 최신순 고정(sort 값은 무시), 페이지는 page·size(기본 20, 최대 100).
+            보류 처리 중·실패한 요청서는 게스트에게 도착하지 않은 요청서라 나오지 않는다.""")
     RsData<Page<AppearanceRequestSummaryResDto>> getReceived(Long userId,
-            @Parameter(description = STATUS_FILTER) List<AppearanceRequestStatus> statuses,
+            @Parameter(description = RECEIVED_STATUS_FILTER) List<AppearanceRequestStatus> statuses,
             @Parameter(hidden = true) Pageable pageable);
 
     @Operation(summary = "출연 요청서 상세", description = """
-            호스트·게스트만 조회할 수 있다. 다른 회원이 조회하거나 목록에 나오지 않는 요청서면 404 `APPEARANCE_REQUEST_NOT_FOUND`.""")
+            호스트·게스트만 조회할 수 있다. 보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`)한 요청서는 호스트만 볼 수 있다.
+            다른 회원이 조회하거나 게스트가 두 상태의 요청서를 조회하면 404 `APPEARANCE_REQUEST_NOT_FOUND`.""")
     RsData<AppearanceRequestResDto> getDetail(Long userId, Long requestId);
 
     @Operation(summary = "출연 요청서 기본 정보 수정", description = """

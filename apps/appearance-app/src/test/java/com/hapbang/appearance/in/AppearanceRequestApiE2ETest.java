@@ -2,6 +2,7 @@ package com.hapbang.appearance.in;
 
 import static com.hapbang.appearance.support.E2EMatchers.number;
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
@@ -210,6 +211,73 @@ class AppearanceRequestApiE2ETest {
         createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
                 .then().statusCode(503)
                 .body("code", equalTo("BILLING_UNAVAILABLE"));
+    }
+
+    /** 보낸 목록에서 그 상태인 요청서 ID 하나를 찾는다 (보내기가 실패 응답이라 응답 본문에 ID가 없다) */
+    private long sentIdOf(String status) {
+        return E2ELogin.as(HOST, Role.INFLUENCER).queryParam("status", status).get(BASE + "/sent")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(1))
+                .extract().jsonPath().getLong("data.content[0].id");
+    }
+
+    @Test
+    @DisplayName("보류 처리 중·실패한 요청서는 보낸 목록(기본·필터)과 호스트 상세에만 보이고, 받은 목록·게스트 상세·동작은 404 (#306)")
+    void holdStatusVisibleToHostOnly() {
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+        createRequest(HOST, createBody(GUEST, 30_000)).post(BASE).then().statusCode(409);
+        BillingStubs.unavailable(billingClient);
+        createRequest(HOST, createBody(OTHER, 30_000)).post(BASE).then().statusCode(503);
+        BillingStubs.available(billingClient);
+        long requested = sendRequest(HOST, GUEST);
+        long failed = sentIdOf("HOLD_FAILED");
+        long pending = sentIdOf("HOLD_PENDING");
+
+        // 보낸 목록: 상태를 지정하지 않으면 두 상태도 함께 나온다
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/sent")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(3))
+                .body("data.content.status", containsInAnyOrder("REQUESTED", "HOLD_PENDING", "HOLD_FAILED"));
+
+        // 받은 목록: 게스트에게 도착하지 않은 요청서는 나오지 않고, 그 상태로 거르면 400
+        E2ELogin.as(GUEST, Role.INFLUENCER).get(BASE + "/received")
+                .then().statusCode(200)
+                .body("data.content[0].id", number(requested))
+                .body("data.page.totalElements", equalTo(1));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/received")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(GUEST, Role.INFLUENCER).queryParam("status", "HOLD_FAILED").get(BASE + "/received")
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"));
+
+        // 상세: 호스트만 200, 게스트는 404
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + failed)
+                .then().statusCode(200)
+                .body("data.status", equalTo("HOLD_FAILED"))
+                .body("data.appearanceId", nullValue());
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + pending)
+                .then().statusCode(200)
+                .body("data.status", equalTo("HOLD_PENDING"));
+        E2ELogin.as(GUEST, Role.INFLUENCER).get(BASE + "/" + failed)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/" + pending)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
+
+        // 동작: 호스트의 수정·취소, 게스트의 수락은 그대로 404
+        E2ELogin.as(HOST, Role.INFLUENCER).contentType(ContentType.JSON).body("{\"title\": \"바뀐 제목\"}")
+                .patch(BASE + "/" + failed)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
+        E2ELogin.as(HOST, Role.INFLUENCER).post(BASE + "/" + pending + "/cancel")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
+        E2ELogin.as(OTHER, Role.INFLUENCER).contentType(ContentType.JSON).body("{\"version\": 0}")
+                .post(BASE + "/" + pending + "/accept")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
     }
 
     @Test

@@ -58,12 +58,16 @@ spec:
           # EC2에서 384Mi·448Mi는 기동 중 OOMKilled됐고, 640Mi에서 떠 536Mi에서 멈췄다(#461).
           # k3d도 같았다(Prometheus export를 꺼도 같음). heap 상한 268Mi에서 heap 231·non-heap 177·JVM 밖 native 약 185
           # = RSS 593Mi였다(#480).
+          # trace(#579) 적용 전 운영 working set이 588Mi(640Mi의 92%)였고, k3d에서 trace를 더하면 기동 10분 뒤 약 +18Mi
+          # (non-heap +8Mi, 스레드 +9, 클래스 +1,148)였다. 여유를 두려고 704Mi로 올렸다(docs/architecture/infrastructure/k3s.md).
+          # 704Mi에서 기동 20시간 working set 646Mi(92%)였다. heap 사용은 최대 164Mi인데 상한(limit의 60%)이 410Mi라 상한까지 차면 limit을 넘는다.
+          # heap 상한을 -Xmx224m으로 고정하고(kustomization.yaml) limit은 둔다. heap 224 + heap 외 JVM 영역 246 + native 148 ≈ 618Mi(88%)다(#727, #610).
           resources:
             requests:
               cpu: 100m
-              memory: 640Mi
+              memory: 704Mi
             limits:
-              memory: 640Mi
+              memory: 704Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

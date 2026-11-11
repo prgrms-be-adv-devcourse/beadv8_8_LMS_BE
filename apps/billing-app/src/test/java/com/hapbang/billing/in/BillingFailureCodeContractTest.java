@@ -17,7 +17,7 @@ import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 
 // Billing 오류 코드 전체를 shared BillingFailureCode(내부 API Client가 쓰는 코드)로 바꾸는 대조 (#273, docs/billing/CONTEXT.md 1.6).
-// 내부 API 네 경로(보류·반환·지급·위약금 정산)에서 응답할 수 있는 코드는 같은 이름의 BillingFailureCode로, 나오지 않는 코드는 null로 둔다.
+// 내부 API 경로(보류·반환·지급·위약금 정산·보류 무효화·탈퇴용 지갑 닫기)에서 응답할 수 있는 코드는 같은 이름의 BillingFailureCode로, 나오지 않는 코드는 null로 둔다.
 // switch에 default가 없으므로 Billing에 오류 코드가 늘면 컴파일되지 않아, 내부 API 계약에 넣을지 반드시 정하게 된다.
 class BillingFailureCodeContractTest {
 
@@ -71,6 +71,9 @@ class BillingFailureCodeContractTest {
             // 위약금 정산 (출연)
             case PENALTY_BASE_EXCEEDS_HELD -> BillingFailureCode.PENALTY_BASE_EXCEEDS_HELD;
             case PENALTY_AMOUNT_ZERO -> BillingFailureCode.PENALTY_AMOUNT_ZERO;
+            // 회원 탈퇴 (#623): 닫힌 지갑의 보류 거절, 다시 열린 탈퇴 작업의 늦은 닫기
+            case WALLET_CLOSED -> BillingFailureCode.WALLET_CLOSED;
+            case WITHDRAWAL_ALREADY_REOPENED -> BillingFailureCode.WITHDRAWAL_ALREADY_REOPENED;
             // 락 대기 초과
             case HP_LOCK_TIMEOUT -> BillingFailureCode.HP_LOCK_TIMEOUT;
             // 내부 API에서 나오지 않는다: 역분개, 확정 차감(노출하지 않음), 충전, 환불, 환전, 수익 조회, Backfill,
@@ -87,7 +90,7 @@ class BillingFailureCodeContractTest {
                     EXCHANGE_PAYOUT_NOT_FINALIZABLE, EXCHANGE_PAYOUT_NOT_CHECKABLE, EXCHANGE_FINAL_FAILURE_REASON_INVALID,
                     EXCHANGE_STATE_INCONSISTENT, EXCHANGE_ACCOUNT_UNREADABLE,
                     EARNING_SOURCE_UNAVAILABLE, EARNING_SOURCE_REJECTED, EARNING_PAGE_TOO_DEEP,
-                    MEMBER_SOURCE_UNAVAILABLE, MEMBER_SOURCE_REJECTED, BACKFILL_ALREADY_RUNNING,
+                    MEMBER_SOURCE_UNAVAILABLE, MEMBER_SOURCE_REJECTED, BACKFILL_ALREADY_RUNNING, BACKFILL_LOCK_UNAVAILABLE,
                     WALLET_MEMBER_NOT_FOUND, WALLET_MEMBER_NOT_ALLOWED,
                     MOCK_PAYOUT_FORBIDDEN, MOCK_PAYOUT_INVALID_REQUEST, MOCK_PAYOUT_IDEMPOTENCY_CONFLICT,
                     MOCK_PAYOUT_NOT_FOUND, MOCK_PAYOUT_UNAVAILABLE, MOCK_PAYOUT_SERVER_ERROR -> null;

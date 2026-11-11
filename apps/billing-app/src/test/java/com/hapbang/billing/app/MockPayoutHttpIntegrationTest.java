@@ -75,10 +75,6 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 "spring.config.name=hapbang-module-test",
                 "spring.modulith.events.jdbc.schema-initialization.enabled=true",
                 "spring.modulith.events.completion-mode=delete",
-                "hapbang.storage.s3.endpoint=http://localhost:9",
-                "hapbang.storage.s3.bucket=test",
-                "hapbang.storage.s3.region=ap-northeast-2",
-                "hapbang.storage.s3.key-prefix=test",
                 // global 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다 (#300)
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.billing.mock-payout.enabled=true",

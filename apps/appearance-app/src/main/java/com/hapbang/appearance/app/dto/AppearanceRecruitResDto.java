@@ -14,7 +14,7 @@ public record AppearanceRecruitResDto(
         Long id,
         Long hostId,
         String title,
-        String hostChannelUrl,
+        @Schema(description = "호스트 채널 URL. 호스트가 탈퇴하고 개인정보가 파기되면 `withdrawn`(링크로 그리지 않는다, #675)") String hostChannelUrl,
         @Schema(description = "방송 예정 일시 (KST)") LocalDateTime scheduledAt,
         @Schema(description = "예상 출연 시간(분)") int expectedMinutes,
         @Schema(description = "콘텐츠 설명") String content,

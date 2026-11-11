@@ -144,8 +144,10 @@
 | 게스트가 수정 | `NOT_REQUEST_HOST` |
 | `HOLD_PENDING` 요청서 수정 | `APPEARANCE_REQUEST_NOT_EDITABLE` |
 | 호스트·게스트 조회 / 다른 회원 조회 | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
-| `HOLD_PENDING`·`HOLD_FAILED` 요청서를 호스트가 조회 | `APPEARANCE_REQUEST_NOT_FOUND` (숨김) |
-| `REQUESTED`·`ACCEPTED`·`REJECTED`·`EXPIRED`·`CANCELED` | 목록·상세에 보이는 상태 |
+| `HOLD_PENDING`·`HOLD_FAILED` 요청서를 호스트가 다루기(수정·취소 확인) | `APPEARANCE_REQUEST_NOT_FOUND` |
+| 상세: 호스트·게스트 / 다른 회원 | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
+| 상세: `HOLD_PENDING`·`HOLD_FAILED`를 호스트 / 게스트·다른 회원 (#306) | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
+| `REQUESTED`·`ACCEPTED`·`REJECTED`·`EXPIRED`·`CANCELED` | 게스트에게 보이고 다룰 수 있는 상태 |
 
 ### 3.7 요청 값 형식 — `AppearanceRequestValidationTest`
 
@@ -198,9 +200,21 @@
 | 가입 → `UserModifiedEvent`(닉네임, VERIFIED_INFLUENCER, SUSPENDED, 버전 1) | 닉네임·역할·상태 갱신, 회원 버전 1 |
 | 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지, DLT 없음. 같은 key로 보낸 표지(다른 회원 가입)가 반영된 뒤 확인해 앞 이벤트 처리가 끝났음을 보장 |
 | `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
+| 끝난 요청서(`HOLD_FAILED`) → `UserMaskedEvent` 두 번 (#675) | 채널 URL `withdrawn`, 같은 key 표지 반영 뒤 DLT 없음 |
 | 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
 | 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
 | DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
+
+### 4.4.1 탈퇴 회원 파기: 호스트 채널 URL — `AppearanceHostChannelMaskTest` (#675)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 호스트가 취소한 요청서·조기 마감한 모집글 → 파기 | 둘 다 채널 URL `withdrawn`, 요청서 상태·버전·제목·본문 그대로 |
+| 다른 회원이 호스트인 글 | 그대로 (`https://…`) |
+| 같은 파기 두 번 | 결과 같음 |
+| 호스트로 쓴 글이 없는 회원·출연 회원이 없는 회원 | 실패하지 않음 |
+| 응답 대기 요청서·모집 중 모집글 + 취소한 요청서 → 파기 | 진행 중인 글은 그대로, 취소한 글은 `withdrawn`, error 로그 `[HOST_CHANNEL_MASK_SKIPPED] … activeRequests=1, activeRecruits=1` |
+| 파기 뒤 게스트가 요청서 상세 조회 | `hostChannelUrl` = `withdrawn` (FE 계약 값) |
 
 - 회원 버전 비교 자체는 공통 `ReplicaUser`(회원 #292, `ReplicaUserTest`)가 확인한다. 출연 쪽은 Kafka로 받았을 때 그 동작이 출연 회원에 적용되는지 본다.
 - 이전 테스트(같은 서버 안 이벤트 발행, 발행 트랜잭션 롤백 경우)는 회원이 다른 앱이 되어 없앴다. 롤백된 회원 변경은 회원 앱이 Kafka로 보내지 않는다(#393과 같은 Modulith 외부화).
@@ -222,10 +236,11 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 케이스 | 기대 결과 |
 |---|---|
 | 보내기 | `REQUESTED`, 보류 30,000, 호스트 잔액 −30,000 |
-| 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
+| 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록에 `HOLD_FAILED` 1건·받은 목록 0건 (#306) |
+| 닫힌 지갑(탈퇴 직후)에서 보내기 (#648) | 409 `WALLET_CLOSED`, 요청서 `HOLD_FAILED`, 보낸 목록에 `HOLD_FAILED` 1건·받은 목록 0건 (#306) |
 | 호스트 지갑 없음 (#168) | 500 `HP_HOLD_FAILED`(지갑 코드는 응답하지 않음, #274), 요청서 `HOLD_FAILED` |
 | 잔액 부족 실패 뒤 잔액을 채우고 같은 게스트에게 다시 보내기 | `REQUESTED` |
-| Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록 0건. 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
+| Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록에 `HOLD_PENDING` 1건·받은 목록 0건 (#306). 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
 | 응답 대기 중인 게스트에게 다시 보내기 / 다른 게스트에게 보내기 | `DUPLICATE_APPEARANCE_REQUEST` / `REQUESTED` (보류 2건) |
 | 같은 게스트에게 5개 스레드가 동시에 저장 | 1건 저장, 4건 `DUPLICATE_APPEARANCE_REQUEST`, DB에 1건 |
 | 게스트가 일반 유저 / 없는 회원 | `NOT_INFLUENCER` ("인플루언서 이상에게만 출연을 요청할 수 있습니다.") / `APPEARANCE_USER_NOT_FOUND` ("게스트 회원 정보를 찾을 수 없습니다."), 저장 안 됨 |
@@ -275,6 +290,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요.` (출연 문구, #274) |
 | 응답 대기 중인 게스트에게 다시 보내기 | 409, `code: DUPLICATE_APPEARANCE_REQUEST` |
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
+| 보류 실패(게스트에게)·보류 처리 중(다른 회원에게)·응답 대기 각 1건 (#306) | 보낸 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 받은 목록은 응답 대기 1건·0건, `status=HOLD_FAILED`는 400 / 호스트 상세 200(`HOLD_FAILED`, `appearanceId` null)·(`HOLD_PENDING`), 게스트 상세 404 / 호스트 수정·취소, 게스트 수락 모두 404 `APPEARANCE_REQUEST_NOT_FOUND` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
 | 빈 본문(`{}`)으로 수정 | 400, `code: INVALID_REQUEST` |
 | 사용자 헤더 없이 보내기 / `X-User-Id`만 보내기 | 401 / 401 (보안 필터, #395) |
@@ -371,7 +387,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 응답 전 취소 / 게스트가 취소 | `CANCELED` + `DONE`(사유 `REQUEST_CANCELED`) / `NOT_REQUEST_HOST`, 작업 없음 |
 | 거절 후 다시 거절·취소 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 작업은 1건뿐 |
 | 수락과 취소를 동시에 | 하나만 성공, 다른 쪽은 `CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 출연 + 작업 합계 1건 |
-| 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / `INVALID_REQUEST` |
+| 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / 받은 목록은 `INVALID_REQUEST`, 보낸 목록은 0건 (#306) |
 | 상세 | `version` 포함, 수락 후 `appearanceId`, 반환 상태 없음 |
 
 ---
@@ -394,7 +410,8 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 다른 회원이 수정 | `NOT_RECRUIT_HOST` |
 | `HOLD_PENDING` 수정 / 모집 중이지만 마감 일시가 지남 | `APPEARANCE_RECRUIT_NOT_EDITABLE` |
 | 형식이 틀린 값으로 수정 | `INVALID_REQUEST`, 아무것도 바뀌지 않음 |
-| `HOLD_PENDING` 상세 확인 | `APPEARANCE_RECRUIT_NOT_FOUND` |
+| `HOLD_PENDING`·`HOLD_FAILED`를 다루기(지원·수정·마감·취소 확인) | 호스트에게도 `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 상세: `HOLD_PENDING`·`HOLD_FAILED`를 올린 호스트 / 다른 회원, 모집 중을 다른 회원 (#306) | 통과 / `APPEARANCE_RECRUIT_NOT_FOUND`, 통과 |
 
 ### 8.2 저장소 — `AppearanceRecruitRepositoryTest`
 
@@ -412,14 +429,15 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 |---|---|
 | 올리기 | `RECRUITING`, 성립 인원 0, 응답 버전 = DB, Billing에 보류 요청(`APPEARANCE_RECRUIT`, 모집글 ID, 호스트, 90,000) |
 | 같은 호스트가 두 번 올리기 | 2건 저장 (중복 제한 없음) |
-| 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록·공개 목록 0건 |
+| 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록에 `HOLD_FAILED` 1건·공개 목록 0건 (#306) |
+| 닫힌 지갑(탈퇴 직후) (#648) | 409 `WALLET_CLOSED`, `HOLD_FAILED`, 내 목록에 `HOLD_FAILED` 1건·공개 목록 0건 (#306) |
 | Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
 | 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
 | 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
 | 로그인 역할 USER | 올리기·수정·내 목록은 `AccessDeniedException`, 공개 목록·상세는 조회 가능 |
 | 공개 목록 | 모든 호스트의 모집 중 모집글, 최신순 |
-| 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / `INVALID_REQUEST` |
-| 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / `APPEARANCE_RECRUIT_NOT_FOUND` / `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / 0건 (#306) |
+| 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / 올린 호스트는 `HOLD_PENDING`, 다른 회원은 `APPEARANCE_RECRUIT_NOT_FOUND` (#306) / `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 수정 / 같은 수정 반복 | 보낸 값만 바뀌고 버전 증가 / 버전 그대로 (멱등) |
 | 다른 회원이 수정 / 없는 모집글 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_FOUND` |
 
@@ -432,7 +450,8 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 잔액 부족 | 409 `INSUFFICIENT_BALANCE` |
 | 일반 유저(USER) 공개 목록·상세 / 올리기 | 200 / 403 `FORBIDDEN` |
 | 비로그인 공개 목록 | 401 (비회원 공개는 팀 합의 후) |
-| 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` | 내 글 1건 / 400 `INVALID_REQUEST` |
+| 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` / `status=UNKNOWN` | 내 글 1건 / 0건 (#306) / 400 `INVALID_REQUEST` |
+| 보류 실패·보류 처리 중·모집 중 각 1건 (#306) | 내 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 공개 목록은 모집 중 1건 / 호스트 상세 200(`HOLD_FAILED`, `hpReleaseStatus`·`myApplication` null)·(`HOLD_PENDING`), 다른 회원·일반 유저 상세 404 / 지원자 목록은 호스트 빈 목록 200(두 상태), 다른 회원 404 / 호스트 수정·마감·취소, 다른 회원 지원 모두 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 호스트 수정 / 다른 회원 수정 / 빈 수정 | 200 "출연 모집글을 수정했습니다." / 403 `NOT_RECRUIT_HOST` / 400 |
 | 없는 모집글 상세 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | Swagger (`AppearanceSwaggerDocsTest`) | 올리기·상세·수정은 `RsDataAppearanceRecruitResDto`, 공개·내 목록은 `RsDataPageAppearanceRecruitSummaryResDto` → `PagedModelAppearanceRecruitSummaryResDto` |
@@ -943,7 +962,7 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 내 목록·상세에 안 보임, 다시 가져가지 않음 |
+| `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 공개 목록 0건·내 목록과 호스트 상세에 `HOLD_FAILED`·다른 회원 상세 404 (#306), 다시 가져가지 않음 |
 | `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
 | `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
 | `AppearanceBatchScheduleTest` | appearance.yml cron 7개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·5·10·20·30·40·50, 05초 알림 재발행은 #393) |
@@ -1203,6 +1222,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 |---|---|---|
 | 보류 | 성공 | `REQUESTED`. 지갑이 받은 요청: 내부 API 키, JSON, 호스트·`APPEARANCE_REQUEST`·요청서 ID·출연료 |
 | 보류 | 잔액 부족 409 (지갑 설명 있음) | `AppearanceHoldRejectedException` 409 `INSUFFICIENT_BALANCE`, 메시지는 출연 문구(지갑 설명 아님), `HOLD_FAILED` |
+| 보류 | 닫힌 지갑 409 `WALLET_CLOSED` (#648) | `AppearanceHoldRejectedException` 409 `WALLET_CLOSED` "탈퇴한 회원의 지갑이에요.", `HOLD_FAILED` |
 | 보류 | 목록 밖 코드(처음 보는 404 `SOMETHING_NEW`) | 500 `HP_HOLD_FAILED`, 메시지는 출연 문구(지갑 코드·설명이 나가지 않음), `HOLD_FAILED` |
 | 보류 | 내부 API 키 오류(본문 없는 401, 지갑 계약) (#463) | 500 `HP_HOLD_FAILED`, `HOLD_FAILED`(결과 불명으로 보지 않음), 지갑 요청 1번 |
 | 보류 | 409 `IDEMPOTENCY_KEY_CONFLICT` | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
@@ -1480,3 +1500,144 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceBatchConditionTest` | 스위치 켬 | 배치 빈 생성 (새 UseCase 포함) |
 
 - 기한이 켜진 경우는 운영 설정(무기한)을 바꾸지 않고 기한 14일 정책으로 만든 UseCase로 확인한다. 이벤트는 UseCase에 넘긴 수집용 발행기로 모아 다른 스레드의 발행도 센다.
+
+---
+
+## 34. 보류 결과를 확정하지 못한 요청서·모집글의 보류 무효화 (#536)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceHoldVoidTest` | 만든 지 59분 | 보류를 다시 보내 `REQUESTED`, 무효화 없음 |
+| `AppearanceHoldVoidTest` | 포기 기준 전 재확인 보류가 `HOLD_VOIDED`로 거절 (무효화 뒤 늦은 보류) | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 포기 기준 전 재확인 보류가 `WALLET_CLOSED`로 거절 (보류 결과를 모르는 사이 탈퇴로 지갑이 닫힘, #648) | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 보내기 요청의 보류가 `HOLD_VOIDED`로 거절 | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 요청서, 만든 지 1시간 | 보류 대신 무효화(호스트·`APPEARANCE_REQUEST`·요청서 ID), `VOIDED` → `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 모집글, 지갑에 보류가 있었음 | 무효화(호스트·`APPEARANCE_RECRUIT`·모집글 ID), `RELEASED` → `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | `ALREADY_CLOSED` / `VOIDED` 로그 | `HOLD_FAILED`, 예상 밖 상태라 WARN / 정리만 된 것이라 INFO |
+| `AppearanceHoldVoidTest` | 무효화 결과 불명 → 다음 회차 `replayed` | 처음엔 `HOLD_PENDING`, 다음 회차 `HOLD_FAILED`. 보류는 다시 보내지 않음 |
+| `AppearanceHoldVoidTest` | 무효화 거절 `HOLD_OWNER_MISMATCH` | `HOLD_PENDING` 그대로, 다음 회차에도 무효화를 다시 보냄 |
+| `AppearanceHoldVoidTest` | 수락 기한이 이미 지난 요청서 | 같은 기준으로 무효화 → `HOLD_FAILED`, 만료 배치 0건 |
+| `AppearanceHoldVoidTest` | 무효화 뒤 같은 게스트에게 새 요청서 | `REQUESTED` (진행 중 1건 제한에서 빠짐) |
+| `AppearanceHoldVoidTest` | 한 회차에 1시간 지난 건과 30분 된 건 | 앞은 무효화 → `HOLD_FAILED`, 뒤는 보류 → `REQUESTED` |
+| `AppearanceBillingHttpTest` | Mock Billing: 보류 500이 계속 → 1시간 뒤 | 무효화 요청에 내부 API 키·JSON, 본문 `userId`·`referenceType`·`referenceId`만, `VOIDED` → `HOLD_FAILED` |
+| `AppearanceBillingHttpTest` | Mock Billing: 무효화도 500 → 지갑 복구 | `HOLD_PENDING` → 다음 회차 같은 참조 대상으로 다시 무효화해 `HOLD_FAILED` |
+| `AppearanceBatchUseCaseTest` (S5 수정) | 포기 기준 전(31분)에 수락 기한이 지난 보류 처리 중 요청서 | 재확인으로 `REQUESTED` → 만료 배치 `EXPIRED` + 반환 |
+| `AppearanceRecruitCloseTest` (C5 수정) | 포기 기준 전에 모집 마감이 지난 보류 처리 중 모집글 | 재확인으로 `RECRUITING` → 마감 배치 `CLOSED` + 전액 반환 |
+| `AppearanceConfigTest` | `hold-void-after` 기본 1시간 / `pending-grace` 이하(1분·30초) | 1시간 / 앱 기동 실패 |
+
+- 만든 시각(JPA Auditing)은 테스트 시계가 아니라 실제 시각이라, 같은 회차의 서로 다른 나이는 한 건의 `created_at`을 테스트 시계로 맞춰 만든다.
+
+## 35. 모집글·지원 이력 내부 조회 (#586)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRecruitInternalApiE2ETest` | 모집글 요약 | 200 `RsData`, `recruitId`·`hostId`·`title`·`status=RECRUITING` |
+| `AppearanceRecruitInternalApiE2ETest` | 상태를 `HOLD_PENDING`·`HOLD_FAILED`·`CLOSED`·`CANCELED`로 바꿈 | 숨기지 않고 각 상태 그대로 |
+| `AppearanceRecruitInternalApiE2ETest` | 없는 모집글 / ID 0 / 숫자 아님 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` / 400 `INVALID_REQUEST` / 400 `INVALID_REQUEST` |
+| `AppearanceRecruitInternalApiE2ETest` | 지원자 4명(지원·수락·미선정·지원 취소, ID 순서와 다른 지원 순서) + 다른 모집글 지원자 | 4명 모두 회원 ID 오름차순, 다른 모집글 지원자 없음, `nextAfterUserId` 키 없음 |
+| `AppearanceRecruitInternalApiE2ETest` | 키셋: `size=3` → `afterUserId=4` / `afterUserId=0` / `size=4`(딱 맞음) / 마지막 뒤 / 지원 없는 모집글 | `[2,3,4]`·다음 4 → `[5]`·다음 없음 / 처음부터 `[2,3,4]` / 4명·다음 없음 / 빈 목록 / 빈 목록 |
+| `AppearanceRecruitInternalApiE2ETest` | `size` 0·501·숫자 아님, `afterUserId` -1 / `size` 500 / 없는 모집글 | 400 `INVALID_REQUEST` / 200 / 404 |
+| `AppearanceRecruitInternalApiE2ETest` | 지원 이력 확인 `userIds=4,6,2,99,4`(6은 다른 모집글 지원자, 2는 지원 취소) / 반복 형식 / 지원 없는 회원만 | `[2,4]` / `[2,4]` / 빈 목록 |
+| `AppearanceRecruitInternalApiE2ETest` | `userIds` 없음·101개·0·숫자 섞임 / 100개 / 없는 모집글 | 400 `INVALID_REQUEST` / 200 / 404 |
+| `AppearanceRecruitInternalApiE2ETest` | 세 경로: 키 없음 / 틀린 키 / 회원 로그인(호스트 본인) / 내부 키 | 본문 없는 401 / 401 / 401 / 200 |
+| `AppearanceSwaggerDocsTest` | 내부 API 스키마 | 세 경로 `RsData` 응답, 모집글 상태 enum 5가지, `nextAfterUserId` 속성 |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+
+## 36. 서비스 간 HP 대사 (#581)
+
+출연은 실제 흐름(보내기·수락·확인·취소·모집 마감)으로 만들고, 지갑 기록은 Mockito 대역에 손으로 적는다(출연료 30,000, 위약금 9,000). 변경 시각(JPA Auditing)은 실제 시각이라 테스트가 SQL로 3시간 전으로 맞춘 뒤 실행한다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceHpReconciliationTest` | 요청서 요청 중(HELD)·거절(RELEASED)·확인(PAID + 지급 건)·일방 취소(MIXED + 위약금)·불참(RELEASED) | 5건 비교, 어긋남 0, 규칙별 지표 0 |
+| `AppearanceHpReconciliationTest` | 모집글 3명 중 2명 선발 → 조기 마감(빈자리 반환) → 확인 1·일방 취소 1 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 모집 중 합의 취소(작업 없음), 보류 전부 남음 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 보류 실패 요청서: 보류 없음 / 무효화로 반환됨 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 거절했는데 보류 `HELD` | `HOLD_BALANCE_MISMATCH`, 상태 요약·경고 로그 태그·지표 1 |
+| `AppearanceHpReconciliationTest` | 출연 확인인데 지급 건 없음 / 일방 취소인데 위약금 지급 건 없음 | `SETTLEMENT_MISSING` (출연 ID) |
+| `AppearanceHpReconciliationTest` | 모집 마감 뒤 남은 보류 ≠ 남은 출연료 합 | `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 마감 뒤 빈자리 반환 작업이 없음(출연 쪽 누락) | `HP_TASK_MISMATCH` + `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 요청 중인데 지갑 보류가 반환·무효화됨 | `VOIDED_WHILE_ACTIVE` + `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 지갑 목록에만 있는 요청서 ID | `WALLET_ONLY_HOLD`, 보류 조회로 다시 묻지 않음 |
+| `AppearanceHpReconciliationTest` | 보류 없음 / 보류한 회원이 다름 | `HOLD_MISSING` / `HOLD_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 지급 건 받는 회원이 다름 / 작업에 없는 지급 건 | `SETTLEMENT_MISMATCH` / `SETTLEMENT_UNEXPECTED` |
+| `AppearanceHpReconciliationTest` | 보류 실패인데 보류가 남음 | `HOLD_NOT_CLOSED` |
+| `AppearanceHpReconciliationTest` | 유예(2시간) 안의 변경 / `HOLD_PENDING` / 재시도 대기 작업 | 비교 안 함, 보류 조회 없음 |
+| `AppearanceHpReconciliationTest` | 비교 범위(7일) 밖 변경 → 지갑 목록에 오면 | 처음엔 비교 안 함 → 지갑 목록으로 다시 봐 `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 격리 작업이 있음 | `HP_TASK_DEAD` 표시, DEAD 수 1, 어긋난 수 0, 보류 조회 없음 |
+| `AppearanceHpReconciliationTest` | 보류 조회 결과 불명 / 목록 거절 / 회로 열림 | `INCOMPLETE`(이유), 커서 저장 안 함, 지표 그대로 / 회로 열림이면 지갑 호출 없음 |
+| `AppearanceHpReconciliationTest` | 요청서 비교 뒤 모집글 목록에서 실패 | `INCOMPLETE`, 그때까지의 어긋남 1건은 남음 |
+| `AppearanceHpReconciliationTest` | 목록 `hasMore` 두 페이지 → 다음 실행 | 응답 커서로 이어 읽고 마지막 커서를 KST로 저장, 다음 실행은 그 커서에서 시작 |
+| `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
+| `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
+| `AppearanceHpReconciliationTest` | 앱이 멈춰 `RUNNING`으로 남은 실행 | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) |
+| `AppearanceHpReconciliationHttpTest` | Mock Billing: 목록 GET·조회 POST | 내부 API 키, 쿼리(참조 유형·처음 커서·500건), JSON 본문(참조 유형·ID 목록), 응답 해석, 커서 KST 저장 |
+| `AppearanceHpReconciliationHttpTest` | Mock Billing: 조회 500 | `INCOMPLETE`, 커서 저장 안 함 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 기록 없음 → 실행 → 마지막 결과 | 404 `HP_RECONCILIATION_NOT_FOUND` → 200 `COMPLETED`·어긋난 건 → 200 같은 실행 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 회로 열림 | 200 `INCOMPLETE` + 이유 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 관리자 아님 / 비로그인 / 권한 잃은 관리자 | 403 / 401 / 403 `NOT_ADMIN`, 실행 기록 없음 |
+| `AppearanceBatchScheduleTest` | HP 대사 cron | 매일 04:00:25(KST), 매분 배치 초와 겹치지 않음, 배치 9개 등록, UseCase 호출 |
+| `AppearanceConfigTest` | 기본값 / 유예 음수·범위 ≤ 유예·건수 0·501 | 2h·7d·500 / 앱 기동 실패 |
+| `AppearanceSwaggerDocsTest` | 실행·마지막 결과 | `RsDataHpReconciliationRunResDto`, 어긋난 건 목록·규칙 값 |
+
+## 37. 회원 탈퇴 막힌 이유 조회 (#624)
+
+요청서·모집글·지원·출연은 Facade로 만들고, 만들기 어려운 상태(HP 보류 확인 중, 출연 취소 요청 처리 중, HP 작업 대기·격리)는 SQL로 바꿔 둔다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceWithdrawalInternalApiE2ETest` | 회원 하나에 일곱 조건 모두: 보낸 요청 2, 받은 요청 1, 모집 중 1, 지원 대기 1, 진행 중 출연(호스트 성립·게스트 취소 요청 처리 중·지급 격리된 성립) 3, HP 처리 중(보류 확인 중 요청서·모집글, 반환 작업 대기) 3, 격리된 지급 작업(받는 회원) 1 | 200 `RsData`, 이유 7개를 정해진 순서·문구·건수로, `availableAt` 모두 null |
+| `AppearanceWithdrawalInternalApiE2ETest` | 같은 데이터를 상대 쪽(게스트 5·호스트 4·게스트 1)에서 조회 | 각각 진행 중 출연 / 모집 중 / 받은 요청 하나씩 |
+| `AppearanceWithdrawalInternalApiE2ETest` | 끝난 건만(거절·취소·보류 실패 요청서, 지원 취소, 조기 마감 모집글, 확인된 출연) / 출연 기록 없음 / 복제 회원 없음 | 셋 다 빈 목록 |
+| `AppearanceWithdrawalInternalApiE2ETest` | `userId` 0·-1·숫자 아님 | 400 `INVALID_REQUEST` |
+| `AppearanceWithdrawalInternalApiE2ETest` | 키 없음 / 틀린 키 / 회원 로그인(본인) | 본문 없는 401 / 401 / 401 |
+| `AppearanceWithdrawalBlockTest` | 건수 1,234 / 건수 없는 문구 | 천 단위 쉼표(서버 언어 설정 무관) / 건수와 관계없이 같은 문장 |
+| `AppearanceSwaggerDocsTest` | 탈퇴 확인 스키마 | `RsDataWithdrawalBlocksDto`, 이유 항목 `WithdrawalBlockReasonDto`(code·message), 내부 키 헤더 |
+| `AppearanceApiClientTest` (shared) | 성공 / 빈 목록 | 경로 `/users/{userId}/withdrawal-blocks`·내부 키 헤더, 이유 순서대로, `availableAt` null·빠짐 모두 null / 빈 목록·`isBlocked=false` |
+| `AppearanceApiClientTest` (shared) | `reasons` 없음 / `code` 없음 / `message` 없음 / null 항목 | 호출 불가(`UNAVAILABLE`) |
+| `AppearanceApiClientTest` (shared) | 400 ProblemDetail / 본문 없는 401 / 503 / 연결 거부 | 거절(`REJECTED`, code 담음) / 거절(code null) / 호출 불가 / 호출 불가 |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+
+## 38. 보류 처리 중·실패 상태 호스트 조회 (#306)
+
+보류 실패는 지갑 대역의 잔액 부족 거절로, 보류 처리 중은 지갑 무응답으로 만든다. 결과 응답에 ID가 없어 내 목록·보낸 목록을 상태로 걸러 찾는다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRecruitApiE2ETest` | 보류 실패·보류 처리 중·모집 중 각 1건 | 내 목록 기본 3건, 상태 필터로 각 1건 / 공개 목록 모집 중 1건 / 상세는 호스트 200, 다른 회원·일반 유저 404 / 지원자 목록은 호스트 빈 목록, 다른 회원 404 / 수정·마감·취소·지원 404 |
+| `AppearanceRequestApiE2ETest` | 보류 실패(게스트에게)·보류 처리 중(다른 회원에게)·응답 대기 각 1건 | 보낸 목록 기본 3건, 상태 필터로 각 1건 / 받은 목록에 두 상태 없음, 두 상태로 거르면 400 / 상세는 호스트 200, 게스트 404 / 수정·취소·수락 404 |
+| `AppearanceRecruitTest` | 다루기 확인 / 상세 확인 | 두 상태는 호스트에게도 404 / 두 상태는 호스트만 통과 |
+| `AppearanceRequestTest` | 상세 확인 | 호스트·게스트 통과, 다른 회원 404 / 두 상태는 호스트만 통과, 게스트·다른 회원 404 |
+| `AppearanceRecruitFacadeTest`·`AppearanceRequestFacadeTest` | 잔액 부족·닫힌 지갑·무응답 | 내 목록·보낸 목록에 그 상태 1건, 공개 목록·받은 목록 0건 |
+| `AppearanceBatchUseCaseTest` | 재확인에서 보류 실패한 모집글 | 내 목록·호스트 상세에 `HOLD_FAILED`, 다른 회원 상세 404 |
+| `AppearanceSwaggerDocsTest` | 상태 필터 설명 | 내 모집글·보낸 요청 목록에는 `HOLD_FAILED`가 적혀 있고, 받은 요청 목록에는 없다 |
+
+## 39. AI 추천용 출연 동기화 (#713)
+
+전이는 Facade·배치로 실제로 일으키고, 발행한 이벤트는 `@RecordApplicationEvents`로 본다. 이벤트 값은 매번 동기화 목록(`AppearanceSyncQueryUseCase`, 내부 API와 같은 생성 메서드)으로 읽은 커밋된 값과 통째로 비교한다. 같으면 version이 커밋된 값이고, 이벤트와 내부 API 값도 같다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceStatusTest` | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
+| `AppearanceTest` | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
+| `AppearanceReviewTest` | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
+| `AppearanceChangedEventTest` | 요청 수락 / 모집 지원 수락 2명 | 출연마다 1건, `SCHEDULED`, version 0, 커밋된 값과 같음 |
+| `AppearanceChangedEventTest` | 취소 요청 / 호스트 거절 / 자동 거절 배치 / 합의 취소 | 전이마다 1건 더: `SCHEDULED`(version 1) / `SCHEDULED`(version 2) / `SCHEDULED` / `CANCELED` |
+| `AppearanceChangedEventTest` | 호스트 확인 / 불참 / D+7 자동 확인 배치 | `COMPLETED` / `NO_SHOW` / `COMPLETED` |
+| `AppearanceChangedEventTest` | 호스트 일방 취소 / 모집 전체 취소(출연 2건) | `CANCELED` / 출연마다 `CANCELED` 1건, 각각 커밋된 version |
+| `AppearanceChangedEventTest` | 호스트가 아닌 회원의 확인(막힘) | 성립 때 1건 뒤로 더 나가지 않음 |
+| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 2건, `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
+| `AppearanceExternalEventsTest` | `AppearanceChangedEvent` | 내보낸다 |
+| `AppearanceSyncInternalApiE2ETest` | 출연 3건(성립·일방 취소·취소 요청 중), size 2 → 다음 페이지 / 생략 / 딱 맞게 끝남 / 끝 뒤 | 키셋·`nextAfterId`=마지막 ID, 결과·version, 금액 없음 / 처음부터 3건 / `nextAfterId` null / 빈 목록 |
+| `AppearanceSyncInternalApiE2ETest` | 공개 리뷰 2건 사이에 공개 전 리뷰 1건, size 1 | 첫 페이지 공개 리뷰, 다음 페이지는 공개 전 리뷰를 건너뛰고 이어짐, 본문·쓴 사람 없음 |
+| `AppearanceSyncInternalApiE2ETest` | size 0·501·숫자 아님, afterId -1 / size 500 | 400 `INVALID_REQUEST` / 200 |
+| `AppearanceSyncInternalApiE2ETest` | 키 없음 / 틀린 키 / 회원 로그인 | 본문 없는 401 / 401 / 401 |
+| `AppearanceSwaggerDocsTest` | 동기화 스키마 | 두 경로 `RsData` 키셋 페이지, 내부 키 헤더, `result` 4가지, 금액·본문 필드 없음 |
+| `AppearanceApiClientTest` (shared) | 출연 목록 / afterId 생략·빈 마지막 페이지 / version 없음·모르는 결과·`items` 없음 | 경로·쿼리·내부 키, 항목·다음 키 / `size`만 보냄, null / 호출 불가 |
+| `AppearanceApiClientTest` (shared) | 리뷰 목록 / 받은 사람 없음 / 400 | 경로·쿼리, 항목 / 호출 불가 / 거절(`INVALID_REQUEST`) |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+- 소비 앱(chat-app·member-app)이 새 타입에서 실패하지 않는 것은 코드로 확인했다(chat `MissingTypeEvent`·기본 처리기, member `@KafkaHandler(isDefault = true)`). 다른 앱 코드는 바꾸지 않았다.
+

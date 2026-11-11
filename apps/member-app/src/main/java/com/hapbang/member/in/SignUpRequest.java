@@ -16,11 +16,16 @@ public record SignUpRequest(
         @NotBlank(message = "비밀번호를 입력해 주세요.")
         String password,
         @NotBlank(message = "닉네임을 입력해 주세요.")
-        String nickname
+        String nickname,
+        /**
+         * 인증 코드 확인(POST /api/v1/members/email-codes/verify)으로 받은 토큰 (#557). 없으면 가입에서 400 EMAIL_NOT_VERIFIED
+         * (부하 시험 계정 이메일만 없어도 된다, LoadTestAccount)
+         */
+        String emailVerificationToken
 ) {
 
     @Override
     public String toString() {
-        return "SignUpRequest[email=" + email + ", password=****, nickname=" + nickname + "]";
+        return "SignUpRequest[email=" + email + ", password=****, nickname=" + nickname + ", emailVerificationToken=****]";
     }
 }

@@ -429,15 +429,18 @@ class AppearanceRecruitCloseTest {
         }
 
         @Test
-        @DisplayName("마감 일시가 지난 보류 처리 중 모집글: 마감 배치만으로는 건드리지 않고, 보류 재확인 뒤 마감 배치가 CLOSED + 전액 반환 (C5)")
+        @DisplayName("마감 일시가 지난 보류 처리 중 모집글: 마감 배치만으로는 건드리지 않고, 보류 재확인 뒤 마감 배치가 CLOSED + 전액 반환 (C5). "
+                + "보류 포기 기준(1시간)이 지난 모집글은 무효화한다(AppearanceHoldVoidTest, #536)")
         void holdPendingThenClose() {
+            // 모집 마감이 올린 지 30분 뒤인 모집글. 마감이 지나 보류 재확인 대기 시간(1분)은 지났고 포기 기준(1시간)은 아직이다
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(3))
+            assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST,
+                    AppearanceRecruitFixture.content(now().plusMinutes(30), now().plusDays(7), FEE, 3)))
                     .isInstanceOfSatisfying(AppearanceException.class, e ->
                             assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
-            passDeadline(recruitId); // 이틀이 지나 보류 재확인 대기 시간(1분)도 지났다
+            passDeadline(recruitId);
 
             assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isZero();
             assertThat(releaseTasksOf(recruitId)).isEmpty();

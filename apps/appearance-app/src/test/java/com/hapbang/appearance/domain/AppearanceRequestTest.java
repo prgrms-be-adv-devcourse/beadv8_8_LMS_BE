@@ -216,7 +216,34 @@ class AppearanceRequestTest {
         }
 
         @Test
-        @DisplayName("보류가 끝나지 않았거나 실패한 요청서는 호스트도 볼 수 없다")
+        @DisplayName("상세: 호스트·게스트는 볼 수 있고 다른 회원은 APPEARANCE_REQUEST_NOT_FOUND")
+        void detailHostAndGuest() {
+            AppearanceRequest request = requested();
+
+            request.validateDetailViewableBy(HOST);
+            request.validateDetailViewableBy(GUEST);
+            assertErrorCode(() -> request.validateDetailViewableBy(OTHER),
+                    AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("상세: 보류 처리 중·실패 요청서는 보낸 호스트만 볼 수 있고, 게스트·다른 회원은 APPEARANCE_REQUEST_NOT_FOUND (#306)")
+        void detailHiddenStatus() {
+            AppearanceRequest pending = create(AppearanceRequestFixture.content(NOW));
+            AppearanceRequest failed = create(AppearanceRequestFixture.content(NOW));
+            failed.markHoldFailed();
+
+            for (AppearanceRequest request : new AppearanceRequest[] {pending, failed}) {
+                request.validateDetailViewableBy(HOST);
+                assertErrorCode(() -> request.validateDetailViewableBy(GUEST),
+                        AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+                assertErrorCode(() -> request.validateDetailViewableBy(OTHER),
+                        AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+            }
+        }
+
+        @Test
+        @DisplayName("보류가 끝나지 않았거나 실패한 요청서는 호스트도 다룰 수 없다 (수정·취소)")
         void hiddenStatus() {
             AppearanceRequest pending = create(AppearanceRequestFixture.content(NOW));
             AppearanceRequest failed = create(AppearanceRequestFixture.content(NOW));
@@ -229,7 +256,7 @@ class AppearanceRequestTest {
         @ParameterizedTest
         @EnumSource(value = AppearanceRequestStatus.class, names = {"HOLD_PENDING", "HOLD_FAILED"},
                 mode = EnumSource.Mode.EXCLUDE)
-        @DisplayName("보류가 끝난 상태는 모두 목록·상세에 보인다")
+        @DisplayName("보류가 끝난 상태는 모두 게스트에게 보이고 다룰 수 있다")
         void visibleStatus(AppearanceRequestStatus status) {
             assertThat(status.isVisible()).isTrue();
         }

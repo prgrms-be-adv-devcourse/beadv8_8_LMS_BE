@@ -1,5 +1,7 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>메시지 전송과 겹쳐도 되도록 방을 잠그지 않는다. 그 사이 발급된 순번은 다음 읽음 처리에 반영된다.</li>
  *     <li>확인한 참여 세대(요청 값, 없으면 이 트랜잭션에서 읽은 현재 세대)를 갱신 조건에 넣는다. 확인과 갱신 사이에
  *     퇴장·재입장이 커밋되면 반영하지 않고, 바뀐 행이 없으면 다시 읽어 결과를 정한다.</li>
+ *     <li>읽음 순번이 실제로 올랐을 때만 커밋 뒤 안 읽은 사람 수 변경 신호를 낸다({@link ChatReadCountSignals}).</li>
  * </ul>
  */
 @Service
@@ -27,12 +30,13 @@ public class DefaultChatReadService implements ChatReadService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatValidationService chatValidationService;
+    private final ChatReadCountSignals chatReadCountSignals;
 
     @Override
     @Transactional
     public void markRead(Long chatRoomId, Long userId, long lastReadSequence, Integer participationVersion) {
         ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
-                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
+                .filter(room -> room.isViewable(LocalDateTime.now()))
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
         ChatRoomMember member = findActiveMember(chatRoomId, userId);
         chatValidationService.validateCanChat(userId);
@@ -43,6 +47,8 @@ public class DefaultChatReadService implements ChatReadService {
         int updated = chatRoomMemberRepository.advanceLastReadSequenceInParticipation(chatRoomId, userId,
                 checkedVersion, sequence);
         if (updated == 1) {
+            // 이 회원이 안 읽은 메시지의 안 읽은 사람 수가 줄었다. 커밋된 뒤 방을 연 연결에 묶어 알린다
+            chatReadCountSignals.readChanged(chatRoomId);
             return;
         }
         // 바뀐 행이 없다: 이미 같거나 큰 값이거나, 확인 뒤 퇴장·재입장했다. 커밋된 최신 상태를 다시 읽는다

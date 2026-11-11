@@ -50,4 +50,15 @@ class PasswordCredentialTest {
         assertThat(MemberEmail.normalize("  Tester1@Example.COM ")).isEqualTo("tester1@example.com");
         assertThat(MemberEmail.normalize(null)).isEmpty();
     }
+
+    @Test
+    @DisplayName("마스킹하면 행은 남고 해시가 로그인에 쓸 수 없는 값으로 바뀐다 (#594)")
+    void wipe() {
+        PasswordCredential credential =
+                PasswordCredential.register(User.join("tester1@example.com", "tester1"), "{bcrypt}hash-1", NOW);
+
+        credential.wipe();
+
+        assertThat(credential.getPasswordHash()).isEqualTo(PasswordCredential.WIPED_HASH).doesNotStartWith("{");
+    }
 }

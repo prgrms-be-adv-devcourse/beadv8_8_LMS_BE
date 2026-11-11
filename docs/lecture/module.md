@@ -15,9 +15,9 @@
 | 문서 | 내용 |
 | --- | --- |
 | 현재 문서 | 범위, 정책, 모듈 경계, 도메인 모델, 시간 규칙 |
-| [모듈 연동·운영](integration.md) | 내부 HTTP·이벤트 계약, 주요 흐름, 동시성·멱등성·배치 |
+| [모듈 연동·운영](integration.md) | 내부 HTTP·이벤트 계약, 주요 흐름, 동시성·멱등성·배치, 서비스 간 HP 대사(10.1) |
 | [스키마·API·구현 참고](reference.md) | 테이블, API, 권한, 패키지, 테스트, 구현 순서 |
-| [결정 기록](decisions.md) | 미정 사항, 검수 기록, D1~D63 결정 이력 |
+| [결정 기록](decisions.md) | 미정 사항, 검수 기록, D1~D82 결정 이력 |
 
 > 분리 전 문서의 장 번호와 D 번호는 기존 이슈·PR 참조를 위해 유지한다.
 
@@ -39,6 +39,8 @@
 | 지급 시점 관리 | 구매일 다음 날부터 30일 경과 시 지갑 모듈에 지급 호출 |
 | 내용 다름 이의 제기 | 고객센터의 접수(동기 호출)와 판단·철회(명령 이벤트)를 처리: 검증·지급 중단, 판단 결과 반영(반환 또는 지급), 판단 전 철회(지급 중단 해제, D52). 명령 이력으로 멱등하게 처리하고 결과를 이벤트로 알린다 (D60, D71, [계약](../api/internal-objections.md)) |
 | 리뷰 | 작성·수정·삭제, 평점(1~5) 및 평균 |
+| AI 추천 동기화 | aux-app AI context가 강의·구매·장바구니·리뷰의 읽기용 사본을 둘 수 있게, 바뀔 때마다 이벤트를 내고 주 1회 정합성 확인용 키셋 내부 API를 제공한다. 추천해도 되는지·보유 중인지·평점에 반영되는지는 강의가 판단해 줄인 값으로 보낸다 (D82, [계약](../api/internal-lecture-sync.md)) |
+| 회원 탈퇴 확인 | 회원이 구매자·판매자로 남긴 정리할 거래(처리 중·보류 중 주문, 이의 제기, 지급 전 판매 수익, 판매 중·검수 대기 강의)를 탈퇴 막힌 이유로 알려 준다. 읽기만 하고 대신 정리하지 않는다 (D75, [계약](../api/internal-withdrawals.md)) |
 
 ### 1.2 강의 모듈이 하지 않는 일
 
@@ -72,6 +74,7 @@
 | P11 | 주문은 상태값으로 관리하고 삭제하지 않는다. 강의는 Soft Delete. 그 외 모든 데이터도 Soft Delete | 기획서 데이터 모델, AGENTS 5장 |
 | P12 | 모든 기간·마감·일시는 **KST** 기준 | 정책 머리말 |
 | P13 | 다른 모듈과는 회원 ID와 이벤트로만 연결. 스키마 간 FK·JOIN 금지. 스키마 이름 `lectures` (회원 `members`·출연 `appearances`와 같은 복수형) | AGENTS 3장 |
+| P14 | 판매 중·검수 대기 강의나 지급 전 판매 수익이 있으면 판매자는 탈퇴할 수 없다. 판매 중 강의는 판매자가 삭제해 정리한다(삭제해도 기존 구매자 시청·지급은 그대로). 구매자도 처리 중·보류 중 주문이나 접수 중인 이의 제기가 있으면 탈퇴할 수 없다 | 정책 6, D75 |
 
 ---
 
@@ -191,6 +194,7 @@ sequenceDiagram
 
 - 업로드는 서버 경유다 (D22). 인스턴스 역할로 서명한 Presigned PUT은 EC2 밖에서 조직 정책으로 거부된다(`docs/deploy/s3.md`).
 - 본문 업로드 규칙은 D24, 트랜잭션 경계는 D25를 따른다. 저장에 실패하거나 연결이 끊기면 `PENDING`으로 남아 처음부터 다시 올린다.
+- 앱 전체 동시 업로드는 20개까지다(D81). 넘으면 본문을 읽지 않고 503 `FILE_UPLOAD_BUSY`(`Retry-After: 60`)로 거절하고, 파일은 `PENDING`으로 남아 다시 올릴 수 있다.
 
 - `file_type`: `LECTURE_THUMBNAIL`, `LECTURE_VIDEO`, `LECTURE_DOCUMENT`
 - `status`: `PENDING` → `UPLOADED` (삭제 시 `deleted_at`)
@@ -205,7 +209,7 @@ sequenceDiagram
 - 회원당 1개. 처음 담을 때 만든다. (`cart.user_id` 유일, 동시에 처음 담아도 하나만 생기도록 `INSERT … ON CONFLICT DO NOTHING`, D18)
 - 같은 강의는 한 번만 담는다. 동시에 담으면 부분 유일 인덱스가 막고 `ALREADY_IN_CART`(409)로 응답한다 (D18).
 - 담을 때 검사 순서: 본인 강의가 아님(D5, `OWN_LECTURE_NOT_PURCHASABLE` 403) → 강의가 `ON_SALE`(아니면 상세 조회처럼 `LECTURE_NOT_FOUND` 404) → 이미 담지 않음(`ALREADY_IN_CART` 409) → 이미 보유 중(유효한 주문 항목이 있음)이 아님(**주문 구현 때 추가**).
-- 담은 뒤 강의가 판매 중지·삭제되면 장바구니 조회 시 "구매 불가"(`purchasable=false`)로 표시하고 합계(`purchasableTotalHp`)에서 빼며, 주문 시에는 거부한다. 조회는 최근 담은 순이다.
+- 담은 뒤 강의가 삭제되면(판매 중 강의가 판매에서 빠지는 길은 삭제뿐이다, D75) 장바구니 조회 시 "구매 불가"(`purchasable=false`)로 표시하고 합계(`purchasableTotalHp`)에서 빼며, 주문 시에는 거부한다. 조회는 최근 담은 순이다.
 - 담지 않은 강의를 빼면 무시하고 204로 응답한다 (D18). 개수 제한은 없다.
 - 주문의 모든 보류가 성공해 주문을 `PAID`로 기록하는 트랜잭션에서 **그 주문에 포함된 강의만** 장바구니에서 뺀다. 결과 기록을 다시 실행해도 같은 결과가 되게 멱등하게 뺀다. 보류 처리 중(`HOLD_PENDING`·`HOLD_COMPENSATING`)이거나 보류에 실패(`HOLD_FAILED`)하면 장바구니를 그대로 둔다. 처음부터 빼고 실패 시 복원하면 처리 중 사용자가 바꾼 장바구니를 덮어쓸 수 있어 그렇게 하지 않는다 (D58).
 - 정책상 Soft Delete가 원칙이므로 `cart_item`에 `deleted_at`을 둔다. (ERD에 없음)
@@ -215,6 +219,7 @@ sequenceDiagram
 #### 주문(LectureOrder)은 결제 단위
 
 - 장바구니 주문과 바로 구매(강의 1개 주문)를 같은 모델로 처리한다.
+- 한 주문에 강의는 100개까지다(D80). 장바구니에는 상한이 없다. 주문·구매 취소는 요청 안에서 지갑을 부르므로 회원별로 API마다 분당 10번까지 받는다(넘으면 429 `TOO_MANY_REQUESTS`, D80).
 - **HP 보류는 주문 항목 단위**다(D36). 항목마다 그 가격을 보류하고(참조 `LECTURE_ORDER_ITEM`, 주문 항목 ID), 구매 취소·지급도 그 항목의 보류만 쓴다. 혼합 HP는 항목마다 차감한 HP 종류 그대로 반환·지급한다(D42).
 - **주문은 보류보다 먼저 저장된다(D58).** 주문·항목과 항목별 HOLD 작업을 한 강의 트랜잭션에 커밋한 뒤, 트랜잭션 밖에서 보류한다. 모든 보류가 성공해야 `PAID`가 되고, 하나라도 확정 거절되면 이미 성공한 보류를 반환(보상)한 뒤 `HOLD_FAILED`가 된다. 돈과 관련된 처리 이력이므로 `HOLD_FAILED` 주문도 지우지 않는다.
 - 주문 상태(`status`)는 저장값이 기준이다.
@@ -314,7 +319,7 @@ stateDiagram-v2
 - 동의 기록은 `confirmation_type = FIRST_PLAY`와 `confirmed_at`으로 남긴다.
 - 한 구매자는 같은 강의에 대해 **보유 상태**(`HOLD_PENDING`, `HOLD_COMPENSATING`, `PURCHASED`, `CONFIRMED`, `CANCEL_PENDING`, `RETURN_PENDING`, `PAYOUT_PENDING`, `PAID_OUT`)의 항목을 하나만 가진다. HP가 남아 있을 수 있는 처리 중 상태도 보유로 본다. 보류 실패(`HOLD_FAILED`, 남은 보류 없음 확인)·취소·반환 후에는 다시 살 수 있다. `PAID_OUT`도 보유로 본다(D5): 구매한 강의는 계속 볼 수 있으므로 다시 살 수 없다.
 - **보유와 시청 가능은 다르다(용어집, D69).** 결제 처리 중(`HOLD_PENDING`·`HOLD_COMPENSATING`)은 보유지만 시청 가능이 아니다. 시청 가능 판정(콘텐츠, `/purchased`, 판매 중이 아닌 강의 조회)은 위 표의 "`/purchased`·시청" 열을 따른다.
-- 판매 상태는 주문할 때만 검사한다. 결제 처리 중에 강의가 판매 중지·삭제되어도 보류가 성공하면 구매 완료다(D69, D5).
+- 판매 상태는 주문할 때만 검사한다. 결제 처리 중에 강의가 삭제되어도 보류가 성공하면 구매 완료다(D69, D5).
 - 주문 시점의 강의 제목과 가격을 항목에 스냅샷으로 저장한다. 이후 강의 가격이 바뀌어도 반환·지급 금액은 스냅샷 가격이다.
 
 ### 4.7 LectureReview
@@ -331,6 +336,7 @@ stateDiagram-v2
 - `shared`의 `ReplicaUser`를 상속한다. ID는 원본 회원 ID.
 - `UserJoinedEvent`로만 생성한다(이미 있으면 무시). 회원 정보 변경 이벤트(`UserModifiedEvent`, #56)는 있는 복제본만 `syncFrom`으로 갱신하고, 없으면 `LECTURE_USER_NOT_FOUND`로 실패시킨다. 늦거나 중복된 정보는 회원 원본 버전으로 무시한다 (D17).
 - 회원 앱이 Kafka `member.events.v1`로 보낸 이벤트를 소비 그룹 `lecture-app.member-replica`가 받는다(`LectureMemberEventListener`, #429). 회원 로그아웃처럼 강의가 쓰지 않는 타입은 무시한다. 실패는 재시도 3회 뒤 `member.events.v1.lecture-app.member-replica.DLT`로 가고, 재처리는 `docs/architecture/infrastructure/kafka.md`의 runbook을 따른다.
+- consumer를 멈춘 사이 쌓인 이벤트와 broker가 멈췄다 살아난 뒤의 이벤트가 반영되는지는 `LectureMemberEventListenerTest`가 확인한다(#339). DLT 전송은 이름을 붙인 DLT producer factory(`LectureKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY`)의 Kafka 지표로 센다(`kafka_producer_*{spring_id=~"deadLetterProducerFactory.*"}`, Grafana `Kafka` dashboard의 "DLT" 행).
 - 용도: 강의 목록·상세의 판매자 닉네임, 리뷰 작성자 닉네임. 탈퇴 회원은 "탈퇴한 회원"으로 표시한다(정책 7).
 - 권한 판단(인증된 인플루언서 여부 등)은 복제본이 아니라 **요청 시점의 Spring Security 인증 정보**로 한다. 복제본은 이벤트 지연으로 늦을 수 있다.
 

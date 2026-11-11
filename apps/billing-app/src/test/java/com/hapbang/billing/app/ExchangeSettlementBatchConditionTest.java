@@ -7,6 +7,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import com.hapbang.billing.global.scheduling.FakeAdvisoryLocks;
+import com.hapbang.billing.global.scheduling.JobLock;
+
 // 환전 정산·결과 확인 배치(#305)의 켜짐 조건: 공통 배치 스위치(hapbang.scheduling.enabled)와 배치별 스위치(기본 켬)가 모두 켜져야 빈이 생긴다.
 // 테스트는 공통 스위치가 꺼져 있어 배치가 금융 데이터를 바꾸지 않는다(apps 테스트 설정·모듈 테스트 기본값).
 class ExchangeSettlementBatchConditionTest {
@@ -14,6 +17,8 @@ class ExchangeSettlementBatchConditionTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(ExchangeSettlementUseCase.class, () -> mock(ExchangeSettlementUseCase.class))
             .withBean(ExchangePayoutUseCase.class, () -> mock(ExchangePayoutUseCase.class))
+            // 배치 실행 락(#598). 조건 테스트라 실제 DB 없이 가짜 락을 넣는다
+            .withBean(JobLock.class, () -> new FakeAdvisoryLocks().pod())
             .withUserConfiguration(ExchangeSettlementBatch.class, ExchangePayoutRecoveryBatch.class);
 
     @Test

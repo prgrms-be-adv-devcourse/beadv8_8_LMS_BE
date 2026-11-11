@@ -195,6 +195,18 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
+        @DisplayName("닫힌 지갑(409 WALLET_CLOSED, #648): 409 WALLET_CLOSED를 출연 코드로 응답, 요청서 HOLD_FAILED")
+        void walletClosed() {
+            MockBilling.fail(Endpoint.HOLD, 409, "WALLET_CLOSED", "탈퇴한 회원의 지갑이에요.");
+
+            assertThatThrownBy(AppearanceBillingHttpTest.this::send)
+                    .isInstanceOf(AppearanceHoldRejectedException.class)
+                    .hasMessage(AppearanceErrorCode.WALLET_CLOSED.getMessage())
+                    .extracting("errorCode").isEqualTo(AppearanceErrorCode.WALLET_CLOSED);
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+        }
+
+        @Test
         @DisplayName("목록 밖 코드(처음 보는 404 코드): 500 HP_HOLD_FAILED, 지갑 코드·설명은 응답에 나가지 않음, HOLD_FAILED")
         void unmappedHidden() {
             MockBilling.fail(Endpoint.HOLD, 404, "SOMETHING_NEW", "지갑 내부 설명");
@@ -269,6 +281,55 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
                     .isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);
             // 공용 Client 기본 재시도: 첫 호출 포함 3회
             assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(3);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
+    @DisplayName("보류 무효화 (#536)")
+    class HoldVoid {
+
+        @Test
+        @DisplayName("지갑이 계속 결과 불명(500)이면 포기 기준(1시간) 뒤 무효화를 보낸다: 내부 API 키·JSON으로 호스트·APPEARANCE_REQUEST·요청서 ID, 응답 VOIDED → HOLD_FAILED")
+        void voidAfterRepeatedUnknown() {
+            MockBilling.fail(Endpoint.HOLD, 500, "HOLD_STATE_INCONSISTENT", null);
+            assertErrorCode(AppearanceBillingHttpTest.this::send, AppearanceErrorCode.BILLING_UNAVAILABLE);
+            assertThat(recheckLater()).isZero(); // 포기 기준 전: 보류를 다시 보내지만 여전히 결과 불명
+
+            clock.advance(Duration.ofHours(1));
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            Long requestId = appearanceRequestRepository.findAll().getFirst().getId();
+            assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(2); // 보내기 1 + 포기 기준 전 재확인 1
+            assertThat(MockBilling.requests(Endpoint.HOLD_VOID)).singleElement().satisfies(voidHold -> {
+                assertThat(voidHold.apiKey()).isNotBlank();
+                assertThat(voidHold.contentType()).startsWith("application/json");
+                assertThat(voidHold.number("userId")).isEqualTo(HOST);
+                assertThat(voidHold.text("referenceType")).isEqualTo("APPEARANCE_REQUEST");
+                assertThat(voidHold.number("referenceId")).isEqualTo(requestId);
+                assertThat(voidHold.body()).containsOnlyKeys("userId", "referenceType", "referenceId");
+            });
+        }
+
+        @Test
+        @DisplayName("무효화도 결과 불명(500)이면 HOLD_PENDING 그대로 → 지갑이 돌아오면 다음 회차에 같은 참조 대상으로 다시 무효화해 HOLD_FAILED")
+        void voidUnknownThenAgain() {
+            MockBilling.fail(Endpoint.HOLD, 500, "HOLD_STATE_INCONSISTENT", null);
+            assertErrorCode(AppearanceBillingHttpTest.this::send, AppearanceErrorCode.BILLING_UNAVAILABLE);
+            MockBilling.fail(Endpoint.HOLD_VOID, 500, null, null);
+            clock.advance(Duration.ofHours(1));
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
+
+            MockBilling.succeed(Endpoint.HOLD_VOID);
+            assertThat(recheckLater()).isEqualTo(1);
+
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            assertThat(MockBilling.requests(Endpoint.HOLD_VOID)).hasSizeGreaterThanOrEqualTo(2)
+                    .extracting(voidHold -> voidHold.number("referenceId")).containsOnly(
+                            appearanceRequestRepository.findAll().getFirst().getId());
         }
     }
 

@@ -156,4 +156,9 @@ public class AppearanceRecruitSupport {
         }
         return titles;
     }
+
+    /** 호스트가 올린 모집글 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countByHost(Long hostId, AppearanceRecruitStatus status) {
+        return appearanceRecruitRepository.countByHostIdAndStatus(hostId, status);
+    }
 }

@@ -129,4 +129,14 @@ public class AppearanceRequestSupport {
         }
         return titles;
     }
+
+    /** 호스트가 보낸 요청서 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countSentByHost(Long hostId, AppearanceRequestStatus status) {
+        return appearanceRequestRepository.countByHostIdAndStatus(hostId, status);
+    }
+
+    /** 게스트가 받은 요청서 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countReceivedByGuest(Long guestId, AppearanceRequestStatus status) {
+        return appearanceRequestRepository.countByGuestIdAndStatus(guestId, status);
+    }
 }

@@ -44,6 +44,7 @@ import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
+import com.hapbang.shared.billing.out.BillingApiClient;
 import com.hapbang.shared.billing.out.BillingCallExceptions;
 import com.hapbang.shared.billing.out.BillingCallFailureKind;
 import com.hapbang.shared.billing.out.BillingCallResult;
@@ -59,6 +60,8 @@ class LectureHpTaskExecutorTest {
 
     private static final String CANCEL_ID = "LECTURE-CANCEL-31";
     private static final long AMOUNT = 10_000L;
+    private static final String REGISTERED_LOG = "HP 작업을 등록했다";
+    private static final String FINISHED_LOG = "HP 작업을 마쳤다";
 
     @Autowired
     private LectureHpTaskExecutor executor;
@@ -102,13 +105,34 @@ class LectureHpTaskExecutorTest {
     }
 
     @Test
-    void 같은_요청_ID에_같은_payload면_기존_작업을_돌려주고_다른_payload면_충돌이다() {
+    void 같은_요청_ID에_같은_payload면_기존_작업을_돌려주고_다른_payload면_충돌이다(CapturedOutput output) {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
 
         assertThat(register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT))).isEqualTo(id);
         assertThatThrownBy(() -> register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, 20_000L)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(lectureHpTaskRepository.count()).isEqualTo(1);
+        // 기존 작업을 돌려준 등록은 새 등록이 아니라 INFO를 다시 남기지 않는다
+        assertThat(lines(output, REGISTERED_LOG)).hasSize(1);
+    }
+
+    @Test
+    void HP_작업을_등록하면_커밋_뒤에_INFO_로그를_한_줄_남긴다(CapturedOutput output) {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+
+        assertThat(lines(output, REGISTERED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "purpose=CANCEL", "requestId=" + CANCEL_ID, "amountHp=" + AMOUNT));
+    }
+
+    @Test
+    void 등록한_트랜잭션이_롤백되면_등록_로그를_남기지_않는다(CapturedOutput output) {
+        transactionTemplate.executeWithoutResult(status -> {
+            lectureHpTaskSupport.register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+            status.setRollbackOnly();
+        });
+
+        assertThat(lectureHpTaskRepository.count()).isZero();
+        assertThat(lines(output, REGISTERED_LOG)).isEmpty();
     }
 
     @Test
@@ -130,7 +154,7 @@ class LectureHpTaskExecutorTest {
     }
 
     @Test
-    void 성공하면_COMPLETED_SUCCEEDED이고_목적별_처리기를_부른다() {
+    void 성공하면_COMPLETED_SUCCEEDED이고_목적별_처리기를_부른다(CapturedOutput output) {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
 
         executor.execute(id);
@@ -148,10 +172,12 @@ class LectureHpTaskExecutorTest {
         });
         assertThat(billing.calls()).singleElement().satisfies(call -> assertThat(call.command())
                 .isEqualTo(ReleaseCommand.full(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, CANCEL_ID)));
+        assertThat(lines(output, FINISHED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "taskType=RELEASE", "outcome=SUCCEEDED", "attemptCount=1"));
     }
 
     @Test
-    void HOLD_확정_거절은_COMPLETED_REJECTED다() {
+    void HOLD_확정_거절은_COMPLETED_REJECTED다(CapturedOutput output) {
         LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
                 List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
         Long itemId = order.getItems().getFirst().getId();
@@ -166,6 +192,30 @@ class LectureHpTaskExecutorTest {
         assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
         assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.REJECTED);
         // 운영 처리기가 주문을 결제 실패로 끝낸다(반환할 보류 없음, D58 (3))
+        assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(attempts(id)).singleElement()
+                .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.TERMINAL_REJECTION));
+        assertThat(lines(output, FINISHED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "taskType=HOLD", "outcome=REJECTED"));
+    }
+
+    @Test
+    void HOLD가_탈퇴로_닫힌_지갑이면_DEAD가_아니라_COMPLETED_REJECTED다() {
+        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
+                List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
+                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+
+        executor.execute(id);
+
+        // 잔액 부족과 같은 결제 실패다. 운영 확인 대상(DEAD)으로 남기지 않는다 (D76)
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+        assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.REJECTED);
         assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
                 .isEqualTo(LectureOrderStatus.HOLD_FAILED);
         assertThat(attempts(id)).singleElement()
@@ -218,6 +268,47 @@ class LectureHpTaskExecutorTest {
             assertThat(attempt.getRawErrorCode()).isEqualTo("HOLD_STATE_INCONSISTENT");
         });
         assertThat(cancelHandler().events()).isEmpty();
+    }
+
+    @Test
+    void 선점한_뒤_회로가_막혀_CIRCUIT_OPEN이면_한_번으로_센다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+        // 선점 전 확인 때는 닫혀 있었지만, 호출할 때는 시험 호출 몫이 없어 Client가 보내지 않았다 (D79 드문 예외)
+        billing.respond(command -> {
+            throw BillingCallExceptions.of(BillingCallFailureKind.RETRYABLE, 0, BillingApiClient.CIRCUIT_OPEN);
+        });
+
+        executor.execute(id);
+
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isEqualTo(1);
+        assertThat(attempts(id)).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.RETRYABLE);
+            assertThat(attempt.getRawErrorCode()).isEqualTo(BillingApiClient.CIRCUIT_OPEN);
+        });
+    }
+
+    @Test
+    void 회로가_열려_있으면_선점하지_않아_시도_횟수와_시도_행이_그대로다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+        billing.setCircuitOpen(true);
+
+        for (int i = 0; i < 20; i++) {
+            executor.execute(id);
+        }
+
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isZero();
+        assertThat(task.getLastFailedAt()).isNull();
+        assertThat(attempts(id)).isEmpty();
+        assertThat(billing.calls()).isEmpty();
+
+        billing.setCircuitOpen(false);
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
     }
 
     @Test
@@ -297,7 +388,7 @@ class LectureHpTaskExecutorTest {
         assertThat(cancelHandler().events()).containsExactly("succeeded:" + CANCEL_ID);
         assertThat(attempts(id)).extracting(LectureHpTaskAttempt::getResult)
                 .containsExactly(LectureHpAttemptResult.LEASE_EXPIRED, LectureHpAttemptResult.SUCCEEDED);
-        assertThat(output).contains("late result ignored");
+        assertThat(output).contains("HP 작업 결과를 버린다");
     }
 
     @Test
@@ -345,6 +436,10 @@ class LectureHpTaskExecutorTest {
 
     private LectureHpTask task(LectureHpTaskPurpose purpose, String requestId, long amount) {
         return LectureHpTask.create(purpose, requestId, 3L, 31L, 7L, null, amount, LocalDateTime.now(clock));
+    }
+
+    private static List<String> lines(CapturedOutput output, String text) {
+        return output.getAll().lines().filter(line -> line.contains(text)).toList();
     }
 
     private Long register(LectureHpTask task) {

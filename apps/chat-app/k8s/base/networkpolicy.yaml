@@ -10,6 +10,7 @@ spec:
   - Ingress
   - Egress
   ingress:
+  # 외부 API 포트(8080)는 Gateway 전용이다. Gateway 사용자 헤더(X-User-*)를 믿는 앱이므로 다른 pod를 들이지 않는다(D72)
   - from:
     - namespaceSelector:
         matchLabels:
@@ -20,6 +21,18 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  # Prometheus는 관리 포트(8082)의 /actuator/prometheus만 수집한다(#480, #590)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hapbang-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+          app.kubernetes.io/component: server
+    ports:
+    - protocol: TCP
+      port: 8082
   - from:
     - podSelector:
         matchLabels:

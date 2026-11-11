@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskType;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 모집 전체 취소 (호스트, #239). 모집글 {@code CANCELED}, 성립한 출연마다 호스트 일방 취소(위약금), 대기 중 지원 미선정,
@@ -33,6 +35,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 정산은 Billing 호출이라 커밋 뒤에 실행해야 해서 여기서 트랜잭션을 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceRecruitCancelUseCase {
@@ -43,6 +46,7 @@ public class AppearanceRecruitCancelUseCase {
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceHostCancelRecorder appearanceHostCancelRecorder;
     private final HpTaskSupport hpTaskSupport;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -79,6 +83,14 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
         appearanceRecruitSupport.flushOrConflict();
+        // 출연 변경 이벤트는 flush 뒤에 만든다(Appearance.toChangedEvent). 출연도 위 모집글 flush로 함께 반영됐다
+        for (Appearance appearance : appearances) {
+            eventPublisher.publishEvent(appearance.toChangedEvent());
+        }
+        AfterCommit.run(() -> {
+            log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,
+                    hostId, appearances.size(), vacancyFee, taskIds);
+        });
         return taskIds;
     }
 

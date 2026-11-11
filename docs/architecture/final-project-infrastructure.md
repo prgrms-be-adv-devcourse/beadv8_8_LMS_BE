@@ -16,7 +16,7 @@
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
-| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱 6개는 2026-11-02 사람이 올린 dev 이미지로 k3s에 떠 있고(릴리스 전 배포), 이후 dev 병합 때 자동으로 배포된다(#559) | k3s에는 **prod만** 두고 dev 브랜치를 배포한다. main에는 서버가 없다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
+| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱 6개는 2026-11-02 k3s에 올라갔고, dev 병합 때 자동으로 배포된다(#559, 첫 자동 배포 #571) | k3s에는 **prod만** 두고 dev 브랜치를 배포한다. main에는 서버가 없다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
 | 진입점 | large ServiceLB → Envoy Gateway, cert-manager의 Let's Encrypt 인증서(2026-10-30, #372). edge nginx는 지웠다. ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단은 Envoy Gateway와 cert-manager가 맡는다. nginx는 쓰지 않는다 |
@@ -51,6 +51,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | Gradle `java-test-fixtures` | 모듈별 도입 | fixture 공개 범위와 test dependency를 variant로 명시 |
 | Spring AI + Elasticsearch | 고객센터 hybrid RAG에 도입 | nori BM25 + dense vector + RRF, 출처가 있는 답변, 검색 실패 시 답변 거절 |
 | JFR + JDK Mission Control | 도입 | 부하 구간의 JVM recording과 재현 가능한 사후 분석 |
+| GraalVM Native Image | customer-support-app 한 앱만 도입(#609), 다른 앱 확대는 보류 ([Native Image](infrastructure/native-image.md)) | JVM 고정 비용 실측, 빌드 시점 AOT 조건, native 메타데이터 관리, 같은 조건 메모리 −44~45%·기동 1초 |
 | Terraform | 현행 AWS 구성만 코드화 | 이미 배포된 EC2·network·S3·IAM 구성을 import해 재현 |
 
 핵심은 기술을 나열하는 것이 아니라 다음 다섯 가지 이야기를 끝까지 완성하는 것이다.
@@ -139,10 +140,11 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 3 | [API Gateway](infrastructure/api-gateway.md) | Envoy Gateway, JWT 인증 흐름, rate limit |
 | 4 | [Graceful Shutdown](infrastructure/graceful-shutdown.md) | 전체 workload drain |
 | 5 | [관측성](infrastructure/observability.md) | Grafana observability stack, Prometheus vs Mimir, 부하 테스트 |
-| 6·7 | [포트폴리오 추가 항목](infrastructure/portfolio-items.md) | SonarQube Cloud, test fixtures, Toxiproxy, Spring AI RAG, event contract, JFR, Terraform |
+| 6·7 | [포트폴리오 추가 항목](infrastructure/portfolio-items.md) | SonarQube Cloud, test fixtures, Testcontainers 장애 test, Spring AI RAG, 이벤트 계약·OpenAPI contract, JFR, Terraform |
 | 8 | [알림 모듈](infrastructure/notification.md) | notification 앱 분리 |
 | 9 | [검색 모듈](infrastructure/search.md) | search 앱과 Elasticsearch |
 | 10 | [모듈별 database](infrastructure/database.md) | instance 1개 + 앱별 database |
+| - | [GraalVM Native Image](infrastructure/native-image.md) | customer-support-app native 시험 적용(#609), JVM과 메모리 비교, native 메타데이터 관리 |
 | 11 | [아래](#11-실서비스-전환-시-고려사항) | 실서비스 전환 시 고려사항 |
 
 ## 11. 실서비스 전환 시 고려사항
@@ -179,7 +181,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 4. Prometheus·Alloy·Loki·Tempo·Grafana 연결. Mimir 비교는 [5장](infrastructure/observability.md) 비교표에만 남김
 5. SonarQube Cloud + JaCoCo PR quality gate 연결
 6. 각 업무 모듈의 data fixture를 `src/testFixtures`로 분리하고 `:test-support`는 공통 infrastructure로 유지
-7. Testcontainers 공통 fixture와 Toxiproxy 장애 test 기반 구축
+7. Testcontainers 공통 fixture와 장애 test 기반 구축(컨테이너 pause·stop, Toxiproxy 없음)
 8. 같은 k6 scenario의 JFR baseline을 저장하고 JMC 분석 template 작성
 
 ### Phase 2 — 모듈별 database 분리
@@ -194,7 +196,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 ### Phase 3 — Kafka
 
 1. 토픽·key·헤더 계약([1장](infrastructure/kafka.md), ADR 0001·0002)
-2. 레포 JSON Schema·AsyncAPI와 호환성 CI(`asyncapi diff`, version별 샘플 contract test)
+2. 이벤트 버전 호환·배포 순서 규칙(AsyncAPI·schema CI 검사는 하지 않음, #339)
 3. 모듈별 outbox → Kafka relay adapter
 4. 자연 키 멱등 consumer, 블로킹 retry/그룹별 DLT, 재처리 runbook
 5. 회원 복제 이벤트 하나로 end-to-end 완성 후 출연·강의로 확장
@@ -252,7 +254,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 4. baseline/after JFR과 JMC 분석 report
 5. Kafka/Redis/pod 강제 종료 demo script
 6. Graceful Shutdown drain demo
-7. OpenAPI·AsyncAPI와 schema compatibility 실패 PR 예시
+7. OpenAPI 호환성 검사 실패 PR 예시
 8. RAG 검색 근거·답변 거절·출처 반환 평가 report
 9. Sonar quality gate 결과
 10. Terraform zero-change plan과 실제 배포 AWS diagram

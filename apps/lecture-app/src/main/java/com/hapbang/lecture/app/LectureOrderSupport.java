@@ -59,6 +59,17 @@ public class LectureOrderSupport {
                 .flatMap(lectureOrderRepository::findForUpdateById);
     }
 
+    /**
+     * 구매자 본인의 주문 항목이 속한 주문을 행 잠금으로 읽는다(D46). 회원 입력으로 잠그므로 본인 항목인지 먼저 확인해,
+     * 남의 항목·없는 항목이면 잠그지 않고 {@code ORDER_ITEM_NOT_FOUND}다. 항목은 올리지 않으므로 잠근 뒤에 읽으면 최신 상태다
+     */
+    public void lockOrderOfBuyerItem(Long buyerUserId, Long orderItemId) {
+        if (!lectureOrderRepository.existsItemOfBuyer(orderItemId, buyerUserId)) {
+            throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+        }
+        findOrderForUpdateByItemId(orderItemId);
+    }
+
     /** 이 주문 항목이 속한 주문 (배치용, 구매자 확인 없음) */
     public LectureOrder findOrderByItemId(Long orderItemId) {
         return lectureOrderRepository.findByItemId(orderItemId)

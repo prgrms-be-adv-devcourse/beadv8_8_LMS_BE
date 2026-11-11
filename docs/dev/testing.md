@@ -40,6 +40,7 @@ class DomainIntegrationTest {
 - 토픽·소비자 그룹·직렬화와 Redis 키·채널은 사용하는 테스트가 지정한다. 공통 설정은 업무 정책을 정하지 않는다.
 - 설정을 가져온 테스트 JVM에서 종류별 컨테이너를 한 번 시작해 공유한다. Spring 컨텍스트가 닫혀도 컨테이너는 유지하며, 테스트 JVM 종료 후 Testcontainers가 정리한다. JVM이 다른 모듈끼리는 공유하지 않는다. 실행 간 재사용이나 영속 볼륨은 설정하지 않는다.
 - 테스트마다 UUID 등으로 고유한 토픽·소비자 그룹·Redis 키·채널·Stream을 사용한다. 자신이 만든 자원만 정리하고 소비자·구독·연결을 종료한다. `FLUSHALL`·`FLUSHDB` 등 전역 초기화를 하지 않는다. 기존 DB 정리 리스너는 Kafka·Redis 자원을 정리하지 않는다.
+- broker 장애는 `KafkaTestcontainersConfig.withBrokerPaused(Runnable)`로 만든다(#339). 공유 컨테이너를 `docker pause`로 멈춘 채 작업을 실행하고 `finally`에서 되살린다. stop/start는 매핑 포트가 바뀌어 client가 다시 붙지 못하므로 쓰지 않는다. 멈춘 동안의 전송이 빨리 실패하게 하려면 테스트에서 producer `max.block.ms`·`delivery.timeout.ms`를 몇 초로 줄인다(기본 60초·120초). consumer 중단은 `KafkaListenerEndpointRegistry`에서 그룹 ID로 container를 찾아 `stop()`/`start()`한다. 예: `LectureMemberEventListenerTest`.
 - 비동기 수신에는 제한 시간을 둔다. `./gradlew :test-support:test`로 공통 설정의 Kafka 발행·수신, Redis 저장·조회·Streams 소비·ACK, 두 설정 동시 사용을 검증한다.
 
 위 Streams 소비·ACK는 공통 컨테이너의 기능 스모크 테스트이며 채팅 전달 전체의 검증을 대체하지 않는다. 채팅은 2026-10-29 사용자 변경 결정으로 PostgreSQL outbox → Redis Streams → consumer group → Pub/Sub을 도입한다(#340). 앱 통합 테스트는 XADD·PUBLISH·DB 발행 체크포인트·XACK 사이의 종료/중복, DB lease·PEL 회수, Stream/그룹 유실 재구성, 미처리 보존 정리와 Pub/Sub 수신 유실·FE 이력 복구를 검증한다. 상세 기준은 [채팅 테스트 기준](../../apps/chat-app/docs/workflow/test-criteria.md)을 따른다. AOF·noeviction·OOM 등 운영 설정 시험은 별도 컨테이너로 격리해 공유 컨테이너의 전역 설정을 바꾸거나 다른 테스트의 키를 지우지 않는다.
@@ -71,7 +72,7 @@ chat-app 테스트 설정(`apps/chat-app/src/test/resources/hapbang-module-test.
 
 ## CI
 
-PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488). `changes` job이 `.github/scripts/apps.sh tested`로 앱을 고르고, 앱마다 러너 하나(`test (<앱>)`)에서 `./gradlew :<앱>:check :<앱>:bootJar --parallel`로 테스트해 jar를 만든 뒤 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `structure` job은 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고 common 라이브러리를 테스트한다. `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다. 필수 체크 `verify`는 이 job들의 결과를 모은다.
+PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488). `changes` job이 `.github/scripts/apps.sh tested`로 앱을 고르고, 앱마다 러너 하나(`test (<앱>)`)에서 `./gradlew :<앱>:check :<앱>:bootJar --parallel`로 테스트해 jar를 만든 뒤 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). native 앱(지금은 customer-support-app)은 이어서 `nativeCompile`과 `Dockerfile.native` 이미지 빌드를 확인한다(약 10~14분 추가, [Native Image](../architecture/infrastructure/native-image.md)). JVM 테스트는 native 실행 파일에서만 나는 reflection·resource 오류를 잡지 못한다. `structure` job은 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고 common 라이브러리를 테스트한다. `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다. 필수 체크 `verify`는 이 job들의 결과를 모은다.
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`·`gradlew`·`ci.yml`·`apps.sh`가 바뀌면 전체다. `apps/<앱>/k8s/`(`manifests` job이 검사)와 `*.md`는 판정에서 빼므로, 이것만 바꾼 PR은 Gradle을 돌리지 않는다.
 - 판정 규칙을 바꾸면 `.github/scripts/apps-test.sh`에 사례를 더한다. `changes` job이 매번 실행한다.

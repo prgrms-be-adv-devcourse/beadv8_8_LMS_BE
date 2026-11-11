@@ -1,0 +1,282 @@
+package com.hapbang.member.in;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+
+import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberEmailVerificationUseCase;
+import com.hapbang.member.domain.EmailVerificationPolicy;
+import com.hapbang.member.domain.User;
+import com.hapbang.member.out.UserRepository;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
+import com.jayway.jsonpath.JsonPath;
+
+/** 가입 이메일 인증 API (#557): 로그인 없이 부르고, 메일 계정이 없는 테스트에서는 로그 발송기로 보낸다 */
+@MemberIntegrationTest
+@AutoConfigureMockMvc
+@Import(RedisTestcontainersConfig.class)
+class EmailVerificationApiTest {
+
+    private static final String EMAIL_CODES = "/api/v1/members/email-codes";
+
+    @Autowired
+    MockMvc mockMvc;
+
+    @Autowired
+    UserRepository userRepository;
+
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    /** 테스트끼리 Redis를 같이 쓰므로 자기가 만든 키만 지운다 */
+    private final List<String> createdKeys = new ArrayList<>();
+
+    @AfterEach
+    void cleanUp() {
+        redisTemplate.delete(createdKeys);
+    }
+
+    @Test
+    @DisplayName("코드를 받으면 200과 유효 시간·재발송 대기 시간을 주고, 1분 안에 다시 받으면 429")
+    void sendCode() throws Exception {
+        String email = newEmail();
+        String ip = newIp();
+
+        sendCode(email, ip)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(600))
+                .andExpect(jsonPath("$.data.resendAfterSeconds").value(60));
+        sendCode(email, ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_RESEND_TOO_SOON"));
+    }
+
+    @Test
+    @DisplayName("한 IP에서 10통을 넘게 받으면 429 EMAIL_CODE_TOO_MANY_REQUESTS")
+    void ipLimit() throws Exception {
+        String ip = newIp();
+        for (int i = 0; i < EmailVerificationPolicy.IP_LIMIT; i++) {
+            sendCode(newEmail(), ip).andExpect(status().isOk());
+        }
+
+        sendCode(newEmail(), ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_TOO_MANY_REQUESTS"));
+    }
+
+    @Test
+    @DisplayName("한 IP에서 코드 확인을 30번 넘게 하면 429 EMAIL_CODE_TOO_MANY_REQUESTS (남의 코드를 틀린 코드로 지우는 방해 제한)")
+    void verifyIpLimit() throws Exception {
+        String ip = newIp();
+        createdKeys.add("member:email-verify-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        for (int i = 0; i < EmailVerificationPolicy.VERIFY_IP_LIMIT; i++) {
+            verifyFrom(newEmail(), "000000", ip).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        }
+
+        verifyFrom(newEmail(), "000000", ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_TOO_MANY_REQUESTS"));
+    }
+
+    @Test
+    @DisplayName("한 이메일은 하루 5통까지 받고 6통째는 429 EMAIL_CODE_DAILY_LIMIT (1분 간격은 지우고 다시 요청)")
+    void emailDailyLimit() throws Exception {
+        String email = newEmail();
+        for (int i = 0; i < EmailVerificationPolicy.EMAIL_DAILY_LIMIT; i++) {
+            sendCode(email, newIp()).andExpect(status().isOk());
+            redisTemplate.delete("member:email-code-cooldown:" + hash(email));
+        }
+
+        sendCode(email, newIp())
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_DAILY_LIMIT"));
+    }
+
+    @Test
+    @DisplayName("이미 가입된 이메일이어도 같은 200을 준다(가입 여부를 응답으로 알 수 없음). 이메일 형식이 틀리면 400")
+    void registeredEmailLooksTheSame() throws Exception {
+        String email = newEmail();
+        userRepository.save(User.join(email, "tester" + UUID.randomUUID().toString().substring(0, 4)));
+        String unregistered = newEmail();
+
+        String registeredBody = sendCode(email.toUpperCase(), newIp()).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String unregisteredBody = sendCode(unregistered, newIp()).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(registeredBody).isEqualTo(unregisteredBody);
+        assertThat(savedCode(unregistered)).matches("\\d{6}");
+        sendCode("not-an-email", newIp()).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("코드 확인으로도 가입 여부를 알 수 없다: 가입된 이메일과 안 된 이메일에 같은 틀린 코드를 보내면 같은 응답(틀림 → 5번째 만료)")
+    void verifyLooksTheSameForRegisteredEmail() throws Exception {
+        String registered = newEmail();
+        userRepository.save(User.join(registered, "tester" + UUID.randomUUID().toString().substring(0, 4)));
+        String unregistered = newEmail();
+        sendCode(registered, newIp()).andExpect(status().isOk());
+        sendCode(unregistered, newIp()).andExpect(status().isOk());
+        String wrong = wrongCodeFor(savedCode(registered), savedCode(unregistered));
+
+        for (int i = 0; i < 4; i++) {
+            verify(registered, wrong).andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+            verify(unregistered, wrong).andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+        }
+        verify(registered, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(unregistered, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+    }
+
+    /** 두 저장된 코드와 모두 다른 6자리 */
+    private static String wrongCodeFor(String... saved) {
+        for (String candidate : new String[] {"000000", "111111", "222222"}) {
+            if (!Arrays.asList(saved).contains(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("틀린 코드를 고르지 못했다");
+    }
+
+    @Test
+    @DisplayName("받은 코드를 확인하면 인증 토큰(30분)을 주고, 같은 코드는 다시 쓸 수 없다")
+    void verifyCode() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String code = savedCode(email);
+
+        String body = verify(email, code)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(1800))
+                .andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(body, "$.data.emailVerificationToken");
+        createdKeys.add("member:email-verified:sign_up:" + hash(token));
+
+        verify(email, code)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+    }
+
+    @Test
+    @DisplayName("틀리면 400 INVALID_EMAIL_CODE, 5번째로 틀리면 400 EMAIL_CODE_EXPIRED이고 맞는 코드도 더는 못 쓴다. 숫자 6자리가 아니면 400")
+    void verifyWrongCode() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String code = savedCode(email);
+        String wrong = code.equals("000000") ? "111111" : "000000";
+        for (int i = 0; i < 4; i++) {
+            verify(email, wrong)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+        }
+
+        verify(email, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(email, code).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(email, "12ab56").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("코드 받기 → 확인 → 받은 토큰으로 가입하면 201이고, 같은 토큰으로 다시 가입할 수 없다")
+    void signUpFlow() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String body = verify(email, savedCode(email)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(body, "$.data.emailVerificationToken");
+        createdKeys.add("member:email-verified:sign_up:" + hash(token));
+
+        signUp(email, "abcd1234", "가입흐름", token).andExpect(status().isCreated());
+        User user = userRepository.findByEmail(email).orElseThrow();
+        createdKeys.add("member:user-refresh:" + user.getId());
+
+        signUp(newEmail(), "abcd1234", "가입흐름2", token)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+    }
+
+    private ResultActions signUp(String email, String password, String nickname, String token) throws Exception {
+        return mockMvc.perform(post("/api/v1/members/signup").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\",\"emailVerificationToken\":\"%s\"}"
+                        .formatted(email, password, nickname, token)));
+    }
+
+    private ResultActions verifyFrom(String email, String code, String ip) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES + "/verify")
+                .with(request -> {
+                    request.setRemoteAddr(ip);
+                    return request;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\",\"code\":\"%s\"}".formatted(email, code)));
+    }
+
+    private ResultActions verify(String email, String code) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES + "/verify").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\",\"code\":\"%s\"}".formatted(email, code)));
+    }
+
+    /** 메일 대신 Redis에 저장된 코드를 읽는다 (테스트에는 메일 계정이 없어 로그 발송기를 쓴다) */
+    private String savedCode(String email) {
+        return redisTemplate.opsForValue().get("member:email-code:sign_up:" + hash(email));
+    }
+
+    private ResultActions sendCode(String email, String ip) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES)
+                .with(request -> {
+                    request.setRemoteAddr(ip);
+                    return request;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\"}".formatted(email)));
+    }
+
+    private String newEmail() {
+        String email = UUID.randomUUID() + "@example.com";
+        String hash = hash(email);
+        for (String purpose : new String[] {"sign_up", "password_reset"}) {
+            createdKeys.add("member:email-code:" + purpose + ":" + hash);
+            createdKeys.add("member:email-code-fail:" + purpose + ":" + hash);
+        }
+        createdKeys.add("member:email-code-cooldown:" + hash);
+        createdKeys.add("member:email-code-daily:" + hash);
+        return email;
+    }
+
+    /** 테스트마다 겹치지 않는 공인 주소 (IPv6 문서용 대역 2001:db8::/32는 사설·루프백이 아니라 공인 주소로 본다) */
+    private String newIp() {
+        String hex = UUID.randomUUID().toString().replace("-", "");
+        String ip = "2001:db8:%s:%s:%s:%s::1".formatted(hex.substring(0, 4), hex.substring(4, 8), hex.substring(8, 12),
+                hex.substring(12, 16));
+        createdKeys.add("member:email-code-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        return ip;
+    }
+
+    private static String hash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+}

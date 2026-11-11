@@ -7,20 +7,26 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.lecture.config.LectureConfig;
+import com.hapbang.lecture.domain.LectureReview;
 
 /** 리뷰 수정. 작성자 본인이면 항목 상태와 관계없이 고칠 수 있다 */
 @Service
 public class ReviewEditUseCase {
 
     private final LectureReviewSupport lectureReviewSupport;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
-    public ReviewEditUseCase(LectureReviewSupport lectureReviewSupport, @Qualifier(LectureConfig.CLOCK) Clock clock) {
+    public ReviewEditUseCase(LectureReviewSupport lectureReviewSupport, LectureSyncEvents lectureSyncEvents,
+                             @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureReviewSupport = lectureReviewSupport;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
     public void edit(Long userId, Long reviewId, int rating, String content) {
-        lectureReviewSupport.findReview(reviewId).edit(userId, rating, content, LocalDateTime.now(clock));
+        LectureReview review = lectureReviewSupport.findReviewForUpdate(reviewId);
+        review.edit(userId, rating, content, LocalDateTime.now(clock));
+        lectureSyncEvents.reviewChanged(review);
     }
 }

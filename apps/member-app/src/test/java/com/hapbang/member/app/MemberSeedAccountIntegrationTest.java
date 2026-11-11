@@ -99,6 +99,18 @@ class MemberSeedAccountIntegrationTest {
                 .isEqualTo(changedHash);
     }
 
+    @Test
+    @DisplayName("다른 회원이 초기 계정 닉네임(대소문자 무시)을 쓰고 있으면 그 계정만 건너뛰고 나머지는 만든다 (#646)")
+    void createAll_nicknameTaken() {
+        userRepository.save(User.join("someone@example.com", "관리자"));
+
+        memberFacade.createSeedAccounts();
+
+        assertThat(userRepository.findByEmail("admin@hapbang.local")).isEmpty();
+        assertThat(userRepository.findByEmail("influencer@hapbang.local")).isPresent();
+        assertThat(userRepository.findByEmail("verified-influencer@hapbang.local")).isPresent();
+    }
+
     /** 비밀번호 로그인 → 재발급으로 받은 access token의 role */
     private String accessTokenRole(String email, Long userId) throws Exception {
         createdKeys.add("member:user-refresh:" + userId);

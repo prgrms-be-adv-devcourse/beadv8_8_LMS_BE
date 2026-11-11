@@ -28,6 +28,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PasswordCredential extends BaseEntity {
 
+    /** 마스킹한 비밀번호 정보에 남기는 값 (#594). 해시가 아니고 인코더 형식({@code {id}해시})도 아니라 어떤 비밀번호로도 로그인할 수 없다 */
+    public static final String WIPED_HASH = "!wiped";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -57,6 +60,19 @@ public class PasswordCredential extends BaseEntity {
     public void changePassword(String passwordHash, LocalDateTime now) {
         this.passwordHash = passwordHash;
         this.passwordChangedAt = now;
+    }
+
+    /**
+     * 탈퇴 회원 마스킹 (#594). 행은 남기고(삭제 금지) 해시를 {@link #WIPED_HASH}로 덮는다.
+     * 마스킹한 회원은 이메일도 지워져 비밀번호 로그인에서 찾을 수 없다. 그래도 로그인·비밀번호 변경은 {@link #isWiped()}로 한 번 더 거른다
+     */
+    public void wipe() {
+        this.passwordHash = WIPED_HASH;
+    }
+
+    /** 마스킹으로 해시를 지웠는지. 지운 값은 해시가 아니라 비밀번호 비교에 넘기면 오류가 나므로 비교 전에 거른다 */
+    public boolean isWiped() {
+        return WIPED_HASH.equals(passwordHash);
     }
 
     @Override

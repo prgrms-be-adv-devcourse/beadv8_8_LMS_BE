@@ -24,7 +24,8 @@ public interface ApiV1SettlementMemberBackfillAdminSpec {
                     + "nextAfterId를 다음 afterId로 넘겨 이어서 실행한다. 회원 한 명의 반영 실패는 failed로 세고 계속한다. "
                     + "회원 내부 API 장애·응답 계약 위반은 실행을 멈추고 503(MEMBER_SOURCE_UNAVAILABLE: 일시 장애·잘못된 응답, "
                     + "MEMBER_SOURCE_REJECTED: 내부 API 거절)이며, 이미 반영한 회원은 유지하고 ProblemDetail에 멈추기 전까지의 "
-                    + "집계와 resumeAfterId(이어서 실행할 afterId)를 담는다. 실행 중 다시 요청하면 409 BACKFILL_ALREADY_RUNNING. "
+                    + "집계와 resumeAfterId(이어서 실행할 afterId)를 담는다. 실행 중 다시 요청하면(배포 중 다른 pod 포함) 409 BACKFILL_ALREADY_RUNNING, "
+                    + "실행 락을 시도하지 못하면(DB 연결 불가) 아무것도 하지 않고 503 BACKFILL_LOCK_UNAVAILABLE. "
                     + "afterId 0 이상(기본 0), limit 1~5,000(기본 100, 생략하면 100명만 처리하고 nextAfterId로 이어서 실행), "
                     + "범위 밖은 400 INVALID_REQUEST. "
                     + "비로그인 401, 관리자가 아니면 403.")

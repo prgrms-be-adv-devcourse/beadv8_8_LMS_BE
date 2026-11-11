@@ -21,6 +21,9 @@ public class ChatUser extends ReplicaUser {
 
     public static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
 
+    /** 채팅 회원 복제본이 없는 회원의 표시 닉네임. 회원 ID는 사용자에게 드러내지 않으므로 대신 쓴다 */
+    public static final String UNKNOWN_NICKNAME = "알 수 없는 회원";
+
     private ChatUser(UserDto user) {
         super(user);
     }
@@ -41,6 +44,14 @@ public class ChatUser extends ReplicaUser {
      */
     public boolean canChat() {
         return isActive() && (isInfluencerOrAbove() || getRole() == Role.ADMIN);
+    }
+
+    /**
+     * 모집용 단체방의 호스트를 계속할 수 있는지: 탈퇴하지 않았고 출연 모집을 올릴 수 있는 역할(인플루언서·인증된 인플루언서)이다.
+     * 정지는 따로 다루므로(일시 중지) 여기서는 자격 상실로 보지 않는다. 인증된 인플루언서가 인플루언서가 되어도 자격은 유지된다.
+     */
+    public boolean canHostGroup() {
+        return !isWithdrawn() && isInfluencerOrAbove();
     }
 
     public boolean isAdmin() {

@@ -58,8 +58,8 @@ import jakarta.persistence.EntityManager;
  * 끝까지 확인한다. {@link ChatRedisOutageE2ETest}는 짧은 단절 한 번을, {@code ChatDeliveryRedisOutageTest}는 긴 단절을 직접 호출로
  * 확인한다. 이 클래스는 긴 단절과 쓰기 거절(OOM)을 실제 연결로 본다.
  * <p>
- * 적재·발행 시도 상한을 2, backoff를 1ms로 줄여, 장애를 시도로 셌다면 1초 안에 격리(DEAD)됐을 설정에서 Redis를 그보다 수십 배 긴
- * 동안 멈춘다(운영 기본값 기준 옛 시도 예산 약 4분을 넘는 단절과 같은 조건). 재확인 간격도 줄여 단절 동안 재확인이 여러 번 실패하게 한다.
+ * 적재·발행 시도 상한을 2, backoff를 1ms로 줄이고, 그 상한보다 많은 재확인이 실패한 것을 관측한다.
+ * 고정 시간을 기다리는 대신 실제 실패한 재확인 횟수로 옛 시도 예산을 넘는 장애를 입증한다.
  */
 @SpringBootTest(classes = ModuleTestConfiguration.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -103,8 +103,8 @@ import jakarta.persistence.EntityManager;
 class ChatRedisLongOutageE2ETest {
 
     private static final Duration WAIT = Duration.ofSeconds(30);
-    /** 옛 동작(시도 상한 2, backoff 1ms)이면 1초 안에 격리됐을 단절을 이만큼 유지한다 */
-    private static final Duration LONG_OUTAGE = Duration.ofSeconds(20);
+    /** 시도 상한 2보다 충분히 많은 재확인이 실패해도 작업을 격리하지 않아야 한다 */
+    private static final int REQUIRED_PROBES = 20;
     private static final String MESSAGES = "/user/queue/chats/messages";
 
     /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
@@ -199,15 +199,12 @@ class ChatRedisLongOutageE2ETest {
         // 단절을 알아채기 전 relay가 선점했을 수 있다. 연결 불가로 선점을 시도 없이 되돌리면 그 뒤로는 재확인만 한다
         await().atMost(WAIT).until(() -> pendingDuringOutage() == 3);
         int pingsBefore = pingCount();
-        long outageEndsAt = System.nanoTime() + LONG_OUTAGE.toNanos();
-        while (System.nanoTime() < outageEndsAt) {
+        await().pollInterval(Duration.ofMillis(50)).atMost(WAIT).until(() -> {
             // 단절 내내 어떤 작업도 격리되지 않고, 장애 중 메시지의 적재 시도는 0으로 남는다
             assertThat(deadCount()).isZero();
             assertThat(pendingDuringOutage()).isEqualTo(3);
-            Thread.sleep(500);
-        }
-        int probes = pingCount() - pingsBefore;
-        assertThat(probes).as("단절 동안 재확인(PING)이 여러 번 실패했다").isGreaterThanOrEqualTo(20);
+            return pingCount() - pingsBefore >= REQUIRED_PROBES;
+        });
         assertThat(deadCount()).isZero();
         assertThat(attemptSum()).isEqualTo(attemptsBefore);
         assertThat(guestMessages).isEmpty();
@@ -258,12 +255,12 @@ class ChatRedisLongOutageE2ETest {
             host.send(sendPath(chatRoomId), new SendChatMessageRequest("상한 중 " + i, "oom-" + i));
         }
         await().atMost(WAIT).until(() -> savedCount(chatRoomId) == 3);
-        // 재확인 적재가 여러 번 거절되는 동안(상한 200ms) 격리되지 않고 시도로 세지 않는다
-        long until = System.nanoTime() + Duration.ofSeconds(6).toNanos();
-        while (System.nanoTime() < until) {
+        // 쓰기 상한을 푼 적이 없는 상태에서 실제 XADD 재확인이 시도 상한보다 많이 실패해도 격리하지 않는다.
+        int enqueuesBefore = enqueueCount();
+        await().pollInterval(Duration.ofMillis(50)).atMost(WAIT).until(() -> {
             assertThat(deadCount()).isZero();
-            Thread.sleep(300);
-        }
+            return enqueueCount() - enqueuesBefore >= REQUIRED_PROBES;
+        });
         // 재확인 적재가 한 건을 잠깐 선점(PROCESSING)할 수 있으므로 PENDING·시도 0으로 돌아온 순간을 본다
         await().atMost(WAIT).until(() -> pendingOom() == 2);
         assertThat(guestMessages.poll(200, TimeUnit.MILLISECONDS)).isNull();
@@ -301,6 +298,12 @@ class ChatRedisLongOutageE2ETest {
     private int pingCount() {
         return (int) mockingDetails(chatDeliveryQueue).getInvocations().stream()
                 .filter(invocation -> invocation.getMethod().getName().equals("ping"))
+                .count();
+    }
+
+    private int enqueueCount() {
+        return (int) mockingDetails(chatDeliveryQueue).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("enqueue"))
                 .count();
     }
 

@@ -1599,7 +1599,7 @@
           "sort": "desc"
         }
       },
-      "description": "앱 지표에는 histogram bucket이 없어 percentile은 Gateway dashboard에서 본다",
+      "description": "percentile은 아래 \"응답 시간 p50·p95·p99\"에서 본다",
       "id": 25,
       "gridPos": {
         "h": 8,
@@ -1659,6 +1659,132 @@
         "w": 8,
         "x": 16,
         "y": 49
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "응답 시간 p50·p95·p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "p50",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "p95",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "C",
+          "legendFormat": "p99",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "bucket 경계(5ms~5s, 10개) 사이를 선형 보간한 근사치다. 5s를 넘는 요청이 percentile에 걸리면 5s로 나온다. 최대는 \"URI별 최대 응답 시간\"에서 본다",
+      "id": 47,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "URI별 p95 응답 시간",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{method}} {{uri}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "URI별 요청이 적으면 bucket 하나에 몰려 경계값(예: 250ms)이 그대로 나온다",
+      "id": 48,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 57
       }
     },
     {
@@ -1737,7 +1863,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 65
       }
     },
     {
@@ -1749,7 +1875,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 65
+        "y": 73
       },
       "panels": []
     },
@@ -1871,7 +1997,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 66
+        "y": 74
       }
     },
     {
@@ -1956,7 +2082,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 66
+        "y": 74
       }
     },
     {
@@ -2009,7 +2135,813 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 66
+        "y": 74
+      }
+    },
+    {
+      "type": "row",
+      "title": "나가는 호출·회복성",
+      "collapsed": false,
+      "panels": [],
+      "id": 35,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "나가는 HTTP 요청 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (client_name, method, uri, status) (rate(http_client_requests_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval])) * 60",
+          "refId": "A",
+          "legendFormat": "{{client_name}} {{method}} {{uri}} {{status}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "RestClient로 다른 앱·외부 API를 부른 횟수. series는 앱이 처음 호출한 뒤에 생긴다. uri가 none이면 URI template 없이 부른 호출이다",
+      "id": 36,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 83
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "나가는 HTTP 응답 시간",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (client_name, uri) (rate(http_client_requests_seconds_sum{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval])) / sum by (client_name, uri) (rate(http_client_requests_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{client_name}} {{uri}} 평균",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (client_name, uri) (http_client_requests_seconds_max{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"})",
+          "refId": "B",
+          "legendFormat": "{{client_name}} {{uri}} 최대",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 37,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 83
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "circuit breaker 상태",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (name) ((resilience4j_circuitbreaker_state{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", state=\"closed\"} == 1) * 0 or (resilience4j_circuitbreaker_state{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", state=\"half_open\"} == 1) * 1 or (resilience4j_circuitbreaker_state{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", state=~\"open|forced_open\"} == 1) * 2 or (resilience4j_circuitbreaker_state{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", state=~\"disabled|metrics_only\"} == 1) * 3)",
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "closed",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "half_open",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "open",
+                  "color": "red",
+                  "index": 2
+                },
+                "3": {
+                  "text": "disabled",
+                  "color": "text",
+                  "index": 3
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "left",
+        "rowHeight": 0.8,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "description": "호출 대상(name)별 상태. open이면 호출을 보내지 않고 바로 실패시킨다",
+      "id": 38,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 83
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "circuit breaker 호출 결과 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name, kind) (rate(resilience4j_circuitbreaker_calls_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval])) * 60",
+          "refId": "A",
+          "legendFormat": "{{name}} {{kind}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval])) * 60",
+          "refId": "B",
+          "legendFormat": "{{name}} 거절(not_permitted)",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(failed|거절).*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "거절은 circuit breaker가 open이라 보내지 않은 호출이다",
+      "id": 39,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 91
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "circuit breaker 호출 시간",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name) (rate(resilience4j_circuitbreaker_calls_seconds_sum{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval])) / sum by (name) (rate(resilience4j_circuitbreaker_calls_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{name}} 평균",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (name) (resilience4j_circuitbreaker_calls_seconds_max{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"})",
+          "refId": "B",
+          "legendFormat": "{{name}} 최대",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "circuit breaker를 거친 호출 대상(name)별 응답 시간. 대상 앱이 느려지면 여기서 먼저 보인다",
+      "id": 40,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 91
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "retry 결과",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (name, kind) (increase(resilience4j_retry_calls_total{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{name}} {{kind}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "with_retry는 한 번 이상 다시 시도한 호출이다",
+      "id": 41,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 91
+      }
+    },
+    {
+      "type": "row",
+      "title": "스케줄 작업·Repository",
+      "collapsed": false,
+      "panels": [],
+      "id": 42,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "스케줄 작업 실행 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (task, outcome) (label_replace(rate(tasks_scheduled_execution_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]), \"task\", \"$1\", \"code_namespace\", \".*\\\\.([^.]+)\")) * 60",
+          "refId": "A",
+          "legendFormat": "{{task}} {{outcome}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "@Scheduled 작업. outcome이 SUCCESS가 아니면 예외로 끝난 실행이다",
+      "id": 43,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "스케줄 작업 실행 시간",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (task) (label_replace(rate(tasks_scheduled_execution_seconds_sum{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]), \"task\", \"$1\", \"code_namespace\", \".*\\\\.([^.]+)\")) / sum by (task) (label_replace(rate(tasks_scheduled_execution_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]), \"task\", \"$1\", \"code_namespace\", \".*\\\\.([^.]+)\"))",
+          "refId": "A",
+          "legendFormat": "{{task}} 평균",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (task) (label_replace(tasks_scheduled_execution_seconds_max{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}, \"task\", \"$1\", \"code_namespace\", \".*\\\\.([^.]+)\"))",
+          "refId": "B",
+          "legendFormat": "{{task}} 최대",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 44,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 100
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Repository 호출 (분당, 상위 10)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (repository, method) (rate(spring_data_repository_invocations_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__rate_interval]))) * 60",
+          "refId": "A",
+          "legendFormat": "{{repository}}.{{method}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 45,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 100
+      }
+    },
+    {
+      "type": "table",
+      "title": "Repository 메서드별 호출 (선택 기간)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (repository, method) (increase(spring_data_repository_invocations_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__range])))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repository, method) (increase(spring_data_repository_invocations_seconds_sum{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__range])) / (sum by (repository, method) (increase(spring_data_repository_invocations_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__range])) > 0)",
+          "refId": "B",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repository, method) (max_over_time(spring_data_repository_invocations_seconds_max{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__range]))",
+          "refId": "C",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (repository, method) (increase(spring_data_repository_invocations_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", state!=\"SUCCESS\"}[$__range])) or sum by (repository, method) (increase(spring_data_repository_invocations_seconds_count{app_kubernetes_io_name=\"$app\", pod=~\"$pod\"}[$__range])) * 0)",
+          "refId": "D",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": false
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "호출 수"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "평균"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "최대"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실패"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "평균",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "호출 수",
+              "Value #B": "평균",
+              "Value #C": "최대",
+              "Value #D": "실패"
+            },
+            "indexByName": {
+              "repository": 0,
+              "method": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5
+            }
+          }
+        }
+      ],
+      "description": "Spring Data Repository 메서드 호출. 실패는 state가 SUCCESS가 아닌 호출이다",
+      "id": 46,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 108
       }
     },
     {
@@ -2021,7 +2953,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 117
       },
       "panels": []
     },
@@ -2105,7 +3037,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 118
       }
     },
     {
@@ -2121,7 +3053,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"hapbang-prod\", app=\"$app\", pod=~\"$pod\"} |~ `^\\S+\\s+(ERROR|WARN)\\s`",
+          "expr": "{namespace=\"hapbang-prod\", app=\"$app\", pod=~\"$pod\"} |~ `^\\S+\\s+(ERROR|WARN)\\s|\"level\":\"(ERROR|WARN)\"`",
           "refId": "A",
           "range": true
         }
@@ -2142,7 +3074,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 118
       }
     }
   ]

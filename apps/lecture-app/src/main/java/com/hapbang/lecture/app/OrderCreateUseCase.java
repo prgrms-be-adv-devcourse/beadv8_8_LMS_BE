@@ -4,9 +4,11 @@ import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.config.LectureOrderProperties;
 import com.hapbang.lecture.domain.*;
+import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -20,15 +22,19 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 주문 (장바구니 주문·바로 구매, 설계 6.4, D58). 세 단계로 나눠 호출한 Facade가 차례로 부른다.
  * <ol>
  *     <li>{@link #place}: 주문·항목을 결제 처리 중으로 저장하고 항목마다 보류 작업을 등록한다(한 강의 트랜잭션).</li>
  *     <li>{@link #tryHolds}: 커밋 뒤 트랜잭션 밖에서 보류와 보상 반환을 한 번씩 시도한다. 시간 예산을 넘기면 멈춘다(D68).</li>
- *     <li>{@link #result}: 주문을 다시 읽어 결과를 낸다. 결제 실패면 {@code INSUFFICIENT_BALANCE}(409)다(D69 (1)).</li>
+ *     <li>{@link #result}: 주문을 다시 읽어 결과를 낸다. 결제 실패면 {@code INSUFFICIENT_BALANCE}(409)이고, 탈퇴로 닫힌 지갑이 거절했으면
+ *     {@code WALLET_CLOSED}(409)다(D69 (1), D76).</li>
  * </ol>
  * 끝나지 않은 작업은 HP 작업 재시도 배치가 같은 요청 ID로 이어서 처리한다(D57).
  */
+@Slf4j
 @Service
 public class OrderCreateUseCase {
 
@@ -41,29 +47,35 @@ public class OrderCreateUseCase {
     private final LectureRepository lectureRepository;
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskRepository lectureHpTaskRepository;
+    private final LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureHpTaskExecutor lectureHpTaskExecutor;
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderProperties properties;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public OrderCreateUseCase(
             LectureRepository lectureRepository,
             LectureOrderRepository lectureOrderRepository,
             LectureHpTaskRepository lectureHpTaskRepository,
+            LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository,
             LectureHpTaskSupport lectureHpTaskSupport,
             LectureHpTaskExecutor lectureHpTaskExecutor,
             LectureOrderSupport lectureOrderSupport,
             LectureOrderProperties properties,
+            LectureSyncEvents lectureSyncEvents,
             @Qualifier(LectureConfig.CLOCK) Clock clock
     ) {
         this.lectureRepository = lectureRepository;
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskRepository = lectureHpTaskRepository;
+        this.lectureHpTaskAttemptRepository = lectureHpTaskAttemptRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureHpTaskExecutor = lectureHpTaskExecutor;
         this.lectureOrderSupport = lectureOrderSupport;
         this.properties = properties;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -81,11 +93,16 @@ public class OrderCreateUseCase {
 
         // 보류 작업의 참조 ID(주문 항목 ID)를 얻고, 같은 강의의 동시 주문을 작업 등록 전에 걸러낸다
         save(order);
+        lectureSyncEvents.purchasesChanged(order.getItems());
         List<Long> holdTaskIds = order.getItems().stream()
                 .map(item -> lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD,
                         HOLD_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                         item.getPriceHp(), now)).getId())
                 .toList();
+        AfterCommit.run(() -> {
+            log.info("주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}", order.getId(), buyerUserId,
+                    order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
+        });
         return new Placement(order.getId(), holdTaskIds);
     }
 
@@ -107,14 +124,24 @@ public class OrderCreateUseCase {
         }
     }
 
-    /** 주문 결과. 결제 실패면 묶여 남은 HP가 없음이 확인된 것이라 잔액 부족으로 응답한다 (D58 (4), D69 (1)) */
+    /**
+     * 주문 결과. 결제 실패면 묶여 남은 HP가 없음이 확인된 것이라 잔액 부족으로 응답한다 (D58 (4), D69 (1)).
+     * 보류가 탈퇴로 닫힌 지갑 때문에 거절됐으면 그 사유로 응답한다 (D76)
+     */
     @Transactional(readOnly = true)
     public OrderResponse result(Long buyerUserId, Long orderId) {
         LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
         if (order.getStatus() == LectureOrderStatus.HOLD_FAILED) {
-            throw new LectureException(LectureErrorCode.INSUFFICIENT_BALANCE);
+            throw new LectureException(holdFailureCode(order.getId()));
         }
         return lectureOrderSupport.toResponse(order);
+    }
+
+    // 결제 실패 사유. 주문에 저장하지 않고 보류 작업의 확정 거절 기록에서 읽는다
+    private LectureErrorCode holdFailureCode(Long orderId) {
+        boolean walletClosed = lectureHpTaskAttemptRepository.existsByOrderAndResult(orderId, LectureHpTaskType.HOLD,
+                LectureHpAttemptResult.TERMINAL_REJECTION, BillingFailureCode.WALLET_CLOSED.name());
+        return walletClosed ? LectureErrorCode.WALLET_CLOSED : LectureErrorCode.INSUFFICIENT_BALANCE;
     }
 
     private boolean tryWithin(Instant deadline, Long taskId) {

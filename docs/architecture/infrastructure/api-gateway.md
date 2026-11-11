@@ -26,7 +26,7 @@ JWT는 암호화가 아니라 **서명**이다. payload는 누구나 Base64로 �
 2. refresh token(14일)은 member-app이 Redis에 해시로 저장하고(`RedisRefreshTokenStore`) 쓸 때마다 회전한다. refresh 경로로만 가는 `HttpOnly; Secure; SameSite=Strict` 쿠키로 준다. 로그아웃하면 폐기한다.
 3. 프론트는 access token을 메모리에 두고 `Authorization: Bearer`로 보낸다. 새로고침하면 시작할 때 refresh를 한 번 호출한다. Bearer 헤더는 브라우저가 자동으로 싣지 않으므로 API의 CSRF 보호(`X-XSRF-TOKEN`)는 뺀다.
 4. Envoy가 서명을 검증한다. 위조·만료 토큰은 401로 거절하고, 토큰이 없는 요청은 헤더 없이 통과시킨다. 로그인이 필요한지는 각 앱의 Security 설정이 정한다. 그래서 비로그인 경로 목록을 Envoy와 앱 두 곳에 적지 않는다.
-5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 헤더 필터는 공용 모듈이 아니라 앱마다 안에 둔다. 지금 member·appearance(#395)·chat(#501)·lecture(#521)·customer-support(#540)가 쓰고, billing은 아직이다. 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트(8080)에는 Envoy만 접근하게 한다. Prometheus는 관리 포트(8082)로 수집한다(lecture #521, member·appearance·customer-support #528). 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다. 이 구조를 고른 이유와 전제는 아래 [헤더 신뢰 구조](#헤더-신뢰-구조를-유지하는-이유-2026-11-02)에 있다.
+5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 헤더 필터는 공용 모듈이 아니라 앱마다 안에 둔다. 지금 member·appearance(#395)·chat(#501)·lecture(#521)·customer-support(#540)가 쓰고, billing은 아직이다. 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트(8080)에는 Envoy만 접근하게 한다. Prometheus는 관리 포트(8082)로 수집한다(lecture #521, member·appearance·customer-support #528, chat #590). 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다. 이 구조를 고른 이유와 전제는 아래 [헤더 신뢰 구조](#헤더-신뢰-구조를-유지하는-이유-2026-11-02)에 있다.
 6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. 그래서 chat-app은 JWT를 직접 검증하지 않고, Gateway가 검증한 REST 요청으로 일회용 연결 티켓을 발급해 웹소켓 연결을 그 티켓으로 인증한다(#501). 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`로 정한다([Gateway 운영 문서](../../deploy/gateway.md)). 그래서 JWKS를 쓰는 곳은 Gateway뿐이다. JWT는 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
 7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다. 그래서 HP가 움직이는 경로(보류·반환·지급·환전)와 역할 조건이 있는 거래(출연 거래는 활동 중인 인플루언서 이상, `docs/policy.md`)는 토큰의 `role`만 믿지 않고, 각 앱이 복제한 회원 상태를 함께 확인한다(#371). 전역 차단 목록(blacklist)을 두지 않는 이유는 아래 [즉시 차단](#정지역할-변경의-즉시-차단)에 있다.
 8. `docs/policy.md`의 "로그인 상태는 서버 세션으로 유지"와 "역할 변경은 다시 로그인하지 않아도 바로 반영"은 JWT 전환과 맞지 않는다. policy를 어떻게 고칠지는 팀이 정한다(#370).
@@ -54,7 +54,7 @@ OWASP는 프록시가 넣은 헤더를 믿으려면 세 가지가 필요하다�
 | 프록시를 인증한다 | ❌ 앱은 보낸 쪽이 Envoy인지 암호로 확인하지 않는다(mTLS 없음). NetworkPolicy가 대신한다 |
 
 - **감수하는 위험**: 클러스터 안의 pod가 장악되어 앱 8080에 직접 닿으면 아무 회원(관리자 포함)으로 행세할 수 있다. 다만 그런 pod는 인증이 없는 Kafka·Redis에도 닿는다([Gateway 운영 문서](../../deploy/gateway.md)에서 이 규모에서는 감수하기로 함). 앱의 JWT 재검증만 더해서는 피해 범위가 크게 줄지 않는데, 바꾸려면 앱 6개에 JWT 검증을 넣고 Envoy가 원래 토큰을 앱까지 넘기게 해야 한다. 그래서 지금 구조를 유지한다.
-- **8080에 들어오는 다른 pod를 없앤다**: Prometheus도 지표를 모으려고 8080에 들어왔다. 헤더를 믿는 앱은 actuator를 관리 포트(8082)로 옮기고 Prometheus는 그 포트만 쓴다(lecture #521, member·appearance·customer-support #528, [관측성](observability.md)).
+- **8080에 들어오는 다른 pod를 없앤다**: Prometheus도 지표를 모으려고 8080에 들어왔다. 헤더를 믿는 앱은 actuator를 관리 포트(8082)로 옮기고 Prometheus는 그 포트만 쓴다(lecture #521, member·appearance·customer-support #528, chat #590, [관측성](observability.md)).
 - **앱에서 JWT를 검증하는 구조로 올릴 때**: 아래 NetworkPolicy 확인이 실패할 때, 클러스터에 다른 서비스·사람이 늘어 "클러스터 안은 믿는다"는 가정이 약해질 때, 앱을 Gateway 밖(다른 진입점·클러스터)에서도 부르게 될 때.
 
 근거: [OWASP Identity Propagation Patterns](https://cheatsheetseries.owasp.org/cheatsheets/Identity_Propagation_Patterns_Cheat_Sheet.html)(trusted proxy header: 클라이언트 헤더 제거, 프록시 인증, 우회 차단), [OWASP Microservices Security](https://cheatsheetseries.owasp.org/cheatsheets/Microservices_Security_Cheat_Sheet.html)(Gateway 검사는 서비스 쪽 통제를 보완할 뿐이다), [Google IAP signed headers](https://docs.cloud.google.com/iap/docs/signed-headers-howto)(IAP를 우회하면 서명 없는 헤더는 위조될 수 있어 서명된 JWT를 확인한다).
@@ -75,13 +75,14 @@ OWASP는 프록시가 넣은 헤더를 믿으려면 세 가지가 필요하다�
 
 ## rate limit — 각 앱의 Resilience4j
 
-- 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로
+- 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로. 요청 안에서 다른 앱을 동기로 부르는 경로도 넣는다(강의 주문·구매 취소, 강의 D80). 내부 API(`/api/v1/internal/**`)와 관리자 API는 넣지 않는다. 내부 API는 회원이 아니라 앱이 부르므로 부르는 앱의 circuit breaker와 그 앞단 사용자 한도로 막는다
 - key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP
 - client IP 신뢰 경계: Envoy 앞에는 신뢰할 proxy가 없으므로 `ClientTrafficPolicy`의 `X-Forwarded-For` 신뢰 hop 수는 0으로 둔다. Envoy는 실제 접속 주소를 `X-Forwarded-For` 맨 뒤에 붙인다. 앱(`server.forward-headers-strategy=native`, Tomcat `RemoteIpValve`)은 오른쪽부터 읽어 cluster 내부 주소가 아닌 첫 주소를 client IP로 쓴다. 그래서 클라이언트가 앞쪽에 넣은 값은 무시된다. Envoy가 실제 client IP를 보는지(ServiceLB와 `externalTrafficPolicy: Local`)는 설치 뒤 access log로 확인한다
 - client IP rate limit을 구현할 때 Envoy가 실제 공인 IP를 보는지 다시 확인한다. Envoy가 private 주소(로컬 k3d의 docker 대역, SNAT된 node 주소)를 보면 Tomcat이 그 주소도 proxy로 건너뛰어 클라이언트가 넣은 값을 읽는다. 그때는 Envoy에서 `X-Forwarded-For`를 실제 접속 주소로 덮어쓰는 방식을 검토한다. 앱 코드에 client IP rate limit이 아직 없어 #372에서는 넣지 않았다
 - 한도를 넘으면 429를 `ProblemDetail`로 응답한다
 - RateLimiter는 앱 프로세스 메모리에서 센다. 앱마다 replica가 1개라 앱 하나의 한도가 곧 전체 한도다. replica를 늘리면 한도도 replica 수만큼 늘어나므로, 그때 공유 저장소 방식을 다시 판단한다
-- 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮긴다
+- 예외: 회원 앱의 이메일 인증 제한(발송: 같은 이메일 1분, IP 1시간 10통, 이메일 하루 5통, 전체 하루 300통 / 코드 확인: IP 1시간 30번, #557)은 Redis로 센다. 이유: (1) 하루 단위 상한이 배포·재시작 뒤에도 유지돼야 한다. Resilience4j는 pod 메모리에서 세어 배포(dev 병합)마다 0이 된다. (2) 세는 단위가 이메일·IP마다 따로라 키가 끝없이 늘어나는데, Redis는 키마다 TTL로 저절로 지워지고 Lua로 원자적으로 센다. (3) Redis는 이미 쓰고 있어(refresh token, 채팅) 새 인프라가 아니다. client IP는 위 신뢰 경계대로 읽고, IPv6는 /64 단위로 센다. 운영에서 진짜 client IP가 오는지는 병합 전에 확인한다
+- 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮길지 판단한다. 지갑(#627)과 강의(#423)가 같은 방식의 `global.ratelimit`를 각자 두고 있고, 옮길지는 #697에서 판단한다
 - 앱 간 내부 HTTP 호출(#280)의 timeout·circuit breaker도 Resilience4j로 통일한다
 
 ## 구현 후보와 판단

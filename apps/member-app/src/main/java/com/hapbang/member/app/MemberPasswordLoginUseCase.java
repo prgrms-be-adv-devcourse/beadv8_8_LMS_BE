@@ -21,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>없는 이메일과 틀린 비밀번호는 같은 오류(INVALID_CREDENTIALS)로 답해 가입된 이메일인지 알려주지 않는다.
  *     없는 이메일도 가짜 해시로 같은 계산을 해서 응답 시간으로도 구별되지 않게 한다</li>
  *     <li>같은 이메일로 연속으로 틀리면 잠근다 (없는 이메일도 똑같이 센다). 성공하면 실패 횟수를 지운다</li>
- *     <li>비밀번호가 맞아도 정지·탈퇴 회원은 로그인할 수 없다</li>
+ *     <li>비밀번호가 맞아도 정지·탈퇴 회원은 로그인할 수 없다. 복구 기한 안의 탈퇴 회원은 복구 티켓을 준다({@link MemberLoginGuard}, #593)</li>
  * </ul>
  */
 @Slf4j
@@ -31,14 +31,17 @@ public class MemberPasswordLoginUseCase {
     private final PasswordCredentialRepository passwordCredentialRepository;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptStore loginAttemptStore;
+    private final MemberLoginGuard memberLoginGuard;
     /** 없는 이메일일 때 비교할 해시 (응답 시간을 맞추려고 실제 해시와 같은 비용으로 만든다) */
     private final String dummyHash;
 
     public MemberPasswordLoginUseCase(PasswordCredentialRepository passwordCredentialRepository,
-                                      PasswordEncoder passwordEncoder, LoginAttemptStore loginAttemptStore) {
+                                      PasswordEncoder passwordEncoder, LoginAttemptStore loginAttemptStore,
+                                      MemberLoginGuard memberLoginGuard) {
         this.passwordCredentialRepository = passwordCredentialRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginAttemptStore = loginAttemptStore;
+        this.memberLoginGuard = memberLoginGuard;
         this.dummyHash = passwordEncoder.encode("dummy-password-for-timing-1");
     }
 
@@ -47,7 +50,9 @@ public class MemberPasswordLoginUseCase {
         if (loginAttemptStore.isLocked(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.LOGIN_LOCKED);
         }
-        Optional<PasswordCredential> credential = passwordCredentialRepository.findByUserEmail(normalizedEmail);
+        // 마스킹으로 지운 비밀번호(#594)는 없는 것과 같다. 비교기에 넘기면 해시 형식이 아니라 오류(500)가 난다
+        Optional<PasswordCredential> credential = passwordCredentialRepository.findByUserEmail(normalizedEmail)
+                .filter(found -> !found.isWiped());
         String hash = credential.map(PasswordCredential::getPasswordHash).orElse(dummyHash);
         boolean matches = passwordEncoder.matches(password == null ? "" : password, hash);
         if (credential.isEmpty() || !matches) {
@@ -56,11 +61,10 @@ public class MemberPasswordLoginUseCase {
             }
             throw new MemberException(MemberErrorCode.INVALID_CREDENTIALS);
         }
-        User user = credential.get().getUser();
-        if (!user.isActive()) {
-            throw new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED);
-        }
+        // 비밀번호가 맞았으니 실패 횟수는 지운다 (복구할까요?·정지로 끝나도 같다)
         loginAttemptStore.reset(normalizedEmail);
+        User user = credential.get().getUser();
+        memberLoginGuard.check(user);
         return user;
     }
 }

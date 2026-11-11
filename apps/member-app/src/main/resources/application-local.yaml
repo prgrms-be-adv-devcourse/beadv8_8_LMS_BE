@@ -6,6 +6,10 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
+  # 가입 이메일 인증 메일 (#557). 비워 두면 메일 대신 로그에 코드가 찍힌다. 진짜로 보내 보려면 .env에 넣는다
+  mail:
+    username: "${MAIL_USERNAME:}"
+    password: "${MAIL_PASSWORD:}"
   security:
     oauth2:
       client:
@@ -21,6 +25,13 @@ hapbang:
       key-prefix: local
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    appearance:
+      base-url: http://localhost:8083
+    lecture:
+      base-url: http://localhost:8084
+    billing:
+      base-url: http://localhost:8082
   # JWT_PRIVATE_KEY가 없으면 시작할 때마다 임시 서명 키를 만든다 (재시작하면 다시 로그인)
   jwt:
     allow-ephemeral-key: true

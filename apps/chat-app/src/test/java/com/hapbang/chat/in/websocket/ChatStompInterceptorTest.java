@@ -5,13 +5,16 @@ import static org.mockito.Mockito.*;
 
 import java.util.List;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.MDC;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
+import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
@@ -20,6 +23,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.ChatUserFacade;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 
 class ChatStompInterceptorTest {
 
@@ -27,6 +31,11 @@ class ChatStompInterceptorTest {
     private final ChatRoomTopicFacade chatRoomTopicFacade = mock(ChatRoomTopicFacade.class);
     private final ChatStompInterceptor interceptor = new ChatStompInterceptor(chatUserFacade, chatRoomTopicFacade);
     private final MessageChannel channel = mock(MessageChannel.class);
+
+    @AfterEach
+    void clearMdc() {
+        MDC.clear();
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"/queue/chats/messages", "/topic/chats/1", "/user", "/users/queue/chats/messages",
@@ -137,6 +146,28 @@ class ChatStompInterceptorTest {
 
         assertThatThrownBy(() -> interceptor.preSend(connect, channel))
                 .isExactlyInstanceOf(MessageDeliveryException.class);
+    }
+
+    @Test
+    void 프레임을_처리하는_동안_연결_회원_ID를_로그_MDC에_넣고_처리가_끝나면_지운다() {
+        Message<byte[]> frame = roomSubscribe("/topic/chats/rooms/12", "3");
+        MessageHandler handler = mock(MessageHandler.class);
+
+        assertThat(interceptor.beforeHandle(frame, channel, handler)).isSameAs(frame);
+        assertThat(MDC.get(GatewayUserHeaderFilter.MDC_USER_ID)).isEqualTo("1");
+
+        interceptor.afterMessageHandled(frame, channel, handler, null);
+        assertThat(MDC.get(GatewayUserHeaderFilter.MDC_USER_ID)).isNull();
+    }
+
+    @Test
+    void 회원을_결합하지_않은_프레임은_앞_프레임의_회원_ID를_남기지_않는다() {
+        MDC.put(GatewayUserHeaderFilter.MDC_USER_ID, "9");
+        Message<byte[]> frame = subscribe("/user/queue/chats/messages");
+
+        interceptor.beforeHandle(frame, channel, mock(MessageHandler.class));
+
+        assertThat(MDC.get(GatewayUserHeaderFilter.MDC_USER_ID)).isNull();
     }
 
     private Message<byte[]> connect(StompCommand command, Long userId, String authority) {

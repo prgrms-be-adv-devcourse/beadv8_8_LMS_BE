@@ -1,0 +1,26 @@
+# GitHub Actions의 action 버전을 주 1회 확인해 dev로 PR을 올린다(#656).
+# ci.yml·publish.yml·deploy.yml은 action을 커밋 SHA로 고정한다. 이 workflow들이 만든 jar·이미지가 운영에 자동 배포되기 때문이다.
+# Dependabot은 SHA와 버전 주석(# v7.0.1)을 함께 고친다. 태그를 쓰는 claude-review.yml은 메이저 버전이 바뀔 때만 PR이 온다.
+# 위험과 결정: docs/deploy/security.md "알려진 위험"
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    # 새 릴리스는 7일이 지난 뒤에 반영한다. 탈취된 릴리스가 바로 들어오지 않게 하고, 그동안 문제가 드러날 시간을 둔다.
+    cooldown:
+      default-days: 7
+    # 주마다 PR 하나로 묶는다.
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: Chore
+    ignore:
+      # v6부터 캐시 기능이 Gradle 상용 약관을 따르므로 MIT인 v5에 머문다(ci.yml).
+      - dependency-name: "gradle/actions*"
+        update-types: ["version-update:semver-major"]

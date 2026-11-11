@@ -30,17 +30,19 @@ import jakarta.validation.Valid;
         공개 목록·상세 밖에서는 로그인 역할이 일반 유저·관리자면 403 `FORBIDDEN`이고, 로그인한 회원의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 로그인 뒤 정지·탈퇴했으면 403 `APPEARANCE_USER_NOT_ACTIVE`, 로그인 뒤 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`이다. 오류는 Problem Detail로 응답하며 `code`로 구분한다.""")
 public interface ApiV1AppearanceRecruitSpec {
 
-    String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=RECRUITING&status=CLOSED). 생략하면 전체. "
-            + "RECRUITING·CLOSED·CANCELED만 가능 (그 밖은 400)";
+    String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=RECRUITING&status=CLOSED). "
+            + "생략하면 보류 처리 중(HOLD_PENDING)·실패(HOLD_FAILED)를 포함한 전체. 없는 값이면 400";
 
     @Operation(summary = "출연 모집글 올리기", description = """
             모집글을 저장하고 1인당 출연료 × 모집 인원만큼 호스트의 HP를 보류한다. 보류에 성공하면 `RECRUITING`으로 201 응답한다.
             - 1인당 출연료가 최저 출연료(20,000 HP) 미만이면 400 `FEE_BELOW_MINIMUM`
             - 모집 인원이 1~10명이 아니면 400 `RECRUIT_COUNT_OUT_OF_RANGE`
             - 현재 < 모집 마감 일시 < 방송 예정 일시가 아니면 400 `INVALID_RECRUIT_SCHEDULE`
-            - HP 보류를 지갑이 거절하면 모집글은 기록으로만 남고 목록에 보이지 않는다.
-              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
-            - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 처리가 끝나면 내 모집글 목록에 나타난다""")
+            - HP 보류를 지갑이 거절하면 모집글은 `HOLD_FAILED`로 남아 내 모집글 목록·상세에서만 보인다(공개 목록에는 없다).
+              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 탈퇴로 닫힌 지갑이면 409 `WALLET_CLOSED`,
+              그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
+            - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 모집글은 `HOLD_PENDING`으로 내 모집글 목록에 보이고,
+              보류 재확인 배치가 보통 1~2분 안에 `RECRUITING` 또는 `HOLD_FAILED`로 바꾼다(1시간이 지나도 결과를 모르면 보류를 무효화해 `HOLD_FAILED`)""")
     RsData<AppearanceRecruitResDto> create(Long userId, @Valid CreateAppearanceRecruitReqDto request);
 
     @Operation(summary = "모집 중인 모집글 목록", description = """
@@ -50,13 +52,14 @@ public interface ApiV1AppearanceRecruitSpec {
 
     @Operation(summary = "내가 올린 모집글 목록", description = """
             내가 호스트인 모집글. 최신순 고정, 페이지는 page·size(기본 20, 최대 100).
-            보류가 끝나지 않았거나 실패한 모집글은 나오지 않는다.""")
+            보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`)한 모집글도 나온다. 두 상태는 지원·수정·마감·취소를 할 수 없다(404).""")
     RsData<Page<AppearanceRecruitSummaryResDto>> getMine(Long userId,
             @Parameter(description = STATUS_FILTER) List<AppearanceRecruitStatus> statuses,
             @Parameter(hidden = true) Pageable pageable);
 
     @Operation(summary = "출연 모집글 상세", description = """
-            로그인한 회원이면 누구나 볼 수 있다. 목록에 나오지 않는 모집글(보류 처리 중·실패)이면 404 `APPEARANCE_RECRUIT_NOT_FOUND`.
+            로그인한 회원이면 누구나 볼 수 있다. 보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`)한 모집글은 올린 호스트만 볼 수 있고,
+            다른 회원이 조회하면 404 `APPEARANCE_RECRUIT_NOT_FOUND`.
             마감 반환 진행 상태(`hpReleaseStatus`)는 호스트에게만 담긴다.""")
     RsData<AppearanceRecruitResDto> getDetail(Long userId, Long recruitId);
 

@@ -1,0 +1,12 @@
+# GraalVM Native Image 실행 파일을 담는 이미지(#609). JVM 이미지는 Dockerfile이고, CI 이미지 확인·로컬 k3d는 그쪽을 쓴다.
+# Build: ./gradlew :customer-support-app:nativeCompile   (GraalVM 25, CI는 ubuntu-24.04 러너)
+# Image: docker build -f apps/customer-support-app/Dockerfile.native apps/customer-support-app/build/native/nativeCompile
+# 실행 파일은 빌드한 러너의 glibc(ubuntu 24.04, 2.39)에 동적 링크되므로 같은 배포판을 쓴다. JVM은 들어가지 않는다.
+FROM ubuntu:24.04
+RUN useradd --system --uid 10001 app
+WORKDIR /app
+# artifact로 옮기면 실행 권한이 빠지므로 복사할 때 다시 준다.
+COPY --chmod=755 app app
+USER app
+EXPOSE 8080
+ENTRYPOINT ["/app/app"]

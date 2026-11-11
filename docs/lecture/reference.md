@@ -34,7 +34,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **cart**: ERD와 같음. 유일 `uc_cart_user_id (user_id)`.
 
-**cart_item**: ERD + `deleted_at` **추가**(정책 7). 부분 유일 인덱스 `uk_cart_item_cart_lecture (cart_id, lecture_id) WHERE deleted_at IS NULL`. `lecture_id`는 다른 애그리거트라 FK를 두지 않는다. 같은 트랜잭션에서 같은 강의를 빼고 다시 담으면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 이 인덱스에 걸린다(7.1 `lecture_content`와 같은 문제). 지금 API는 요청마다 한 동작이라 해당 없고, 주문 후 빼기를 넣을 때 다시 확인한다.
+**cart_item**: ERD + `deleted_at` **추가**(정책 7). `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 빼기는 장바구니 행을 잠그고 읽어 동시에 빼도 버전 충돌이 없다. 부분 유일 인덱스 `uk_cart_item_cart_lecture (cart_id, lecture_id) WHERE deleted_at IS NULL`. `lecture_id`는 다른 애그리거트라 FK를 두지 않는다. 같은 트랜잭션에서 같은 강의를 빼고 다시 담으면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 이 인덱스에 걸린다(7.1 `lecture_content`와 같은 문제). 지금 API는 요청마다 한 동작이라 해당 없고, 주문 후 빼기를 넣을 때 다시 확인한다.
 
 **lecture_order**
 
@@ -74,10 +74,6 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
 | objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
-| payout_failure_count | int | **deprecated** (#218, D54 → D59). 지급 실패 횟수. #277 이관 뒤에는 쓰지 않고 이력으로만 남는다 |
-| last_payout_failure_code | varchar(100) | **deprecated** (#218, D54 → D59). 마지막 지급 실패 코드 |
-| last_payout_failed_at | timestamp | **deprecated** (#218, D54 → D59). 마지막 지급 실패 시각 |
-| payout_quarantined_at | timestamp | **deprecated** (#218, D54 → D59). 지급 격리 시각. 격리는 PAYOUT 작업 `DEAD`로 바뀐다. 물리 제거는 지급 실패 레거시 정리 티켓(#268)에서 별도 합의 후 |
 | version | bigint | **추가**. 낙관적 락 (10장) |
 
 인덱스
@@ -86,7 +82,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - `(status, auto_confirm_at)`, `(status, payout_scheduled_at)` — 배치 조회용
 - `(seller_user_id, purchased_at desc, id desc)` — 판매 내역 조회용 (D51)
 
-**lecture_review**: ERD와 같음. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
+**lecture_review**: ERD + `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 고치기·지우기·대체는 리뷰 행을 잠그고 읽고, 이의 제기 인정으로 평점 반영 여부가 바뀌면 `PESSIMISTIC_FORCE_INCREMENT`로 올린다. 작성은 이의 제기 인정과 같은 주문 행을 먼저 잠근다. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 
@@ -117,7 +113,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | completed_at | timestamp | |
 | created_at, updated_at | timestamp | |
 
-인덱스: `(status, next_attempt_at)`, `(status, lease_until)`, `(order_item_id)`, `(order_id)`.
+인덱스: `(status, next_attempt_at)`, `(status, lease_until)`, `(order_item_id)`, `(order_id)`, `(updated_at)`(HP 대사 비교 범위, D74).
 
 **lecture_hp_task_attempt** (**신규**, #275, D57): 선점 한 번 = 한 행. 선점할 때 만들고 실행 결과를 한 번만 기록한 뒤 다시 바꾸지 않는다. 삭제하지 않는다. 작업의 현재 상태와 시도 이력을 나눈다.
 
@@ -148,6 +144,47 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 재시도하면 성공할 수 있는 실패(낙관적 락 충돌, 같은 명령의 동시 처리)와 기술 실패(DB)는 결과로 저장하지 않는다. 호출한 쪽이 같은 명령을 다시 보내면 처음부터 처리하거나 먼저 끝난 결과를 재현한다 (#278).
 - `correlation_id`·`last_event_id`는 두지 않는다. 추적은 trace, 멱등은 명령 ID가 맡는다(ADR 0002, D71).
+
+**lecture_hp_reconciliation_run** (#580, D74): 서비스 간 HP 대사 실행 1회. 지우지 않는다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| id | bigint PK | |
+| trigger_type | varchar(20) | `SCHEDULED`(매일 배치) / `MANUAL`(관리자) |
+| triggered_by | bigint | 수동 실행한 관리자. 배치면 null |
+| status | varchar(20) | `RUNNING` / `COMPLETED` / `INCOMPLETE`(지갑 조회 실패 등으로 중단, 커서를 옮기지 않음) |
+| started_at, finished_at | timestamp | |
+| checked_count | int | 비교한 주문 항목 수(진행 중이라 뺀 항목 제외, DEAD 표시·지갑에만 있는 보류 포함) |
+| mismatch_count | int | 어긋난 건 수(`HP_TASK_DEAD` 표시 제외) |
+| dead_count | int | DEAD 작업이 있어 표시만 한 항목 수 |
+| failure_reason | varchar(500) | 끝까지 비교하지 못한 이유 |
+| version | bigint | |
+
+인덱스: `(started_at)`.
+
+**lecture_hp_reconciliation_mismatch** (#580, D74): 어긋난 건(`HP_TASK_DEAD` 표시 포함). 만든 뒤 바꾸지 않는다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| id | bigint PK | |
+| run_id | bigint FK | `lecture_hp_reconciliation_run.id` |
+| order_item_id | bigint | 지갑 참조 ID. 지갑에만 있는 보류면 강의에 없는 ID |
+| order_id | bigint | 지갑에만 있는 보류는 null |
+| rule | varchar(50) | `LectureHpReconciliationRule` (integration.md 10.1) |
+| item_status | varchar(50) | 비교할 때의 항목 상태. 지갑에만 있는 보류는 null |
+| lecture_state, wallet_state | varchar(1000) | 관리자가 읽는 요약 문자열 |
+| created_at | timestamp | |
+
+인덱스: `(run_id, id)`.
+
+**lecture_hp_reconciliation_cursor** (#580, D74): 지갑 보류 목록(`listHolds`) 커서. 참조 유형(`LECTURE_ORDER_ITEM`)마다 한 행이고, `COMPLETED` 실행만 앞으로 옮긴다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| reference_type | varchar(50) PK | `LECTURE_ORDER_ITEM` |
+| updated_after | timestamp | 지갑 `nextUpdatedAfter`(Instant)를 KST로 바꾼 값 |
+| after_id | bigint | 지갑 `nextAfterId` |
+| version | bigint | |
 
 ### 7.2 ERD 반영 필요 목록
 
@@ -204,6 +241,16 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - 원인은 billing 데이터에서 먼저 확인한다. 예: `PAYOUT_ALREADY_SETTLED`는 지급 예정 건(`billing.settlement`)이 남은 경우, `HOLD_ALREADY_CLOSED`는 보류가 이미 닫힌 경우라 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다 (D54의 운영 절차를 그대로 옮김).
 - 보류 무효화는 일시 장애로 `DEAD`가 된 보류에 쓰지 않는다(재시도한다). `HOLD_OWNER_MISMATCH`로 `DEAD`인 보류는 지갑이 무효화에서도 소유를 확인해 같은 코드로 실패하므로, billing 보류 데이터를 먼저 확인한다 (D73 (5)).
 
+### 8.2.1.1 HP 대사 (관리자, D74, #580)
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| POST | `/api/v1/lectures/admin/hp-reconciliations` | 지금 대사를 실행하고 끝날 때까지 기다려 결과(어긋난 건 포함)를 준다(200). 처음 실행은 지갑 보류 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다. 지갑 조회가 실패하면 오류가 아니라 200 + `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| GET | `/api/v1/lectures/admin/hp-reconciliations/latest` | 마지막으로 시작한 실행과 어긋난 건. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다). 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND` |
+
+- 응답 `LectureHpReconciliationRunResponse`: 계기·실행한 관리자·상태·시각·비교 수·어긋난 수·DEAD 수·중단 이유와 `mismatches[]`(항목 ID·주문 ID·규칙·항목 상태·강의 상태 요약·지갑 상태 요약).
+- 고치지 않는다. 어긋난 건은 원인을 확인한 뒤 8.2.1의 재시도·보류 무효화로 정정한다. 규칙과 실행 방식은 integration.md 10.1.
+
 ### 8.2.2 지급 실패 (관리자, 삭제됨)
 
 `/api/v1/lectures/admin/payout-failures` 조회·재시도는 #277에서 지웠다 (D70 (5), D59 (7) ③ 변경). 지급 실패는 8.2.1의 HP 작업 관리자 API에서 `taskType=PAYOUT`으로 보고, 재시도도 그 작업으로 한다. 기존 지급 실패 데이터는 #277 마이그레이션이 PAYOUT 작업으로 옮겼다 (D70 (4)).
@@ -217,6 +264,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 등록: 허용하지 않는 형식 `UNSUPPORTED_FILE_CONTENT_TYPE`(400), 최대 크기 초과 `FILE_TOO_LARGE`(400).
 - 본문 업로드: 없는 파일 `FILE_NOT_FOUND`(404), 업로더가 아님 `NOT_FILE_UPLOADER`(403), 이미 올림 `FILE_ALREADY_UPLOADED`(409), `Content-Length` 없음 `FILE_LENGTH_REQUIRED`(411), 크기가 등록과 다름 `FILE_SIZE_MISMATCH`(400), 형식이 등록과 다름 `FILE_CONTENT_TYPE_MISMATCH`(400). 이 순서로 검사한다 (D24).
+- 앱 전체 동시 업로드가 상한(기본 20, `lecture.file.upload-max-concurrent`)이면 위 검사 전에 503 `FILE_UPLOAD_BUSY` + `Retry-After: 60`이다. 본문을 읽지 않고 파일은 `PENDING`으로 남는다 (D81).
 - 업로드 경로는 nginx가 PUT만 받고 form·multipart 본문은 415로 끊는다(`docs/deploy/s3.md`).
 - 강의 등록·정보 수정·콘텐츠 교체에 맞지 않는 파일을 보내면 `INVALID_LECTURE_FILE`(400) (D21).
 
@@ -246,8 +294,10 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 결과 | 응답 |
 | --- | --- |
 | 모든 보류 성공 | 201 + `PAID` 주문 |
-| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 보류의 확정 거절은 잔액 부족뿐이고, 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
-| 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 또는 요청 시간 예산(10초, D68)을 넘김 | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
+| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 탈퇴로 닫힌 지갑이 보류를 거절했으면 409 `WALLET_CLOSED`다(D76, 사유는 보류 작업의 확정 거절 기록에서 읽는다). 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
+| 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 요청 시간 예산(10초, D68)을 넘김, 또는 지갑 회로가 열려 보내지 않음(D79) | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
+| 강의 101개 이상 | 400 `INVALID_REQUEST`(`errors[].field` = `lectureIds`). 한 주문에 강의는 100개까지다 (D80) |
+| 회원별 요청 한도(기본 분당 10) 초과 | 429 `TOO_MANY_REQUESTS` + `Retry-After`(초). 주문을 만들지 않는다. 구매 취소도 따로 같은 한도다 (D80) |
 
 ```json
 { "statusCode": 202, "message": "주문 결제를 처리 중입니다.", "data": { "orderId": 123, "status": "HOLD_PENDING", "items": [ ... ] } }
@@ -280,6 +330,30 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | GET | `/api/v1/internal/lectures/earnings?userId=&status=` | 주문 항목 단위 수익 목록. `status` 생략 시 미지급 5개 상태. `statusUpdatedAt desc, sourceId desc` 고정 |
 
 - 다른 모듈은 `shared.lecture.out.LectureApiClient`로 부른다(D62). `apps`에 Adapter를 두지 않는다.
+
+### 8.6.2 회원 탈퇴 확인 내부 API (D75, #625)
+
+회원 #593이 탈퇴해도 되는지 확인할 때 호출한다. 인증·내부 포트는 8.6.1과 같다. 계약(이유 코드·문장·`availableAt`)은 `docs/api/internal-withdrawals.md` 3장.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/internal/lectures/users/{userId}/withdrawal-blocks` | 회원이 구매자·판매자로 남긴 막힌 이유(`WithdrawalBlocksDto`). 읽기만 한다. 없으면 `reasons: []` |
+
+- 다른 모듈은 `LectureApiClient.getWithdrawalBlocks`로 부른다.
+
+### 8.6.3 AI 추천 동기화 내부 API (D82, #712)
+
+aux-app AI context가 주 1회 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다. 인증·내부 포트는 8.6.1과 같다. 계약(필드, 구매 결과, 버전 규칙, 이벤트 지점)은 `docs/api/internal-lecture-sync.md`.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/internal/lectures/sync/lectures?afterId=&size=` | 모든 상태의 강의 `LectureSyncDto`. 콘텐츠는 삭제되지 않은 것만 |
+| GET | `/api/v1/internal/lectures/sync/purchases?afterId=&size=` | 모든 주문 항목 `LecturePurchaseSyncDto` (ID = 주문 항목 ID) |
+| GET | `/api/v1/internal/lectures/sync/cart-items?afterId=&size=` | 뺀 항목을 포함한 장바구니 항목 `CartItemSyncDto` |
+| GET | `/api/v1/internal/lectures/sync/reviews?afterId=&size=` | 지운 리뷰를 포함한 리뷰 `LectureReviewSyncDto` |
+
+- 모두 ID 오름차순 키셋이다. `size` 1~500(기본 100), `afterId` 0 이상, 마지막 페이지면 `nextAfterId`가 빠진다.
+- 다른 모듈은 `LectureApiClient.getSync*`로 부른다.
 
 ### 8.7 용어 ↔ 코드 이름 (제안)
 
@@ -315,11 +389,13 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | 장바구니·주문·구매 확정·구매 취소·이의 제기 | X | O | O | O | X |
 | 판매 내역 | X | X | X | O (본인 판매분) | X |
 | 판매 수익 내부 조회 (D63) | X | X | X | X | X |
+| 회원 탈퇴 확인 내부 조회 (D75) | X | X | X | X | X |
 | 콘텐츠 시청 | X | 구매자 | 구매자 | 구매자·판매자 | O (검수용) |
 | 리뷰 작성·수정·삭제 | X | 구매자 | 구매자 | 구매자 | X |
 | 리뷰 목록 | X | O | O | O | O |
 
 - 판매 수익 내부 조회는 회원이 아니라 내부 API 키로 인증한 모듈(billing)만 부른다. `/api/v1/internal/**` 전용 보안 체인과 `LectureEarningInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")`가 막는다 (D63).
+- 회원 탈퇴 확인 내부 조회도 같다. 회원 모듈만 내부 API 키로 부르고 `LectureWithdrawalInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")`가 막는다 (D75).
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`, `LectureOrderFacade`, `LecturePayoutAdminFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
 - 콘텐츠 시청은 "판매자 본인 또는 관리자 또는 구매자"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로, 구매자 여부는 시청 가능 항목으로 본다 (D26, D38, D69).
@@ -383,6 +459,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 ✅, 철회 #203 |
 | 8 | 내부 HTTP 경계와 로컬 트랜잭션 기반으로 재설계 (D62, 6.1 전환 상태) | 고객센터·billing·출연 담당 | 상위 #271, HTTP 기반 #272 → #273 → #274·#275, 강의 HP #275 → #276 → #277, 이의 제기 #278 → #279, 이벤트 재발행 #266, 실패 명령 복구 #267, 지급 실패 레거시 정리 #268, 마무리 #280 |
 | 9 | billing 연동용 판매 수익 내부 조회 API, 내부 API 키 인증·nginx 차단, shared `LectureApiClient` (D62 구조 먼저 적용) | billing #295, 출연 #301 | #300 |
+| 10 | 회원 탈퇴 막힌 이유 조회 내부 API, shared `LectureApiClient.getWithdrawalBlocks` (D75) | 회원 #593 | #625 |
 | 공통 | 단계와 무관한 팀 공통 적용 | - | 공통 예외 #71 ✅, 관리자 권한·페이지 응답 #58 ✅, 성공 응답 RsData #126 ✅, enum 설명 #112 ✅ |
 
 ---

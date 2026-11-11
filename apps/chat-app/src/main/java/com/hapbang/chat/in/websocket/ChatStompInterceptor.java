@@ -5,18 +5,23 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+import org.slf4j.MDC;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
+import org.springframework.messaging.MessageHandler;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.ExecutorChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.ChatUserFacade;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 
 
 /**
@@ -35,11 +40,14 @@ import com.hapbang.chat.app.ChatUserFacade;
  *     ({@code /pub/chats/reauth})도 같은 규칙으로 통과한다. 그 처리기는 티켓으로 연결 만료만 바꾸고 메시지를 저장하지 않으며, 회원을
  *     결합한 연결의 프레임만 여기 온다({@link ChatStompAuthInterceptor}).</li>
  * </ul>
+ * 프레임을 처리하는 스레드(연결별 처리 줄)에서는 연결 회원 ID를 MDC {@code userId}에 넣어 처리 로그에 붙이고, 처리가 끝나면 지운다
+ * ({@link #beforeHandle}, docs/dev/logging.md, #582). 웹소켓 프레임은 HTTP 요청 필터를 거치지 않기 때문이다.
+ * <p>
  * 거절하면 Spring이 ERROR 프레임을 보내고 연결을 PROTOCOL_ERROR로 닫는다.
  * ERROR 프레임은 닫기와 겹치면 도착하지 않을 수 있으므로, 프론트는 ERROR 수신과 연결 종료를 모두 거절로 처리한다.
  */
 @Component
-public class ChatStompInterceptor implements ChannelInterceptor {
+public class ChatStompInterceptor implements ExecutorChannelInterceptor {
 
     /** 채팅을 쓸 수 있는 토큰 역할. Facade의 {@code ChatRoles.CHAT}과 같다 */
     private static final Set<String> CHAT_AUTHORITIES = Set.of("ROLE_INFLUENCER", "ROLE_VERIFIED_INFLUENCER",
@@ -82,6 +90,25 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             }
         }
         return message;
+    }
+
+    /** 연결별 처리 줄의 스레드에서 처리기마다 불린다. 연결 회원 ID를 이 프레임 처리 로그에 붙인다 */
+    @Override
+    public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
+        Long userId = userIdOf(SimpMessageHeaderAccessor.getUser(message.getHeaders()));
+        if (userId == null) {
+            MDC.remove(GatewayUserHeaderFilter.MDC_USER_ID);
+        } else {
+            MDC.put(GatewayUserHeaderFilter.MDC_USER_ID, String.valueOf(userId));
+        }
+        return message;
+    }
+
+    /** 처리 스레드는 다른 연결의 프레임에 다시 쓰이므로 지운다 */
+    @Override
+    public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler,
+            @Nullable Exception exception) {
+        MDC.remove(GatewayUserHeaderFilter.MDC_USER_ID);
     }
 
     private void subscribe(StompHeaderAccessor accessor) {

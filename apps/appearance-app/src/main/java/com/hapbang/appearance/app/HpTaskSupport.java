@@ -21,10 +21,12 @@ import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.appearance.out.HpTaskRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HP 작업 저장소 접근. 트랜잭션은 호출한 쪽이 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class HpTaskSupport {
@@ -34,8 +36,20 @@ public class HpTaskSupport {
 
     private final HpTaskRepository hpTaskRepository;
 
+    /** 새 작업이면 커밋 뒤 등록 로그를 남긴다(롤백된 등록은 남기지 않는다) */
     public HpTask save(HpTask task) {
-        return hpTaskRepository.save(task);
+        boolean created = task.getId() == null;
+        HpTask saved = hpTaskRepository.save(task);
+        if (created) {
+            logRegistered(saved);
+        }
+        return saved;
+    }
+
+    private static void logRegistered(HpTask task) {
+        AfterCommit.run(() -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, refType={}, refId={}, appearanceId={}, "
+                        + "memberId={}, amount={}, reason={}", task.getId(), task.getTaskType(), task.getRefType(),
+                task.getRefId(), task.getAppearanceId(), task.getMemberId(), task.getAmount(), task.getReason()));
     }
 
     /**
@@ -149,5 +163,10 @@ public class HpTaskSupport {
     /** 상태별 작업 수 (지표용) */
     public long countByStatus(HpTaskStatus status) {
         return hpTaskRepository.countByStatus(status);
+    }
+
+    /** 회원이 보류한 회원(호스트)이거나 받는 회원(게스트)인 작업 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countByParticipant(Long userId, HpTaskStatus status) {
+        return hpTaskRepository.countByParticipantAndStatus(userId, status);
     }
 }

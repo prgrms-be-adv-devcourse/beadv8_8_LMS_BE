@@ -61,7 +61,7 @@ apps
 
 #### 전환 결과
 
-#271의 하위 티켓(#272~#280)으로 모듈 간 Java Port 호출을 모두 내부 HTTP·이벤트로 바꿨다(2026-11-02 #278·#279·#280 마무리). 전환 표는 #280에서 지웠다. 남은 후속은 지급 실패 레거시 컬럼 정리(#268)와 이의 제기 실패 명령 운영 복구(#267)다.
+#271의 하위 티켓(#272~#280)으로 모듈 간 Java Port 호출을 모두 내부 HTTP·이벤트로 바꿨다(2026-11-02 #278·#279·#280 마무리). 전환 표는 #280에서 지웠다. 지급 실패 레거시 컬럼은 #268에서 지웠고(D78), 남은 후속은 이의 제기 실패 명령 운영 복구(#267)다.
 
 #### 실행 중 실패한 이벤트의 재처리 (D61 → D71)
 
@@ -91,7 +91,7 @@ public class BillingApiClient {
     BillingCallResult<ReleaseResultDto> release(ReleaseCommand command);
     BillingCallResult<PayoutResultDto> payout(PayoutCommand command);
     BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
-    boolean isCircuitOpen();       // 회로가 열려 지금 부르면 CIRCUIT_OPEN으로 실패하는지 (D67)
+    boolean isCircuitOpen();       // 회로가 열려 지금 부르면 CIRCUIT_OPEN으로 실패하는지 (D67, D79)
 }
 
 public sealed interface BillingCallResult<T> {
@@ -112,7 +112,7 @@ public class BillingCallException extends RuntimeException {
 | 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다 |
 | `Failed` | billing이 4xx(408·425·429 제외)로 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
 | `BillingCallException` | 연결 거부·주소를 찾지 못함, 408·425·429처럼 처리하지 않은 것이 확실함 → `RETRYABLE`. 연결·응답 시간 초과, 응답 도중 끊김, 5xx(코드가 있어도), 읽을 수 없는 2xx처럼 처리 여부를 모름 → `UNKNOWN_RESULT` (D64). 회로가 열려 보내지 않음(`rawCode` `CIRCUIT_OPEN`) → `RETRYABLE`, 시도 한 번의 전체 상한(8초) 초과 → `UNKNOWN_RESULT` (D66). `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
-| 회복성 | Client가 Resilience4j로 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다. `RETRYABLE`만 첫 호출 포함 3회(최대 약 0.7초) 다시 보내고 다 실패하면 마지막 예외를 그대로 던지므로, 실행기의 작업 재시도(D57)와 `classify`는 바뀌지 않는다. HP 작업 배치는 `isCircuitOpen()`이면 선점하지 않고 회차를 건너뛴다(D67). 주문 요청 안 즉시 보류는 전체 10초 예산을 넘으면 남은 항목을 배치로 넘기고 202다(D68). 값과 지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장 (#411) |
+| 회복성 | Client가 Resilience4j로 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다. `RETRYABLE`만 첫 호출 포함 3회(최대 약 0.7초) 다시 보내고 다 실패하면 마지막 예외를 그대로 던지므로, 실행기의 작업 재시도(D57)와 `classify`는 바뀌지 않는다. 회로가 열려 있으면(`isCircuitOpen()`) 실행기가 선점 직전에 보고 선점하지 않는다. 재시도 배치·주문 즉시 보류·구매 취소 즉시 반환이 모두 그렇고, 시도 횟수·시도 행은 그대로이며 처리 상태는 `PROCESSING`이다. 배치는 회차 시작과 작업마다 보고, 회차 도중에 열리면 남은 작업을 다음 회차로 넘긴다. 시험 중(HALF_OPEN)에 실제로 보낸 호출의 실패는 D57대로 센다(D67 → D79). 주문 요청 안 즉시 보류는 전체 10초 예산을 넘으면 남은 항목을 배치로 넘기고 202다(D68). 값과 지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장 (#411) |
 | 응답 검증 | 예상하지 못한 응답 형식, 결과 금액이 항목 가격과 다름 → 실행기가 `INVARIANT_VIOLATION`으로 본다 |
 | 트랜잭션 | 강의는 상태와 작업을 먼저 커밋한 뒤 Client를 호출한다. HTTP라 Java 트랜잭션이 전파되지 않으며, 통합 테스트에서 호출 시 강의 트랜잭션이 비활성인지 확인한다 (#275~#277) |
 | billing 진입점 | `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
@@ -127,7 +127,7 @@ public class BillingCallException extends RuntimeException {
 
 | 묶음 | 코드 |
 | --- | --- |
-| 지갑·잔액 | `WALLET_NOT_FOUND`, `INSUFFICIENT_BALANCE`, `BALANCE_OVERFLOW`, `INVALID_POINT_AMOUNT` |
+| 지갑·잔액 | `WALLET_NOT_FOUND`, `INSUFFICIENT_BALANCE`, `BALANCE_OVERFLOW`, `INVALID_POINT_AMOUNT`, `WALLET_CLOSED`(탈퇴로 닫힌 지갑의 보류 거절, #623·D76) |
 | 멱등 | `IDEMPOTENCY_KEY_CONFLICT` |
 | 보류 | `HOLD_NOT_FOUND`, `HOLD_OWNER_MISMATCH`, `HOLD_ALREADY_CLOSED`, `HOLD_TYPE_NOT_SUPPORTED`, `HOLD_CHARGE_NOT_FOUND`, `HOLD_STATE_INCONSISTENT`, `CHARGE_PRINCIPAL_MISMATCH` |
 | 반환·지급 | `RELEASE_AMOUNT_EXCEEDS_HELD`, `PAYOUT_AMOUNT_EXCEEDS_HELD`, `PAYOUT_TO_PAYER`, `PAYOUT_SOURCE_MISMATCH`, `PAYOUT_ALREADY_SETTLED` |
@@ -152,6 +152,27 @@ public class BillingCallException extends RuntimeException {
 | 필수 값 | 빠진 값·빈 사유는 shared 요청 레코드가 거절해 400 `INVALID_REQUEST`다 |
 | 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `OBJECTION_PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다(500, 고객센터가 다시 보낸다) |
 
+#### 강의: 회원 탈퇴 확인 내부 HTTP (회원이 호출, D75, #625)
+
+회원은 탈퇴를 지휘하면서 출연 다음에 shared의 `LectureApiClient.getWithdrawalBlocks`로 강의 내부 HTTP endpoint(`GET /api/v1/internal/lectures/users/{userId}/withdrawal-blocks`)를 부른다. 강의는 읽기만 해서 되돌릴 것이 없다. 계약 문서는 [회원 탈퇴 내부 API](../api/internal-withdrawals.md) 3장이다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 응답 | 회원 공통 DTO `shared.member.dto.WithdrawalBlocksDto`. 이유 코드·문장·`availableAt` 규칙은 D75 |
+| 강의 처리 | 읽기 전용 트랜잭션에서 구매자 집계(`summarizeBuyerWithdrawalBlocks`), 판매자 집계(`summarizeSellerWithdrawalBlocks`, 판매 수익 분류 `EARNING_STATUS` 재사용), 판매 중·검수 대기 강의 수를 읽는다 |
+| 실패 | 회원은 어떤 실패(`LectureApiCallException`)든 탈퇴를 멈추고 503으로 안내한다 |
+| 탈퇴 반영 | 탈퇴가 끝나면 기존 `UserModifiedEvent`로 `LectureUser`가 `WITHDRAWN`이 된다. 이 조회는 이벤트 처리를 바꾸지 않는다 |
+
+#### 강의: AI 추천 동기화 내부 HTTP (aux-app이 호출, D82, #712)
+
+aux-app AI context는 주 1회 shared의 `LectureApiClient.getSync*`로 강의 내부 HTTP endpoint(`GET /api/v1/internal/lectures/sync/{lectures|purchases|cart-items|reviews}`)를 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다. 평상시는 6.3의 동기화 이벤트로 반영한다. 계약 문서는 [강의 동기화 내부 API](../api/internal-lecture-sync.md)다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 응답 | 종류별 `shared.lecture.dto.*SyncPageDto`(`items`, `nextAfterId`). 항목은 이벤트와 같은 DTO이고 둘 다 엔티티의 `toSyncDto()`로 만든다 |
+| 강의 처리 | 읽기 전용 트랜잭션에서 ID 키셋으로 size+1개를 읽는다. 구매는 주문, 장바구니 항목은 장바구니를 fetch join하고, 강의 콘텐츠는 `@BatchSize`로 한 번에 읽는다(강의와 콘텐츠가 다른 쿼리라 REPEATABLE READ로 한 스냅숏을 본다). 리뷰는 주문 항목 상태를 함께 읽어 `counted`를 정한다 |
+| 범위 | Soft Delete된 행도 `deleted=true`로 싣는다. 강의 콘텐츠만 삭제되지 않은 것을 싣는다 |
+
 #### 서비스 분리 시 (D62)
 
 | 전환 | 바꾸는 것 | 유지하는 것 |
@@ -175,9 +196,14 @@ Kafka 토픽·key·헤더·재시도 규칙은 [`kafka.md`](../architecture/infr
 | `LectureObjectionRequestRefusedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `commandType`(`RESOLVE`·`WITHDRAW`), `failureCode` | 처리 중인 그 명령이면 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED` + 사유 (운영 복구 #267) |
 | `LectureObjectionReturnCompletedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = COMPLETED` |
 | `LectureObjectionReturnActionRequiredEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 그대로) |
+| `LectureChangedEvent` (`lecture.events.v1`, `lecture:<강의 ID>`) | 강의 | aux-app (AI) | `LectureSyncDto` | 강의 사본 반영 (version이 크면). 등록·정보 수정·콘텐츠 교체·검수 승인·반려·재검수 신청·삭제 (D82) |
+| `LecturePurchaseChangedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | aux-app (AI) | `LecturePurchaseSyncDto` | 구매 사본 반영. 구매 결과·실린 값이 바뀌는 전이에서만 (D82) |
+| `CartItemChangedEvent` (`lecture.events.v1`, `cart-item:<장바구니 항목 ID>`) | 강의 | aux-app (AI) | `CartItemSyncDto` | 장바구니 사본 반영. 담기·빼기·결제 뒤 자동 빼기 (D82) |
+| `LectureReviewChangedEvent` (`lecture.events.v1`, `lecture-review:<리뷰 ID>`) | 강의 | aux-app (AI) | `LectureReviewSyncDto` | 리뷰 별점 사본 반영. 작성·수정·삭제·반환된 항목 리뷰 대체·이의 제기 인정으로 `counted` 변경 (D82) |
 
 - 강의 리스너(`lecture-app.objection-command`)는 예상된 업무 거절이면 **예외를 던지지 않고** 거절 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB 같은 기술 실패는 예외를 던져 Kafka 재시도(3회) 뒤 그룹별 DLT로 보낸다.
 - 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`).
+- AI 추천용 동기화 이벤트 4종(D82, [계약](../api/internal-lecture-sync.md))은 대상을 바꾼 강의 트랜잭션에서 `LectureSyncEvents`가 flush한 뒤 엔티티의 `toSyncDto()`로 만들어 발행한다(flush 전이면 오르기 전 version이 실린다). 고객센터 리스너는 이 타입을 기본 처리기에서 무시한다.
 - 고객센터 리스너(`customer-support-app.objection-result`)는 문의 행을 잠그고, 처리 중인 명령(명령 ID가 같음)의 결과만 기록한다. 중복·늦은 결과는 무시하고, HP 반환 상태는 앞으로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.
 
 ### 6.4 주요 흐름
@@ -269,7 +295,7 @@ sequenceDiagram
 
 - 지급 실패는 D54의 항목 컬럼이 아니라 HP 작업과 시도 기록에 남는다. D54의 분류 의미(`WALLET_NOT_FOUND`·기술 오류는 재시도, 그 밖의 billing 오류·지급액 불일치는 영구 실패)는 D57의 작업 유형별 분류로 옮긴다.
 - 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 처리 상태는 `ACTION_REQUIRED`다. 판매자에게 줄 돈이므로 관리자 목록, ERROR 로그·지표, 관리자 재시도로 반드시 복구한다.
-- 기존 D54 데이터는 이관한다 (D59, 지급 실패 레거시 정리 티켓(#268)).
+- 기존 D54 데이터는 #277에서 PAYOUT 작업으로 이관했고(D59, D70 (4)), 항목의 지급 실패·격리 컬럼은 #268에서 지웠다(D78).
 
 #### 내용 다름 이의 제기 접수 (D60)
 
@@ -348,6 +374,9 @@ sequenceDiagram
 | 같은 강의들을 다른 순서로 동시에 다건 주문 (`[A,B]`·`[B,A]`) | 항목을 강의 ID 오름차순으로 만들어 유일 인덱스 키를 같은 순서로 잡는다. 늦은 주문은 교착 없이 앞 주문을 기다렸다가 409 `ALREADY_OWNED_LECTURE`. 그래도 교착(`40P01`)이 나면 재시도하지 않고 주문 트랜잭션만 롤백 후 500이다. 보류 전이라 HP는 움직이지 않는다 (D55, D58) |
 | 같은 구매자의 동시 결제 (강의 주문 + 출연 요청 등) | `hold`의 지갑 잠금으로 잔액 검사와 보류를 원자적으로 처리 (billing 구현) |
 | 같은 HP 작업을 요청 안 즉시 실행과 배치가 동시에 집음 | 둘 다 같은 `claim()`(조건부 UPDATE)을 거쳐 한쪽만 선점한다 (D57) |
+| 지갑 장애 중 HP 작업 | 지갑 회로가 열려 있으면 실행기가 선점하지 않아 시도 횟수를 쓰지 않는다. 시험 중(HALF_OPEN)에 보낸 호출의 실패는 세므로 약 4시간을 넘는 장애는 `DEAD`가 되고 관리자가 재시도한다 (D79) |
+| 같은 회원의 주문·구매 취소 반복 | 회원 × API마다 분당 10번까지 받고 넘으면 429 `TOO_MANY_REQUESTS` + `Retry-After`. 한 주문에 강의는 100개까지다 (D80) |
+| 큰 파일 업로드가 몰림 | 앱 전체 동시 업로드 20개까지. 넘으면 본문을 읽지 않고 503 `FILE_UPLOAD_BUSY` + `Retry-After: 60`, 파일은 `PENDING`으로 남는다 (D81) |
 | 실행 중 서버 종료, 느린 billing 호출 | lease(5분)가 지나면 다른 실행기가 다시 선점한다. lease는 호출을 끊는 제한 시간이 아니라 결과 기록 권한과 재선점 시점을 정한다. 앞 호출이 그 뒤에도 실행 중일 수 있으며, billing 멱등 키가 중복 HP 이동을, `claimToken` 검사가 늦은 결과의 반영을 막는다. 보장하는 것은 "외부 호출이 하나뿐"이 아니라 "한 선점의 결과만 작업에 반영된다"이다 (D57) |
 | 같은 항목에 반환·지급이 두 번 호출 | 강의 상태 머신이 먼저 막고(처리 중 상태에서는 다른 HP 전이 불가), billing도 남은 보류가 없으면 거부한다. 같은 요청 ID로 다시 보내면 처음 결과를 돌려받는다 (6.2) |
 | 이벤트 중복 도착 (회원) | 가입 이벤트는 복제본이 이미 있으면 무시하고, 변경 이벤트는 있는 복제본만 갱신한다. 생성은 가입 이벤트로만 해서 가입·변경이 동시에 처리돼도 변경 정보를 덮어쓰지 않는다 (D17) |
@@ -362,11 +391,59 @@ sequenceDiagram
 | --- | --- | --- |
 | 자동 구매 확정 | 10분마다 (`lecture.batch.auto-confirm-cron`, 기본 `0 */10 * * * *`, D41) | `PURCHASED` && `auto_confirm_at <= now` |
 | 지급 대상 선점 | 매일 01:00 (`lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, D50) | `CONFIRMED` && `payout_scheduled_at <= now` && `objection_status IN (NONE, REJECTED)` → `PAYOUT_PENDING` + PAYOUT 작업 (D59) |
-| HP 작업 실행·재시도 | 1분마다 (`lecture.hp-task.retry-cron`, 기본 `0 * * * * *`, D57) | `PENDING` && `next_attempt_at <= now`, 또는 `PROCESSING` && `lease_until < now` |
+| HP 작업 실행·재시도 | 1분마다 (`lecture.hp-task.retry-cron`, 기본 `0 * * * * *`, D57) | `PENDING` && `next_attempt_at <= now`, 또는 `PROCESSING` && `lease_until < now`. 지갑 회로가 열려 있으면 고르지 않는다(D79) |
 | 강의 이벤트 재발행 | 1분마다 (`lecture.event-republish.cron`, 기본 `5 * * * * *`, D71) | 발행 후 1분이 지난 미완료 강의 이벤트 발행 기록 100건 |
+| 서비스 간 HP 대사 | 매일 04:30:25 (`lecture.batch.hp-reconciliation-cron`, 기본 `25 30 4 * * *`, D74) | 최근 7일 안에 HP 작업이 바뀐 항목 + 커서 뒤에 바뀐 지갑 보류 (10.1) |
 
 - 지갑 동시성 제어 방식(`AGENTS.md` 11장 미정)은 강의 모듈이 정하지 않는다. 강의 모듈은 상태 머신·작업 선점·트랜잭션 경계를 보장하고, 지갑의 보장은 billing 연동 계약(6.2)을 따른다.
 - 스케줄링은 #157에서 켰다(`apps`의 `SchedulingConfig`). 배치 빈은 global `@ConditionalOnSchedulingEnabled`(`hapbang.scheduling.enabled`)를 붙여 앱에서만 실행되고 테스트에서는 꺼진다. 테스트는 처리 빈의 메서드를 직접 호출한다. cron에는 `zone = "Asia/Seoul"`을 쓴다. 새 배치는 `SchedulingEnabledTest`에 등록 확인을 더한다.
+
+### 10.1 서비스 간 HP 대사 (#580, D74)
+
+주문 항목과 지갑은 database가 따로라 항목 상태와 지갑의 보류·지급을 한 트랜잭션으로 맞출 수 없다. 대사의 주체는 강의이고 지갑은 조회 API만 준다(`docs/api/internal-billing.md` 4장, #577). 강의는 매일 주문 항목 상태를 지갑 기록과 비교해 어긋난 건을 남긴다. **고치지 않는다.** 정정은 원인을 확인한 관리자가 기존 수단(HP 작업 재시도·보류 무효화, reference.md 8.2.1)으로 한다. 출연 대사(#581, `docs/appearance/module.md` 25장)와 같은 운영 모양이다.
+
+**비교: 항목 상태 → 지갑, 한 단계.** 상태 전이와 HP 작업 등록이 같은 트랜잭션이라(D57) 작업의 합을 따로 비교하지 않는다. 강의는 늘 전액 반환·전액 지급이라 보류 상태 이름 대신 합계 금액 네 개(`remaining`·`released`·`paid`·`captured`의 `totalHp`)를 비교한다. 금액이 맞으면 상태(`HELD`·`RELEASED`·`PAID`)도 맞다.
+
+| 항목 상태 | 지갑 보류 | 지급 건 |
+| --- | --- | --- |
+| `HOLD_PENDING`·`HOLD_COMPENSATING` | 진행 중이라 비교하지 않음 | |
+| `HOLD_FAILED` | 없음, 무효화, 또는 남은 보류·지급·확정 차감 0 | 없음 |
+| `PURCHASED`·`CONFIRMED`·`CANCEL_PENDING`·`RETURN_PENDING`·`PAYOUT_PENDING` | 최초 = 남은 = 가격, 보류한 회원 = 구매자 | 없음 |
+| `CANCELED`·`RETURNED` | 최초 = 반환 = 가격, 남은 0 | 없음 |
+| `PAID_OUT` | 최초 = 지급 = 가격, 남은 0 | 하나: 원천 `LECTURE_ORDER_ITEM` + 항목 ID, `NORMAL`, 받는 회원 = 판매자, `paidAmountHp` = 가격, `COMPLETED` |
+
+규칙(`LectureHpReconciliationRule`, 출연과 뜻이 같은 규칙은 같은 이름)
+
+| 규칙 | 어긋남 |
+| --- | --- |
+| `HOLD_MISSING` | 결제 실패가 아닌데 보류가 없음 |
+| `HOLD_MISMATCH` | 최초 보류액 ≠ 가격, 또는 보류한 회원 ≠ 구매자 |
+| `HOLD_BALANCE_MISMATCH` | 남은 보류·반환·지급·확정 차감이 기대값과 다름 (예: 취소됐는데 `HELD`) |
+| `HOLD_NOT_CLOSED` | 결제 실패인데 남은 보류·지급·확정 차감이 있음 |
+| `VOIDED_WHILE_ACTIVE` | 결제 실패가 아닌데 무효화 기록이 있음 |
+| `SETTLEMENT_MISSING` | `PAID_OUT`인데 지급 건이 없음 |
+| `SETTLEMENT_MISMATCH` | 지급 건의 원천·유형·받는 회원·금액·상태가 다르거나 2건 이상 |
+| `SETTLEMENT_UNEXPECTED` | `PAID_OUT`이 아닌데 지급 건이 있음 (#142·#182 시절 지급 예정 건 포함) |
+| `WALLET_ONLY_HOLD` | 지갑 보류 목록의 주문 항목 ID가 강의에 없음 |
+| `HP_TASK_DEAD` | 표시만 함. 항목에 `DEAD` 작업이 있어 비교하지 않고 어긋난 건 수에서 뺀다(관리자 HP 작업 화면에서 이미 보인다) |
+
+실행
+
+- **대상**: ① 강의 쪽은 비교 범위(`lookback`, 7일) 안에 HP 작업이 바뀐 주문 항목, ② 지갑 쪽은 저장한 커서 뒤에 바뀐 보류(`listHolds`, `hasMore`가 `false`일 때까지). 둘을 합쳐 500개씩 `queryHolds`로 조회한다. 목록 응답의 상태는 강의를 읽은 시점보다 오래됐을 수 있어 비교에는 `queryHolds` 결과만 쓴다. 목록은 대상 모으기와 지갑에만 있는 보류 찾기에 쓴다.
+- **빼는 것(진행 중)**: 결제 단계(`HOLD_PENDING`·`HOLD_COMPENSATING`), 같은 주문에 `PENDING`·`PROCESSING` 작업이 있는 항목, 마지막 변경이 진행 중 유예(`settle-grace`, 2시간) 안인 항목. 항목에는 변경 시각 컬럼이 없어 마지막 변경은 그 **주문**의 HP 작업 `updated_at`과 항목의 구매·취소·반환·지급 시각 중 가장 늦은 것이다. 결제 단계가 주문 단위라(D58) 다른 항목의 작업도 본다. 유예는 HP 작업 재시도 최대 간격(1시간)보다 길다.
+- **커서**: `lecture_hp_reconciliation_cursor` 한 행. 끝까지 비교한 실행만 앞으로 옮긴다(지갑 `Instant`를 KST로 저장). 처음에는 처음부터 읽는다. 지갑은 최근 10초 안에 바뀐 보류를 주지 않으므로 커서를 되돌려 겹쳐 읽지 않는다.
+- **비교하는 사이의 변경**: 강의를 읽은 뒤 지갑을 조회하기 전에 구매 취소의 즉시 반환이나 HP 작업 배치가 지갑을 바꾸면 거짓 어긋남이 생긴다. 어긋남이 나온 항목만 다시 읽어 항목 버전·상태나 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
+- **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남기고, 결과를 모르는 항목은 어긋남으로 세지 않는다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리). 강의 앱은 `replicas: 1`·`maxSurge: 0`이라 pod가 겹치지 않는다. 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다. replica를 늘리면 단일 실행 장치(billing `JobLock` 같은 advisory lock)를 먼저 둔다.
+- **설정** (`lecture.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500). 주기는 `lecture.batch.hp-reconciliation-cron`.
+
+결과
+
+- `lecture_hp_reconciliation_run`·`lecture_hp_reconciliation_mismatch`(reference.md 7.1). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031600`.
+- 로그: 어긋난 건마다 ERROR `[LECTURE_HP_RECONCILIATION_MISMATCH] 강의 HP 대사에서 어긋난 건을 찾았다 rule=…, runId=…, orderItemId=…, orderId=…, itemStatus=…, lectureState=[…], walletState=[…]`(D77). DEAD 작업 때문에 비교하지 않은 건(`HP_TASK_DEAD`)은 표식 없이 WARN 한 줄. 끝까지 하지 못하면 WARN 한 줄(`failureReason` 포함).
+- 지표: `lecture.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `lecture.hp_reconciliation.runs{status}`(끝난 실행 횟수). alert 규칙은 아직 없다(#343이 생기면 이 지표에 건다).
+- 관리자 API: reference.md 8.2.1.1.
+- 구조: `LectureHpReconciliationUseCase`(흐름·동시 실행·로그·지표), `LectureHpReconciliationComparer`(DB·지갑을 부르지 않는 순수 비교), `LectureHpReconciliationTarget`(항목 하나의 비교 값), `LectureHpReconciliationSupport`(트랜잭션 단위 읽기·기록, 지갑 호출은 트랜잭션 밖), `LectureHpReconciliationAdminFacade`. 지갑은 shared `BillingApiClient.queryHolds`·`listHolds`를 그대로 쓴다(회로·재시도 정책 같음).
 
 ---
 

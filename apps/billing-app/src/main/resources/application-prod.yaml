@@ -6,3 +6,8 @@ spring:
     password: "${DB_PASSWORD}"
 server:
   forward-headers-strategy: native
+logging:
+  structured:
+    format:
+      # 운영 로그는 JSON 한 줄(Boot 내장 logstash 형식)로 쓴다. 로컬·테스트는 평문이다. 필드·MDC 키·조회는 docs/dev/logging.md (#582)
+      console: logstash

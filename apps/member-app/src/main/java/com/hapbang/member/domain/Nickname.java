@@ -3,11 +3,13 @@ package com.hapbang.member.domain;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
-/** 닉네임 규칙: 2~12자, 한글(완성형)·영문·숫자·공백·밑줄, 연속 공백 금지 (중복 허용) */
+/** 닉네임 규칙: 2~12자, 한글(완성형)·영문·숫자·공백·밑줄, 연속 공백 금지. 중복 검사(#646)는 저장소로 한다 */
 public final class Nickname {
 
     public static final int MIN_LENGTH = 2;
     public static final int MAX_LENGTH = 12;
+    /** 겹칠 때 붙이는 숫자 자릿수 (#646) */
+    private static final int SUFFIX_DIGITS = 4;
 
     private static final Pattern ALLOWED = Pattern.compile("[가-힣A-Za-z0-9_ ]+");
     private static final Pattern NOT_ALLOWED = Pattern.compile("[^가-힣A-Za-z0-9_ ]");
@@ -41,8 +43,21 @@ public final class Nickname {
         return cleaned.length() >= MIN_LENGTH ? cleaned : defaultNickname();
     }
 
-    /** 회원 + 숫자 4자리 (중복 허용이라 겹쳐도 된다) */
+    /**
+     * 겹친 닉네임 뒤에 숫자 4자리를 붙인다 (#646, 구글 가입). 12자를 넘지 않게 앞 8자만 남기고, 자른 끝 공백은 지운다.
+     * 기존 중복 정리 마이그레이션(V202611040948)과 같은 모양이다. 이것도 겹칠 수 있어 부르는 쪽이 다시 확인한다
+     */
+    public static String withRandomSuffix(String nickname) {
+        String base = nickname.substring(0, Math.min(nickname.length(), MAX_LENGTH - SUFFIX_DIGITS)).strip();
+        return base + randomDigits();
+    }
+
+    /** 회원 + 숫자 4자리 (겹치면 구글 가입이 숫자를 다시 붙인다) */
     private static String defaultNickname() {
-        return "회원" + ThreadLocalRandom.current().nextInt(1000, 10000);
+        return "회원" + randomDigits();
+    }
+
+    private static int randomDigits() {
+        return ThreadLocalRandom.current().nextInt(1000, 10000);
     }
 }

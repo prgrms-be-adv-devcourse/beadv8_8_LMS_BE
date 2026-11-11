@@ -41,16 +41,18 @@ public class OrderHoldSettlement {
     private final LectureHpTaskRepository lectureHpTaskRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final CartRepository cartRepository;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public OrderHoldSettlement(LectureOrderRepository lectureOrderRepository,
                                LectureHpTaskRepository lectureHpTaskRepository,
                                LectureHpTaskSupport lectureHpTaskSupport, CartRepository cartRepository,
-                               @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                               LectureSyncEvents lectureSyncEvents, @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskRepository = lectureHpTaskRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.cartRepository = cartRepository;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -111,6 +113,7 @@ public class OrderHoldSettlement {
             case HOLD_PENDING -> {
                 if (tasks.allHoldsSucceeded()) {
                     order.markPaid(now);
+                    lectureSyncEvents.purchasesChanged(order.getItems());
                     removeOrderedLecturesFromCart(order, now);
                 }
             }
@@ -118,6 +121,7 @@ public class OrderHoldSettlement {
                 tasks.holdsToCompensate().forEach(hold -> registerCompensation(hold, now));
                 if (tasks.isFailureSettled()) {
                     order.markHoldFailed();
+                    lectureSyncEvents.purchasesChanged(order.getItems());
                 }
             }
             // 결제 단계가 끝난 뒤 다시 기록된 결과(관리자 재시도 등)는 바꿀 것이 없다
@@ -132,10 +136,13 @@ public class OrderHoldSettlement {
                 hold.getPayerUserId(), null, hold.getAmountHp(), now));
     }
 
+    /** 주문 행 다음에 장바구니 행을 잠근다. 사용자가 같은 항목을 동시에 빼도 버전 충돌로 결과 기록이 버려지지 않는다 (D82) */
     private void removeOrderedLecturesFromCart(LectureOrder order, LocalDateTime now) {
-        cartRepository.findByUserId(order.getBuyerUserId()).ifPresent(cart -> order.getItems().stream()
+        cartRepository.findForUpdateByUserId(order.getBuyerUserId()).ifPresent(cart -> order.getItems().stream()
                 .map(OrderItem::getLectureId)
-                .forEach(lectureId -> cart.remove(lectureId, now)));
+                .flatMap(lectureId -> cart.remove(lectureId, now).stream())
+                .toList()
+                .forEach(lectureSyncEvents::cartItemChanged));
     }
 
     private LectureOrder lockOrder(LectureHpTask task) {

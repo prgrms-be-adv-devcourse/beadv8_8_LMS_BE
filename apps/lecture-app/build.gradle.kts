@@ -4,6 +4,8 @@ plugins {
 
 dependencies {
     implementation(project(":shared"))
+    // 쿠폰 모듈(boundedContext/coupon). 같은 jar·같은 JVM에 싣되 강의 코드가 쿠폰 클래스를 컴파일 시점에 볼 수 없게 runtimeOnly다
+    runtimeOnly(project(":coupon"))
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
@@ -14,6 +16,10 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
+    // 주문·구매 취소 회원별 요청 한도(D80), 파일 업로드 동시 수 상한(D81)과 그 지표. starter 없이 코드로 조합한다(지갑·shared와 같음)
+    implementation(libs.resilience4j.ratelimiter)
+    implementation(libs.resilience4j.bulkhead)
+    implementation(libs.resilience4j.micrometer)
     // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
@@ -44,6 +50,14 @@ tasks.bootJar {
 // 공통 로컬 인프라(docker/compose.yaml)와 .env는 저장소 루트 기준이다.
 tasks.bootRun {
     workingDir = rootDir
+}
+
+// CI는 앱마다 :<앱>:check만 돌린다(.github/workflows/ci.yml). 이 앱 디렉터리 안의 하위 프로젝트(boundedContext/*)
+// 테스트도 함께 돌도록 check에 건다(auxiliary-app과 같다). 모듈을 더하면 자동으로 포함된다.
+tasks.check {
+    dependsOn(rootProject.subprojects
+        .filter { it != project && it.projectDir.startsWith(projectDir) }
+        .map { "${it.path}:check" })
 }
 
 // 대용량 업로드 확인(@Tag("large-upload"))은 시간이 걸려 check에서 뺀다. 수동 실행: ./gradlew :lecture-app:largeUploadTest

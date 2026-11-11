@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class InfluencerChannelTest {
 
@@ -191,5 +192,25 @@ class InfluencerChannelTest {
         InfluencerChannel channel = register(5);
         channel.requestApproval(5, NOW);
         return channel;
+    }
+
+    @Test
+    @DisplayName("마스킹하면 채널 이름·주소·식별자가 채널 ID를 넣은 값이 되고 삭제 표시가 된다. 이미 삭제한 채널은 삭제 시각을 그대로 둔다 (#594)")
+    void mask() {
+        InfluencerChannel channel = register(10);
+        ReflectionTestUtils.setField(channel, "id", 3L);
+        InfluencerChannel deleted = register(10);
+        ReflectionTestUtils.setField(deleted, "id", 4L);
+        ReflectionTestUtils.setField(deleted, "deletedAt", NOW.minusDays(1));
+
+        channel.mask(NOW);
+        deleted.mask(NOW);
+
+        assertThat(channel.getChannelIdentifier()).isEqualTo("withdrawn_3");
+        assertThat(channel.getChannelName()).isEqualTo("withdrawn_3");
+        assertThat(channel.getChannelUrl()).isEqualTo("withdrawn_3");
+        assertThat(channel.getDeletedAt()).isEqualTo(NOW);
+        assertThat(deleted.getChannelIdentifier()).isEqualTo("withdrawn_4");
+        assertThat(deleted.getDeletedAt()).isEqualTo(NOW.minusDays(1));
     }
 }

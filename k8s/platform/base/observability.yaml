@@ -1,8 +1,8 @@
 # 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
 # 이 파일은 설치, 자원·보존 한도와 Alloy pipeline(Gateway trace·pod log)을 정한다. 앱 지표는 Prometheus 차트 기본
 # kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard는 dashboards/ JSON(#531)이고, alert는 #343에서 더한다.
-# 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,248 MiB이고, k8s/gateway의
-# Tempo 160·Grafana 448 override를 더하면 1,472 MiB다(#532 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
+# 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,312 MiB이고, k8s/gateway의
+# Tempo 160·Grafana 512 override를 더하면 1,600 MiB다(#532·#608·#684 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
 # 예산 조정은 #343에서 한다(docs/architecture/infrastructure/k3s.md).
 # Loki·Tempo·Grafana 차트는 2026년에 grafana에서 grafana-community 저장소로 옮겨졌다(각 차트 README).
 apiVersion: helm.cattle.io/v1
@@ -33,7 +33,7 @@ spec:
     # k3s는 apiserver·kubelet이 한 프로세스라 두 endpoint가 같은 제어부 지표 묶음을 내보낸다.
     # EC2에서 둘이 head series 18.5만 중 9.6만을 차지해 메모리가 limit에 붙고 GC로 CPU 1.5코어를 썼다(#443).
     # apiserver는 수집하지 않고, kubelet은 pod·컨테이너 수와 k3s 프로세스 자원 지표만 남긴다.
-    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 알림은 #343에서 다른 지표로 정한다.
+    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 alert는 #343에서 다른 지표로 정한다.
     # 컨테이너 CPU·메모리는 kubernetes-nodes-cadvisor가 따로 수집한다.
     scrapeConfigs:
       kubernetes-api-servers:
@@ -50,12 +50,14 @@ spec:
         size: 5Gi
         storageClass: local-path-retain
       # 차트 기본 scrape(cadvisor·pod 등)로 idle 292Mi를 썼다.
+      # 운영에서 #443 뒤 앱이 늘며 head series가 1.3만 → 4.3만, 하루 최대 working set이 291 → 320Mi로 올랐다(2026-10-31~11-04).
+      # Prometheus 3은 GOMEMLIMIT을 limit의 90%(384Mi면 346Mi)로 잡으므로 여유를 두려고 448Mi로 올린다(#684).
       resources:
         requests:
           cpu: 50m
-          memory: 384Mi
+          memory: 448Mi
         limits:
-          memory: 384Mi
+          memory: 448Mi
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -196,14 +198,37 @@ spec:
             # scrape 주기(차트 기본 1m)를 알려 $__rate_interval이 4m 이상이 되게 한다. 짧으면 rate()가 빈다.
             jsonData:
               timeInterval: 1m
+          # 로그 줄의 trace ID를 Tempo trace 링크로 만든다(#579). provisioning은 $를 환경 변수로 읽으므로 $$로 쓴다.
+          # 앱: 운영 JSON 로그의 "traceId":"<32자>"(#582)와 평문 로그의 "[<traceId 32자>-<spanId 16자>] ".
+          # Envoy: JSON access log의 trace_id(traceparent 전체)
           - name: Loki
             type: loki
             uid: loki
             url: http://loki.hapbang-platform.svc.cluster.local:3100
+            jsonData:
+              derivedFields:
+                - name: traceId
+                  matcherRegex: '(?:"traceId":"|\[)([0-9a-f]{32})(?:"|-[0-9a-f]{16}\])'
+                  datasourceUid: tempo
+                  url: '$${__value.raw}'
+                  urlDisplayLabel: Tempo에서 보기
+                - name: trace_id
+                  matcherRegex: '"trace_id":"00-([0-9a-f]{32})-'
+                  datasourceUid: tempo
+                  url: '$${__value.raw}'
+                  urlDisplayLabel: Tempo에서 보기
+          # trace에서 같은 trace ID가 찍힌 앱·Envoy 로그로 이동한다(#579). span 시간 앞뒤 5분을 찾는다
           - name: Tempo
             type: tempo
             uid: tempo
             url: http://tempo.hapbang-platform.svc.cluster.local:3200
+            jsonData:
+              tracesToLogsV2:
+                datasourceUid: loki
+                spanStartTimeShift: '-5m'
+                spanEndTimeShift: '5m'
+                customQuery: true
+                query: '{namespace=~"hapbang-prod|envoy-gateway-system"} |= "$${__trace.traceId}"'
     # dashboard JSON은 레포의 k8s/platform/base/dashboards가 원본이다(#531). kustomization이 만든 ConfigMap을
     # 디렉터리로 마운트한다. sidecar와 grafana.com 다운로드는 쓰지 않는다. UI에서 고친 내용은 저장되지 않으니
     # JSON으로 내보내 레포를 고친다(docs/architecture/infrastructure/observability.md).

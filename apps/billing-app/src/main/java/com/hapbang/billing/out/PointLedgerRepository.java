@@ -1,5 +1,6 @@
 package com.hapbang.billing.out;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +34,10 @@ public interface PointLedgerRepository extends Repository<PointLedger, Long> {
             where l.walletId = :walletId
             group by l.pointType, l.balanceBucket""")
     List<LedgerBucketSum> sumAmountByWalletId(@Param("walletId") Long walletId);
+
+    // 기준 시각 이후 원장이 기록된 지갑 ID를 찾는다 (#607, 잔액 대사 대상). idx_point_ledger_5(created_at)를 탄다
+    @Query("select distinct l.walletId from PointLedger l where l.createdAt >= :since")
+    List<Long> findWalletIdsRecordedSince(@Param("since") Instant since);
 
     // 지갑의 원장을 업무 작업(wallet_id + operation_key)마다 묶어 HP 종류·잔액 버킷별 증감을 합하고, 작업의 첫 원장 ID 내림차순으로
     // 페이지를 나눈다 (#295). 한 작업의 거래 유형·참조 대상·발생 시각은 같으므로 함께 묶어도 작업 하나가 한 줄이다.

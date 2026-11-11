@@ -28,6 +28,18 @@ class LectureHpTaskClassifierTest {
     }
 
     @Test
+    void HOLD가_탈퇴로_닫힌_지갑이면_확정_거절이고_다른_작업에서는_불변식_위반이다() {
+        // 닫힌 지갑은 새 보류를 받지 않는다. 반환·지급은 받으므로 그 작업에서는 나올 수 없다 (D76)
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.HOLD, WALLET_CLOSED)).isEqualTo(TERMINAL_REJECTION);
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.RELEASE, WALLET_CLOSED))
+                .isEqualTo(INVARIANT_VIOLATION);
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.PAYOUT, WALLET_CLOSED))
+                .isEqualTo(INVARIANT_VIOLATION);
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, WALLET_CLOSED))
+                .isEqualTo(INVARIANT_VIOLATION);
+    }
+
+    @Test
     void VOID는_지갑_없음만_재시도고_다른_회원의_보류는_불변식_위반이다() {
         assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, WALLET_NOT_FOUND)).isEqualTo(RETRYABLE);
         assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, HOLD_OWNER_MISMATCH))

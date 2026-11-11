@@ -43,6 +43,7 @@ public class UserJoinedEventListener {
         }
         // 재전달되었거나 지갑 조회가 먼저 만들었으면 기존 지갑을 그대로 쓴다 (회원당 지갑 1개).
         walletFacade.getOrCreateWallet(user.id());
+        log.info("가입한 회원의 지갑을 확인했다(없으면 만들었다) userId={}", user.id());
     }
 
     // 지갑 생성에 쓰지 않는 회원 이벤트(변경·로그아웃 등). 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다.

@@ -12,10 +12,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.app.TokenPair;
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.domain.WithdrawnRestorableException;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -30,25 +34,71 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
 
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final RestoreTicketCookies restoreTicketCookies;
+
+    /**
+     * 인증 코드 받기 (#557, 가입·비밀번호 재설정). IP당 발송 제한에 쓰는 접속 IP는 Gateway가 붙인 X-Forwarded-For를 Tomcat이 풀어 준 값이다
+     * (운영 server.forward-headers-strategy=native, docs/architecture/infrastructure/api-gateway.md)
+     */
+    @Override
+    @PostMapping("/email-codes")
+    public RsData<EmailCodeResponse> sendEmailCode(@Valid @RequestBody EmailCodeRequest request,
+                                                   HttpServletRequest httpRequest) {
+        memberFacade.sendEmailCode(request.email(), request.purpose(), httpRequest.getRemoteAddr());
+        return RsData.ok("인증 코드를 보냈습니다.", new EmailCodeResponse(
+                EmailVerificationPolicy.CODE_TTL.toSeconds(), EmailVerificationPolicy.RESEND_COOLDOWN.toSeconds()));
+    }
+
+    /** 인증 코드 확인 (#557). 맞으면 그 용도(가입·재설정)에 쓸 인증 토큰을 준다. 접속 IP는 IP당 확인 제한에 쓴다(코드 받기와 같음) */
+    @Override
+    @PostMapping("/email-codes/verify")
+    public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request,
+                                                                  HttpServletRequest httpRequest) {
+        String token = memberFacade.verifyEmailCode(request.email(), request.purpose(), request.code(),
+                httpRequest.getRemoteAddr());
+        return RsData.ok("이메일을 인증했습니다.",
+                new EmailVerificationTokenResponse(token, EmailVerificationPolicy.TOKEN_TTL.toSeconds()));
+    }
 
     /** 가입. 로그인은 따로 한다 */
     @Override
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public RsData<MemberMeResponse> signUp(@Valid @RequestBody SignUpRequest request) {
-        User user = memberFacade.signUp(request.email(), request.password(), request.nickname());
+        User user = memberFacade.signUp(request.email(), request.password(), request.nickname(),
+                request.emailVerificationToken());
         return RsData.created("가입했습니다.", meResponse(user));
     }
 
-    /** 로그인: refresh token 쿠키 */
+    /**
+     * 로그인: refresh token 쿠키. 복구할 수 있는 탈퇴 회원이면 복구 티켓 쿠키를 붙이고 409는 공통 예외 처리에 맡긴다
+     * (본문에는 복구 기한만, #633). 로그인에 성공하면 앞사람이 남긴 복구 티켓 쿠키를 지운다(공용 PC)
+     */
     @Override
     @PostMapping("/login")
-    public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request) {
-        User user = memberFacade.passwordLogin(request.email(), request.password());
+    public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request,
+                                                          HttpServletResponse response) {
+        User user;
+        try {
+            user = memberFacade.passwordLogin(request.email(), request.password());
+        } catch (WithdrawnRestorableException e) {
+            response.addHeader(HttpHeaders.SET_COOKIE, restoreTicketCookies.issue(e.getRestoreTicket()).toString());
+            throw e;
+        }
         TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE,
+                        refreshTokenCookies.issue(tokens.refreshToken()).toString(),
+                        restoreTicketCookies.expire().toString())
                 .body(RsData.ok("로그인했습니다.", meResponse(user)));
+    }
+
+    /** 비밀번호 재설정 (#557): 로그인 없이 부른다. 모든 기기가 로그아웃되고, 새 비밀번호로 다시 로그인한다 */
+    @Override
+    @PostMapping("/password-reset")
+    public RsData<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        memberFacade.resetPassword(request.email(), request.emailVerificationToken(), request.newPassword());
+        return RsData.ok("비밀번호를 다시 설정했습니다. 새 비밀번호로 로그인해 주세요.", null);
     }
 
     /** 비밀번호 변경: 다른 기기는 로그아웃되고, 이 기기는 새 refresh token 쿠키를 받는다 */

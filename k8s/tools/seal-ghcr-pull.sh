@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GHCR pull 인증 Secret(ghcr-pull)을 SealedSecret으로 만들어 k8s/registry/ghcr-pull.yaml에 쓴다(#460).
-# GHCR 패키지는 조직 정책으로 private이다. BE 앱 6개와 FE web이 hapbang-prod의 이 Secret 하나로 이미지를 받는다.
+# GHCR 패키지는 조직 정책으로 private이다. BE 앱 7개와 FE web이 hapbang-prod의 이 Secret 하나로 이미지를 받는다.
 # 토큰은 read:packages만 고른 classic PAT(만료 90일)다. 화면·명령 인자·레포에 남기지 않는다.
 # - 토큰 권한이 read:packages 하나가 아니면 멈춘다(cluster 관리자는 Secret을 읽을 수 있다).
 # - 봉인 전에 패키지마다 GHCR에서 읽을 수 있는지 확인한다. 권한이 없으면 멈추고, 아직 발행되지 않은 패키지는 알리고 넘어간다.

@@ -10,6 +10,7 @@ import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
+import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.member.event.UserJoinedEvent;
@@ -21,11 +22,12 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 class AppearanceExternalEventsTest {
 
     @Test
-    @DisplayName("요청 도착·지원 도착·리뷰 공개(#513)는 내보낸다")
+    @DisplayName("요청 도착·지원 도착·리뷰 공개(#513)·출연 변경(#713)은 내보낸다")
     void externalized() {
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceRequestSentEvent.class)).isTrue();
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceApplicationSubmittedEvent.class)).isTrue();
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceReviewPublishedEvent.class)).isTrue();
+        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceChangedEvent.class)).isTrue();
     }
 
     @Test

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.lecture.global.auth.LoginUserId;
+import com.hapbang.lecture.global.ratelimit.RateLimited;
+import com.hapbang.lecture.global.ratelimit.RateLimitedApi;
 import com.hapbang.lecture.global.response.RsData;
 import com.hapbang.lecture.app.LectureOrderFacade;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
@@ -39,6 +41,7 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders")
+    @RateLimited(RateLimitedApi.ORDER)
     public ResponseEntity<RsData<OrderResponse>> createOrder(@LoginUserId Long userId,
                                                              @Valid @RequestBody OrderCreateRequest request) {
         OrderResponse order = lectureOrderFacade.createOrder(userId, request.lectureIds());
@@ -78,6 +81,7 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/cancel")
+    @RateLimited(RateLimitedApi.CANCEL)
     public ResponseEntity<RsData<OrderItemResponse>> cancel(@LoginUserId Long userId,
             @PathVariable("orderId") Long orderId, @PathVariable("orderItemId") Long orderItemId) {
         OrderItemResponse item = lectureOrderFacade.cancel(userId, orderId, orderItemId);

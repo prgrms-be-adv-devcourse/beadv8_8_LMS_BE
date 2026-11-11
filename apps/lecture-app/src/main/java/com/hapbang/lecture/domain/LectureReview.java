@@ -8,9 +8,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
 
 /**
  * 강의 리뷰·평점 (설계 4.7).
@@ -58,6 +61,13 @@ public class LectureReview {
 
     private LocalDateTime deletedAt;
 
+    /**
+     * AI 추천용 동기화(#712)의 버전. 별점·삭제가 바뀌면 오르고, 주문 항목 상태 때문에 평점 반영 여부만 바뀌어도 강제로 올린다(D82).
+     * 고치기·지우기는 리뷰 행을 잠그고 읽어 동시 요청이 충돌하지 않게 한다
+     */
+    @Version
+    private Long version;
+
     private LectureReview(OrderItem item, Long reviewerUserId, int rating, String content, LocalDateTime now) {
         this.lectureId = item.getLectureId();
         this.orderItemId = item.getId();
@@ -97,6 +107,16 @@ public class LectureReview {
 
     public boolean isDeleted() {
         return deletedAt != null;
+    }
+
+    /**
+     * AI 추천용 리뷰 (#712). 이벤트와 동기화 내부 API가 같은 값을 쓰도록 여기서만 만든다. 버전이 맞으려면 flush 뒤에 부른다.
+     *
+     * @param itemStatus 리뷰를 쓴 주문 항목의 지금 상태. 평점 반영 여부를 정한다
+     */
+    public LectureReviewSyncDto toSyncDto(OrderItemStatus itemStatus) {
+        return new LectureReviewSyncDto(id, lectureId, reviewerUserId, rating,
+                !isDeleted() && itemStatus.countsReview(), isDeleted(), version);
     }
 
     private void validateWriter(Long userId) {

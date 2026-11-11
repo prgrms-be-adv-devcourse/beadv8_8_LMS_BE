@@ -1,0 +1,194 @@
+{
+  "comment": [
+    "GraalVM Native Image에 더할 메타데이터(#609). Spring Boot AOT가 등록하지 않는 것만 둔다. AOT가 com.hapbang/customer-support-app에 파일을 만들므로 경로를 나눈다.",
+    "reflection: 고객센터가 발행하는 이벤트(Modulith 발행 기록 JSON 저장·재발행, Kafka JSON 직렬화, @Externalized key의 SpEL)와 강의 내부 API Client(LectureApiClient)가 JSON으로 주고받는 record. native에서는 record component를 등록해야 Jackson이 읽는다.",
+    "resources: application.yaml의 spring.config.import가 읽는 파일.",
+    "serializable: Kafka ErrorHandlingDeserializer가 역직렬화 실패(DeserializationException)를 Java 직렬화로 헤더에 담는다. 빠지면 listener container가 멈춘다. 모르는 타입·깨진 JSON·타입 불일치를 tracing agent로 실행해 모은 목록에 IllegalArgument·IllegalState를 더했다.",
+    "reflection(#722): 강의 이벤트를 받을 때 JacksonJsonDeserializer가 spring.json.value.type.method로 이름을 받아 reflection으로 부르는 LectureEventTypeResolver.resolve. 받는 타입과 무시용 레코드(IgnoredLectureEvent)는 @KafkaHandler 파라미터라 AOT가 등록하고, 받지 않는 타입은 클래스를 찾지 않으므로 강의가 lecture.events.v1에 새 타입을 더해도 여기에 더하지 않는다."
+  ],
+  "reflection": [
+    {
+      "type": "com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.shared.lecture.dto.LectureObjectionFileRequest",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.shared.lecture.dto.LectureObjectionFiledDto",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.shared.lecture.out.LectureApiClient$Body",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.customersupport.in.LectureEventTypeResolver",
+      "methods": [
+        {
+          "name": "resolve",
+          "parameterTypes": [
+            "java.lang.String",
+            "byte[]",
+            "org.apache.kafka.common.header.Headers"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "byte[]",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.ClassNotFoundException",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.Enum",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.Exception",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.IllegalArgumentException",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.IllegalStateException",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.Long",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.Number",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.ReflectiveOperationException",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.RuntimeException",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.StackTraceElement",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.StackTraceElement[]",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.String",
+      "serializable": true
+    },
+    {
+      "type": "java.lang.Throwable",
+      "serializable": true
+    },
+    {
+      "type": "java.util.Collections$EmptyList",
+      "serializable": true
+    },
+    {
+      "type": "java.util.LinkedList",
+      "serializable": true
+    },
+    {
+      "type": "org.apache.kafka.common.KafkaException",
+      "serializable": true
+    },
+    {
+      "type": "org.apache.kafka.common.errors.SerializationException",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.core.NestedRuntimeException",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.kafka.KafkaException",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.kafka.KafkaException$Level",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.kafka.support.serializer.DeserializationException",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.messaging.MessagingException",
+      "serializable": true
+    },
+    {
+      "type": "org.springframework.messaging.converter.MessageConversionException",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.JacksonException",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.JacksonException$Reference",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.JsonToken",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.TokenStreamLocation",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.exc.StreamReadException",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.core.io.ContentReference",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.databind.DatabindException",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.databind.exc.InvalidFormatException",
+      "serializable": true
+    },
+    {
+      "type": "tools.jackson.databind.exc.MismatchedInputException",
+      "serializable": true
+    }
+  ],
+  "resources": [
+    {
+      "glob": "customer-support.yml"
+    },
+    {
+      "glob": "swagger.yml"
+    }
+  ]
+}

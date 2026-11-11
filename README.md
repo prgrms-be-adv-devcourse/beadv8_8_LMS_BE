@@ -13,6 +13,8 @@
 docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 ```
 
+Kafka는 broker 1개(replication 1)라 고가용성 구성이 아니다. broker가 멈춘 동안 발행할 이벤트는 각 앱 DB의 outbox(Modulith publication)에 남았다가 다시 발행되고, 소비는 그만큼 늦어진다. 장애별 동작과 복구는 [Kafka 문서의 "장애와 복구"](docs/architecture/infrastructure/kafka.md#장애와-복구)에 있다.
+
 현재 변경은 구조·빌드·실행 기반까지다. 기존 Spring Event, 프로세스 내부 포트와 세션 인증의 서비스 간 전환은 남아 있다(인증은 JWT로 전환, #370). 독립 서버에서 거래가 모두 동작하는 상태로 간주하지 않는다. CI는 앱별 테스트·jar·이미지 빌드를 검증한다. 서버는 EC2 k3s prod 한 벌이고 dev 서버는 없다. 기존 Docker Compose는 2026-10-30에 지웠다(#440). dev에 병합하면 바뀐 앱 이미지를 발행하고 prod에 자동으로 배포한다. main에는 서버가 없다(#374, #559, [`docs/deploy/README.md`](docs/deploy/README.md)).
 
 ## 문서

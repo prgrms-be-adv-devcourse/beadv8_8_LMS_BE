@@ -42,7 +42,7 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
 - **배치**: `hapbang-platform` namespace에 ECK의 Elasticsearch CR로 만든다. node 1개(`nodeSets[].count: 1`), replica shard 0. 단일 node라 HA는 없다고 README에 적는다.
 - **메모리**: [3장](k3s.md#ec2-2노드-자원-예산) 예산대로 컨테이너 limit 1.5 GiB(heap은 limit의 50% 이하). ECK 기본값 2Gi를 그대로 두지 않는다. 대기 상태 측정으로는 1 GiB(heap 512 MiB)도 떴으므로 부하 측정 뒤 줄일 수 있다.
 - **host 설정**: large host에 `vm.max_map_count=1048576`을 설정한다(k3s 설치 때 sysctl로 고정). 262144는 ES 8.15 이하 값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)). 로컬 k3d는 Docker Desktop VM 값을 바꾸지 않고 `node.store.allow_mmap: false`로 띄운다.
-- **보안**: security를 켜 두고 앱 계정 비밀번호는 Secret으로 넣는다. 9200 port는 security group과 Gateway route에 열지 않고, NetworkPolicy로 search-app과 customer-support-app pod만 접근하게 한다.
+- **보안**: security를 켜 두고 앱은 모듈마다 role·API key를 Secret으로 받는다(chatbot은 role `chatbot`·index `chatbot-*`, 주소·CA·만드는 절차는 [k8s.md](../../deploy/k8s.md#elasticsearch-앱-접근), #726). 9200 port는 security group과 Gateway route에 열지 않는다. platform에는 ingress NetworkPolicy를 두지 않으므로([gateway.md](../../deploy/gateway.md)) cluster 안의 pod는 9200에 닿고, 접근 제어는 role·API key가 맡는다.
 - **환경**: EC2에는 prod만 두므로 ES도 하나다. index 이름에 환경 prefix를 붙이지 않는다.
 - **백업**: S3 snapshot은 S3 용도를 넘으므로 하지 않는다. 원본에서 다시 만들 수 있으므로 재색인 절차를 복구 수단으로 둔다.
 - **관측**: Prometheus/Grafana에서 index별 문서 수, 색인 지연, consumer lag, 검색 p95, heap·GC를 본다.

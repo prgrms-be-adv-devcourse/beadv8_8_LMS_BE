@@ -3,6 +3,7 @@ package com.hapbang.member.global.storage;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.http.ContentDisposition;
@@ -12,6 +13,8 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -32,6 +35,9 @@ public class S3FileStorage {
 
     /** SigV4 Presigned URL의 최대 유효 기간 */
     private static final Duration MAX_URL_EXPIRY = Duration.ofDays(7);
+
+    /** {@link #erase}로 비운 파일의 Content-Type */
+    private static final String ERASED_CONTENT_TYPE = "application/octet-stream";
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -70,6 +76,37 @@ public class S3FileStorage {
                         client -> client.retryStrategy(AwsRetryStrategy.doNotRetry()))))
                 .build();
         s3Client.putObject(putObject, RequestBody.fromInputStream(body, contentLength));
+    }
+
+    /**
+     * 파일 내용을 지운다 (#594 탈퇴 회원 사진 파기, 바꾼 프로필 사진). 같은 key에 빈 파일(0바이트)을 덮어써 원본을 없앤다.
+     * <p>
+     * 앱에는 S3 삭제 권한({@code DeleteObject})이 없어(docs/deploy/s3.md, Soft Delete) 객체를 지우지 않고 내용만 비운다.
+     * 버킷에 버전 관리가 없어 덮어쓴 원본은 남지 않는다. 없는 key여도 빈 파일이 생길 뿐 실패하지 않으므로 여러 번 불러도 된다.
+     * 빈 본문은 다시 보낼 수 있어 {@link #upload}와 달리 SDK 기본 재시도를 쓴다(일시적인 S3 오류 한 번에 실패하지 않게)
+     */
+    public void erase(String key) {
+        s3Client.putObject(PutObjectRequest.builder()
+                .bucket(properties.bucket())
+                .key(objectKey(key))
+                .contentType(ERASED_CONTENT_TYPE)
+                .build(), RequestBody.empty());
+    }
+
+    /**
+     * {@code prefix}로 시작하는 파일 key를 모두 돌려준다(모듈 기준 key, 환경 prefix 없이). 예: 한 회원의 프로필 사진 폴더.
+     * 서버 역할의 {@code ListBucket} 권한(환경 prefix 아래)으로 읽는다
+     */
+    public List<String> listKeys(String prefix) {
+        String environmentPrefix = properties.keyPrefix() + "/";
+        return s3Client.listObjectsV2Paginator(ListObjectsV2Request.builder()
+                        .bucket(properties.bucket())
+                        .prefix(objectKey(prefix))
+                        .build())
+                .contents().stream()
+                .map(S3Object::key)
+                .map(key -> key.substring(environmentPrefix.length()))
+                .toList();
     }
 
     /**

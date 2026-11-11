@@ -143,6 +143,22 @@ class LectureHpTaskRepositoryTest {
                 orderItemId, 7L, null, 10_000L, NOW);
     }
 
+    @Test
+    void 대사_비교_범위_안에_바뀐_작업의_주문_항목만_한_번씩_고른다() {
+        // 31: 범위 전에 만들었지만 범위 안에 끝남, 32: 범위 안 작업 두 개, 33: 범위 전에만 바뀜 (D74)
+        LectureHpTask finishedLater = task("LECTURE-CANCEL-31", 31L);
+        finishedLater.complete(LectureHpTaskOutcome.SUCCEEDED, NOW.plusDays(1));
+        lectureHpTaskRepository.saveAndFlush(finishedLater);
+        lectureHpTaskRepository.saveAndFlush(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-32",
+                3L, 32L, 7L, null, 10_000L, NOW.plusDays(1)));
+        lectureHpTaskRepository.saveAndFlush(LectureHpTask.create(LectureHpTaskPurpose.CANCEL, "LECTURE-CANCEL-32",
+                3L, 32L, 7L, null, 10_000L, NOW.plusDays(2)));
+        lectureHpTaskRepository.saveAndFlush(task("LECTURE-CANCEL-33", 33L));
+
+        assertThat(lectureHpTaskRepository.findOrderItemIdsUpdatedSince(NOW.plusHours(1)))
+                .containsExactlyInAnyOrder(31L, 32L);
+    }
+
     private static LectureHpTask task(String requestId, Long orderItemId) {
         return LectureHpTask.create(LectureHpTaskPurpose.CANCEL, requestId, 3L, orderItemId, 7L, null, 10_000L, NOW);
     }

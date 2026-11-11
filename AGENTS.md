@@ -14,12 +14,14 @@
 
 ### MVP 범위 밖 (구현하지 않는다)
 
-커뮤니티, 연관 인플루언서 추천 서비스, 기업 광고 연동, 멘토링, 맞합방 제공, 인기도, 인스타그램 등 SNS 인플루언서
+커뮤니티, 기업 광고 연동, 멘토링, 맞합방 제공, 인스타그램 등 SNS 인플루언서
+
+세미 프로젝트에서 범위 밖이던 연관 인플루언서 추천과 인기도는 최종 프로젝트의 AI 추천(챗봇 모듈의 강의·인플루언서 추천)으로 다룬다.
 
 ## 2. 기술 스택
 
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
-- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338).
+- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338). auxiliary-app 안의 모듈만 앱 공통 database 하나를 모듈별 schema로 나눠 쓴다 (#714). lecture-app 안의 쿠폰 모듈(`coupon`)도 같은 `lecture` database의 `coupon` schema를 쓴다 (#744).
 - 인증: OAuth 소셜 로그인 + JWT. member-app이 발급(RS256, JWKS)하고 Envoy Gateway가 서명을 검증해 사용자 헤더로 넘긴다. 앱은 `@PreAuthorize`로 인가한다 (#369, #370). 전환 전 코드는 세션을 쓴다.
 - 진입점: Envoy Gateway(Kubernetes Gateway API). EC2 k3s prod 한 벌이 유일한 서버 환경이다(dev 서버 없음).
 - 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
@@ -41,8 +43,16 @@
 | 지갑 (`billing`) | HP 충전·환불, 원장, 보류, 지급, 환전 (지급·환전을 통틀어 "정산") | `/api/v1/wallets`, `/api/v1/settlements` |
 | 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
 | 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+| 알림 (`notification`, auxiliary-app) | 알림센터 알림 생성·보관·실시간 전달 | `/api/v1/notifications` |
+| 챗봇 (`chatbot`, auxiliary-app) | FAQ, 강의·인플루언서 추천, 추천용 데이터 동기화, 대화 | `/api/v1/chatbot` |
+| 쿠폰 (`coupon`, lecture-app, database `lecture`·schema `coupon`) | 쿠폰 정책·발급·계산·예약·복원. 강의와는 내부 HTTP API·Kafka로만 통신 | `/api/v1/coupons` |
 
-최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었고, 알림(`notification`)·검색(`search`)을 별도 앱으로 더하는 계획이 [`docs/architecture/final-project-infrastructure.md`](docs/architecture/final-project-infrastructure.md) 8·9장에 있다. 위 표는 팀 합의 뒤 바꾼다.
+최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었다. 검색·챗봇·알림은 독립 앱으로 나누지 않고 앱 하나(`auxiliary-app`)에 모듈로 담는다(#684, #714). Windows가 `aux`를 예약 장치 이름으로 막아 `aux-app`이 아니라 `auxiliary-app`이다.
+
+- 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조다. 앱 안에 공통 `global`(`:auxiliary-global`)과 업무 모듈 `boundedContext/<모듈>`(Gradle `:<모듈>`, 패키지 `com.hapbang.auxiliary.<모듈>`)을 둔다.
+- 업무 모듈은 아래 경계 규칙을 지킨다. database만 예외로, 앱 공통 database `auxiliary` 하나를 모듈별 schema(모듈 이름)로 나눠 쓴다. 다른 모듈 schema의 테이블은 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다.
+- 업무 모듈끼리 코드를 직접 참조하지 않는다. Spring Modulith 검사(`AuxiliaryModularityTest`)와 `verifyModuleStructure`가 막고, 모듈 사이 연동은 이벤트로 한다.
+- 모듈 추가 방법은 [`apps/auxiliary-app/README.md`](apps/auxiliary-app/README.md), 알림 설계는 [`docs/architecture/infrastructure/notification.md`](docs/architecture/infrastructure/notification.md)에 있다.
 
 ### 경계 규칙 (반드시 지킨다)
 
@@ -53,6 +63,8 @@
 - 컨텍스트 간에 필요한 유저 정보는 테이블을 복제하여 연결한다 (기획서 참고 사항).
 - 모듈 간 통신은 이벤트를 기본으로 한다. 단, 즉시 결과가 필요한 HP 이동(보류·반환·지급)과 이의 제기 접수는 제공 모듈의 내부 HTTP API를 호출할 수 있다. 동기 HTTP 호출은 소비 모듈의 로컬 트랜잭션 밖에서 실행하고, `shared`의 DTO·공통 HTTP Client 계약만 사용한다 (`docs/lecture/decisions.md` D62).
 - 모듈마다 database를 분리하고, database 이름은 위 표의 모듈 이름을 따른다. 모듈은 자기 database에만 연결하고, 다른 모듈의 database·테이블·트랜잭션을 쓰지 않는다.
+    - 예외: auxiliary-app 안의 모듈은 앱 공통 database `auxiliary`를 쓰고, 모듈 이름의 schema에만 테이블을 둔다(엔티티 `@Table(schema = "<모듈>")`). 다른 모듈 schema의 테이블은 쓰지 않는다.
+    - 예외: lecture-app 안의 쿠폰 모듈(`coupon`)은 같은 `lecture` database를 쓰고, `coupon` schema에만 테이블을 둔다(엔티티 `@Table(schema = "coupon")`). 강의와 쿠폰은 서로의 schema 테이블을 쓰지 않고 내부 HTTP API·Kafka로만 통신한다.
 - 이 규칙을 지키기 어려운 요구가 나오면 임의로 우회하지 말고 질문한다.
 
 ## 4. 용어 (유비쿼터스 언어)
@@ -72,6 +84,7 @@
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 성공 응답은 `global`의 `RsData`(`statusCode`, `message`, `data`)로 감싼다. 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(+ `code`)로 응답한다. **모듈은 `@RestControllerAdvice`를 만들지 않고**, `{Module}ErrorCode implements BaseErrorCode`와 `{Module}Exception extends BusinessException`만 둔다.
+    - 예외: lecture-app 안의 coupon 모듈은 앱으로 분리될 것을 전제하므로 자기 global(오류 처리기·RsData·로그인 해석)을 둔다. 처리기는 `com.hapbang.coupon` 패키지에 한정한다.
 - 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 Envoy에 route를 만들지 않아 닿지 않는다 (D63, `docs/api/internal-earnings.md`).
 - 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. Envoy는 이 경로에만 큰 본문과 긴 timeout을 허용한다 (`docs/deploy/s3.md`, #106).
 - RsData 반환 방법, 오류 코드·예외 작성법, 공통 핸들러가 처리하는 상황은 [`docs/api/conventions.md`](docs/api/conventions.md)에 있다.
@@ -105,7 +118,7 @@
 
 아래는 팀 합의 전이다. 에이전트가 임의로 정해서 코드에 넣지 않고 질문한다.
 
-- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md)에서 정했다)
+- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md), 로그 형식·메시지는 [`docs/dev/logging.md`](docs/dev/logging.md)에서 정했다)
 - 테스트 방식 (단위·통합 테스트 기준, 테스트용 DB)
 
 ## 12. 작업별로 읽을 문서
@@ -120,9 +133,11 @@
 | 모듈 간 연동(shared 계약, 내부 API, 이벤트), 빈·배치 추가 | [`docs/dev/module-integration.md`](docs/dev/module-integration.md) |
 | 엔티티·Repository·HQL | [`docs/dev/persistence.md`](docs/dev/persistence.md), [`docs/db-migration.md`](docs/db-migration.md) |
 | 테스트 작성·실행 | [`docs/dev/testing.md`](docs/dev/testing.md) |
+| 로그 문 작성·수정, MDC 키, executor·scheduler 추가 | [`docs/dev/logging.md`](docs/dev/logging.md) |
 | 파일 업로드(S3) | [`docs/deploy/s3.md`](docs/deploy/s3.md) |
 | 로컬 확인, 라이브러리 추가 | [`docs/dev/local.md`](docs/dev/local.md) |
 | 모듈 작업 | `docs/<모듈>/module.md`(강의 [`docs/lecture/module.md`](docs/lecture/module.md), 출연 [`docs/appearance/module.md`](docs/appearance/module.md)), `boundedContext/<모듈>/AGENTS.md` |
+| auxiliary-app에 모듈 추가(검색·알림 등) | [`apps/auxiliary-app/README.md`](apps/auxiliary-app/README.md) |
 | 이슈·브랜치·PR·병합·배포 확인 | [`docs/contributing/git-workflow.md`](docs/contributing/git-workflow.md) |
 | 서버·배포·AWS | [`docs/deploy/README.md`](docs/deploy/README.md), [`docs/deploy/security.md`](docs/deploy/security.md) |
 | k8s manifest·Helm 차트, 로컬 k3d 검증 | [`docs/deploy/k8s.md`](docs/deploy/k8s.md), [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md) |

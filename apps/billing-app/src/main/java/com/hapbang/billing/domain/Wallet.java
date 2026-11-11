@@ -1,5 +1,7 @@
 package com.hapbang.billing.domain;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -56,6 +58,15 @@ public class Wallet extends BillingUpdatedEntity {
     @Column(name = "fee_balance_hp", nullable = false)
     private Long feeBalanceHp = 0L;
 
+    // 지갑을 닫은 탈퇴 작업 ID (#623). 파기로 닫았으면 비어 있다 (#674, BD-145)
+    @Column(name = "closed_by_withdrawal_id")
+    private Long closedByWithdrawalId;
+
+    // 지갑을 닫은 시각이자 닫힘 표시 (#623, #674). 닫힌 지갑은 새로 HP가 드나드는 신청(충전·보류 생성·환불·환전)을 거절하고,
+    // 이미 생긴 의무(보류 반환·지급 받기·복구 배치)는 받는다. 닫힘 확인은 지갑 락 아래에서 한다
+    @Column(name = "closed_at", columnDefinition = "timestamptz")
+    private Instant closedAt;
+
     // 지갑 유형과 소유자 회원 ID를 지정하고 모든 잔액이 0인 지갑 객체를 초기화한다.
     private Wallet(WalletType walletType, Long userId) {
         this.walletType = walletType;
@@ -74,6 +85,50 @@ public class Wallet extends BillingUpdatedEntity {
 
     public boolean isPlatform() {
         return walletType == WalletType.PLATFORM;
+    }
+
+    public boolean isClosed() {
+        return closedAt != null;
+    }
+
+    // 회원 정보를 파기할 때 열린 지갑을 닫는다 (#674, BD-145). 근거가 될 탈퇴 작업 ID가 없어 비워 두므로 다시 열기로 열리지 않는다.
+    // 이미 닫혀 있으면(탈퇴로 닫힘) 바꾸지 않는다. 닫았으면 true
+    public boolean closeForMasking(Instant closedAt) {
+        if (isPlatform()) {
+            throw new IllegalStateException("플랫폼 지갑은 닫을 수 없습니다.");
+        }
+        if (isClosed()) {
+            return false;
+        }
+        this.closedAt = closedAt;
+        return true;
+    }
+
+    // 탈퇴 작업으로 지갑을 닫는다 (#623). 이미 다른 탈퇴 작업으로 닫혀 있으면 마지막 탈퇴 작업으로 바꾼다(다시 열기는 마지막 작업만 연다).
+    public void closeFor(long withdrawalId, Instant closedAt) {
+        if (isPlatform()) {
+            throw new IllegalStateException("플랫폼 지갑은 닫을 수 없습니다.");
+        }
+        this.closedByWithdrawalId = withdrawalId;
+        this.closedAt = closedAt;
+    }
+
+    // 이 탈퇴 작업으로 닫혀 있는지 확인한다
+    public boolean isClosedBy(long withdrawalId) {
+        return closedByWithdrawalId != null && closedByWithdrawalId == withdrawalId;
+    }
+
+    // 닫힘 표시를 지운다 (#623, 탈퇴 보상·복구)
+    public void reopen() {
+        this.closedByWithdrawalId = null;
+        this.closedAt = null;
+    }
+
+    // 새로 HP가 드나드는 신청 전에 지갑 락 아래에서 부른다. 닫힌 지갑이면 WALLET_CLOSED(409)로 거절한다 (#623)
+    public void requireOpen() {
+        if (isClosed()) {
+            throw new BillingException(BillingErrorCode.WALLET_CLOSED);
+        }
     }
 
     // HP 종류·잔액 버킷에 해당하는 캐시 잔액을 반환한다. 수수료 수입은 보류 칸이 없어 0이다.

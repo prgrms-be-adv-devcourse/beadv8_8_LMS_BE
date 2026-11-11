@@ -1,0 +1,12 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  docker:
+    compose:
+      file: docker/compose.yaml
+      lifecycle-management: start-only
+hapbang:
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+server:
+  port: "${SERVER_PORT:8087}"

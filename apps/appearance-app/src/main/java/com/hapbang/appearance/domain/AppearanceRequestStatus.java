@@ -27,7 +27,10 @@ public enum AppearanceRequestStatus {
     /** 같은 호스트·게스트 사이에 1건만 둘 수 있는 진행 중 상태 (DB 부분 유니크 인덱스와 같은 기준) */
     public static final List<AppearanceRequestStatus> IN_PROGRESS = List.of(HOLD_PENDING, REQUESTED);
 
-    /** 목록·상세에 보이는 상태. 보류가 끝나지 않았거나 실패한 요청서는 숨긴다 */
+    /**
+     * 게스트에게 보이고 다룰 수 있는 상태. 받은 목록·동작은 이 상태만 쓴다.
+     * 보류가 끝나지 않았거나 실패한 요청서는 보낸 호스트의 보낸 목록·상세에만 보인다 (#306)
+     */
     public static final List<AppearanceRequestStatus> VISIBLE =
             List.of(REQUESTED, ACCEPTED, REJECTED, EXPIRED, CANCELED);
 

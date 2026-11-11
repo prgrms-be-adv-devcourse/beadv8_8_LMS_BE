@@ -21,6 +21,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AppearanceBasicInfo {
 
+    /**
+     * 호스트가 탈퇴하고 개인정보가 파기된 뒤의 호스트 채널 URL (#675). 응답 계약 값이라 FE가 이 값으로 "탈퇴한 회원의 채널"을 보여 준다.
+     * 형식 제한(http(s)://)을 지키지 않는 값이며, 파기 때 update 쿼리로만 넣는다.
+     */
+    public static final String WITHDRAWN_HOST_CHANNEL_URL = "withdrawn";
+
     /** 제목. 공백 불가, 100자 이하 */
     private String title;
 

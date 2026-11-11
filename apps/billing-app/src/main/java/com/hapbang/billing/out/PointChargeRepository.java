@@ -83,4 +83,7 @@ public interface PointChargeRepository extends Repository<PointCharge, Long> {
             where c.walletId = :walletId and c.status in :statuses""")
     long sumRemainingPrincipal(@Param("walletId") Long walletId,
             @Param("statuses") Collection<PointChargeStatus> statuses);
+
+    // 지갑에 이 상태의 충전 건이 있는지 (#623, 탈퇴 막힌 이유: PG 승인 결과 확인 중)
+    boolean existsByWalletIdAndStatus(Long walletId, PointChargeStatus status);
 }

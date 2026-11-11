@@ -1,18 +1,32 @@
 package com.hapbang.billing.in;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.billing.app.HoldFacade;
+import com.hapbang.billing.app.HoldQueryFacade;
+import com.hapbang.billing.app.WalletWithdrawalCloseResult;
+import com.hapbang.billing.app.WalletWithdrawalFacade;
+import com.hapbang.billing.app.WalletWithdrawalReopenResult;
+import com.hapbang.billing.global.exception.GlobalErrorCode;
 import com.hapbang.billing.global.exception.BusinessException;
 import com.hapbang.billing.global.response.RsData;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -21,6 +35,8 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +57,8 @@ import lombok.extern.slf4j.Slf4j;
 public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec {
 
     private final HoldFacade holdFacade;
+    private final HoldQueryFacade holdQueryFacade;
+    private final WalletWithdrawalFacade walletWithdrawalFacade;
 
     @Override
     @PostMapping("/holds")
@@ -100,6 +118,56 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
                 () -> BillingResultDtos.holdVoid(holdFacade.voidHold(BillingCommands.holdVoid(command))),
                 HoldVoidResultDto::replayed);
         return RsData.ok("HP 보류를 무효화했습니다.", result);
+    }
+
+    // 회원 탈퇴용 지갑 확인하고 닫기 (#623, docs/api/internal-withdrawals.md 4.1)
+    @Override
+    @PostMapping("/withdrawals/{withdrawalId}/close")
+    public RsData<WithdrawalCloseResultDto> closeForWithdrawal(@PathVariable("withdrawalId") long withdrawalId,
+            @RequestBody WalletWithdrawalRequest request) {
+        String operation = "operation=WITHDRAWAL_CLOSE withdrawalId=%d userId=%d".formatted(withdrawalId,
+                request.userId());
+        WalletWithdrawalCloseResult result = logged(operation,
+                () -> walletWithdrawalFacade.close(withdrawalId, request.userId()),
+                WalletWithdrawalCloseResult::replayed);
+        return RsData.ok("지갑 탈퇴 확인을 마쳤습니다.", new WithdrawalCloseResultDto(result.withdrawalId(),
+                result.outcome(), result.reasons(), result.replayed()));
+    }
+
+    // 회원 탈퇴용 지갑 다시 열기 (#623, docs/api/internal-withdrawals.md 4.2)
+    @Override
+    @PostMapping("/withdrawals/{withdrawalId}/reopen")
+    public RsData<WithdrawalReopenResultDto> reopenForWithdrawal(@PathVariable("withdrawalId") long withdrawalId,
+            @RequestBody WalletWithdrawalRequest request) {
+        String operation = "operation=WITHDRAWAL_REOPEN withdrawalId=%d userId=%d".formatted(withdrawalId,
+                request.userId());
+        WalletWithdrawalReopenResult result = logged(operation,
+                () -> walletWithdrawalFacade.reopen(withdrawalId, request.userId()),
+                WalletWithdrawalReopenResult::replayed);
+        return RsData.ok("지갑을 다시 열었습니다.", new WithdrawalReopenResultDto(result.withdrawalId(),
+                result.outcome(), result.replayed()));
+    }
+
+    // 서비스 간 HP 대사 조회 (#577). HP를 움직이지 않아 요청 로그를 남기지 않는다
+    @Override
+    @PostMapping("/holds/query")
+    public RsData<List<HoldStateDto>> queryHolds(@RequestBody HoldQueryCommand command) {
+        return RsData.ok("HP 보류·지급을 조회했습니다.", BillingResultDtos.holdStates(
+                holdQueryFacade.query(command.referenceType(), command.referenceIds())));
+    }
+
+    @Override
+    @GetMapping("/holds")
+    public RsData<HoldStatePageDto> listHolds(
+            @RequestParam(name = "referenceType") BillingReferenceType referenceType,
+            @RequestParam(name = "updatedAfter") Instant updatedAfter,
+            @RequestParam(name = "afterId", defaultValue = "0") long afterId,
+            @RequestParam(name = "size", defaultValue = "100") int size) {
+        if (!HoldCommand.HOLDABLE_REFERENCE_TYPES.contains(referenceType)) {
+            throw new BusinessException(GlobalErrorCode.INVALID_REQUEST, "보류할 수 없는 참조 유형입니다: " + referenceType);
+        }
+        return RsData.ok("바뀐 HP 보류 목록을 조회했습니다.", BillingResultDtos.holdStatePage(
+                holdQueryFacade.changes(referenceType, updatedAfter, afterId, size)));
     }
 
     // 처리 결과를 요청 값과 함께 한 줄로 남긴다. 업무 오류는 code만 남기고 그대로 던진다(응답·상세 로그는 GlobalExceptionHandler).

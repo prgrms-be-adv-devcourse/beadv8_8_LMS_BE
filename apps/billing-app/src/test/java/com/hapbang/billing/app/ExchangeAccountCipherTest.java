@@ -9,6 +9,9 @@ import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
@@ -18,6 +21,7 @@ import com.hapbang.billing.out.PaymentKeyProperties;
 
 // 환전 계좌번호 암호화·원문 비교·마스킹(#285)을 DB 없이 검증한다. 결제키와 같은 AES-256-GCM(무작위 IV)을 쓰므로
 // 같은 계좌번호도 암호문이 매번 다르다 → 멱등성은 암호문이 아니라 복호화한 원문으로 비교해야 한다.
+@ExtendWith(OutputCaptureExtension.class)
 class ExchangeAccountCipherTest {
 
     private static final String ACCOUNT = "12345678901234";
@@ -65,6 +69,15 @@ class ExchangeAccountCipherTest {
         assertThat(noKey.isConfigured()).isFalse();
         assertThat(otherKey.masked(1L, stored)).isEqualTo(ExchangeAccountCipher.UNREADABLE_MASK);
         assertThat(noKey.masked(1L, stored)).isEqualTo(ExchangeAccountCipher.UNREADABLE_MASK);
+    }
+
+    @Test
+    @DisplayName("회원 정보 파기로 지운 계좌(암호문 없음)는 전부 가리고 복호화 실패 로그를 남기지 않는다 (#674)")
+    void erased(CapturedOutput output) {
+        ExchangeAccountCipher cipher = cipher(ChargeFixture.ENCRYPTION_KEY);
+
+        assertThat(cipher.masked(1L, null)).isEqualTo(ExchangeAccountCipher.UNREADABLE_MASK);
+        assertThat(output).doesNotContain("복호화하지 못해");
     }
 
     private static void assertUnreadable(Runnable action) {

@@ -78,4 +78,16 @@ class CartTest {
         assertThat(cart.getItems()).extracting(CartItem::getLectureId).containsExactly(10L);
         assertThat(cart.getUpdatedAt()).isEqualTo(NOW);
     }
+
+    @Test
+    void 담은_강의를_빼면_뺀_항목을_돌려주고_담지_않은_강의면_비어_있다() {
+        Cart cart = Cart.create(BUYER_ID, NOW);
+        cart.add(withId(onSaleLecture(), 10L), NOW);
+        CartItem added = cart.getItems().getFirst();
+
+        assertThat(cart.remove(10L, NOW.plusMinutes(1))).containsSame(added);
+        assertThat(added.isDeleted()).isTrue();
+        assertThat(cart.remove(10L, NOW.plusMinutes(2))).isEmpty();
+        assertThat(cart.remove(20L, NOW.plusMinutes(2))).isEmpty();
+    }
 }

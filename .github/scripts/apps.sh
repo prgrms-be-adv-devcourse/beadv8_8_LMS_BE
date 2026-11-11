@@ -29,6 +29,7 @@ APPS=(
   lecture-app
   chat-app
   customer-support-app
+  auxiliary-app
 )
 
 list() {

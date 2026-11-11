@@ -18,8 +18,9 @@ public final class LectureHpTaskClassifier {
             return LectureHpAttemptResult.RETRYABLE;
         }
         return switch (taskType) {
-            // 보류 무효화된 대상은 다시 보내도 보류가 생기지 않는다 (D73 (5))
+            // 보류 무효화된 대상(D73 (5))과 탈퇴로 닫힌 지갑(D76)은 다시 보내도 보류가 생기지 않는다
             case HOLD -> code == BillingFailureCode.INSUFFICIENT_BALANCE || code == BillingFailureCode.HOLD_VOIDED
+                    || code == BillingFailureCode.WALLET_CLOSED
                     ? LectureHpAttemptResult.TERMINAL_REJECTION : LectureHpAttemptResult.INVARIANT_VIOLATION;
             // 무효화의 다른 회원 보류(HOLD_OWNER_MISMATCH)는 다시 보내도 같아 운영 확인 대상이다
             case RELEASE, VOID -> LectureHpAttemptResult.INVARIANT_VIOLATION;

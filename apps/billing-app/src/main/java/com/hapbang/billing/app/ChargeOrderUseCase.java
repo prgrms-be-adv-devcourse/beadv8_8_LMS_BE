@@ -18,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 
 // 결제 전 충전 주문을 만든다 (#224). 서버가 주문 ID를 발급하고 금액을 저장하며, 승인 전이라 HP는 바꾸지 않는다(PENDING).
 // 충전 금액은 1,000 HP 이상·1,000 HP 단위(루트 AGENTS.md 5장 "금액 단위")다. 최대 금액은 정책이 없어 두지 않는다.
-// 금융 거래이므로 지갑을 만들지 않고, 없으면 WALLET_NOT_FOUND다.
+// 금융 거래이므로 지갑을 만들지 않고, 없으면 WALLET_NOT_FOUND다. 탈퇴로 닫힌 지갑이면 WALLET_CLOSED다(#623).
 @Service
 @RequiredArgsConstructor
 public class ChargeOrderUseCase {
@@ -29,14 +29,19 @@ public class ChargeOrderUseCase {
 
     private final WalletRepository walletRepository;
     private final PointChargeRepository pointChargeRepository;
+    private final LedgerRecordUseCase ledgerRecordUseCase;
 
     @Transactional
     public ChargeResult create(Long userId, long amount) {
         if (amount < AMOUNT_UNIT_HP || amount % AMOUNT_UNIT_HP != 0) {
             throw new BillingException(BillingErrorCode.CHARGE_AMOUNT_INVALID);
         }
-        Wallet wallet = walletRepository.findByUserId(userId)
+        Long walletId = walletRepository.findByUserId(userId)
+                .map(Wallet::getId)
                 .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
+        // 탈퇴로 닫힌 지갑은 충전 주문을 받지 않는다(WALLET_CLOSED, #623). 닫기와 같은 지갑 락 아래에서 확인한다
+        Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
+        wallet.requireOpen();
         String orderId = ORDER_ID_PREFIX + UUID.randomUUID().toString().replace("-", "");
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         // 주문 ID는 uk_point_charge_pg_order_id가 최종으로 유일함을 보장한다(UUID 충돌 시 저장 실패)

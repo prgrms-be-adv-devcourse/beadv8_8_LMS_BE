@@ -14,8 +14,10 @@ import com.hapbang.member.domain.ProfileImage;
 import com.hapbang.member.domain.User;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /** 프로필 사진: S3 저장(트랜잭션 밖)·key 변경(트랜잭션)·조회 URL */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MemberProfileImageUseCase {
@@ -39,7 +41,7 @@ public class MemberProfileImageUseCase {
     }
 
     // 다른 UseCase와 달리 여기에 트랜잭션을 둔다: Facade는 S3 업로드 때문에 트랜잭션 없이 이 메서드를 부른다
-    /** 프로필 사진 key 변경 (null이면 연결 해제. S3 파일은 지우지 않는다) */
+    /** 프로필 사진 key 변경 (null이면 연결 해제). 옛 파일은 커밋 뒤 {@link #eraseReplaced}로 비운다 */
     @Transactional
     public User change(Long userId, String key) {
         User user = memberSupport.findActiveUser(userId);
@@ -47,6 +49,21 @@ public class MemberProfileImageUseCase {
         // 역할 변경과 겹치면 409
         memberSupport.flush();
         return user;
+    }
+
+    /**
+     * 바뀌거나 내린 옛 사진 파일을 빈 파일로 덮어 지운다 (#594). key 변경이 커밋된 뒤에 부른다(변경이 실패하면 옛 사진이 그대로
+     * 쓰이므로). 지우지 못해도 사진 변경은 이미 끝났으므로 실패로 돌려주지 않고 로그만 남긴다. 남은 파일은 탈퇴 회원 파기 때 폴더째 지운다
+     */
+    public void eraseReplaced(String previousKey, String currentKey) {
+        if (previousKey == null || previousKey.equals(currentKey)) {
+            return;
+        }
+        try {
+            s3FileStorage.erase(previousKey);
+        } catch (RuntimeException e) {
+            log.warn("바뀐 옛 프로필 사진을 지우지 못했습니다. key={}", previousKey, e);
+        }
     }
 
     /** 조회 URL (Presigned GET, 1시간). 사진이 없으면 null */

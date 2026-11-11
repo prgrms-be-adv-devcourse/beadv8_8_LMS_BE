@@ -31,10 +31,3 @@ patches:
     - op: replace
       path: /spec/dnsNames/0
       value: hapbang.local
-- target:
-    kind: EnvoyProxy
-    name: hapbang
-  patch: |
-    - op: replace
-      path: /spec/telemetry/tracing/samplingRate
-      value: 100

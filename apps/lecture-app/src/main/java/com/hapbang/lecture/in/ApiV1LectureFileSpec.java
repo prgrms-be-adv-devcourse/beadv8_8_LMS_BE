@@ -29,7 +29,9 @@ public interface ApiV1LectureFileSpec {
                     + "Content-Type은 등록한 형식(대소문자·파라미터 무시), Content-Length는 등록한 크기와 같아야 한다. "
                     + "없는 파일 404 FILE_NOT_FOUND, 본인이 아님 403 NOT_FILE_UPLOADER, 이미 올림 409 FILE_ALREADY_UPLOADED, "
                     + "Content-Length 없음 411 FILE_LENGTH_REQUIRED, 크기 다름 400 FILE_SIZE_MISMATCH, "
-                    + "형식 다름 400 FILE_CONTENT_TYPE_MISMATCH. 실패하거나 끊기면 PENDING으로 남아 처음부터 다시 올린다.",
+                    + "형식 다름 400 FILE_CONTENT_TYPE_MISMATCH, 동시에 올리는 파일이 많음(앱 전체 기본 20개) 503 FILE_UPLOAD_BUSY"
+                    + "(본문을 읽지 않는다. Retry-After 60초 뒤 다시 올린다, D81). "
+                    + "실패하거나 끊기면 PENDING으로 남아 처음부터 다시 올린다.",
             requestBody = @RequestBody(required = true, content = {
                     @Content(mediaType = "video/mp4", schema = @Schema(type = "string", format = "binary")),
                     @Content(mediaType = "image/jpeg", schema = @Schema(type = "string", format = "binary")),
