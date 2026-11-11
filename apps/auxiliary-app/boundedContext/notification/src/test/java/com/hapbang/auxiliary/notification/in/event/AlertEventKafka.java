@@ -33,10 +33,20 @@ final class AlertEventKafka implements AutoCloseable {
 
     /** @param timestamp 레코드 timestamp. null이면 보내는 시각 */
     void send(String topic, String key, Object event, Instant timestamp) {
+        send(topic, key, event.getClass().getName(), JSON.writeValueAsString(event), timestamp);
+    }
+
+    /** 원본 JSON을 그대로 보낸다(#818 이전 형식처럼 키가 없는 본문, ND-086). typeId가 null이면 타입 헤더를 붙이지 않는다 */
+    void sendRaw(String topic, String key, String typeId, String json) {
+        send(topic, key, typeId, json, null);
+    }
+
+    private void send(String topic, String key, String typeId, String json, Instant timestamp) {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(topic, null,
-                timestamp == null ? null : timestamp.toEpochMilli(), key,
-                JSON.writeValueAsString(event).getBytes(StandardCharsets.UTF_8));
-        record.headers().add("__TypeId__", event.getClass().getName().getBytes(StandardCharsets.UTF_8));
+                timestamp == null ? null : timestamp.toEpochMilli(), key, json.getBytes(StandardCharsets.UTF_8));
+        if (typeId != null) {
+            record.headers().add("__TypeId__", typeId.getBytes(StandardCharsets.UTF_8));
+        }
         try {
             producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {

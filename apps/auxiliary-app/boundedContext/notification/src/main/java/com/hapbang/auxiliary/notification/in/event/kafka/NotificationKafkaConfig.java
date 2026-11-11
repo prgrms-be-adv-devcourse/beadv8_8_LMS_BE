@@ -5,7 +5,9 @@ import java.util.Map;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -40,11 +42,13 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
  * <ul>
  *     <li>소비자는 회원 이벤트({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica}, 가입 환영·승급
  *     승인 포함 ND-080), 출연 이벤트({@code appearance.events.v1}, {@code auxiliary-app.notification-appearance-alert}), 지갑
- *     이벤트({@code billing.events.v1}, {@code auxiliary-app.notification-billing-alert}) 셋이다(ND-047·ND-069). 출연·지갑
- *     컨테이너는 첫 Backfill 뒤에 시작한다(ND-078).</li>
+ *     이벤트({@code billing.events.v1}, {@code auxiliary-app.notification-billing-alert}), 강의 이벤트({@code lecture.events.v1},
+ *     {@code auxiliary-app.notification-lecture-alert}, N6 ND-087) 넷이다(ND-047·ND-069). 출연·지갑·강의 컨테이너는 첫 Backfill
+ *     뒤에 시작한다(ND-078).</li>
  *     <li>props는 이 클래스에 적고 연결 주소만 {@code spring.kafka.bootstrap-servers}에서 받는다.</li>
  *     <li>value 역직렬화는 신뢰 패키지 하나만 믿는 {@link JacksonJsonDeserializer}를 {@link TrustedEventDeserializer}와
- *     {@link ErrorHandlingDeserializer}로 감싼다. 깨진 메시지는 오류 처리기가 재시도 없이 DLT로 보낸다.</li>
+ *     {@link ErrorHandlingDeserializer}로 감싼다. 깨진 메시지는 오류 처리기가 재시도 없이 DLT로 보낸다. 강의 이벤트만 값을 바이트로
+ *     받고, 신뢰 타입 검사와 역직렬화를 리스너가 한다(원본 JSON의 키를 봐야 해서, ND-096).</li>
  *     <li>offset: 자동 커밋을 끄고 레코드마다(AckMode.RECORD) 리스너가 정상 반환한 뒤 커밋한다. 리스너는 DB 커밋 뒤에야 반환하므로
  *     offset은 언제나 DB 커밋 뒤다.</li>
  * </ul>
@@ -63,6 +67,9 @@ public class NotificationKafkaConfig {
     public static final String BILLING_EVENT_SETTINGS = "notificationBillingEventSettings";
     public static final String BILLING_EVENT_CONTAINER_FACTORY = "notificationBillingEventListenerContainerFactory";
     public static final String BILLING_EVENT_DEAD_LETTER_TEMPLATE = "notificationBillingEventDeadLetterTemplate";
+    public static final String LECTURE_EVENT_SETTINGS = "notificationLectureEventSettings";
+    public static final String LECTURE_EVENT_CONTAINER_FACTORY = "notificationLectureEventListenerContainerFactory";
+    public static final String LECTURE_EVENT_DEAD_LETTER_TEMPLATE = "notificationLectureEventDeadLetterTemplate";
 
     private final String bootstrapServers;
     private final ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers;
@@ -195,19 +202,64 @@ public class NotificationKafkaConfig {
         return alertContainerFactory(consumerFactory, errorHandler);
     }
 
+    // 강의 이벤트 → 알림(N6). 값을 바이트로 받아 리스너가 #818 이전 형식을 판별한 뒤 레코드로 바꾼다(ND-086·ND-096).
+    // 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078·ND-087, autoStartup false)
+
+    @Bean(name = LECTURE_EVENT_SETTINGS)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
+    public NotificationKafkaConsumerSettings notificationLectureEventSettings() {
+        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.LECTURE_EVENTS_TOPIC,
+                NotificationKafkaConstants.LECTURE_ALERT_GROUP);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
+    ConsumerFactory<String, byte[]> notificationLectureEventConsumerFactory(
+            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return consumerFactory(settings, new ByteArrayDeserializer());
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
+    public ProducerFactory<String, Object> notificationLectureEventDeadLetterProducerFactory(
+            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterProducerFactory(settings);
+    }
+
+    @Bean(name = LECTURE_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
+    KafkaTemplate<String, Object> notificationLectureEventDeadLetterTemplate(
+            @Qualifier("notificationLectureEventDeadLetterProducerFactory")
+            ProducerFactory<String, Object> producerFactory) {
+        return deadLetterTemplate(producerFactory);
+    }
+
+    @Bean(name = LECTURE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
+    ConcurrentKafkaListenerContainerFactory<String, byte[]> notificationLectureEventListenerContainerFactory(
+            @Qualifier("notificationLectureEventConsumerFactory") ConsumerFactory<String, byte[]> consumerFactory,
+            @Qualifier(NotificationKafkaErrorHandlerConfig.LECTURE_EVENT_ERROR_HANDLER)
+            DefaultErrorHandler errorHandler) {
+        return alertContainerFactory(consumerFactory, errorHandler);
+    }
+
     // 소비자들이 함께 쓰는 조립
 
-    /** 알림을 만드는 출연·지갑 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
-    private static ConcurrentKafkaListenerContainerFactory<String, Object> alertContainerFactory(
-            ConsumerFactory<String, Object> consumerFactory, DefaultErrorHandler errorHandler) {
-        ConcurrentKafkaListenerContainerFactory<String, Object> factory = containerFactory(consumerFactory,
-                errorHandler);
+    /** 알림을 만드는 출연·지갑·강의 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
+    private static <V> ConcurrentKafkaListenerContainerFactory<String, V> alertContainerFactory(
+            ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, V> factory = containerFactory(consumerFactory, errorHandler);
         factory.setAutoStartup(false);
         return factory;
     }
 
     private ConsumerFactory<String, Object> consumerFactory(NotificationKafkaConsumerSettings settings,
             String trustedPackage) {
+        return consumerFactory(settings, eventDeserializer(trustedPackage));
+    }
+
+    private <V> ConsumerFactory<String, V> consumerFactory(NotificationKafkaConsumerSettings settings,
+            Deserializer<V> valueDeserializer) {
         Map<String, Object> props = Map.of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ConsumerConfig.GROUP_ID_CONFIG, settings.groupId(),
@@ -215,8 +267,8 @@ public class NotificationKafkaConfig {
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false,
                 // 운영 broker는 자동 생성이 꺼져 있다. 자동 생성이 켜진 시험 broker에서 소비자가 먼저 붙어 토픽을 만들지 않게 한다(kafka.md)
                 ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false);
-        DefaultKafkaConsumerFactory<String, Object> factory = new DefaultKafkaConsumerFactory<>(props,
-                new StringDeserializer(), eventDeserializer(trustedPackage));
+        DefaultKafkaConsumerFactory<String, V> factory = new DefaultKafkaConsumerFactory<>(props,
+                new StringDeserializer(), valueDeserializer);
         consumerFactoryCustomizers.orderedStream().forEach(customizer -> customizer.customize(factory));
         return factory;
     }
@@ -239,9 +291,9 @@ public class NotificationKafkaConfig {
         return factory;
     }
 
-    private static ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(
-            ConsumerFactory<String, Object> consumerFactory, DefaultErrorHandler errorHandler) {
-        ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    private static <V> ConcurrentKafkaListenerContainerFactory<String, V> containerFactory(
+            ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, V> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
         factory.setConcurrency(NotificationKafkaConstants.CONCURRENCY);
