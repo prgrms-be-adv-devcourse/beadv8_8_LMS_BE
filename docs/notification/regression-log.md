@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-041 · 2026-11-11 · 통과 (#859 PR 리뷰 반영 뒤 origin/dev 병합)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-041 |
+| 실행 날짜 | 2026-11-11 14:25~14:28 (KST, 끝 시각은 실행 로그 파일 기준) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `d53257ca`(`d33f12d3` + origin/dev `7690abd4` 병합: #861 쿠폰, #864 검색 기능 스위치 제거) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | dev 병합 뒤 회귀. 겹친 파일 `AuxiliaryApplicationTest`(검색 소비 끄기 줄 추가)·`application-prod.yaml`(검색 주석)은 자동 병합, 알림 설정 줄과 검색 줄이 함께 남은 것을 확인 |
+| 관련 NT ID | NR-040과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 통과(종료 코드 0, 2분 48초) |
+| 건수 | `:auxiliary-app` 12, `:search` 159 새로 실행·실패 0(병합으로 입력이 바뀜). `:notification` 175·`:auxiliary-global` 108·`:chatbot` 135는 `UP-TO-DATE`(NR-040 결과, 실패 0). `verifyModuleStructure` 새로 실행·통과 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-040과 같다 |
+| 관련 변경 | #859 |
+
 #### NR-040 · 2026-11-11 · 통과 (#859 PR 리뷰 반영 뒤)
 
 | 항목 | 값 |
