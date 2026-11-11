@@ -7,13 +7,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
-
 /**
  * 검색 index·alias의 지금 상태(#773). 처음 적재·재색인을 할지 정하는 데 쓴다.
  *
- * @param aliasTargets  alias({@link InfluencerIndexDefinition#ALIAS})가 가리키는 index. alias가 없으면 빈 집합
- * @param indices       {@code search-influencers-*} index 전부
+ * @param aliasTargets  alias({@code search-<대상>})가 가리키는 index. alias가 없으면 빈 집합
+ * @param indices       이 대상의 index 전부({@code search-<대상>-*})
  * @param expectedIndex 지금 코드 설정(mapping·분석기·사용자 사전)의 index 이름
  * @param createdAt     index마다 ES가 만든 시각({@code index.creation_date}). 읽지 못한 index는 빠진다
  */

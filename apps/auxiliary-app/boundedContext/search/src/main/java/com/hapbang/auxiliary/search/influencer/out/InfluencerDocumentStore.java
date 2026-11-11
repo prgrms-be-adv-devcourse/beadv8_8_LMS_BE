@@ -2,18 +2,16 @@ package com.hapbang.auxiliary.search.influencer.out;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.common.out.DocumentRejectedException;
-import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
+import com.hapbang.auxiliary.search.common.out.DocumentWrites;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 
@@ -23,7 +21,6 @@ import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
-import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.get.GetResult;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.json.JsonData;
@@ -36,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  * <b>회원 version 비교</b>: ES external versioning은 쓰지 않는다. 10분 통계 부분 갱신이 문서 버전을 올려 다음 회원 이벤트를 거절하게
  * 만들기 때문이다(#771 시험 결과). 회원 version은 문서 필드 {@code memberVersion}에 두고, 회원 이벤트 쓰기는 painless scripted upsert로
  * "들어온 version이 더 클 때만" 반영한다. 순서가 뒤바뀐 이벤트, 같은 이벤트 두 번, 숨긴 뒤 늦게 온 옛 이벤트는 모두 noop이다.
+ * <p>
+ * 대상과 상관없는 부분(ES 오류 가르기, bulk 결과, 보이는 문서 세기, tombstone 정리)은 공통 {@link DocumentWrites}가 한다(#868).
  */
 @Slf4j
 @Component
@@ -104,23 +103,12 @@ public class InfluencerDocumentStore {
     static final List<String> MEMBER_FIELDS = List.of("memberVersion", "hidden", "nickname", "bio", "role",
             "contentCategories.code");
 
-    /**
-     * 그 회원의 값 때문에 ES가 거절할 때의 오류 종류({@link DocumentRejectedException}, PR #833 리뷰 Q1). 같은 400이라도 script 오류
-     * ({@code illegal_argument_exception} ← {@code script_exception})나 mapping에 없는 칸({@code strict_dynamic_mapping_exception})은 우리 배포
-     * 실수라 모든 회원에게 나므로 여기에 넣지 않는다(ES 9.5.5로 시험해 확인). {@code mapper_parsing_exception}은 예전 이름이다.
-     */
-    static final Set<String> REJECTED_TYPES = Set.of("document_parsing_exception", "mapper_parsing_exception");
-
-    /** 부분 갱신할 문서가 없을 때의 오류 종류 */
-    static final String DOCUMENT_MISSING = "document_missing_exception";
-
-    /** index·alias가 없을 때의 오류 종류. alias로 쓰다 이것을 받으면 ES를 새로 만들어 alias가 사라진 것이다(#773 리뷰) */
-    static final String INDEX_NOT_FOUND = "index_not_found_exception";
-
     private final ElasticsearchClient client;
+    private final DocumentWrites writes;
 
     public InfluencerDocumentStore(@Qualifier(SearchElasticsearchConfig.CLIENT) ElasticsearchClient client) {
         this.client = client;
+        this.writes = new DocumentWrites(client, InfluencerIndexDefinition.ALIAS);
     }
 
     /**
@@ -162,8 +150,8 @@ public class InfluencerDocumentStore {
             Map<Long, IndexedMember> found = new HashMap<>();
             for (MultiGetResponseItem<Map> item : response.docs()) {
                 if (item.isFailure()) {
-                    if (INDEX_NOT_FOUND.equals(item.failure().error().type())) {
-                        throw aliasMissing();
+                    if (DocumentWrites.INDEX_NOT_FOUND.equals(item.failure().error().type())) {
+                        throw writes.aliasMissing();
                     }
                     throw new IllegalStateException("검색 문서를 읽지 못했습니다 userId=" + item.failure().id()
                             + ", error=" + item.failure().error().type());
@@ -175,7 +163,7 @@ public class InfluencerDocumentStore {
             }
             return found;
         } catch (ElasticsearchException e) {
-            throwIfAliasMissing(e);
+            writes.throwIfAliasMissing(e);
             throw new IllegalStateException("검색 문서를 읽지 못했습니다", e);
         } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 읽지 못했습니다", e);
@@ -197,17 +185,7 @@ public class InfluencerDocumentStore {
      * @throws IllegalStateException 세지 못한 경우
      */
     public long countVisible(String target) {
-        try {
-            return client.count(c -> c.index(target)
-                    .query(q -> q.term(t -> t.field("hidden").value(false)))).count();
-        } catch (ElasticsearchException e) {
-            if (InfluencerIndexDefinition.ALIAS.equals(target)) {
-                throwIfAliasMissing(e);
-            }
-            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다 target=" + target, e);
-        } catch (IOException e) {
-            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다 target=" + target, e);
-        }
+        return writes.countVisible(target);
     }
 
     /**
@@ -217,28 +195,13 @@ public class InfluencerDocumentStore {
      * @return 지운 문서 수
      */
     public long deleteHiddenBefore(Instant hiddenBefore) {
-        try {
-            Long deleted = client.deleteByQuery(d -> d.index(InfluencerIndexDefinition.ALIAS)
-                    // 정리하는 동안 그 회원의 새 이벤트가 문서를 바꾸면 그 문서는 남긴다
-                    .conflicts(Conflicts.Proceed)
-                    .query(q -> q.bool(b -> b
-                            .filter(f -> f.term(t -> t.field("hidden").value(true)))
-                            .filter(f -> f.range(r -> r.untyped(u -> u.field("hiddenAt")
-                                    .lt(JsonData.of(hiddenBefore.toEpochMilli()))))))))
-                    .deleted();
-            return deleted == null ? 0 : deleted;
-        } catch (ElasticsearchException e) {
-            throwIfAliasMissing(e);
-            throw new IllegalStateException("숨긴 검색 문서를 정리하지 못했습니다", e);
-        } catch (IOException e) {
-            throw new IllegalStateException("숨긴 검색 문서를 정리하지 못했습니다", e);
-        }
+        return writes.deleteHiddenBefore(hiddenBefore);
     }
 
     /**
      * 통계를 한 번에(bulk) 부분 갱신한다. 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2의 보정). 숨긴 문서와 값이 같은 문서는 noop이다.
      *
-     * 문서 없음({@value #DOCUMENT_MISSING}) 밖의 이유로 실패한 항목은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
+     * 문서 없음({@value DocumentWrites#DOCUMENT_MISSING}) 밖의 이유로 실패한 항목은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
      * FAILED에는 alias가 사라진 404와 겹친 쓰기가 재시도를 넘긴 경우 등이 들어간다.
      * 한 회원 때문에 같은 페이지·뒤 페이지 회원이 갱신되지 못하면 안 된다. 실패한 회원은 다음 회차에 다시 쓴다.
      *
@@ -266,8 +229,8 @@ public class InfluencerDocumentStore {
                                 .params("stats", JsonData.of(statsFields(s))))))));
                 return b;
             });
-            Map<Long, WriteOutcome> outcomes = bulkOutcomes(response);
-            List<String> failures = failures(response);
+            Map<Long, WriteOutcome> outcomes = DocumentWrites.bulkOutcomes(response);
+            List<String> failures = DocumentWrites.failures(response);
             if (!failures.isEmpty()) {
                 log.warn("검색 통계 일부를 쓰지 못해 다음 회차에 다시 쓴다 target={}, failures={}", target, failures);
             }
@@ -304,8 +267,8 @@ public class InfluencerDocumentStore {
                                                 m.isVisible() ? Instant.EPOCH : m.hiddenAt())))))));
                 return b;
             });
-            Map<Long, WriteOutcome> outcomes = bulkOutcomes(response);
-            List<String> failures = failures(response);
+            Map<Long, WriteOutcome> outcomes = DocumentWrites.bulkOutcomes(response);
+            List<String> failures = DocumentWrites.failures(response);
             if (!failures.isEmpty()) {
                 log.warn("검색 index에 회원 일부를 넣지 못했다 index={}, failures={}", index, failures);
             }
@@ -313,43 +276,6 @@ public class InfluencerDocumentStore {
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("검색 index에 회원을 넣지 못했습니다 index=" + index, e);
         }
-    }
-
-    /**
-     * bulk 항목별 결과. 문서 없음은 {@link WriteOutcome#MISSING}, 그 회원 값 때문에 거절은 {@link WriteOutcome#REJECTED}, 그 밖의 오류는
-     * {@link WriteOutcome#FAILED}다
-     */
-    private static Map<Long, WriteOutcome> bulkOutcomes(BulkResponse response) {
-        Map<Long, WriteOutcome> outcomes = new HashMap<>();
-        for (BulkResponseItem item : response.items()) {
-            long userId = Long.parseLong(item.id());
-            if (item.error() == null) {
-                outcomes.put(userId, switch (item.result()) {
-                    case "created" -> WriteOutcome.CREATED;
-                    case "noop" -> WriteOutcome.NOOP;
-                    default -> WriteOutcome.UPDATED;
-                });
-            } else if (DOCUMENT_MISSING.equals(item.error().type())) {
-                // 문서 없음만 건너뛴다. alias·index가 없어서 난 404(index_not_found_exception)는 실패로 센다
-                outcomes.put(userId, WriteOutcome.MISSING);
-            } else if (REJECTED_TYPES.contains(item.error().type())) {
-                outcomes.put(userId, WriteOutcome.REJECTED);
-            } else {
-                outcomes.put(userId, WriteOutcome.FAILED);
-            }
-        }
-        return outcomes;
-    }
-
-    /** 실패한 bulk 항목의 "회원 ID:오류 종류"(문서 없음은 빼고) */
-    private static List<String> failures(BulkResponse response) {
-        List<String> failures = new ArrayList<>();
-        for (BulkResponseItem item : response.items()) {
-            if (item.error() != null && !DOCUMENT_MISSING.equals(item.error().type())) {
-                failures.add(item.id() + ":" + item.error().type());
-            }
-        }
-        return failures;
     }
 
     /**
@@ -371,7 +297,7 @@ public class InfluencerDocumentStore {
                     .updated();
             return updated == null ? 0 : updated;
         } catch (ElasticsearchException e) {
-            throwIfAliasMissing(e);
+            writes.throwIfAliasMissing(e);
             throw new IllegalStateException("검색 문서의 분야 이름을 맞추지 못했습니다", e);
         } catch (IOException e) {
             throw new IllegalStateException("검색 문서의 분야 이름을 맞추지 못했습니다", e);
@@ -441,10 +367,10 @@ public class InfluencerDocumentStore {
                     .scriptedUpsert(true).upsert(Map.of())
                     .script(s -> s.source(src -> src.scriptString(MEMBER_SCRIPT)).params(params)), Map.class)
                     .result();
-            return outcome(result);
+            return DocumentWrites.outcome(result);
         } catch (ElasticsearchException e) {
-            throwIfAliasMissing(e);
-            if (isRejectedByContent(e)) {
+            writes.throwIfAliasMissing(e);
+            if (DocumentWrites.isRejectedByContent(e)) {
                 throw new DocumentRejectedException("ES가 검색 문서를 거절했습니다 userId=" + userId + ", error="
                         + e.error().type(), e);
             }
@@ -452,30 +378,5 @@ public class InfluencerDocumentStore {
         } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
         }
-    }
-
-    /** alias가 없어(ES를 새로 만듦) 난 오류면 {@link IndexNotReadyException}을 던진다. 다음 처음 적재가 채운다 */
-    private static void throwIfAliasMissing(ElasticsearchException e) {
-        if (e.status() == 404 && e.error() != null && INDEX_NOT_FOUND.equals(e.error().type())) {
-            throw aliasMissing();
-        }
-    }
-
-    private static IndexNotReadyException aliasMissing() {
-        return new IndexNotReadyException("검색 alias가 없습니다. 처음 적재 전입니다 alias=" + InfluencerIndexDefinition.ALIAS);
-    }
-
-    /** 그 회원의 값 때문에 거절됐는지(다시 써도 같다). 배포 실수·장애는 false다 */
-    static boolean isRejectedByContent(ElasticsearchException e) {
-        return e.status() == 400 && e.error() != null && REJECTED_TYPES.contains(e.error().type());
-    }
-
-    static WriteOutcome outcome(Result result) {
-        return switch (result) {
-            case Created -> WriteOutcome.CREATED;
-            case Updated -> WriteOutcome.UPDATED;
-            case NoOp -> WriteOutcome.NOOP;
-            default -> throw new IllegalStateException("예상하지 못한 쓰기 결과입니다 result=" + result);
-        };
     }
 }

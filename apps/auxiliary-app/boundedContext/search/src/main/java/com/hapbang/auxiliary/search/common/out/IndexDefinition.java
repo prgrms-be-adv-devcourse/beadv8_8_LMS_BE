@@ -60,7 +60,12 @@ public final class IndexDefinition {
      */
     public static IndexDefinition load(String target) {
         return of(target, read("search/" + target + "/index.json"), lines(read(COMMON + "user-dictionary.txt")),
-                lines(read(COMMON + "synonyms.txt")));
+                loadSynonymRules());
+    }
+
+    /** 공통 동의어 파일의 규칙(Solr 형식 한 줄씩, 파일 순서). 모든 대상이 묶음 하나로 함께 쓴다({@link SynonymsSetup}) */
+    public static List<String> loadSynonymRules() {
+        return lines(read(COMMON + "synonyms.txt"));
     }
 
     /** 파일 대신 내용을 직접 넘긴다(테스트용) */

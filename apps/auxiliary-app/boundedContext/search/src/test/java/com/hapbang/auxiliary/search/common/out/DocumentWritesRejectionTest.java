@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.out;
+package com.hapbang.auxiliary.search.common.out;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,7 +13,7 @@ import co.elastic.clients.elasticsearch._types.ErrorResponse;
  * 값이 칸 규칙에 안 맞으면 document_parsing_exception, script 오류는 illegal_argument_exception(← script_exception),
  * mapping에 없는 칸은 strict_dynamic_mapping_exception
  */
-class InfluencerDocumentStoreRejectionTest {
+class DocumentWritesRejectionTest {
 
     @ParameterizedTest(name = "{0} {1} → 건너뜀 {2}")
     @CsvSource({
@@ -29,6 +29,6 @@ class InfluencerDocumentStoreRejectionTest {
         ElasticsearchException e = new ElasticsearchException("update",
                 ErrorResponse.of(r -> r.status(status).error(c -> c.type(type).reason("시험"))));
 
-        assertThat(InfluencerDocumentStore.isRejectedByContent(e)).isEqualTo(rejected);
+        assertThat(DocumentWrites.isRejectedByContent(e)).isEqualTo(rejected);
     }
 }
