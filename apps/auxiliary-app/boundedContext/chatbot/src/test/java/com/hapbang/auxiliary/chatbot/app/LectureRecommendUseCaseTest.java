@@ -10,12 +10,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.SequencedMap;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
@@ -44,6 +47,9 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
 
     @Autowired
     private LectureRecommendUseCase useCase;
+
+    @Autowired
+    private LectureRecommendTools tools;
 
     @Autowired
     private LectureIndexTaskHandler handler;
@@ -105,6 +111,27 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         // 구매 중심(축 0)이 장바구니 강의보다 가깝다. 가장 가까운 구매 강의 제목을 문장에 넣는다
         assertThat(result.items().getFirst().reason()).isEqualTo(LectureRecommendReason.SIMILAR_TO_PURCHASED);
         assertThat(result.items().getFirst().reasonText()).isEqualTo("구매하신 「스프링 입문」 강의와 비슷해요.");
+    }
+
+    @Test
+    @DisplayName("대화 Tool 결과에는 회원이 산 강의 제목이 없다(바깥 대화 LLM이 읽는다). 회원 본인 화면(API)의 문장에만 넣는다")
+    void toolHidesBasisTitle() {
+        data.member(6);
+        lecture(60, 100, "회원이 산 강의", FakeEmbeddingModel.axis(2));
+        lecture(61, 200, "추천 강의", FakeEmbeddingModel.withCosine(2, 3, 0.95));
+        data.purchase(60, 6, 60, "OWNED", RecommendRows.AT);
+        indexAll(60, 61);
+        ToolContext context = new ToolContext(Map.of(LectureRecommendTools.MEMBER_ID, 6L));
+
+        LectureRecommendation forScreen = useCase.recommend(6, null);
+        LectureRecommendTools.Result forTool = tools.recommendLectures(null, context);
+        String toolJson = ToolCallbacks.from(tools)[0].call("{}", context);
+
+        assertThat(forScreen.items().getFirst().reasonText()).isEqualTo("구매하신 「회원이 산 강의」 강의와 비슷해요.");
+        assertThat(forTool.items()).extracting(LectureRecommendTools.Item::lectureId, LectureRecommendTools.Item::reason,
+                        LectureRecommendTools.Item::reasonText)
+                .containsExactly(tuple(61L, LectureRecommendReason.SIMILAR_TO_PURCHASED, "구매하신 강의와 비슷해요."));
+        assertThat(toolJson).contains("\"lectureId\":61").doesNotContain("회원이 산 강의");
     }
 
     @Test

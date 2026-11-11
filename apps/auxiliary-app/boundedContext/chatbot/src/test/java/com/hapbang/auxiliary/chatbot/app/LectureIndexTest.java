@@ -189,7 +189,7 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
     }
 
     private LectureSnapshot lecture(long id) {
-        return store.lectures(List.of(id)).getFirst();
+        return store.lectures(List.of(id)).get(id);
     }
 
     // ids 검색은 refresh 뒤에 보이므로 처리 뒤 바로 refresh한다(운영 실행기는 refresh를 기다리지 않는다)

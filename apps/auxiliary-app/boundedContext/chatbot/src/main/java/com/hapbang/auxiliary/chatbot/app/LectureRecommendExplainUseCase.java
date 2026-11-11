@@ -111,10 +111,7 @@ public class LectureRecommendExplainUseCase {
 
     private String userPrompt(LectureRecommendation recommendation) {
         List<Long> ids = recommendation.items().stream().map(LectureRecommendation.Item::lectureId).toList();
-        Map<Long, LectureSnapshot> lectures = new HashMap<>();
-        for (LectureSnapshot lecture : store.lectures(ids)) {
-            lectures.put(lecture.id(), lecture);
-        }
+        Map<Long, LectureSnapshot> lectures = store.lectures(ids);
         int descriptionMax = properties.explainDescriptionMaxLength();
         StringBuilder prompt = new StringBuilder("아래 강의마다 추천 이유를 써라.\n");
         for (LectureRecommendation.Item item : recommendation.items()) {

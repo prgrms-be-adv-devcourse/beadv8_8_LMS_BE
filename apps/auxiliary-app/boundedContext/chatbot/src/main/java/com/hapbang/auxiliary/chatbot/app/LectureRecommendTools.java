@@ -19,6 +19,9 @@ import lombok.RequiredArgsConstructor;
  *     ({@code ToolContext} 인자는 모델에게 보이는 인자 스키마에서 빠진다). 없으면 호출 쪽 잘못이라 거절한다.</li>
  *     <li>후보는 코드가 정한다({@link LectureRecommendUseCase}). 이유는 정해진 문장이다. 답 문장은 바깥 대화 LLM이 이 결과로 쓴다.
  *     화면의 추천 카드는 LLM 글이 아니라 이 결과로 그린다(#720).</li>
+ *     <li><b>결과는 바깥 대화 LLM이 읽으므로 회원의 구매·장바구니 강의를 넣지 않는다.</b> 이유 문장은 기준 강의 제목 없이 쓴다
+ *     ("구매하신 강의와 비슷해요"). 기준 강의 제목은 회원 본인 화면(API)에만 나간다.</li>
+ *     <li>관심사는 앞뒤 공백을 빼고, 100자를 넘으면 자른다. 모델이 만든 인자라 거절하면 대화가 끊기므로 API(400)와 달리 자른다.</li>
  *     <li>일반 API는 이 객체를 쓰지 않는다(Tool 서비스와 일반 API 분리, {@link FaqTools}와 같은 규칙).</li>
  *     <li>회원별 호출 제한은 여기서 세지 않는다. Tool을 부르는 대화 진입점(#720)의 제한이 대화 한 번(관심사 임베딩 포함)을 감싼다.</li>
  * </ul>
@@ -42,9 +45,10 @@ public class LectureRecommendTools {
                     + "'유튜브 영상 편집'. 사용자가 말하지 않았으면 비운다") @Nullable String interest,
             ToolContext toolContext) {
         long memberId = memberId(toolContext);
-        LectureRecommendation recommendation = recommendUseCase.recommend(memberId, normalize(interest));
+        LectureRecommendation recommendation = recommendUseCase.recommend(memberId, truncate(
+                LectureRecommendUseCase.normalizeInterest(interest)));
         List<Item> items = recommendation.items().stream()
-                .map(item -> new Item(item.lectureId(), item.title(), item.reason(), item.reasonText()))
+                .map(item -> new Item(item.lectureId(), item.title(), item.reason(), item.reason().sentence(null)))
                 .toList();
         return new Result(items, recommendation.needsInterest(), recommendation.personalized());
     }
@@ -56,20 +60,20 @@ public class LectureRecommendTools {
         throw new IllegalStateException("ToolContext에 " + MEMBER_ID + "가 없어 강의 추천을 거절한다");
     }
 
-    private static @Nullable String normalize(@Nullable String interest) {
-        if (interest == null || interest.isBlank()) {
-            return null;
-        }
-        String stripped = interest.strip();
+    private static @Nullable String truncate(@Nullable String interest) {
         int max = LectureRecommendUseCase.INTEREST_MAX_LENGTH;
-        return stripped.length() <= max ? stripped : stripped.substring(0, max);
+        return interest == null || interest.length() <= max ? interest : interest.substring(0, max).strip();
     }
 
     /** Tool 결과 */
     public record Result(List<Item> items, boolean needsInterest, boolean personalized) {
     }
 
-    /** 추천 강의 하나 */
+    /**
+     * 추천 강의 하나.
+     *
+     * @param reasonText 이유 코드의 정해진 문장(기준 강의 제목 없음)
+     */
     public record Item(long lectureId, String title, LectureRecommendReason reason, String reasonText) {
     }
 }

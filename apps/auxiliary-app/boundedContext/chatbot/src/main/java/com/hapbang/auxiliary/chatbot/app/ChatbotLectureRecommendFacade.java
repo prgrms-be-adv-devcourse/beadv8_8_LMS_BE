@@ -35,7 +35,7 @@ public class ChatbotLectureRecommendFacade {
      */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public LectureRecommendResDto recommend(long userId, @Nullable String interest) {
-        String normalized = interest == null || interest.isBlank() ? null : interest.strip();
+        String normalized = LectureRecommendUseCase.normalizeInterest(interest);
         if (normalized != null) {
             try {
                 rateLimiter.acquire(String.valueOf(userId));

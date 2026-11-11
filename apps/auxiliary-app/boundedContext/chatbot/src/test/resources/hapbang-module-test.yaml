@@ -56,3 +56,8 @@ hapbang:
       influencer-name: chatbot-influencers-test-8
       dimensions: 8
       query-prefix: "query: "
+    recommend:
+      lecture:
+        # 강의 추천 α·β(#718). 기본값이 없어 테스트도 적는다. 테스트 기대값(LectureRecommendUseCaseTest)이 이 값에 맞춰져 있다
+        interest-weight: 0.3
+        popularity-weight: 0.05

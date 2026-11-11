@@ -38,13 +38,18 @@ public class LectureRecommendStore {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    /** 강의 사본. 없는 ID는 빠진다 */
-    public List<LectureSnapshot> lectures(Collection<Long> ids) {
+    /** 강의 ID → 강의 사본. 없는 ID는 빠진다 */
+    public Map<Long, LectureSnapshot> lectures(Collection<Long> ids) {
+        Map<Long, LectureSnapshot> lectures = new HashMap<>();
         if (ids.isEmpty()) {
-            return List.of();
+            return lectures;
         }
-        return jdbc.query("SELECT " + LECTURE_COLUMNS + " FROM chatbot.lecture_copy WHERE id IN (:ids)",
-                new MapSqlParameterSource("ids", ids), (rs, row) -> snapshot(rs));
+        jdbc.query("SELECT " + LECTURE_COLUMNS + " FROM chatbot.lecture_copy WHERE id IN (:ids)",
+                new MapSqlParameterSource("ids", ids), rs -> {
+                    LectureSnapshot lecture = snapshot(rs);
+                    lectures.put(lecture.id(), lecture);
+                });
+        return lectures;
     }
 
     /** ID 순으로 이 ID 다음 강의 사본을 limit개 읽는다(전체 점검용) */

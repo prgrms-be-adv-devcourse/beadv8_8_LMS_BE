@@ -16,18 +16,22 @@ import jakarta.validation.constraints.Positive;
  * 강의 추천 설정 {@code hapbang.chatbot.recommend.lecture} (#718). 정책 숫자(가중치·상한·혼합 비율)는 모두 여기 둔다.
  * index 이름·차원은 공통 {@link ChatbotIndexProperties}에 있다. 정합 점검 시각(cron)은 배치 빈의 {@code @Scheduled}
  * 플레이스홀더({@code index-check-cron})에 있다(싱크 배치와 같다).
+ * <p>
+ * <b>임시값</b>이라고 적은 값은 평가 없이 정한 값이다. 더미 데이터로 결과를 보며 다시 정하고, 정할 때 평가 결과(데이터 수, 지표, 회차)를
+ * 설정 주석·PR에 적는다. 관심사 최대 길이(100자)는 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라
+ * {@code LectureRecommendUseCase.INTEREST_MAX_LENGTH}에 있다.
  *
- * @param resultSize       추천 수
- * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성)
- * @param signalLimit      취향 벡터에 쓰는 신호 강의 수(최근 순)
- * @param weights          신호 가중치
+ * @param resultSize       추천 수(이슈 #718에서 정한 화면 카드 수)
+ * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성, 이슈 #718에서 정함)
+ * @param signalLimit      취향 벡터에 쓰는 신호 강의 수(최근 순). 임시값
+ * @param weights          신호 가중치. 임시값
  * @param interestWeight   신호와 관심사가 함께 있을 때 관심사의 비율 α. {@code (1−α)·정규화(신호) + α·정규화(관심사)}.
- *                         활동 신호보다 낮게 둔다
+ *                         활동 신호보다 낮게 둔다. 임베딩 모델마다 유사도 분포가 달라 기본값 없이 프로필 yaml에 둔다. 임시값
  * @param popularityWeight 최종 점수에서 인기의 비율 β. {@code (1−β)·유사도 + β·인기(후보 안 0~1)}. 인기가 뒤집을 수 있는 유사도 차이는
- *                         약 {@code β/(1−β)}다(0.05면 약 0.05). 초기값은 식에서 정한 추정값이라 임베딩 유사도 분포를 보고 다시 정한다
- * @param knnK             벡터 검색으로 받는 후보 수
- * @param numCandidates    벡터 검색이 샤드마다 살펴볼 후보 수(knnK 이상)
- * @param popularPoolSize  인기순으로 채울 때 미리 읽는 강의 수
+ *                         약 {@code β/(1−β)}다(0.05면 약 0.05). α와 같이 기본값 없이 프로필 yaml에 둔다. 임시값
+ * @param knnK             벡터 검색으로 받는 후보 수. 임시값
+ * @param numCandidates    벡터 검색이 샤드마다 살펴볼 후보 수(knnK 이상). 임시값
+ * @param popularPoolSize  인기순으로 채울 때 미리 읽는 강의 수. 임시값
  * @param explainTimeout   버튼 경로의 LLM 이유 문장 시간 상한. 넘으면 정해진 문장으로 답한다
  * @param reasonMaxLength  LLM 이유 문장의 최대 글자 수. 넘으면 자른다(카드 크기)
  * @param explainDescriptionMaxLength 버튼 경로 프롬프트에 넣는 강의 소개의 최대 글자 수(입력 토큰 상한)
@@ -41,8 +45,8 @@ public record ChatbotLectureRecommendProperties(
         @DefaultValue("2") @Positive int maxPerSeller,
         @DefaultValue("50") @Positive int signalLimit,
         @DefaultValue @Valid Weights weights,
-        @DefaultValue("0.3") @DecimalMin("0.0") @DecimalMax("1.0") double interestWeight,
-        @DefaultValue("0.05") @DecimalMin("0.0") @DecimalMax("1.0") double popularityWeight,
+        @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double interestWeight,
+        @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double popularityWeight,
         @DefaultValue("50") @Positive int knnK,
         @DefaultValue("100") @Positive int numCandidates,
         @DefaultValue("50") @Positive int popularPoolSize,
@@ -53,7 +57,8 @@ public record ChatbotLectureRecommendProperties(
         @DefaultValue("500") @Positive int indexCheckBatch) {
 
     /**
-     * 신호 가중치. 강의 가중 = 기본(구매 또는 장바구니) + 그 강의 리뷰 별점 보정, 0 아래로 내리지 않는다.
+     * 신호 가중치. 강의 가중 = 기본(구매 또는 장바구니) + 그 강의 리뷰 별점 보정, 0 아래로 내리지 않는다. 모두 임시값이다
+     * (구매가 장바구니보다 강하고, 별점은 기본을 뒤집지 않을 만큼만 보정한다는 방향만 정했다).
      *
      * @param owned   구매({@code OWNED})
      * @param cart    장바구니(삭제 안 됨)

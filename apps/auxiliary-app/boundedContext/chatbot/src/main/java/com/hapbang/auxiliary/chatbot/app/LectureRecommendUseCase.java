@@ -19,10 +19,9 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
-import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
-import com.hapbang.auxiliary.chatbot.domain.TasteVectors;
+import com.hapbang.auxiliary.chatbot.domain.LectureTaste;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
@@ -38,12 +37,12 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>신호: 구매 {@code OWNED}·장바구니에 리뷰 별점 보정, 최근 순 상한, 0 아래로 내리지 않음({@link LectureSignals}).</li>
  *     <li>질의 벡터: 신호 강의 벡터의 가중 평균. 관심사가 함께 있으면 {@code (1−α)·신호 + α·관심사}, 신호가 없으면 관심사만.
  *     만들 수 없으면(신호도 관심사도 없음, 또는 신호 강의가 아직 색인 전) 인기순만 주고 {@code needsInterest}
- *     (관심사를 주면 맞춤으로 찾을 수 있다).</li>
+ *     (관심사를 주면 맞춤으로 찾을 수 있다. 모델·ES 연결이 없는 실행이면 끈다).</li>
  *     <li>kNN(판매 중·삭제 안 됨·원본에 있음 필터) 뒤 코드에서 뺀다: 구매 {@code OWNED}·{@code PENDING}, 장바구니, 본인 강의,
  *     숨김 판매자({@link MemberVisibility}), 사본으로 다시 본 추천 불가 상태(색인이 늦은 경우).</li>
  *     <li>{@link LectureRanker}: β 혼합, 동점 순서, 판매자당 상한, 인기순 채우기(인기순은 숨김 판매자를 SQL에서 거른다).</li>
- *     <li>이유 코드: 고른 강의마다 구매 중심·장바구니 중심·관심사 벡터 중 가장 가까운 쪽. 구매·장바구니면 가장 가까운 신호 강의 제목을
- *     문장에 넣는다(공개 정보인 강의 제목). 순위와 상관없이 강의마다 정하므로, 순위를 바꾸는 후처리가 들어와도 그대로 쓸 수 있다.</li>
+ *     <li>이유 코드: 고른 강의마다 구매 중심·장바구니 중심·관심사 벡터 중 가장 가까운 쪽({@link LectureTaste}). 구매·장바구니면
+ *     가장 가까운 신호 강의 제목을 문장에 넣는다(회원 본인 화면용. 대화 Tool은 제목을 빼고 준다, {@link LectureRecommendTools}).</li>
  * </ol>
  * 색인·임베딩을 쓸 수 없으면(연결 없음·ES·임베딩 호출 실패) 관심사 없는 요청은 인기순({@code personalized=false})으로 답하고
  * fallback 지표로 세며, 관심사를 넣은 요청은 {@link ChatbotErrorCode#LECTURE_RECOMMEND_UNAVAILABLE}이다(관심사를 무시한 결과를
@@ -68,7 +67,16 @@ public class LectureRecommendUseCase {
     private final AtomicBoolean failing = new AtomicBoolean();
 
     /**
-     * @param interest 사용자가 직접 입력한 관심사 문장(앞뒤 공백 없음). 없으면 null(저장하지 않는다)
+     * 입력한 관심사를 추천에 넘길 값으로 바꾼다. API와 Tool이 함께 쓴다.
+     *
+     * @return 없거나 공백뿐이면 null, 아니면 앞뒤 공백을 뺀 값
+     */
+    public static @Nullable String normalizeInterest(@Nullable String interest) {
+        return interest == null || interest.isBlank() ? null : interest.strip();
+    }
+
+    /**
+     * @param interest 사용자가 직접 입력한 관심사 문장({@link #normalizeInterest}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
         if (!visibility.isVisible(memberId)) {
@@ -77,16 +85,19 @@ public class LectureRecommendUseCase {
         Set<Long> excluded = store.excludedLectures(memberId);
         List<LectureSignals.Signal> signals = LectureSignals.weigh(store.activities(memberId), store.ratings(memberId),
                 properties.signalLimit(), weights());
+        boolean vectorReady = index.available() && embedder.available();
         if (signals.isEmpty() && interest == null) {
-            return popularOnly(memberId, excluded, true);
+            // 맞춤으로 고를 재료가 없어 원래 인기순이다(fallback이 아니다). 관심사를 쓸 수 없는 실행(모델·ES 연결 없음)이면
+            // 관심사를 물어보지 않게 needsInterest를 끈다. 실행 중 호출 실패는 여기서 알 수 없다(관심사 요청이 503으로 알린다)
+            return popularOnly(memberId, excluded, vectorReady);
         }
-        if (!index.available() || !embedder.available()) {
+        if (!vectorReady) {
             return unavailable(memberId, excluded, interest, FallbackReason.MODEL_OFF, null);
         }
         LectureRecommendation result;
         try {
             result = personalized(memberId, interest, signals, excluded);
-        } catch (SearchFailure e) {
+        } catch (VectorCallFailure e) {
             return unavailable(memberId, excluded, interest, FallbackReason.ERROR, e.getCause());
         }
         if (failing.compareAndSet(true, false)) {
@@ -97,30 +108,29 @@ public class LectureRecommendUseCase {
 
     private LectureRecommendation personalized(long memberId, @Nullable String interest, List<LectureSignals.Signal> signals,
             Set<Long> excluded) {
-        Map<Long, float[]> signalVectors = search(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
-        float[] interestVector = interest == null ? null : search(() -> embedder.embedQuery(interest));
-        Taste taste = Taste.of(signals, signalVectors, interestVector);
+        Map<Long, float[]> signalVectors =
+                vectorCall(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
+        float[] interestVector = interest == null ? null : vectorCall(() -> embedder.embedQuery(interest));
+        LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {
             // 신호 강의가 아직 색인되지 않았다. 관심사를 주면 맞춤으로 찾을 수 있다
             return popularOnly(memberId, excluded, true);
         }
 
-        List<RecommendVectorIndex.ScoredId> hits = search(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
+        List<RecommendVectorIndex.ScoredId> hits = vectorCall(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
                 properties.numCandidates(), LectureIndexDocument.RECOMMENDABLE));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (RecommendVectorIndex.ScoredId hit : hits) {
             similarity.put(LectureIndexDocument.lectureId(hit.id()), hit.score());
         }
-        List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded),
-                store.popular(memberId, excluded, properties.popularPoolSize()), properties.popularityWeight(),
-                properties.resultSize(), properties.maxPerSeller());
+        List<LectureRanker.Ranked> ranked = rank(memberId, excluded, candidates(memberId, similarity, excluded));
         return toRecommendation(ranked, reasons(ranked, taste), false);
     }
 
     // 코드에서 빼는 규칙. kNN 필터를 지나도 사본으로 다시 본다(색인이 늦게 따라온 경우)
     private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded) {
-        Map<Long, LectureSnapshot> lectures = byId(store.lectures(similarity.keySet()));
+        Map<Long, LectureSnapshot> lectures = store.lectures(similarity.keySet());
         Set<Long> sellers = new HashSet<>();
         for (LectureSnapshot lecture : lectures.values()) {
             sellers.add(lecture.sellerId());
@@ -144,13 +154,16 @@ public class LectureRecommendUseCase {
     }
 
     private LectureRecommendation popularOnly(long memberId, Set<Long> excluded, boolean needsInterest) {
-        List<LectureRanker.Ranked> ranked = LectureRanker.rank(List.of(),
-                store.popular(memberId, excluded, properties.popularPoolSize()), properties.popularityWeight(),
-                properties.resultSize(), properties.maxPerSeller());
-        return toRecommendation(ranked, Map.of(), needsInterest);
+        return toRecommendation(rank(memberId, excluded, List.of()), Map.of(), needsInterest);
     }
 
-    // 503은 공통 예외 처리기가 남긴다. 여기서는 호출 실패가 시작될 때만 남긴다
+    // 정책값(β·추천 수·판매자당 상한)으로 고르고, 모자라면 인기순으로 채운다
+    private List<LectureRanker.Ranked> rank(long memberId, Set<Long> excluded, List<LectureRanker.Candidate> candidates) {
+        return LectureRanker.rank(candidates, store.popular(memberId, excluded, properties.popularPoolSize()),
+                properties.popularityWeight(), properties.resultSize(), properties.maxPerSeller());
+    }
+
+    // 호출 실패가 시작될 때만 로그를 남긴다. 503은 잠시 뒤 다시 보내면 되는 거절이라 공통 예외 처리기도 요청마다 남기지 않는다
     private LectureRecommendation unavailable(long memberId, Set<Long> excluded, @Nullable String interest,
             FallbackReason reason, @Nullable Throwable cause) {
         if (cause != null && failing.compareAndSet(false, true)) {
@@ -161,37 +174,39 @@ public class LectureRecommendUseCase {
             throw cause == null ? new ChatbotException(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE)
                     : new ChatbotException(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE, cause);
         }
+        LectureRecommendation fallback = popularOnly(memberId, excluded, false);
+        // 인기순으로 대신 답한 것이 확정된 뒤에 센다(인기순 조회가 DB 오류로 실패하면 세지 않는다)
         metrics.fallback(Feature.LECTURE_RECOMMEND, reason);
-        return popularOnly(memberId, excluded, false);
+        return fallback;
     }
 
     // 고른 강의(인기순 채움 제외)마다 이유
-    private Map<Long, Reasoned> reasons(List<LectureRanker.Ranked> ranked, Taste taste) {
+    private Map<Long, LectureTaste.Reasoned> reasons(List<LectureRanker.Ranked> ranked, LectureTaste taste) {
         List<Long> ids = ranked.stream().filter(item -> !item.popular()).map(LectureRanker.Ranked::lectureId).toList();
-        Map<Long, float[]> itemVectors = search(() -> vectors(ids));
-        Map<Long, Reasoned> reasons = new HashMap<>();
+        Map<Long, float[]> itemVectors = vectorCall(() -> vectors(ids));
+        Map<Long, LectureTaste.Reasoned> reasons = new HashMap<>();
         for (Long id : ids) {
             reasons.put(id, taste.reason(itemVectors.get(id)));
         }
         return reasons;
     }
 
-    private LectureRecommendation toRecommendation(List<LectureRanker.Ranked> ranked, Map<Long, Reasoned> reasons,
-            boolean needsInterest) {
+    private LectureRecommendation toRecommendation(List<LectureRanker.Ranked> ranked,
+            Map<Long, LectureTaste.Reasoned> reasons, boolean needsInterest) {
         Set<Long> titleIds = new HashSet<>();
         for (LectureRanker.Ranked item : ranked) {
             titleIds.add(item.lectureId());
         }
-        for (Reasoned reasoned : reasons.values()) {
+        for (LectureTaste.Reasoned reasoned : reasons.values()) {
             if (reasoned.basisLectureId() != null) {
                 titleIds.add(reasoned.basisLectureId());
             }
         }
-        Map<Long, LectureSnapshot> lectures = byId(store.lectures(titleIds));
+        Map<Long, LectureSnapshot> lectures = store.lectures(titleIds);
         List<LectureRecommendation.Item> items = new ArrayList<>();
         boolean personalized = false;
         for (LectureRanker.Ranked item : ranked) {
-            Reasoned reasoned = item.popular() ? Reasoned.POPULAR : reasons.get(item.lectureId());
+            LectureTaste.Reasoned reasoned = item.popular() ? LectureTaste.Reasoned.POPULAR : reasons.get(item.lectureId());
             LectureSnapshot basis = reasoned.basisLectureId() == null ? null : lectures.get(reasoned.basisLectureId());
             personalized |= !item.popular();
             items.add(new LectureRecommendation.Item(item.lectureId(), lectures.get(item.lectureId()).title(), item.score(),
@@ -210,12 +225,12 @@ public class LectureRecommendUseCase {
         return vectors;
     }
 
-    // ES·임베딩 호출만 감싼다. 실패를 SearchFailure로 바꿔 DB 오류와 구분한다
-    private static <T> T search(Supplier<T> call) {
+    // 벡터 호출(ES 검색·임베딩)만 감싼다. 실패를 VectorCallFailure로 바꿔 DB 오류와 구분한다
+    private static <T> T vectorCall(Supplier<T> call) {
         try {
             return call.get();
         } catch (RuntimeException e) {
-            throw new SearchFailure(e);
+            throw new VectorCallFailure(e);
         }
     }
 
@@ -224,127 +239,10 @@ public class LectureRecommendUseCase {
         return new LectureSignals.Weights(weights.owned(), weights.cart(), weights::rating);
     }
 
-    private static Map<Long, LectureSnapshot> byId(List<LectureSnapshot> lectures) {
-        Map<Long, LectureSnapshot> byId = new HashMap<>();
-        for (LectureSnapshot lecture : lectures) {
-            byId.put(lecture.id(), lecture);
-        }
-        return byId;
-    }
+    /** 벡터 호출(ES·임베딩) 실패. DB 오류와 구분한다 */
+    private static final class VectorCallFailure extends RuntimeException {
 
-    /**
-     * 한 요청의 취향: 신호, 신호 강의 벡터(색인된 것만), 출처별 중심 벡터, 관심사 벡터.
-     */
-    private record Taste(List<LectureSignals.Signal> signals, Map<Long, float[]> signalVectors,
-            Map<LectureSignals.Source, float[]> centroids, float @Nullable [] interest) {
-
-        static Taste of(List<LectureSignals.Signal> signals, Map<Long, float[]> signalVectors, float @Nullable [] interest) {
-            Map<LectureSignals.Source, float[]> centroids = new HashMap<>();
-            for (LectureSignals.Source source : LectureSignals.Source.values()) {
-                float[] centroid = TasteVectors.weightedAverage(signalVectors, weightsById(signals, source));
-                if (centroid != null) {
-                    centroids.put(source, centroid);
-                }
-            }
-            return new Taste(signals, signalVectors, centroids, interest);
-        }
-
-        // 질의 벡터. 신호와 관심사가 모두 있으면 섞고, 하나만 있으면 그것, 둘 다 없으면 null
-        float @Nullable [] query(double interestWeight) {
-            float[] signal = TasteVectors.weightedAverage(signalVectors, weightsById(signals, null));
-            if (signal != null && interest != null) {
-                return TasteVectors.mix(signal, interest, interestWeight);
-            }
-            return signal != null ? signal : interest;
-        }
-
-        // 가장 가까운 기준. 질의 벡터를 신호나 관심사로 만들었으므로 기준이 하나는 있다
-        Reasoned reason(float @Nullable [] vector) {
-            if (vector == null) {
-                // kNN 뒤에 문서가 사라졌다(index 재생성 등). 거리 대신 신호 가중이 큰 출처로 정하고 기준 강의 제목은 넣지 않는다
-                return heaviest();
-            }
-            LectureSignals.Source bestSource = null;
-            double bestScore = Double.NEGATIVE_INFINITY;
-            for (Map.Entry<LectureSignals.Source, float[]> centroid : centroids.entrySet()) {
-                double score = TasteVectors.cosine(vector, centroid.getValue());
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestSource = centroid.getKey();
-                }
-            }
-            if (bestSource == null || interest != null && TasteVectors.cosine(vector, interest) > bestScore) {
-                return Reasoned.INTEREST;
-            }
-            return new Reasoned(reasonOf(bestSource), closestSignal(vector, bestSource));
-        }
-
-        // 중심 벡터가 있는 출처 중 (색인된) 신호 가중 합이 큰 쪽. 없으면 관심사
-        private Reasoned heaviest() {
-            LectureSignals.Source heaviest = null;
-            double heaviestWeight = Double.NEGATIVE_INFINITY;
-            for (LectureSignals.Source source : centroids.keySet()) {
-                double weight = 0;
-                for (LectureSignals.Signal signal : signals) {
-                    if (signal.source() == source && signalVectors.containsKey(signal.lectureId())) {
-                        weight += signal.weight();
-                    }
-                }
-                if (weight > heaviestWeight) {
-                    heaviestWeight = weight;
-                    heaviest = source;
-                }
-            }
-            return heaviest == null ? Reasoned.INTEREST : new Reasoned(reasonOf(heaviest), null);
-        }
-
-        // 그 출처의 신호 강의 중 가장 가까운 강의
-        private @Nullable Long closestSignal(float[] vector, LectureSignals.Source source) {
-            Long closest = null;
-            double closestScore = Double.NEGATIVE_INFINITY;
-            for (LectureSignals.Signal signal : signals) {
-                float[] signalVector = signalVectors.get(signal.lectureId());
-                if (signal.source() != source || signalVector == null) {
-                    continue;
-                }
-                double score = TasteVectors.cosine(vector, signalVector);
-                if (score > closestScore) {
-                    closestScore = score;
-                    closest = signal.lectureId();
-                }
-            }
-            return closest;
-        }
-
-        private static LectureRecommendReason reasonOf(LectureSignals.Source source) {
-            return source == LectureSignals.Source.PURCHASED ? LectureRecommendReason.SIMILAR_TO_PURCHASED
-                    : LectureRecommendReason.SIMILAR_TO_CART;
-        }
-
-        // 강의 ID → 가중. source가 있으면 그 출처만
-        private static Map<Long, Double> weightsById(List<LectureSignals.Signal> signals,
-                LectureSignals.@Nullable Source source) {
-            Map<Long, Double> weights = new LinkedHashMap<>();
-            for (LectureSignals.Signal signal : signals) {
-                if (source == null || signal.source() == source) {
-                    weights.put(signal.lectureId(), signal.weight());
-                }
-            }
-            return weights;
-        }
-    }
-
-    /** 고른 강의의 이유와 문장에 넣을 신호 강의 */
-    private record Reasoned(LectureRecommendReason reason, @Nullable Long basisLectureId) {
-
-        static final Reasoned POPULAR = new Reasoned(LectureRecommendReason.POPULAR, null);
-        static final Reasoned INTEREST = new Reasoned(LectureRecommendReason.MATCHES_INTEREST, null);
-    }
-
-    /** ES·임베딩 호출 실패(DB 오류와 구분) */
-    private static final class SearchFailure extends RuntimeException {
-
-        SearchFailure(RuntimeException cause) {
+        VectorCallFailure(RuntimeException cause) {
             super(cause);
         }
     }

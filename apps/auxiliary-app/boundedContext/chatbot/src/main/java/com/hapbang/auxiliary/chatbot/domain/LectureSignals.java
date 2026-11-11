@@ -22,20 +22,32 @@ public final class LectureSignals {
     private LectureSignals() {
     }
 
-    /** 신호의 출처 */
+    /** 신호의 출처. 선언 순서가 강한 순서다(같은 강의에 둘 다 있으면 앞의 것으로 본다) */
     public enum Source {
 
-        PURCHASED("구매(OWNED)"),
-        CART("장바구니(삭제 안 됨)");
+        PURCHASED("구매(OWNED)", LectureRecommendReason.SIMILAR_TO_PURCHASED),
+        CART("장바구니(삭제 안 됨)", LectureRecommendReason.SIMILAR_TO_CART);
 
         private final String description;
+        private final LectureRecommendReason reason;
 
-        Source(String description) {
+        Source(String description, LectureRecommendReason reason) {
             this.description = description;
+            this.reason = reason;
         }
 
         public String description() {
             return description;
+        }
+
+        /** 이 출처의 신호 강의와 비슷해 고른 강의의 이유 코드 */
+        public LectureRecommendReason reason() {
+            return reason;
+        }
+
+        /** 둘 중 강한 출처(구매 > 장바구니) */
+        static Source stronger(Source a, Source b) {
+            return a.ordinal() <= b.ordinal() ? a : b;
         }
     }
 
@@ -55,7 +67,10 @@ public final class LectureSignals {
     public record Weights(double owned, double cart, IntToDoubleFunction rating) {
 
         double base(Source source) {
-            return source == Source.PURCHASED ? owned : cart;
+            return switch (source) {
+                case PURCHASED -> owned;
+                case CART -> cart;
+            };
         }
     }
 
@@ -88,9 +103,9 @@ public final class LectureSignals {
         return signals;
     }
 
-    // 같은 강의의 활동 둘: 구매가 있으면 구매, 시각은 늦은 쪽
+    // 같은 강의의 활동 둘: 강한 출처(구매가 있으면 구매), 시각은 늦은 쪽
     private static Activity merge(Activity a, Activity b) {
-        Source source = a.source() == Source.PURCHASED || b.source() == Source.PURCHASED ? Source.PURCHASED : Source.CART;
+        Source source = Source.stronger(a.source(), b.source());
         LocalDateTime at = a.at().isAfter(b.at()) ? a.at() : b.at();
         return new Activity(a.lectureId(), source, at);
     }

@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,7 +59,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
                 failures.put(docId, e);
             }
         }
-        List<LectureSnapshot> lectures = store.lectures(docIds.keySet());
+        Collection<LectureSnapshot> lectures = store.lectures(docIds.keySet()).values();
         Map<String, LectureIndexDocument> stored = index.documents(IndexType.LECTURE, docIds.values(),
                 LectureIndexDocument.class);
 
