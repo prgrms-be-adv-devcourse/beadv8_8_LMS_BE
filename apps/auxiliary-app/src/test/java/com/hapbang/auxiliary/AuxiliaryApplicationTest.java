@@ -11,7 +11,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Arrays;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,7 +39,7 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
  *     <li>k8s처럼 관리 포트·내부 API 포트를 따로 둔다. 헬스체크·지표는 관리 포트에서만, 내부 API는 내부 포트에서만 받는다.</li>
  *     <li>Elasticsearch·LLM 없이 뜬다(#715). 이 테스트에는 ES가 없고 모델은 꺼져 있다. 그래도 liveness·readiness는 UP이고
  *     FAQ 시드가 들어가며 FAQ 목록·대화(fallback)가 동작한다.</li>
- *     <li>검색 기능 스위치(#771)가 꺼진 운영 기본값으로 뜬다. 검색 모듈 빈은 없고 schema만 생긴다.</li>
+ *     <li>검색 모듈(#771)도 ES 없이 뜬다. 검색 전용 client는 있고, 검색 API는 503 {@code SEARCH_UNAVAILABLE}로 답한다.</li>
  * </ul>
  * 로컬 프로필(docker compose, .env)을 읽지 않도록 다른 프로필로 띄운다. 업무 모듈 테스트는 각 모듈 프로젝트에 둔다.
  */
@@ -53,6 +52,10 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.notification.member-events.enabled=false",
                 // 챗봇 사본 이벤트 소비(출연·회원·강의, #716·#717)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
                 "hapbang.chatbot.copy-events.enabled=false",
+                // 검색 회원 이벤트 소비(#771)도 끈다. 소비는 검색 모듈 Kafka 테스트가 본다
+                "hapbang.search.member-events.enabled=false",
+                // 기동 때 처음 적재·재색인(#773)은 ES가 없어 실패 로그만 남기므로 끈다. 적재는 검색 모듈 테스트가 본다
+                "hapbang.search.setup-on-startup=false",
                 // 운영 설정은 다른 앱 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
                 "hapbang.clients.appearance.base-url=http://localhost:1",
                 "hapbang.clients.member.base-url=http://localhost:1",
@@ -125,15 +128,14 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("검색 기능 스위치가 꺼져 있으면(운영 기본값) 검색 모듈 패키지의 빈이 하나도 없고 앱은 뜬다(새 빈에 스위치를 빠뜨리면 실패)")
-    void searchSwitchOff() {
-        String searchPackage = SearchElasticsearchConfig.class.getPackageName().replace(".config", ".");
-        assertThat(Arrays.stream(applicationContext.getBeanDefinitionNames())
-                .map(applicationContext::getType)
-                .filter(type -> type != null && type.getName().startsWith(searchPackage))
-                .map(Class::getName))
-                .isEmpty();
-        assertThat(applicationContext.containsBean(SearchElasticsearchConfig.CLIENT)).isFalse();
+    @DisplayName("검색 모듈은 ES 없이도 뜨고, 검색 API는 ES에 닿지 못해 503 SEARCH_UNAVAILABLE이다")
+    void searchWithoutElasticsearch() throws Exception {
+        assertThat(applicationContext.containsBean(SearchElasticsearchConfig.CLIENT)).isTrue();
+
+        HttpResponse<String> search = send(HttpRequest.newBuilder(uri(serverPort, "/api/v1/search/influencers"))
+                .header("X-User-Id", "1").header("X-User-Role", "USER").GET());
+        assertThat(search.statusCode()).isEqualTo(503);
+        assertThat(search.body()).contains("SEARCH_UNAVAILABLE");
     }
 
     @Test
