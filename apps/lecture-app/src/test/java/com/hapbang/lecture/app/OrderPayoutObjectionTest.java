@@ -33,14 +33,17 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.fixture.ObjectionCommands;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
  * 이의 제기(#156)와 지급 배치. 실제 이의 제기 Facade로 접수·판단한 항목이 지급 대상에서 빠지거나 다시 들어오는지 확인한다.
@@ -73,7 +76,7 @@ class OrderPayoutObjectionTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
@@ -103,7 +106,8 @@ class OrderPayoutObjectionTest {
     void setUp() {
         objections = new ObjectionCommands(lectureObjectionFacade);
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @AfterEach
@@ -269,7 +273,7 @@ class OrderPayoutObjectionTest {
 
     private List<PayoutCommand> payouts() {
         return billing.calls().stream()
-                .map(FakeBillingApiClient.Call::command)
+                .map(RealBillingTestFixture.Call::command)
                 .filter(PayoutCommand.class::isInstance)
                 .map(PayoutCommand.class::cast)
                 .toList();
@@ -281,6 +285,9 @@ class OrderPayoutObjectionTest {
         LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture),
                 purchasedAt));
         Long itemId = itemId(order);
+        assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                itemId, PRICE_HP))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         transactionTemplate.executeWithoutResult(status ->
                 lectureOrderRepository.findById(order.getId()).orElseThrow().confirmItem(itemId, purchasedAt));
         return order;

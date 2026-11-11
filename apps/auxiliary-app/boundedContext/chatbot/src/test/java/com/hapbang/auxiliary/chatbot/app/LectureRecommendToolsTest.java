@@ -96,7 +96,7 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     @DisplayName("버튼 경로: LLM 문장을 후보 강의에만 붙인다. 후보 밖 ID·빈 문장은 버리고, 빠진 강의는 정해진 문장, 긴 문장은 80자로 자른다")
     void explainFiltersOutsideCandidates() {
         String longReason = "가".repeat(120);
-        chatModel.answerWith("""
+        chatModel.reply("""
                 [{"lectureId": 10, "reason": "%s"},
                  {"lectureId": 999, "reason": "후보 밖 강의"},
                  {"lectureId": 11, "reason": "  "}]""".formatted(longReason));
@@ -114,7 +114,7 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     void explainPromptHasNoMemberInfo() {
         data.lecture(12, 100, "회원이 산 강의", "비밀", List.of(), true, false, false);
         data.purchase(2, 1, 12, "OWNED", RecommendRows.AT);
-        chatModel.answerWith("[]");
+        chatModel.reply("[]");
 
         explainUseCase.recommend(1, null);
 
@@ -137,6 +137,35 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
         assertThat(result.items()).allSatisfy(item ->
                 assertThat(item.reasonText()).isEqualTo(LectureRecommendReason.POPULAR.sentence(null)));
         assertThat(fallbacks()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @DisplayName("버튼 경로: 긴 이유 문장과 프롬프트의 긴 소개는 코드포인트로 잘라 이모지를 반으로 자르지 않는다")
+    void explainCutsByCodePoints() {
+        String emoji = "😀";
+        data.lecture(13, 200, "이모지 강의", "가".repeat(299) + emoji + "꼬리", List.of(), true, false, false);
+        chatModel.reply("""
+                [{"lectureId": 10, "reason": "%s"}]""".formatted("나".repeat(79) + emoji + "넘침"));
+
+        LectureRecommendation result = explainUseCase.recommend(1, null);
+
+        assertThat(result.items().getFirst().lectureId()).isEqualTo(10L);
+        assertThat(result.items().getFirst().reasonText()).isEqualTo("나".repeat(79) + emoji);
+        String prompt = chatModel.lastPrompt().getUserMessage().getText();
+        assertThat(prompt).contains("가".repeat(299) + emoji).doesNotContain("꼬리");
+        // 짝 잃은 서로게이트는 코드포인트로 세어도 서로게이트 구간에 남는다
+        assertThat(prompt.codePoints()).noneMatch(cp -> cp >= Character.MIN_SURROGATE && cp <= Character.MAX_SURROGATE);
+    }
+
+    @Test
+    @DisplayName("버튼 경로: 추천할 강의가 없으면(숨김 회원) LLM을 부르지 않는다")
+    void explainSkipsLlmWhenEmpty() {
+        data.member(2, "WITHDRAWN");
+
+        LectureRecommendation result = explainUseCase.recommend(2, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(chatModel.calls()).isZero();
     }
 
     private double fallbacks() {

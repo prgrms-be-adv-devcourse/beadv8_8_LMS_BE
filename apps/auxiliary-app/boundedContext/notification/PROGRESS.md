@@ -8,7 +8,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-10. 상태는 `dev` `0debc874`(N2 #801 병합, PR #819) 기준 코드 검색으로 확인했다.
+마지막 갱신: 2026-11-11. 상태는 `dev` `35735bf1`(N4 #847 병합 PR #853 포함) 기준 git log로 확인했다.
 
 ## 1. 현재 상태
 
@@ -20,8 +20,8 @@
 | `boundedContext/notification` 디렉터리 | N1·N2 구현 | `build.gradle.kts`, `src/`(회원 복제본, Kafka 소비·DLT 설정, 알림 저장·REST·파기 닉네임). [module.md](../../../../docs/notification/module.md) 2장 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1·N2·N3 완료, N4 진행 중(#847) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5 이후 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-035 |
+| 기능 구현 | N1~N4 완료, N5 진행 중(#859) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-038 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
@@ -51,8 +51,8 @@
 | N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 완료 | #797(PR #803, dev `ab8f957d`). 테스트 NR-009, 로컬 기동·측정 NR-005. U13 N1 자원값은 인프라 확인, kafka.md 토픽 표 반영(#801). 범위 ND-046·ND-048, consumer group ND-047 |
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 완료 | #801(PR #819, dev `0debc874`). 정책 ND-050~ND-054, 테스트 NR-015 |
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 완료 | #829(PR #834, dev `40c94d7b`). 정책 ND-055~ND-061, 자원 U13 미결 |
-| N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 진행 중 | #847(PR 리뷰 중). 정책 ND-062~ND-068, 구현·테스트 완료(dev 병합 전, NR-029~NR-035), 인프라 확인은 PR 리뷰(ND-065) |
-| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승인 추정 2종 | 알림 | N0, N2 | 미착수 | 코드 없음 |
+| N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 완료 | #847(PR #853, dev `671244aa`). 정책 ND-062~ND-068 |
+| N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승급 승인 2종, 회원 복제본 Backfill | 알림 | N0, N2 | 진행 중 | #859. 정책 ND-069~ND-081·ND-088~ND-095. 구현·테스트 완료, PR 리뷰 중(브랜치 `feature/tkt-859`, NR-036~). U20은 ND-095로 해소 |
 | M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
 | M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 완료 | #818(PR #827, dev `1f2f353b`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
 | N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 미착수 | 코드 없음 |
@@ -76,19 +76,16 @@
 | ID | 결정 주체 | 막는 작업 |
 | --- | --- | --- |
 | U2 (T3) | 알림 담당 + 강의 담당 | 작업 계획 확정 |
-| U3 | 알림 담당(+ FE) | 각 종류를 소비하는 작업(N5 이후) |
-| U5 | 알림 담당 | 이벤트 소비(N5·N6·N7) |
+| U3 | 알림 담당(+ FE) | 각 종류를 소비하는 작업(N6 이후. N5는 ND-075) |
+| U5 | 알림 담당 | 이벤트 소비(N6·N7. N5는 ND-073) |
 | U6 (T5) | 팀 | N10 |
-| U7 (T5) | 알림 담당 + 팀 | N5 배포 |
-| U8 | 팀(회원 정책) | N5 |
 | U9 | 알림 담당 | N8 |
-| U11 | 알림 + 채팅 담당 | 규칙 밖 종류 코드를 쓰는 생성(N5·N8·N10) |
-| U12 | 팀 + FE | N5·N9 |
+| U11 | 알림 + 채팅 담당 | 규칙 밖 종류 코드를 쓰는 생성(N8·N10. 승급 승인은 ND-071) |
+| U12 | 팀 + FE | 화면 표시(FE). 서버 생성은 막지 않는다 |
 | U13 | 알림 + 챗봇 + 인프라 담당 (N1 값은 인프라 확인됨, N3는 알림 담당 제안, N4는 관측 ND-066) | N10 자원 산정 |
 | U14 | 인프라 담당 확인 대기 (알림 쪽 ND-062·ND-063) | N4 PR 리뷰 |
 | U15 | 인프라 담당 확인 대기 (알림 쪽 ND-064) | N4 PR 리뷰 |
 | U16 | 알림 담당 (B안은 팀) | 예약 알림(N10) |
-| U17 | 알림 담당 (+ 회원 내부 API를 쓰면 회원 담당) | N5 배포 |
 | U19 | 알림 담당 (+ 회원 정책은 팀) | N2 구현 가능성 검증(구조는 ND-051) |
 | T8 | 채팅 담당 | — (chat-app 불변식, decisions.md 12장) |
 

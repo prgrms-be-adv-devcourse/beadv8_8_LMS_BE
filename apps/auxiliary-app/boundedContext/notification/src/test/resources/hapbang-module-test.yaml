@@ -7,9 +7,21 @@ spring:
       maximum-pool-size: 5
 hapbang:
   notification:
+    # 알림 시작 시각(ND-076, 필수). 테스트는 과거 값으로 두어 모든 사건이 알림이 된다. 경계는 시험 클래스가 덮어써서 본다
+    alert:
+      start-at: 2000-01-01T00:00:00Z
+    # 기동 때 회원 복제본 Backfill(ND-078)은 운영 기본값이 켜짐이다. 테스트에는 회원 API가 없어 끄고(알림 소비자는 바로 시작),
+    # 시작 순서 시험만 가짜 회원 목록으로 켠다
+    user-backfill:
+      on-startup: false
     # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,
     # Kafka 시험 클래스만 true로 켠다
     member-events:
+      enabled: false
+    # 출연·지갑 알림 소비자(N5)도 같은 이유로 끄고, 그 시험 클래스만 켠다
+    appearance-events:
+      enabled: false
+    billing-events:
       enabled: false
     # 실시간 전달(웹소켓·Redis)도 운영 기본값은 켜짐이다. 대부분의 테스트에는 Redis가 없으므로 끄고, 실시간 시험(@NotificationRealtimeTest)만 켠다
     realtime:

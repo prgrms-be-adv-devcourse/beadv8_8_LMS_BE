@@ -26,19 +26,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
-import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.jayway.jsonpath.JsonPath;
 
 // 주문·주문 조회·직접 구매 확정·구매 취소·재생 동의·시청 가능한 강의·판매 내역 API를 HTTP부터 DB까지 관통해 검증한다. 상태 전이·기한 규칙은 LectureOrderTest가 맡는다.
@@ -62,7 +58,7 @@ class LectureOrderApiTest {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private FakeCouponApiClient coupon;
@@ -70,7 +66,8 @@ class LectureOrderApiTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
         coupon.reset();
     }
 
@@ -166,9 +163,7 @@ class LectureOrderApiTest {
     @Test
     void 보류_결과를_모르면_202와_결제_처리_중_주문을_응답한다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
@@ -184,8 +179,8 @@ class LectureOrderApiTest {
     @Test
     void 잔액이_부족하면_409_INSUFFICIENT_BALANCE다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
@@ -196,8 +191,9 @@ class LectureOrderApiTest {
     void 탈퇴로_닫힌_지갑이면_결제_실패로_409_WALLET_CLOSED다() throws Exception {
         // 결제 실패 사유를 보류 작업의 확정 거절 기록에서 읽어 잔액 부족과 나눈다 (D76)
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
-                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
+        billing.closeWallet(BUYER_ID);
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
@@ -229,9 +225,7 @@ class LectureOrderApiTest {
                 .andReturn().getResponse().getContentAsString();
         Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
         Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         mockMvc.perform(cancelItem(orderId, orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
@@ -281,9 +275,7 @@ class LectureOrderApiTest {
     @Test
     void 결제_처리_중인_주문도_목록과_상세에_보이고_처리_상태가_있다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
         String body = mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andReturn().getResponse().getContentAsString();

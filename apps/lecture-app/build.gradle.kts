@@ -67,6 +67,16 @@ tasks.named<Test>("test") {
     useJUnitPlatform { excludeTags("large-upload") }
 }
 
+// billing의 Java 코드는 테스트 클래스패스에 넣지 않는다. 별도 실행 산출물만 HTTP 하네스에 전달한다.
+tasks.withType<Test>().configureEach {
+    dependsOn(":billing-app:e2eServerJar")
+    systemProperty("hapbang.billing.e2e.enabled", "true")
+    systemProperty("hapbang.billing.e2e.jar", rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar").absolutePath)
+    inputs.file(rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar"))
+        .withPropertyName("billingE2eServerJar")
+    systemProperty("sun.net.http.retryPost", "false")
+}
+
 // 힙보다 큰 본문을 올려 업로드가 본문을 메모리에 모으지 않는지 확인한다(모으면 OOM). docs/deploy/s3.md
 tasks.register<Test>("largeUploadTest") {
     description = "힙(256MB)보다 큰 파일을 S3Mock에 올려 스트리밍 업로드를 확인한다."

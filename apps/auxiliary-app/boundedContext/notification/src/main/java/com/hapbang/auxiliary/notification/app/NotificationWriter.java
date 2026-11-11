@@ -71,8 +71,9 @@ public class NotificationWriter {
         NotificationUser receiver = users.findForUpdate(draft.receiverUserId())
                 .orElseThrow(() -> new NotificationException(NotificationErrorCode.RECEIVER_NOT_REPLICATED));
         if (!receiverPolicy.canReceive(receiver)) {
-            log.info("탈퇴한 회원이라 알림을 만들지 않음 receiverUserId={}, kind={}", receiver.getId(), draft.kind());
-            return NotificationWriteResult.of(Outcome.SKIPPED_WITHDRAWN);
+            log.info("받을 수 없는 회원(탈퇴·정지·관리자)이라 알림을 만들지 않음 receiverUserId={}, kind={}", receiver.getId(),
+                    draft.kind());
+            return NotificationWriteResult.of(Outcome.SKIPPED_RECEIVER);
         }
         if (notifications.existsBySourceEventTypeAndSourceTargetIdAndReceiverUserId(draft.sourceEventType(),
                 draft.sourceTargetId(), draft.receiverUserId())) {

@@ -27,6 +27,7 @@ PR 칸은 `origin/dev`에 병합된 PR 번호다(2026-11-06 `git log origin/dev`
 
 | Issue | 내용 | 결정 | PR (dev 병합) | 상태 |
 | --- | --- | --- | --- | --- |
+| #866 | 강의·쿠폰 통합 검증을 별도 실제 billing JVM·DB·운영 HTTP로 전환, 테스트 전용 seed·원장/요청 관측 fixture | 금융 정책 변경 없음, 검증 경계는 decisions.md 13장 | — | 구현·전체 검사 완료, 리뷰 진행 중 |
 | #39 | Entity·Enum·Repository, Flyway 초기 스키마, 원장 UPDATE·DELETE 차단 트리거 | — | #41 | 완료 |
 | #42 | 회원 지갑 생성(가입 이벤트 + 조회 시 보완), `GET /api/v1/wallets/me` | BD-1~BD-6 | #54 | 완료 |
 | #57 | HP 원장·잔액 버킷 이동·멱등성·역분개 검증·잔액 대사 | BD-7~BD-20 | #67 | 완료 |
@@ -570,6 +571,8 @@ PR 칸은 `origin/dev`에 병합된 PR 번호다(2026-11-06 `git log origin/dev`
 ---
 
 ## 7. 남은 일과 열린 결정
+
+#866의 실제 billing 통합 검증은 별도 E2E 서버·전용 DB로 실행한다. 외부 PG 승인과 회원 가입은 초기 seed 범위 밖이고, 보류·반환·지급·예산·원장·대사는 실제 엔진으로 확인한다. 실행·검증 결과는 PR과 [`docs/dev/testing.md`](../../docs/dev/testing.md#강의billing-http-통합-테스트)를 따른다. 금융 정책·운영 계약 변경은 없다.
 
 열린 결정은 [`decisions.md`](../../docs/billing/decisions.md) 10장이 원본이다. 새 미결 항목도 그곳에 적는다.
 

@@ -38,6 +38,7 @@ public class FakeEmbeddingModel implements EmbeddingModel {
     private final AtomicReference<RuntimeException> failure = new AtomicReference<>();
     private final AtomicInteger embeddedTexts = new AtomicInteger();
     private final AtomicInteger calls = new AtomicInteger();
+    private final List<String> texts = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /** 이 글(로 시작하는 글)의 벡터를 정한다. 크기 1로 맞춘다 */
     public FakeEmbeddingModel put(String textPrefix, float... vector) {
@@ -81,7 +82,13 @@ public class FakeEmbeddingModel implements EmbeddingModel {
         return calls.get();
     }
 
+    /** 지금까지 받은 글(접두어 포함, 받은 순서). 공급자에 무엇을 보냈는지 확인한다 (#719) */
+    public List<String> texts() {
+        return List.copyOf(texts);
+    }
+
     public void reset() {
+        texts.clear();
         table.clear();
         failure.set(null);
         embeddedTexts.set(0);
@@ -101,6 +108,7 @@ public class FakeEmbeddingModel implements EmbeddingModel {
         }
         embeddedTexts.addAndGet(texts.size());
         calls.incrementAndGet();
+        this.texts.addAll(texts);
         return new EmbeddingResponse(embeddings);
     }
 

@@ -47,15 +47,17 @@ public class FakeChatModel implements ChatModel {
         /** 스트림: 첫 조각을 보낸 뒤 오류 */
         FAIL_AFTER_FIRST_TOKEN,
         /** 빈 답 */
-        EMPTY
+        EMPTY,
+        /** {@link #reply(String)}로 정한 글을 그대로 답한다(구조화 응답 {@code .entity()} 확인, #719) */
+        REPLY
     }
 
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.TOOL_ANSWER);
     private final AtomicReference<Prompt> lastPrompt = new AtomicReference<>();
     private final AtomicInteger calls = new AtomicInteger();
+    private final AtomicReference<String> reply = new AtomicReference<>("");
     private volatile CompletableFuture<Void> gate = CompletableFuture.completedFuture(null);
-    private final AtomicReference<String> fixedAnswer = new AtomicReference<>();
 
     public void mode(Mode mode) {
         this.mode.set(mode);
@@ -71,14 +73,15 @@ public class FakeChatModel implements ChatModel {
         gate.complete(null);
     }
 
-    /** {@link Mode#TOOL_ANSWER}에서 Tool을 부르지 않고 이 글로 답한다(강의 추천 이유처럼 Tool 없는 요청). {@link #reset()}이 지운다 */
-    public void answerWith(String text) {
-        fixedAnswer.set(text);
+    /** 정한 글을 그대로 답하게 한다 */
+    public void reply(String text) {
+        reply.set(text);
+        mode.set(Mode.REPLY);
     }
 
     public void reset() {
-        fixedAnswer.set(null);
         mode.set(Mode.TOOL_ANSWER);
+        reply.set("");
         lastPrompt.set(null);
         calls.set(0);
         release();
@@ -107,7 +110,8 @@ public class FakeChatModel implements ChatModel {
                 yield response(answer(prompt));
             }
             case EMPTY -> response("");
-            case TOOL_ANSWER -> response(fixedAnswer.get() != null ? fixedAnswer.get() : answer(prompt));
+            case REPLY -> response(reply.get());
+            case TOOL_ANSWER -> response(answer(prompt));
         };
     }
 
@@ -119,6 +123,7 @@ public class FakeChatModel implements ChatModel {
                 case FAIL -> Flux.error(new IllegalStateException("가짜 모델 실패"));
                 case HANG -> Flux.just(response("늦은 답")).delaySubscription(Mono.fromFuture(gate, true));
                 case EMPTY -> Flux.just(response(""));
+                case REPLY -> Flux.just(response(reply.get()));
                 case FAIL_AFTER_FIRST_TOKEN -> Flux.concat(Flux.just(response(ANSWER_PREFIX)),
                         Flux.error(new IllegalStateException("가짜 모델 도중 실패")));
                 case TOOL_ANSWER -> {

@@ -29,17 +29,17 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
  * 지급 (D59 (5)). 01:00 지급 배치는 지급 처리 중과 PAYOUT 작업만 만들고, 지갑 호출과 재시도는 HP 작업 배치가 한다.
@@ -65,7 +65,7 @@ class OrderPayoutUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     // 한 항목의 처리 실패를 만들기 위해 항목별 주문 조회에서 예외를 던진다
     @MockitoSpyBean
@@ -84,7 +84,8 @@ class OrderPayoutUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -158,8 +159,11 @@ class OrderPayoutUseCaseTest {
     void 지급이_확정_거절되면_DEAD이고_항목은_지급_처리_중에_남는다() {
         LectureOrder order = saveConfirmed(now().minusDays(32));
         orderPayoutUseCase.payOutDueItems();
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.PAYOUT_ALREADY_SETTLED,
-                "이미 지급 예정 건이 있습니다.", 409, "PAYOUT_ALREADY_SETTLED"));
+        assertThat(billing.client().payout(PayoutCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, itemId(order), "PREEXISTING-PAYOUT-" + itemId(order),
+                SELLER_ID, SettlementSourceType.LECTURE_ORDER_ITEM, itemId(order), 1_000L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
 
         lectureHpTaskBatchUseCase.runDue();
 
@@ -174,12 +178,10 @@ class OrderPayoutUseCaseTest {
         LectureOrder order = saveConfirmed(now().minusDays(32));
         orderPayoutUseCase.payOutDueItems();
         // 지급하는 동안 다른 실행이 선점을 가져가, 첫 결과는 늦은 결과로 버려진다
-        billing.setDuringCall(() -> jdbcTemplate.update("""
+        billing.duringNextCall(() -> jdbcTemplate.update("""
                 update lectures.lecture_hp_task set claim_token = gen_random_uuid()
                 where purpose = 'PAYOUT' and status = 'PROCESSING'"""));
         lectureHpTaskBatchUseCase.runDue();
-        billing.setDuringCall(() -> {
-        });
         assertThat(items(order)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAYOUT_PENDING);
 
         expireLeases();
@@ -230,7 +232,12 @@ class OrderPayoutUseCaseTest {
     /** {@code purchasedAt}에 산 주문 (구매 상태) */
     private LectureOrder savePurchased(LocalDateTime purchasedAt) {
         Lecture lecture = lectureRepository.save(onSaleLecture());
-        return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture), purchasedAt));
+        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture),
+                purchasedAt));
+        assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                itemId(order), PRICE_HP))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
+        return order;
     }
 
     /** {@code purchasedAt}에 사서 바로 구매 확정한 주문 */

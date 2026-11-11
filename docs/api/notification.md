@@ -2,7 +2,7 @@
 
 > 문서 탐색: [알림 문서 INDEX](../notification/INDEX.md)
 
-> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 전)**([모듈 문서](../notification/module.md) 2장).
+> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 #853). 이벤트 소비·Backfill 재실행 API는 N5(#859) 확정 To-Be**([모듈 문서](../notification/module.md) 2장).
 > - 원천: [알림 설계](../architecture/infrastructure/notification.md) 6.3, 결정 [ND-026](../notification/decisions.md)·ND-023·ND-027·ND-028. 이 문서는 원천에 있는 사실만 옮긴다. 원천에 없는 값은 "미정(구현 때 정함)"으로 둔다.
 > - 공통 규칙: 성공 응답 `RsData`, 오류 `ProblemDetail`(+ `code`)은 [API 규칙](conventions.md)을 따른다. 모듈은 `@RestControllerAdvice`를 만들지 않는다.
 > - 개념(알림, 읽음, 안 읽은 수, 연결 티켓)은 [도메인 개념](../notification/CONTEXT.md)에 있다.
@@ -15,8 +15,8 @@
 | 범위 | 로그인 회원 **본인의 알림만** 다룬다 | ND-026 |
 | 인증 | Gateway가 JWT를 검증해 넘기는 사용자 헤더(`X-User-Id`, `X-User-Role`). auxiliary global `SecurityConfig`가 로그인을 요구한다 | 루트 AGENTS 2장, `apps/auxiliary-app/README.md` "권한" |
 | 받는 역할 | 유저·인플루언서·인증된 인플루언서. 관리자는 알림센터를 쓰지 않는다 | ND-003 |
-| 역할별 접근 규칙(`@PreAuthorize`) | `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`만. 관리자는 403 | ND-003, ND-052 |
-| Gateway route | REST `/api/v1/notifications`는 auxiliary-app 일반 route(30초·1MiB), WebSocket은 `GET /api/v1/notifications/ws` 전용 route(ND-062)이고 Gateway JWT 인증을 걸지 않아 티켓으로만 인증한다(ND-067). As-Is에는 없다(N4) | N6.3, ND-062, ND-067 |
+| 역할별 접근 규칙(`@PreAuthorize`) | 회원이 쓰는 알림 API(목록·안 읽은 수·읽음·전체 읽음·연결 티켓)는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`만, 관리자는 403. Backfill 재실행 API는 `ADMIN`만 | ND-003, ND-052, ND-079 |
+| Gateway route | REST `/api/v1/notifications`는 auxiliary-app 일반 route(30초·1MiB), WebSocket은 `GET /api/v1/notifications/ws` 전용 route(ND-062)이고 Gateway JWT 인증을 걸지 않아 티켓으로만 인증한다(ND-067) | N6.3, ND-062, ND-067 |
 | Swagger | auxiliary-app 한 명세(`/api/v1/auxiliary/swagger-ui.html`)에 컨트롤러 `@Tag`로 나뉜다 | `apps/auxiliary-app/README.md` "실행과 설정" |
 
 ## 2. 엔드포인트
@@ -29,6 +29,8 @@
 | 전체 읽음 | `PATCH /api/v1/notifications/read-all` | | ND-023 |
 | 연결 티켓 | `POST /api/v1/notifications/ws-tickets` | 채팅 `/api/v1/chats/ws-tickets`와 같은 방식 | ND-028 |
 | WebSocket | `/api/v1/notifications/ws` | 받는 곳 `/user/queue/notifications`. 프레임에 알림 한 건(묶음은 갱신된 알림)과 안 읽은 수를 담는다 | ND-027, ND-032 |
+| 회원 복제본 Backfill 재실행 시작(관리자) | `POST /api/v1/notifications/admin/user-replica/backfill` | `ADMIN`만(그 밖 403, 비로그인 401). **비동기**: 202 실행 조회와 같은 모양(`status: RUNNING`, `finishedAt`·`result`·`failureCode`는 null)을 바로 주고 실행은 뒤에서 한다. 시작 응답은 작업 결과가 아니다. 다른 실행(기동 Backfill·다른 pod·다른 요청)이 돌고 있으면 409 `BACKFILL_RUNNING`, 실행 상태를 기록할 수 없으면 실행하지 않고 503 `BACKFILL_STATUS_UNAVAILABLE`. 운영자 도구이며 FE 알림센터가 부르지 않는다 | ND-077~ND-079, ND-089, ND-092 |
+| 회원 복제본 Backfill 실행 조회(관리자) | `GET /api/v1/notifications/admin/user-replica/backfill/{runId}` | `ADMIN`만. 200 `{runId, status, startedAt, updatedAt, finishedAt, result, failureCode}`. `status`: RUNNING(페이지마다 `updatedAt` 갱신), COMPLETED(`result` = scanned·applied·unchanged·skipped·skippedUserIds), FAILED(`failureCode` = `BACKFILL_FAILED`, 결과 없음, 완료 아님. 다시 시작하면 된다), UNKNOWN(RUNNING인데 5분 넘게 갱신이 없어 실제 실행 여부를 알 수 없음). 보관 7일, 없으면 404 `BACKFILL_RUN_NOT_FOUND` | ND-089, ND-092 |
 
 ### 2.1 아직 정하지 않은 것 (모든 엔드포인트 공통)
 
@@ -37,8 +39,22 @@
 | 요청·응답 DTO 필드 | REST 4개(N2, #801, 모두 `RsData`): 목록 항목 `{id, kind, message, targetType, targetId, occurredAt, readAt}`(값 payload는 보내지 않음, 시각은 ISO-8601 UTC), 안 읽은 수 `{count}`, 읽음은 바뀐 목록 항목 하나, 전체 읽음 `{updatedCount}`. 연결 티켓(N3, `RsData`): `{ticket, expiresInSeconds, connectionExpiresAt}`. WebSocket 프레임(STOMP MESSAGE 본문, `RsData` 아님): `{notification: 목록 항목과 같은 모양, unreadCount}`(ND-059) |
 | HTTP 상태 코드(성공·실패) | 성공은 모두 200. 비로그인 401, 관리자 403, 남의·없는·밀려난(Soft Delete된) 알림 읽음 404, 이미 읽은 알림 다시 읽음 200(읽은 시각은 처음 값)(ND-052). 연결 티켓: 60초에 11번째 429 `TOO_MANY_REQUESTS`(공통 요청 한도 초과, `Retry-After: 60`), 티켓 저장소 장애 503 `CONNECTION_TICKET_UNAVAILABLE`(ND-058). WebSocket 핸드셰이크: 티켓 없음·틀림·만료·재사용 401 |
 | 오류 코드(`NotificationErrorCode`)와 상황 | 정한 것(ND-052): 남의·없는·밀려난 알림은 모두 `NOTIFICATION_NOT_FOUND`(응답으로 구분할 수 없다). 그 밖은 구현 때 정함. 작성법은 [API 규칙](conventions.md) |
-| 문구 형식 | 종류별 문구는 그 종류를 소비하는 작업(N5 이후)에서 정한다(ND-050). 실제 문구는 미결 U3 |
+| 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
+
+### 2.2 이동 대상 (FE 계약, ND-074)
+
+목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5에서 쓰는 값은 아래와 같다.
+
+| `targetType` | `targetId` | 쓰는 종류(N5) |
+| --- | --- | --- |
+| `APPEARANCE_REQUEST` | 출연 요청 ID | 출연 요청 도착 |
+| `APPEARANCE_RECRUIT` | 모집글 ID | 모집 지원 도착 |
+| `CHARGE` | 충전 ID | 충전 완료 |
+| `REFUND_REQUEST` | 환불 요청 ID | 환불 완료 |
+| `EXCHANGE` | 환전 ID | 환전 거절·송금 완료·송금 실패·최종 실패 |
+| `APPEARANCE` | 출연 ID(`sourceId`, 원천이 요청이든 모집이든) | 지급 완료 |
+| `null` | `null` | 가입 환영, 승급 승인 |
 
 ## 3. 실시간 연결
 
@@ -63,3 +79,6 @@
 | 2026-11-10 | ND-055~ND-059 반영(N3 사전 결정): 연결 만료, 티켓 수치, 프레임을 보내는 때 |
 | 2026-11-10 | 연결 티켓·WebSocket 구현(#829): 티켓 응답·프레임 필드, 429·503·401, 종료 코드 4401. 자체 리뷰로 429를 공통 `TOO_MANY_REQUESTS`+`Retry-After`로 바꾸고 서버가 닫는 경우를 고쳐 적음 |
 | 2026-11-10 | ND-062~ND-064·ND-067 반영(N4 사전 결정, #847): Gateway route, WebSocket 시간 제한·heart-beat, `exp` claim, WebSocket route에 JWT 인증 없음 |
+| 2026-11-11 | ND-074·ND-075·ND-079 반영(N5 사전 결정, #859): 역할 규칙 범위, Backfill 재실행 API, 문구 형식, 2.2 이동 대상. 머리말·Gateway 행의 N4 병합 상태를 고쳤다 |
+| 2026-11-11 | ND-089 반영(#859 구현): Backfill 재실행 API의 동기 응답 필드, 409 `BACKFILL_RUNNING`, 503 `BACKFILL_FAILED` |
+| 2026-11-11 | ND-092 반영(#859 PR 리뷰): Backfill 재실행을 비동기(202·실행 ID)로 바꾸고 실행 조회 API를 더했다 |
