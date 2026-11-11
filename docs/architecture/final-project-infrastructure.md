@@ -36,8 +36,8 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | 채팅 전달 작업 | PostgreSQL outbox → Redis Streams 도입 | DB 적재 재시도, consumer group·PEL·ACK, Pub/Sub 발행 체크포인트·Redis 유실 재구성(2026-10-29 사용자 변경 결정) |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 단일 chat-app 로컬 전달, 향후 서버 간 fan-out, 접속 상태·짧은 수명 데이터 |
 | 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 검색·챗봇·알림을 담는 `auxiliary-app`을 더해 7개. auxiliary-app만 모듈 여럿을 담고 database 하나를 모듈별 schema로 나눈다(#684, #714. 처음 계획은 `notification-app`·`search-app`을 따로 둔 8개) | 서비스별 빌드·배포·장애 격리 |
-| 알림(notification) | 채팅에서 분리해 `notification-app`으로 ([8장](infrastructure/notification.md)) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
-| Elasticsearch + `search-app` | **도입 확정** ([9장](infrastructure/search.md), #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
+| 알림(notification) | 채팅에서 분리해 `auxiliary-app`의 알림 모듈(`notification`)로 ([8장](infrastructure/notification.md), #714) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
+| Elasticsearch + 검색 모듈(`search`, auxiliary-app) | **도입 확정** ([9장](infrastructure/search.md), #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
 | k3s(server 1 + agent 1) + Kustomize + Helm | 도입. 로컬·CI는 같은 manifest를 k3d로 검증. 잘 관리되는 공식·준공식 차트만 Helm으로 | 실제 서버의 Kubernetes 배포, rolling update, probe, node별 workload 분리와 자원 예산 관리 |
 | 모듈별 PostgreSQL database | 도입. instance는 1개, database만 앱별로 ([10장](infrastructure/database.md)) | database-per-bounded-context, 앱별 계정·migration·outbox |
 | API Gateway (Envoy Gateway) | 도입. edge nginx와 k3s 내장 Traefik은 쓰지 않음 | TLS 종료, 모듈별 routing, JWT 서명 검증, 내부 API 차단, trace 시작점 |
@@ -208,13 +208,13 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 2. PostgreSQL outbox relay의 XADD 적재: DB 선점·lease·claimToken·재시도·실패 격리
 3. Streams 그룹 소비·PEL 회수 → Pub/Sub → DB 발행 체크포인트 → XACK, 안전한 정리·Redis 유실 재구성
 4. 단일 앱의 수신 참여 세대·이력 대조·회원 상태 재검사와 적재/소비/ACK 장애·중복·순서·메모리 시험
-5. `notification-app`과 database, 알림 API, integration event 소비와 자연 키 멱등 처리
+5. `auxiliary-app`의 알림 모듈(`notification`)과 schema, 알림 API, integration event 소비와 자연 키 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
 
 ### Phase 5 — 검색(ES)과 고객센터 RAG
 
 1. 공개 FAQ·공지·정책 corpus와 답변 거절 기준 확정
-2. nori와 사용자 사전을 넣은 Elasticsearch image, `search-app`, 색인 이벤트 소비
+2. nori와 사용자 사전을 넣은 Elasticsearch image, `auxiliary-app`의 검색 모듈(`search`), 색인 이벤트 소비
 3. `search`와 `customersupport`의 index pattern·role/API key·alias 소유권 분리
 4. Spring AI `ElasticsearchVectorStore` ETL과 native client 기반 BM25 + dense vector + RRF retriever 구현
 5. 초기 적재, 멱등 재색인, 게시 취소 반영, alias 교체, 원본·index 수 비교 job
