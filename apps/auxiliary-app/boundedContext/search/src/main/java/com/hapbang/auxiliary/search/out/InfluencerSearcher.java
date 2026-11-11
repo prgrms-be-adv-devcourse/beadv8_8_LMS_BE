@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import com.hapbang.auxiliary.search.app.InfluencerSearchCondition;
 import com.hapbang.auxiliary.search.app.InfluencerSort;
 import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.config.SearchRankingProperties;
 
@@ -42,7 +41,6 @@ import co.elastic.clients.json.JsonData;
  * 문서를 다시 쓸 때 순서가 바뀌어 다음 페이지에 같은 사람이 또 나오거나 빠진다.
  */
 @Component
-@ConditionalOnSearchEnabled
 public class InfluencerSearcher {
 
     /** 검색어를 찾는 필드와 가중치 */

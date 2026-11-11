@@ -7,7 +7,6 @@ import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.out.SyncCursor;
@@ -39,7 +38,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 public class SearchSyncMetrics {
 
     /** 정합성 점검 결과를 지표로 내는 기간. 점검 주기(10분) 두 번이 지나도 새 결과가 없으면 낡은 값으로 보고 비운다 */

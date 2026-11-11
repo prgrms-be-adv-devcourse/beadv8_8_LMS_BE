@@ -8,7 +8,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.app.InfluencerReindexer;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchConfig;
 
 
@@ -23,7 +22,6 @@ import com.hapbang.auxiliary.search.config.SearchConfig;
  * 뜰 때 다른 스레드가 index를 만들면 다음 테스트와 겹친다.
  */
 @Component
-@ConditionalOnSearchEnabled
 @ConditionalOnBooleanProperty(name = "hapbang.search.setup-on-startup", matchIfMissing = true)
 class SearchIndexStartup {
 

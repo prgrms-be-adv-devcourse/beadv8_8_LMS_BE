@@ -38,8 +38,6 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
-
 /**
  * 검색 모듈의 회원 이벤트 소비 설정(#771). 챗봇 소비 설정({@code ChatbotKafkaConfig})을 복사했다(#771 Q5).
  * <ul>
@@ -52,10 +50,9 @@ import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
  *     <li>토픽 자동 생성은 끈다. 원본 토픽은 회원 앱이, DLT는 여기서 만든다(보존 7일).</li>
  *     <li>offset은 레코드마다 리스너가 정상 반환한 뒤(ES 쓰기 뒤) 커밋한다.</li>
  * </ul>
- * 검색 기능 스위치와 {@value #ENABLED}가 모두 켜져야 뜬다(모듈 테스트는 Kafka 테스트 밖에서 끈다).
+ * {@value #ENABLED}가 꺼지면 뜨지 않는다(기본 켜짐. Kafka가 없는 테스트가 끈다).
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnSearchEnabled
 @ConditionalOnBooleanProperty(name = SearchKafkaConfig.ENABLED, matchIfMissing = true)
 public class SearchKafkaConfig {
 

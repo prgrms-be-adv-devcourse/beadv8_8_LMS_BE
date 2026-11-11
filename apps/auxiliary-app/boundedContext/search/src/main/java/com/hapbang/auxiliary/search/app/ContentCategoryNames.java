@@ -9,7 +9,6 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.MemberStatsSource;
 import com.hapbang.shared.member.dto.ContentCategoryDto;
 
@@ -26,7 +25,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 public class ContentCategoryNames {
 
     static final Duration REFRESH_INTERVAL = Duration.ofMinutes(10);

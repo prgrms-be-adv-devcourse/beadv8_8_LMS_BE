@@ -7,7 +7,6 @@ import java.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchRankingProperties;
 import com.hapbang.auxiliary.search.out.InfluencerSearcher;
 
@@ -19,7 +18,6 @@ import com.hapbang.auxiliary.search.out.InfluencerSearcher;
  * 돌아 다른 pod에 값을 줄 수 없어서다(#771 Q8). 리뷰가 하나도 없으면 0이다(모두 0이라 순서는 팔로워가 가른다).
  */
 @Component
-@ConditionalOnSearchEnabled
 public class RatingBaseline {
 
     /** 구하지 못하면 이만큼 다시 묻지 않는다 */

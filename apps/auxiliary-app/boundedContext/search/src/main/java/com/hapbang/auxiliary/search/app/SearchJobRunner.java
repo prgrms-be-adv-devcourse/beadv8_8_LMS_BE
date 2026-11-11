@@ -5,7 +5,6 @@ import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.global.scheduling.JobLock;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 
 import lombok.RequiredArgsConstructor;
@@ -18,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 @RequiredArgsConstructor
 public class SearchJobRunner {
 
