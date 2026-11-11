@@ -173,6 +173,19 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("Tool: 관심사 문장은 글자 단위로 자른다. 100번째 글자가 이모지(char 2개)여도 반으로 갈리지 않는다")
+    void toolTruncatesInterestByCharacter() {
+        ToolCallback callback = ToolCallbacks.from(tools)[0];
+        String emoji = "🍳";
+        String interest = "요".repeat(99) + emoji + "요".repeat(10);
+
+        callback.call("{\"interest\": \"" + interest + "\"}",
+                new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
+
+        assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(99) + emoji));
+    }
+
+    @Test
     @DisplayName("설명 API: LLM이 실패하면 fallback=true이고 후보는 그대로, 이유는 정해진 문장")
     void explainedFallback() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
@@ -186,16 +199,22 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("설명 API는 회원마다 호출 수를 제한한다(넘으면 429). 위젯 API는 제한하지 않는다")
+    @DisplayName("설명 API는 회원마다 분당 10회, 위젯 API는 60회로 제한한다(넘으면 429). 두 한도는 따로 센다")
     void rateLimit() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post(BASE + "/explained").with(login(21L, Role.USER))).andExpect(status().isOk());
         }
         mockMvc.perform(post(BASE + "/explained").with(login(21L, Role.USER))).andExpect(status().isTooManyRequests());
-        for (int i = 0; i < 11; i++) {
+        // 설명 한도를 다 쓴 회원도 위젯은 부를 수 있다
+        mockMvc.perform(get(BASE).with(login(21L, Role.USER))).andExpect(status().isOk());
+
+        for (int i = 0; i < 60; i++) {
             mockMvc.perform(get(BASE).with(login(22L, Role.USER))).andExpect(status().isOk());
         }
+        mockMvc.perform(get(BASE).with(login(22L, Role.USER))).andExpect(status().isTooManyRequests());
+        // 위젯 한도를 다 쓴 회원도 설명 버튼은 부를 수 있다
+        mockMvc.perform(post(BASE + "/explained").with(login(22L, Role.USER))).andExpect(status().isOk());
     }
 
     @Test

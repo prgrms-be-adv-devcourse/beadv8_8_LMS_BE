@@ -64,6 +64,10 @@ public class InfluencerRecommendTools {
         }
         String stripped = interest.strip();
         int max = properties.interestMaxLength();
-        return stripped.length() > max ? stripped.substring(0, max) : stripped;
+        // 글자(코드 포인트) 기준으로 자른다. char 기준이면 이모지(서로게이트 쌍)가 반으로 갈려 깨진 글자가 임베딩 API로 간다
+        if (stripped.codePointCount(0, stripped.length()) <= max) {
+            return stripped;
+        }
+        return stripped.substring(0, stripped.offsetByCodePoints(0, max));
     }
 }

@@ -84,6 +84,8 @@ public class InfluencerRecommendUseCase {
         Set<Long> partners = store.completedPartners(userId);
         InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
         Map<Long, Candidate> chosen = new LinkedHashMap<>();
+        // 리뷰 사본 전체를 훑는 값이라 요청마다 한 번만 센다(유사도 후보·인기순 채우기가 같이 쓴다)
+        double overallMeanRating = store.overallMeanRating();
         boolean needsInterest = false;
         if (index.available() && embedder.available()) {
             try {
@@ -92,7 +94,7 @@ public class InfluencerRecommendUseCase {
                     // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
                     needsInterest = !hasOwnProfile(me);
                 } else {
-                    similar(userId, taste, chosen);
+                    similar(userId, taste, chosen, overallMeanRating);
                 }
                 if (searchFailing.compareAndSet(true, false)) {
                     log.info("인플루언서 추천 검색이 다시 된다");
@@ -105,7 +107,7 @@ public class InfluencerRecommendUseCase {
                 chosen.clear();
             }
         }
-        fillPopular(userId, chosen);
+        fillPopular(userId, chosen, overallMeanRating);
         Map<Long, InfluencerProfile> profiles = store.profiles(chosen.keySet());
         List<Candidate> items = new ArrayList<>();
         for (Candidate candidate : chosen.values()) {
@@ -160,7 +162,7 @@ public class InfluencerRecommendUseCase {
     }
 
     // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명
-    private void similar(long userId, Taste taste, Map<Long, Candidate> chosen) {
+    private void similar(long userId, Taste taste, Map<Long, Candidate> chosen, double overallMeanRating) {
         List<ScoredId> hits = index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(), properties.numCandidates(),
                 NOT_HIDDEN);
         Map<Long, Double> similarity = new LinkedHashMap<>();
@@ -175,7 +177,7 @@ public class InfluencerRecommendUseCase {
             return;
         }
         double beta = properties.popularityWeight();
-        List<Candidate> top = rank(store.popularityStats(similarity.keySet()), properties.size(),
+        List<Candidate> top = rank(store.popularityStats(similarity.keySet()), overallMeanRating, properties.size(),
                 (stats, normalizedPopularity) -> (1 - beta) * similarity.get(stats.memberId()) + beta * normalizedPopularity,
                 EnumSet.noneOf(InfluencerReason.class));
         List<Long> topIds = new ArrayList<>();
@@ -191,7 +193,7 @@ public class InfluencerRecommendUseCase {
     }
 
     // 모자란 자리를 인기순으로 채운다. 점수는 남은 후보 안에서 정규화한 인기다
-    private void fillPopular(long userId, Map<Long, Candidate> chosen) {
+    private void fillPopular(long userId, Map<Long, Candidate> chosen, double overallMeanRating) {
         int missing = properties.size() - chosen.size();
         if (missing <= 0) {
             return;
@@ -202,18 +204,20 @@ public class InfluencerRecommendUseCase {
                 pool.add(stats);
             }
         }
-        for (Candidate candidate : rank(pool, missing, (stats, normalizedPopularity) -> normalizedPopularity,
+        for (Candidate candidate : rank(pool, overallMeanRating, missing,
+                (stats, normalizedPopularity) -> normalizedPopularity,
                 EnumSet.of(InfluencerReason.POPULAR))) {
             chosen.put(candidate.memberId(), candidate);
         }
     }
 
     // 후보 안에서 인기를 정규화하고 점수를 매겨 위에서 limit명. 동점은 회원 ID 내림차순
-    private List<Candidate> rank(List<Stats> pool, int limit, Scorer scorer, Set<InfluencerReason> reasons) {
+    private List<Candidate> rank(List<Stats> pool, double overallMeanRating, int limit, Scorer scorer,
+            Set<InfluencerReason> reasons) {
         if (pool.isEmpty()) {
             return List.of();
         }
-        Map<Long, Double> normalized = InfluencerPopularity.normalize(popularity.rawScores(pool, store.overallMeanRating()));
+        Map<Long, Double> normalized = InfluencerPopularity.normalize(popularity.rawScores(pool, overallMeanRating));
         List<Candidate> ranked = new ArrayList<>();
         for (Stats stats : pool) {
             double score = scorer.score(stats, normalized.getOrDefault(stats.memberId(), 0.0));

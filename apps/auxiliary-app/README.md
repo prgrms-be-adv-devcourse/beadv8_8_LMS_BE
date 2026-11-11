@@ -155,16 +155,16 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 
 | 경로 | 취향 | LLM |
 |---|---|---|
-| `GET /api/v1/chatbot/recommendations/influencers` (위젯) | 내 프로필 + 함께 출연을 마친 상대들 | 없음 |
+| `GET /api/v1/chatbot/recommendations/influencers` (위젯) | 내 프로필 + 함께 출연을 마친 상대들 | 없음. 회원별 호출 제한(연타 방지) |
 | `POST /api/v1/chatbot/recommendations/influencers/explained` (챗봇 버튼) | 같음 | 후보마다 이유(`.entity()`, 후보 밖은 버림, 실패하면 이유 코드 문장). 회원별 호출 제한 |
 | Tool `recommendInfluencers(interest?)` (자유 질문 #720) | 관심사 문장이 있으면 그 문장, 없으면 위와 같음 | 대화 LLM이 설명 |
 
 - **색인**(`chatbot-influencers-<공급자>-<차원>`): 회원 사본이 바뀐 트랜잭션에 `INFLUENCER` 요청을 적고 처리기(`InfluencerIndexTaskHandler`)가 지금 사본 상태로 맞춘다. 대상은 `INFLUENCER`·`VERIFIED_INFLUENCER`. 정지·강등·탈퇴는 `hidden=true`로만 바꾸고(다시 임베딩하지 않음, 글이 비어도 지우지 않음) 복구되면 `false`(글이 바뀌었는지 봐야 해서 분야 이름 표가 필요하다. 회원 API가 죽어 있으면 살아날 때까지 숨긴 채로 둔다). 마스킹하면 문서를 지운다. 추천 가능한데 분야와 자기소개가 모두 없으면 문서를 두지 않는다(벡터 없는 문서는 두지 않는다. 인기순 후보는 DB에서 고른다). 처리기는 쓴 묶음 끝에 refresh해 다음 묶음이 방금 쓴 상태를 본다. 임베딩 글은 분야 한글 이름(회원 API, `category-names-ttl` 10분 보관, 실패하면 `category-names-retry` 30초 뒤 다시 받음, 처음 받는 중에는 색인 쪽 호출만 기다리고 화면용 호출은 코드를 그대로 보여 줌) + 이메일·전화번호를 지운 자기소개이고, ES에는 글 해시만 둔다. 해시가 같으면 다시 임베딩하지 않는다.
 - **정합 점검**(`InfluencerIndexCheckBatch`, 매시 :45, `hapbang.chatbot.recommend.influencer.check-cron`): 모든 회원 사본을 문서와 비교해 어긋난 회원의 요청을 적는다. 첫 배포 뒤 첫 점검이 처음 전체 색인이다. 연속 3번 실패하면 `[CHATBOT_INFLUENCER_CHECK_FAILED]` ERROR(실패 수는 pod 메모리, FAQ 점검과 같다). 요청만 적으므로 배치 스레드를 짧게 쓰고, 임베딩·재시도는 실행기 한 곳이 한다. 사본 행은 지우지 않으므로(탈퇴·마스킹도 행을 남긴다) 사본만 훑는다. ES에만 남은 문서는 DB를 초기화했을 때만 생기고 그때는 index를 지우고 다시 색인한다(강의 추천 점검과 같다). 추천에는 DB 재확인으로 나오지 않는다.
 - **인기 점수**: 요청할 때 사본에서 센다(색인에 넣지 않으므로 출연·리뷰가 바뀌어도 재색인이 없다). 완료 출연 수(호스트·게스트) + 리뷰 수로 보정한 평균 별점(베이지안), 원본 없음 출연·리뷰는 뺀다. 후보 안에서 0~1로 맞춘 뒤 `(1 − β)·유사도 + β·인기`.
-- **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순. 요청 회원이 숨김(`MemberVisibility`: 사본 없음·탈퇴·마스킹, #717 규칙을 강의 추천과 같이 따름)이면 빈 목록과 `notice`(정해진 안내 문구). 사본이 없는 것은 대개 가입 직후 동기화 전이다. 인기 집계는 요청마다 추천 가능 회원 전체를 센다(수천 명 규모라 캐시를 두지 않는다. 느려지면 짧은 캐시를 둔다).
-- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `userId`에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). Tool 경로도 사용 지표 `INFLUENCER_RECOMMEND`로 센다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool 결과는 카드를 그리도록 회원 ID를 담아 대화 LLM에 가고, Tool 설명이 회원 ID를 답에 쓰지 말라고 한다.
-- 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한, 설명 시간 상한, Tool 관심사 최대 길이, 분야 이름 보관·재시도 시간, 점검 실패 알림 횟수.
+- **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순. 요청 회원이 숨김(`MemberVisibility`: 사본 없음·탈퇴·마스킹, #717 규칙을 강의 추천과 같이 따름)이면 빈 목록과 `notice`(정해진 안내 문구). 사본이 없는 것은 대개 가입 직후 동기화 전이다. 인기 집계는 요청마다 추천 가능 회원 전체를 센다(강의 추천의 인기 후보 50개 같은 상한이 없다). 수천 명 규모라 캐시를 두지 않는 대신 전체 평균 별점은 요청마다 한 번만 세고, 위젯에도 회원별 호출 제한(분당 60회)을 걸어 한 회원의 연타가 앱 공용 DB 연결을 붙잡지 않게 한다. 그래도 느려지면 짧은 캐시를 둔다.
+- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `userId`에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 경로도 사용 지표 `INFLUENCER_RECOMMEND`로 센다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool 결과는 카드를 그리도록 회원 ID를 담아 대화 LLM에 가고, Tool 설명이 회원 ID를 답에 쓰지 말라고 한다.
+- 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한(설명 `rate-limit` 분당 10회, 위젯 `widget-rate-limit` 분당 60회, 따로 센다), 설명 시간 상한, Tool 관심사 최대 길이, 분야 이름 보관·재시도 시간, 점검 실패 알림 횟수.
 - LLM 설명은 후보를 순번으로 받아 코드가 회원 ID로 되돌린다. 범위 밖 순번·빈 문장·순번을 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 `fallback=true`.
 
 **지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
