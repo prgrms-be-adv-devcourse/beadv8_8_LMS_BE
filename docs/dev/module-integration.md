@@ -10,6 +10,14 @@
 - `shared`에는 DTO·이벤트·안정적인 Enum·오류 코드·공통 HTTP Client만 둔다. Java Port·엔티티·Repository·공유 업무 예외는 두지 않는다(D62, `SharedContractRulesTest`). 다른 앱이 받는 integration event만 shared에 두고, 앱 안에서만 쓰는 이벤트는 앱에 둔다.
 - 각 앱의 HTTP 요청·응답 DTO는 해당 앱의 `in/dto`·`app/dto`에 둔다.
 
+## 테스트 실행 산출물 예외
+
+같은 모노레포 안에서 `lecture-app`·`coupon`의 `Test` task가 `:billing-app:e2eServerJar`를 `dependsOn`으로 빌드하고 JAR를 파일 입력으로 받는 것은 테스트 실행 산출물 의존의 명시적 예외다. billing은 별도 JVM과 격리 DB에서 실행하며 소비자는 HTTP로 호출한다. 이 예외는 소비자의 Java 클래스패스에 billing 구현을 넣거나 다른 앱의 엔티티·Repository·DB를 공유하도록 허용하지 않는다. 실행 방법과 하네스 경계는 [테스트 문서](testing.md#강의billing-http-통합-테스트)를 따른다.
+
+루트 `build.gradle.kts`의 `verifyModuleStructure`는 각 프로젝트의 `compileClasspath`·`runtimeClasspath` 해석 결과에서 전이 의존을 포함한 Gradle 프로젝트 컴포넌트를 검사해 다른 실행 앱에 대한 의존을 막는다. `testCompileClasspath`·`testRuntimeClasspath`와 task의 `dependsOn`·파일 입력은 검사하지 않는다. 따라서 이 검사의 통과는 위 테스트 산출물 예외나 테스트 클래스패스 경계까지 자동으로 검증했다는 뜻이 아니다.
+
+레포를 분리할 때는 현재 모노레포 task 연결을 그대로 사용할 수 없다. billing이 발행한 E2E 실행 JAR 아티팩트를 소비자 테스트 환경에서 받아 하네스에 전달하도록 빌드를 변경해야 한다. 현재 구현은 같은 저장소의 빌드 산출물을 사용하며, 외부 아티팩트 취득·연결은 레포 분리 시 필요한 작업이다.
+
 ## 기존 프로세스 내부 포트
 
 모듈 간 Java Port는 없다. 강의·출연은 billing 내부 HTTP(#274~#277)로 바꿨고, `LectureObjectionPort`는 #433, shared `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다. 고객센터 ↔ 강의 이의 제기는 내부 HTTP(접수)와 Kafka 이벤트(판단·철회·결과)다(#278·#279). shared에 Java Port를 두지 않는다(`SharedContractRulesTest`). 다른 앱의 구현을 Gradle 의존으로 끌어오거나(`verifyModuleStructure`가 compileClasspath·runtimeClasspath를 검사) 운영용 Fake를 등록하지 않는다.

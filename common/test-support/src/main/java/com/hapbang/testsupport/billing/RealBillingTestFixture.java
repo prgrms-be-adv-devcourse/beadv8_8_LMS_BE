@@ -9,6 +9,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Predicate;
 
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
@@ -19,7 +20,7 @@ import com.hapbang.shared.billing.out.BillingApiClient;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 /** 실제 billing의 테스트 데이터·관측·통신 장애만 관리한다. 금융 결과는 서버가 만든다. */
-public final class RealBillingTestFixture {
+public final class RealBillingTestFixture implements DisposableBean {
     private static final ParameterizedTypeReference<Map<String, Object>> JSON = new ParameterizedTypeReference<>() { };
     private final RealBillingServer server;
     private final BillingTransport transport;
@@ -33,12 +34,15 @@ public final class RealBillingTestFixture {
         this.server = server;
         transport = new BillingTransport(server.baseUrl());
         setup = RestClient.builder().baseUrl(server.baseUrl())
-                .defaultHeader("X-Billing-E2e-Key", "test-billing-e2e-key").build();
+                .defaultHeader("X-Billing-E2e-Key", server.fixtureKey()).build();
     }
 
     public String baseUrl() { return transport.baseUrl(); }
     public String directBaseUrl() { return server.baseUrl(); }
+    public String fixtureKey() { return server.fixtureKey(); }
     public BillingApiClient client() { return client; }
+    @Override
+    public void destroy() { transport.close(); }
     void attach(BillingApiClient proxy, BillingApiClient target) { this.client = proxy; this.target = target; }
 
     public void reset() {

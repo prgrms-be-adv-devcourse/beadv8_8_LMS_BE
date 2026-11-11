@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -11,11 +12,14 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /** 다른 앱의 클래스패스를 섞지 않고 실제 billing을 전용 DB·JVM에서 실행한다. */
 final class RealBillingServer implements AutoCloseable {
+    private static final String FIXTURE_KEY = UUID.randomUUID().toString();
     private static RealBillingServer instance;
+    private static volatile boolean keepLogs;
     private final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18")
             .withDatabaseName("billing_e2e");
     private Process process;
     private String baseUrl;
+    private Path directory;
 
     static synchronized RealBillingServer get() {
         if (instance == null) {
@@ -25,6 +29,7 @@ final class RealBillingServer implements AutoCloseable {
                 instance = server;
                 Runtime.getRuntime().addShutdownHook(new Thread(server::close, "billing-e2e-cleanup"));
             } catch (Exception failure) {
+                markTestFailed();
                 server.close();
                 throw new IllegalStateException("실제 billing E2E 서버 기동 실패", failure);
             }
@@ -33,13 +38,16 @@ final class RealBillingServer implements AutoCloseable {
     }
 
     String baseUrl() { return baseUrl; }
+    String fixtureKey() { return FIXTURE_KEY; }
+
+    static void markTestFailed() { keepLogs = true; }
 
     private void start() throws IOException, InterruptedException {
         String jar = System.getProperty("hapbang.billing.e2e.jar");
         if (jar == null || !Files.isRegularFile(Path.of(jar)))
             throw new IllegalStateException("billing e2eServerJar 산출물 경로가 필요합니다: " + jar);
         postgres.start();
-        Path directory = Files.createTempDirectory("hapbang-billing-e2e-");
+        directory = Files.createTempDirectory("hapbang-billing-e2e-");
         Path ready = directory.resolve("ready.json");
         Path log = directory.resolve("billing.log");
         process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
@@ -50,7 +58,7 @@ final class RealBillingServer implements AutoCloseable {
                 "--spring.datasource.username=" + postgres.getUsername(),
                 "--spring.datasource.password=" + postgres.getPassword(),
                 "--hapbang.internal-api.key=test-internal-api-key",
-                "--hapbang.e2e.key=test-billing-e2e-key", "--hapbang.e2e.ready-file=" + ready)
+                "--hapbang.e2e.key=" + fixtureKey(), "--hapbang.e2e.ready-file=" + ready)
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
         long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
         Pattern port = Pattern.compile("\"port\"\\s*:\\s*(\\d+)");
@@ -80,5 +88,14 @@ final class RealBillingServer implements AutoCloseable {
             }
         }
         postgres.stop();
+        if (!keepLogs && directory != null) {
+            try {
+                Files.deleteIfExists(directory.resolve("ready.json"));
+                Files.deleteIfExists(directory.resolve("billing.log"));
+                Files.deleteIfExists(directory);
+            } catch (IOException ignored) {
+                // 종료 정리 실패로 원래 테스트 결과를 덮지 않는다.
+            }
+        }
     }
 }

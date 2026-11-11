@@ -5,7 +5,7 @@
 - 앱: `:member-app`, `:billing-app`, `:appearance-app`, `:lecture-app`, `:chat-app`, `:customer-support-app`.
 - 공통 라이브러리: `:shared`, `:test-support`, `:kafka`, `:redis`.
 - `./gradlew check`는 활성 테스트를 실행하며 Testcontainers를 사용하는 테스트는 Docker가 필요하다.
-- `./gradlew verifyModuleStructure`는 앱 간 실행 의존과 common → 앱 의존을 막고 필수 실행 파일을 검사한다.
+- `./gradlew verifyModuleStructure`는 각 프로젝트의 `compileClasspath`·`runtimeClasspath`에서 해석된 Gradle 프로젝트 의존과 필수 실행 파일을 검사한다. 테스트 클래스패스와 task 산출물 의존(`dependsOn`·파일 입력)은 검사하지 않는다.
 - 앱별 검증: `./gradlew :member-app:check :member-app:bootJar`.
 - 실제 실행 여부는 `apps/<앱>/build/test-results/test/TEST-*.xml`로 확인한다. up-to-date로 생략된 테스트를 새 실행으로 보고하지 않는다.
 
@@ -20,6 +20,10 @@
 ## 강의·billing HTTP 통합 테스트
 
 강의 앱의 Spring 통합 테스트는 `RealBillingTestFixture`로 실제 billing 서버에 연결한다. `:lecture-app:test`가 먼저 `:billing-app:e2eServerJar`를 만들고, 공통 하네스가 테스트 JVM당 billing 프로세스와 전용 PostgreSQL 컨테이너(database `billing_e2e`)를 한 번 시작한다. 강의 DB와 billing DB는 분리하며, 강의 테스트 클래스패스에 billing 앱·엔티티·Repository를 추가하지 않는다. HTTP Client 자체의 응답 해석 단위 테스트와는 검증 범위가 다르다.
+
+`lecture-app`·`coupon`의 `Test` task가 `:billing-app:e2eServerJar`에 의존하고 JAR를 파일 입력으로 받는 것은 **같은 모노레포 안에서 테스트 실행 산출물을 빌드하는 명시적 예외**다. Java 클래스패스에 billing 구현을 추가하거나 엔티티·Repository·DB를 공유하는 예외가 아니다. 이 task 의존은 `verifyModuleStructure`의 검사 대상에 포함되지 않으므로, 검사 통과를 테스트 산출물 의존까지 검증한 결과로 해석하지 않는다. 경계 규칙은 [모듈 연동 문서](module-integration.md#테스트-실행-산출물-예외)를 따른다.
+
+레포를 분리하면 현재의 모노레포 task 연결과 `apps/billing-app/build/libs/billing-e2e-server.jar` 경로를 그대로 사용할 수 없다. billing이 발행한 E2E 실행 JAR를 아티팩트로 받아 소비자 테스트 하네스의 `hapbang.billing.e2e.jar`에 전달하도록 빌드를 변경해야 한다. 이는 레포 분리 시 필요한 변경 사항이며, 현재 Gradle 설정은 같은 저장소에서 만든 JAR 경로를 사용한다.
 
 - 실행은 `./gradlew :lecture-app:test :coupon:test`로 한다. 두 프로젝트의 테스트는 billing E2E Jar를 빌드 의존과 파일 입력으로 등록하므로 서버 코드·설정이 바뀌면 다시 실행한다. 다른 앱에도 실제 billing을 연결할 때는 같은 연결이 필요하다. PR CI는 billing 변경 시 실제 소비자인 lecture-app 검사도 포함한다.
 - 서버는 `apps/billing-app/src/e2eServer`만 fixture로 더한 실제 `BillingApplication`이다. 일반 billing 테스트 클래스는 포함하지 않고, 운영 `app.jar`에는 fixture를 포함하지 않는다. 독립 `billing-e2e.yml`·`e2e` 프로필로 실행해 로컬 `.env`·운영 앱 설정을 읽지 않는다. Flyway 마이그레이션과 JPA 검증은 실제 DB에 적용한다.

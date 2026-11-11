@@ -140,7 +140,7 @@ class LectureTracingTest {
         assertThat(http.getTraceId()).isEqualTo(parent.getTraceId());
         assertThat(http.getParentSpanId()).isEqualTo(parent.getSpanId());
         Map<?, ?> received = RestClient.create(billing.directBaseUrl()).get().uri("/__test/billing/requests/last")
-                .header("X-Billing-E2e-Key", "test-billing-e2e-key").retrieve().body(Map.class);
+                .header("X-Billing-E2e-Key", billing.fixtureKey()).retrieve().body(Map.class);
         assertThat(received).isNotNull();
         assertThat(((Number) received.get("count")).longValue()).isEqualTo(1);
         assertThat(received.get("method")).isEqualTo("POST");

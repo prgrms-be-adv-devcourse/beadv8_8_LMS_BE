@@ -6,6 +6,7 @@ import java.util.Set;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.support.DefaultSingletonBeanRegistry;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -36,6 +37,8 @@ public class RealBillingContextCustomizerFactory implements ContextCustomizerFac
             TestPropertyValues.of("hapbang.clients.billing.base-url=" + fixture.baseUrl(),
                     "hapbang.internal-api.key=test-internal-api-key").applyTo(context.getEnvironment());
             context.getBeanFactory().registerSingleton("realBillingTestFixture", fixture);
+            ((DefaultSingletonBeanRegistry) context.getBeanFactory())
+                    .registerDisposableBean("realBillingTestFixture", fixture);
             context.getBeanFactory().addBeanPostProcessor(new BeanPostProcessor() {
                 @Override
                 public Object postProcessAfterInitialization(Object bean, String name) {

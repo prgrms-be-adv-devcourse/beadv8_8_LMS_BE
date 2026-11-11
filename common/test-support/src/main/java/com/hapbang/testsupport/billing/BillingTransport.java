@@ -11,36 +11,39 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 /** 실제 서버로 전달한다. 장애 주입은 연결/응답 전달만 끊고 업무 응답을 생성하지 않는다. */
-final class BillingTransport {
+final class BillingTransport implements AutoCloseable {
     private static final Set<String> HOP_HEADERS = Set.of("host", "connection", "content-length", "transfer-encoding",
             "upgrade", "http2-settings", "expect");
     private HttpServer proxy;
+    private ExecutorService executor;
     private final int port;
     private final String target;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final AtomicInteger drops = new AtomicInteger();
     private final List<ResponseGate> gates = new ArrayList<>();
     private volatile boolean disconnected;
+    private boolean closed;
 
     BillingTransport(String target) {
         this.target = target;
         try {
             proxy = startServer(0);
             port = proxy.getAddress().getPort();
-            Runtime.getRuntime().addShutdownHook(new Thread(this::disconnect, "billing-proxy-cleanup"));
         } catch (IOException failure) { throw new IllegalStateException(failure); }
     }
 
     private HttpServer startServer(int port) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         server.createContext("/", this::forward);
-        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        executor = Executors.newVirtualThreadPerTaskExecutor();
+        server.setExecutor(executor);
         server.start();
         return server;
     }
@@ -49,8 +52,10 @@ final class BillingTransport {
     synchronized void disconnect() {
         disconnected = true;
         if (proxy != null) { proxy.stop(0); proxy = null; }
+        if (executor != null) { executor.shutdownNow(); executor = null; }
     }
     synchronized void reconnect() {
+        if (closed) throw new IllegalStateException("종료된 지갑 통신 프록시는 다시 열 수 없습니다.");
         if (proxy == null) {
             try { proxy = startServer(port); }
             catch (IOException failure) { throw new IllegalStateException("지갑 통신 복구 실패", failure); }
@@ -60,6 +65,14 @@ final class BillingTransport {
     void dropResponses(int count) { drops.set(count); }
     synchronized void afterNextResponse(String suffix, Runnable action) { gates.add(new ResponseGate(suffix, action)); }
     synchronized void reset() { reconnect(); drops.set(0); gates.clear(); }
+
+    @Override
+    public synchronized void close() {
+        if (closed) return;
+        closed = true;
+        disconnect();
+        gates.clear();
+    }
 
     private synchronized Runnable takeGate(String path) {
         for (int i = 0; i < gates.size(); i++) {
@@ -84,16 +97,12 @@ final class BillingTransport {
             Runnable gate = takeGate(exchange.getRequestURI().getPath());
             if (gate != null) gate.run();
             boolean drop = drops.getAndUpdate(value -> Math.max(0, value - 1)) > 0;
+            if (drop) return;
             response.headers().map().forEach((key, values) -> {
                 if (!HOP_HEADERS.contains(key.toLowerCase(java.util.Locale.ROOT)))
                     exchange.getResponseHeaders().put(key, values);
             });
             exchange.sendResponseHeaders(response.statusCode(), response.body().length == 0 ? -1 : response.body().length);
-            if (drop) {
-                if (response.body().length > 1)
-                    exchange.getResponseBody().write(response.body(), 0, response.body().length / 2);
-                return;
-            }
             if (response.body().length > 0) exchange.getResponseBody().write(response.body());
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();

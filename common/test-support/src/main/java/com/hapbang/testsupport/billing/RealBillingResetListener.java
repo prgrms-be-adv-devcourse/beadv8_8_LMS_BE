@@ -13,4 +13,9 @@ public class RealBillingResetListener extends AbstractTestExecutionListener {
         var fixtures = context.getApplicationContext().getBeansOfType(RealBillingTestFixture.class);
         fixtures.values().forEach(RealBillingTestFixture::reset);
     }
+
+    @Override
+    public void afterTestMethod(TestContext context) {
+        if (context.getTestException() != null) RealBillingServer.markTestFailed();
+    }
 }

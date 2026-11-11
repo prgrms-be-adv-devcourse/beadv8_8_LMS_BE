@@ -1,5 +1,6 @@
 # production app.jar에 포함되지 않는 별도 JVM HTTP E2E 설정.
 # datasource URL/username/password와 임시 내부 API 키는 호출한 하네스가 전달한다.
+# hapbang.e2e.key도 하네스가 매 JVM마다 생성해 전달하는 필수 속성이다.
 spring:
   application:
     name: billing-e2e-server
@@ -61,8 +62,6 @@ management:
 hapbang:
   scheduling:
     enabled: false
-  e2e:
-    key: test-billing-e2e-key
   billing:
     # 강의 대사 E2E는 생성·반환 직후 실제 목록을 읽는다. 운영 기본 10s는 유지하며
     # 확정 대기 시간의 제외·노출 규칙은 billing의 HoldQueryApiTest에서 검증한다.
