@@ -1,6 +1,6 @@
 package com.hapbang.billing.domain;
 
-// 원장 항목의 발생 사유를 충전·보류·반환·지급·환불·환전·환전 수수료·역분개와 프로모션 지갑의 충전·회수·예산 예약·예산 해제로 구분한다.
+// 원장 항목의 발생 사유를 충전·보류·반환·지급·환불·환전·환전 수수료·역분개와 프로모션 지갑의 충전·회수·예산 예약·예산 해제·프로모션 보류·프로모션 복구로 구분한다.
 public enum LedgerTransactionType {
     /** 충전. 충전 HP 가용 잔액이 는다 */
     CHARGE,
@@ -25,5 +25,9 @@ public enum LedgerTransactionType {
     /** 예산 예약. 쿠폰 하나의 예산으로 프로모션 HP를 가용 → 예약으로 옮긴다 */
     BUDGET_RESERVE,
     /** 예산 해제. 쓰지 않은 쿠폰 예산을 프로모션 HP 예약 → 가용으로 되돌린다 */
-    BUDGET_RELEASE
+    BUDGET_RELEASE,
+    /** 프로모션 보류. 주문 항목의 플랫폼 몫을 쿠폰 예산에서 프로모션 HP 예약 → 보류로 옮긴다 */
+    PROMOTION_HOLD,
+    /** 프로모션 복구. 반환한 주문 항목의 플랫폼 몫을 프로모션 HP 보류 → 예약(같은 쿠폰 예산)으로 되돌린다 */
+    PROMOTION_RESTORE
 }

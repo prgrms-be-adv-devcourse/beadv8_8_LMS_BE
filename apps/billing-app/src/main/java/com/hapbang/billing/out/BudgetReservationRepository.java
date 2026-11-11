@@ -28,6 +28,11 @@ public interface BudgetReservationRepository extends Repository<BudgetReservatio
     // 예약 작업 ID의 예약을 조회한다(같은 작업의 재요청 확인).
     Optional<BudgetReservation> findByWorkId(String workId);
 
+    // 주문 항목 보류로 남은 예산을 바꾸기 위해 쿠폰의 예약을 쓰기 락으로 조회한다. 관련 지갑 락 다음에 쿠폰 ID 오름차순으로 잡는다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from BudgetReservation r where r.couponId = :couponId")
+    Optional<BudgetReservation> findByCouponIdForUpdate(@Param("couponId") Long couponId);
+
     // 지갑의 예약 전부(프로모션 지갑 대사)
     List<BudgetReservation> findAllByWalletId(Long walletId);
 

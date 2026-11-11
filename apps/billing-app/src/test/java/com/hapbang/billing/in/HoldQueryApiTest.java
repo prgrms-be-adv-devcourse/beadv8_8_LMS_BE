@@ -26,9 +26,14 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
+import com.hapbang.billing.app.BudgetReserveCommand;
+import com.hapbang.billing.app.PromotionBudgetUseCase;
+import com.hapbang.billing.app.PromotionFundingCommand;
+import com.hapbang.billing.app.PromotionFundingUseCase;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
+import com.hapbang.billing.domain.PromotionFundingSourceType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -58,6 +63,12 @@ class HoldQueryApiTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    PromotionFundingUseCase promotionFundingUseCase;
+
+    @Autowired
+    PromotionBudgetUseCase promotionBudgetUseCase;
 
     private final AtomicInteger sequence = new AtomicInteger();
 
@@ -149,6 +160,115 @@ class HoldQueryApiTest {
                 .andExpect(jsonPath("$.data[0].hold.released.revenueHp").value(6_000))
                 .andExpect(jsonPath("$.data[0].voided.outcome").value("RELEASED"))
                 .andExpect(jsonPath("$.data[0].voided.releasedHp").value(10_000));
+    }
+
+    @Test
+    @DisplayName("프로모션 보류 조회는 쿠폰 순서·예약 ID·재원별 합계를 주고 구매자 0원 앵커도 HELD로 조회한다")
+    void queryPromotionHoldsAndAnchor() throws Exception {
+        String reservation42 = promotionBudget(42L, 10_000L);
+        String reservation43 = promotionBudget(43L, 10_000L);
+        call("/holds", promotionHold(31L, 8_000L, promotion(43L, 902L, 1L, 300L),
+                promotion(42L, 901L, 2L, 700L))).andExpect(status().isOk());
+        call("/holds", promotionHold(32L, 0L, promotion(42L, 903L, 0L, 500L)))
+                .andExpect(status().isOk());
+
+        queryLecture(List.of(31L, 32L, 99L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].hold.original.totalHp").value(8_000))
+                .andExpect(jsonPath("$.data[0].hold.remaining.totalHp").value(8_000))
+                .andExpect(jsonPath("$.data[0].promotions[*].couponId").value(Matchers.contains(42, 43)))
+                .andExpect(jsonPath("$.data[0].promotions[0].memberCouponId").value(901))
+                .andExpect(jsonPath("$.data[0].promotions[0].generation").value(2))
+                .andExpect(jsonPath("$.data[0].promotions[0].reservationId").value(reservation42))
+                .andExpect(jsonPath("$.data[0].promotions[0].amountHp").value(700))
+                .andExpect(jsonPath("$.data[0].promotions[0].status").value("HELD"))
+                .andExpect(jsonPath("$.data[0].promotions[1].reservationId").value(reservation43))
+                .andExpect(jsonPath("$.data[0].promotion.held").value(1_000))
+                .andExpect(jsonPath("$.data[0].promotion.paid").value(0))
+                .andExpect(jsonPath("$.data[0].promotion.restored").value(0))
+                .andExpect(jsonPath("$.data[1].hold.status").value("HELD"))
+                .andExpect(jsonPath("$.data[1].hold.original.totalHp").value(0))
+                .andExpect(jsonPath("$.data[1].hold.remaining.totalHp").value(0))
+                .andExpect(jsonPath("$.data[1].promotion.held").value(500))
+                .andExpect(jsonPath("$.data[2].hold").value(Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[2].promotions").doesNotExist())
+                .andExpect(jsonPath("$.data[2].promotion").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("지급·반환·0원 앵커 무효화 뒤 조회는 프로모션 최종 상태와 판매자 지급의 구매자·플랫폼 몫을 분리한다")
+    void queryCompletedPromotionActions() throws Exception {
+        promotionBudget(42L, 10_000L);
+        call("/holds", promotionHold(31L, 8_000L, promotion(42L, 901L, 2L, 1_000L)))
+                .andExpect(status().isOk());
+        call("/holds", promotionHold(32L, 2_000L, promotion(42L, 902L, 0L, 500L)))
+                .andExpect(status().isOk());
+        call("/holds", promotionHold(33L, 0L, promotion(42L, 903L, 0L, 500L)))
+                .andExpect(status().isOk());
+        call("/payouts", lecturePayout(31L, "P31")).andExpect(status().isOk());
+        call("/releases", release(HOST, 32L, "R32", null)
+                .replace("APPEARANCE_REQUEST", "LECTURE_ORDER_ITEM")).andExpect(status().isOk());
+        call("/hold-voids", holdVoid(HOST, 33L).replace("APPEARANCE_REQUEST", "LECTURE_ORDER_ITEM"))
+                .andExpect(status().isOk());
+
+        queryLecture(List.of(31L, 32L, 33L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].hold.status").value("PAID"))
+                .andExpect(jsonPath("$.data[0].hold.paid.totalHp").value(8_000))
+                .andExpect(jsonPath("$.data[0].promotions[0].status").value("PAID"))
+                .andExpect(jsonPath("$.data[0].promotion.held").value(0))
+                .andExpect(jsonPath("$.data[0].promotion.paid").value(1_000))
+                .andExpect(jsonPath("$.data[0].promotion.restored").value(0))
+                .andExpect(jsonPath("$.data[0].settlements.length()").value(1))
+                .andExpect(jsonPath("$.data[0].settlements[0].grossAmountHp").value(9_000))
+                .andExpect(jsonPath("$.data[0].settlements[0].paidAmountHp").value(9_000))
+                .andExpect(jsonPath("$.data[0].settlements[0].buyerPaidHp").value(8_000))
+                .andExpect(jsonPath("$.data[0].settlements[0].promotionPaidHp").value(1_000))
+                .andExpect(jsonPath("$.data[1].hold.status").value("RELEASED"))
+                .andExpect(jsonPath("$.data[1].hold.released.totalHp").value(2_000))
+                .andExpect(jsonPath("$.data[1].promotions[0].status").value("RESTORED"))
+                .andExpect(jsonPath("$.data[1].promotion.held").value(0))
+                .andExpect(jsonPath("$.data[1].promotion.paid").value(0))
+                .andExpect(jsonPath("$.data[1].promotion.restored").value(500))
+                .andExpect(jsonPath("$.data[1].settlements").isEmpty())
+                .andExpect(jsonPath("$.data[2].hold.status").value("RELEASED"))
+                .andExpect(jsonPath("$.data[2].hold.released.totalHp").value(0))
+                .andExpect(jsonPath("$.data[2].promotions[0].status").value("RESTORED"))
+                .andExpect(jsonPath("$.data[2].promotion.restored").value(500))
+                .andExpect(jsonPath("$.data[2].voided.outcome").value("RELEASED"))
+                .andExpect(jsonPath("$.data[2].voided.releasedHp").value(0));
+    }
+
+    @Test
+    @DisplayName("변경 목록도 0원 앵커의 프로모션 보류·지급·복구를 마지막 변경 순서대로 조회한다")
+    void listPromotionHoldsAndCompletedActions() throws Exception {
+        String reservationId = promotionBudget(42L, 10_000L);
+        call("/holds", promotionHold(31L, 0L, promotion(42L, 901L, 2L, 1_000L)))
+                .andExpect(status().isOk());
+        call("/holds", promotionHold(32L, 0L, promotion(42L, 902L, 0L, 500L)))
+                .andExpect(status().isOk());
+        call("/holds", promotionHold(33L, 0L, promotion(42L, 903L, 0L, 500L)))
+                .andExpect(status().isOk());
+        call("/payouts", lecturePayout(32L, "P32")).andExpect(status().isOk());
+        call("/releases", release(HOST, 33L, "R33", null)
+                .replace("APPEARANCE_REQUEST", "LECTURE_ORDER_ITEM")).andExpect(status().isOk());
+        changedMinutesAgo(BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 5);
+        changedMinutesAgo(BillingReferenceType.LECTURE_ORDER_ITEM, 32L, 4);
+        changedMinutesAgo(BillingReferenceType.LECTURE_ORDER_ITEM, 33L, 3);
+
+        list("LECTURE_ORDER_ITEM", Instant.EPOCH.toString(), 0L, 100)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(31, 32, 33)))
+                .andExpect(jsonPath("$.data.items[0].promotions[0].reservationId").value(reservationId))
+                .andExpect(jsonPath("$.data.items[0].hold.status").value("HELD"))
+                .andExpect(jsonPath("$.data.items[0].promotion.held").value(1_000))
+                .andExpect(jsonPath("$.data.items[1].hold.status").value("PAID"))
+                .andExpect(jsonPath("$.data.items[1].hold.paid.totalHp").value(0))
+                .andExpect(jsonPath("$.data.items[1].promotion.paid").value(500))
+                .andExpect(jsonPath("$.data.items[1].settlements[0].buyerPaidHp").value(0))
+                .andExpect(jsonPath("$.data.items[1].settlements[0].promotionPaidHp").value(500))
+                .andExpect(jsonPath("$.data.items[2].hold.status").value("RELEASED"))
+                .andExpect(jsonPath("$.data.items[2].promotion.restored").value(500));
     }
 
     @Test
@@ -275,6 +395,36 @@ class HoldQueryApiTest {
     private ResultActions query(List<Long> ids) throws Exception {
         return call("/holds/query", "{\"referenceType\":\"APPEARANCE_REQUEST\",\"referenceIds\":"
                 + ids.stream().map(String::valueOf).collect(Collectors.joining(",", "[", "]")) + "}");
+    }
+
+    private ResultActions queryLecture(List<Long> ids) throws Exception {
+        return call("/holds/query", "{\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceIds\":"
+                + ids.stream().map(String::valueOf).collect(Collectors.joining(",", "[", "]")) + "}");
+    }
+
+    private String promotionBudget(long couponId, long amountHp) {
+        promotionFundingUseCase.fund(900L, new PromotionFundingCommand("PF-" + couponId, amountHp,
+                PromotionFundingSourceType.ADMIN_GRANT, "결재-" + couponId, null));
+        return "PB-" + promotionBudgetUseCase.reserve(new BudgetReserveCommand("coupon-" + couponId + "-reserve-v1",
+                couponId, 1, amountHp)).reservationId();
+    }
+
+    private static String promotion(long couponId, long memberCouponId, long generation, long amountHp) {
+        return "{\"couponId\":%d,\"memberCouponId\":%d,\"generation\":%d,\"amountHp\":%d}".formatted(couponId,
+                memberCouponId, generation, amountHp);
+    }
+
+    private static String promotionHold(long referenceId, long buyerHp, String... promotions) {
+        return """
+                {"userId":%d,"referenceType":"LECTURE_ORDER_ITEM","referenceId":%d,"amountHp":%d,
+                 "promotions":[%s]}""".formatted(HOST, referenceId, buyerHp, String.join(",", promotions));
+    }
+
+    private static String lecturePayout(long referenceId, String requestId) {
+        return """
+                {"payerUserId":%d,"referenceType":"LECTURE_ORDER_ITEM","referenceId":%d,"payoutRequestId":"%s",
+                 "receiverUserId":%d,"sourceType":"LECTURE_ORDER_ITEM","sourceId":%d,"amountHp":null}"""
+                .formatted(HOST, referenceId, requestId, GUEST, referenceId);
     }
 
     private ResultActions list(String referenceType, String updatedAfter, long afterId, int size) throws Exception {

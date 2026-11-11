@@ -29,6 +29,11 @@ final class BillingKeys {
     static final String PROMOTION_WITHDRAW_PREFIX = "PROMOTION_WITHDRAW";
     static final String BUDGET_RESERVE_PREFIX = "BUDGET_RESERVE";
     static final String BUDGET_RELEASE_PREFIX = "BUDGET_RELEASE";
+    static final String PROMOTION_HOLD_PREFIX = "PROMOTION_HOLD";
+
+    static String promotionRestore(Long promotionHoldId) {
+        return "PROMOTION_RESTORE:" + promotionHoldId;
+    }
 
     private BillingKeys() {
     }
@@ -135,6 +140,11 @@ final class BillingKeys {
     // 쿠폰 예산 해제의 원장 작업 키 BUDGET_RELEASE:{해제 기록 ID}. 해제 기록은 해제 작업 ID당 한 건이다.
     static String budgetRelease(Long budgetReleaseId) {
         return BUDGET_RELEASE_PREFIX + ":" + budgetReleaseId;
+    }
+
+    // 프로모션 보류의 원장 작업 키 PROMOTION_HOLD:{프로모션 보류 ID}. 프로모션 보류는 보류 × 쿠폰당 한 건이다.
+    static String promotionHold(Long promotionHoldId) {
+        return PROMOTION_HOLD_PREFIX + ":" + promotionHoldId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

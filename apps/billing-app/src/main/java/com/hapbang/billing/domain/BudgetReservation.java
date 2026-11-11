@@ -99,6 +99,39 @@ public class BudgetReservation extends BillingUpdatedEntity {
         releasedHp += amountHp;
     }
 
+    // 주문 항목 보류의 플랫폼 몫을 남은 예산에서 보류 중으로 옮긴다(남은 예산 −, 보류 중 +). 금액 0 이하는 INVALID_POINT_AMOUNT,
+    // 남은 예산보다 많으면 PROMOTION_BUDGET_INSUFFICIENT이고 예약을 바꾸지 않는다. 호출하는 쪽은 예약을 잠근 뒤 부른다.
+    public void hold(long amountHp) {
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (amountHp > remainingHp) {
+            throw new BillingException(BillingErrorCode.PROMOTION_BUDGET_INSUFFICIENT);
+        }
+        remainingHp -= amountHp;
+        heldHp += amountHp;
+    }
+
+    // 보류한 플랫폼 몫을 판매자에게 지급한다. 지갑·예약 락 아래에서 호출한다.
+    public void pay(long amountHp) {
+        requireHeldAmount(amountHp);
+        heldHp -= amountHp;
+        paidHp = Math.addExact(paidHp, amountHp);
+    }
+
+    // 보류한 플랫폼 몫을 같은 예약의 남은 예산으로 되돌린다.
+    public void restore(long amountHp) {
+        requireHeldAmount(amountHp);
+        heldHp -= amountHp;
+        remainingHp = Math.addExact(remainingHp, amountHp);
+    }
+
+    private void requireHeldAmount(long amountHp) {
+        if (amountHp <= 0 || amountHp > heldHp) {
+            throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        }
+    }
+
     // 예약 총액이 남은 예산 + 보류 중 + 지급됨 + 해제됨과 같은지 확인한다(DB CHECK와 같은 규칙).
     public boolean isBalanced() {
         return amountHp == Math.addExact(Math.addExact(remainingHp, heldHp), Math.addExact(paidHp, releasedHp));

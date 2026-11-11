@@ -43,7 +43,9 @@ public interface ApiV1BillingInternalSpec {
     @Operation(summary = "HP 보류",
             description = "결제 회원(userId)의 HP를 참조 대상 하나에 보류한다. 수익 HP를 먼저 쓰고 부족분은 오래된 충전 건부터(FIFO) 쓴다. "
                     + "멱등 키는 참조 대상(referenceType + referenceId)이며 참조 대상당 보류 1건이다. 같은 내용 재요청은 replayed=true. "
-                    + "오류: 지갑 없음 404 WALLET_NOT_FOUND, 잔액 부족 409 INSUFFICIENT_BALANCE, 금액 0 이하 400 INVALID_POINT_AMOUNT."
+                    + "오류: 지갑 없음 404 WALLET_NOT_FOUND, 잔액 부족 409 INSUFFICIENT_BALANCE, 구매자 금액 음수 또는 프로모션 없는 0원 400 INVALID_POINT_AMOUNT. "
+                    + "강의 주문 항목은 promotions로 쿠폰 예산도 함께 보류한다. 구매자 0원·플랫폼 양수는 허용한다. "
+                    + "예약 없음 404 BUDGET_RESERVATION_NOT_FOUND, 예약 잔액 부족 409 PROMOTION_BUDGET_INSUFFICIENT."
                     + COMMON_ERRORS)
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)
@@ -53,7 +55,8 @@ public interface ApiV1BillingInternalSpec {
             description = "참조 대상 보류의 남은 HP 일부(amountHp) 또는 전부(amountHp 생략)를 결제 회원에게 반환한다. "
                     + "멱등 키는 보류 하나 안의 releaseRequestId다. 같은 내용 재요청은 replayed=true. "
                     + "오류: 보류 없음 404 HOLD_NOT_FOUND, 다른 회원의 보류 409 HOLD_OWNER_MISMATCH, 남은 보류 없음 409 HOLD_ALREADY_CLOSED, "
-                    + "남은 보류 초과 409 RELEASE_AMOUNT_EXCEEDS_HELD." + COMMON_ERRORS)
+                    + "남은 보류 초과 409 RELEASE_AMOUNT_EXCEEDS_HELD. "
+                    + "플랫폼 몫은 같은 쿠폰 예약으로 복구하며 프로모션 보류의 부분 반환은 409 PROMOTION_PARTIAL_NOT_SUPPORTED." + COMMON_ERRORS)
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)
     RsData<ReleaseResultDto> release(ReleaseCommand command);
@@ -63,7 +66,8 @@ public interface ApiV1BillingInternalSpec {
                     + "멱등 키는 보류 하나 안의 payoutRequestId다. 같은 내용 재요청은 replayed=true. "
                     + "오류: 결제·받는 회원 지갑 없음 404 WALLET_NOT_FOUND, 보류 없음 404 HOLD_NOT_FOUND, 남은 보류 없음 409 HOLD_ALREADY_CLOSED, "
                     + "같은 지급 원천에 이미 지급 409 PAYOUT_ALREADY_SETTLED, 남은 보류 초과 409 PAYOUT_AMOUNT_EXCEEDS_HELD, "
-                    + "자기 지급 400 PAYOUT_TO_PAYER, 지급 원천 불일치 400 PAYOUT_SOURCE_MISMATCH." + COMMON_ERRORS)
+                    + "자기 지급 400 PAYOUT_TO_PAYER, 지급 원천 불일치 400 PAYOUT_SOURCE_MISMATCH. "
+                    + "프로모션 보류는 구매자·플랫폼 전액을 합산 지급하며 부분 지급은 409 PROMOTION_PARTIAL_NOT_SUPPORTED." + COMMON_ERRORS)
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)
     RsData<PayoutResultDto> payout(PayoutCommand command);

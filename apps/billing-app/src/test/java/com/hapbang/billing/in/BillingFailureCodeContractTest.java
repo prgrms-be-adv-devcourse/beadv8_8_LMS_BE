@@ -81,6 +81,8 @@ class BillingFailureCodeContractTest {
             case BUDGET_RESERVATION_EXISTS -> BillingFailureCode.BUDGET_RESERVATION_EXISTS;
             case BUDGET_RESERVATION_NOT_FOUND -> BillingFailureCode.BUDGET_RESERVATION_NOT_FOUND;
             case BUDGET_RELEASE_EXCEEDS_REMAINING -> BillingFailureCode.BUDGET_RELEASE_EXCEEDS_REMAINING;
+            case PROMOTION_PARTIAL_NOT_SUPPORTED -> BillingFailureCode.PROMOTION_PARTIAL_NOT_SUPPORTED;
+            case PROMOTION_BUDGET_INSUFFICIENT -> BillingFailureCode.PROMOTION_BUDGET_INSUFFICIENT;
             // 내부 API에서 나오지 않는다: 역분개, 확정 차감(노출하지 않음), 충전, 환불, 환전, 수익 조회, Backfill,
             // 지갑 회원 확인(사용자 신청에서만, #537), Mock 은행
             case ORIGINAL_LEDGER_NOT_FOUND, INVALID_REVERSAL, CAPTURE_AMOUNT_EXCEEDS_HELD,

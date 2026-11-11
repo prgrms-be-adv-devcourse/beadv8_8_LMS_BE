@@ -16,11 +16,26 @@ public record HoldState(
         Long referenceId,
         Hold hold,
         Voided voided,
-        List<Settlement> settlements
+        List<Settlement> settlements,
+        List<Promotion> promotions,
+        PromotionAmount promotion
 ) {
 
     public HoldState {
         settlements = List.copyOf(settlements);
+        promotions = List.copyOf(promotions);
+    }
+
+    public HoldState(BillingReferenceType referenceType, Long referenceId, Hold hold, Voided voided,
+            List<Settlement> settlements) {
+        this(referenceType, referenceId, hold, voided, settlements, List.of(), null);
+    }
+
+    public record Promotion(Long couponId, Long memberCouponId, long generation, String reservationId,
+            long amountHp, String status) {
+    }
+
+    public record PromotionAmount(long held, long paid, long restored) {
     }
 
     // 보류. HP 종류마다 original = remaining + released + paid + captured 다
@@ -54,7 +69,13 @@ public record HoldState(
             Long receiverUserId,
             long grossAmountHp,
             long paidAmountHp,
-            SettlementStatus status
+            SettlementStatus status,
+            Long buyerPaidHp,
+            Long promotionPaidHp
     ) {
+        public Settlement(SettlementSourceType sourceType, Long sourceId, PayoutType payoutType,
+                Long receiverUserId, long grossAmountHp, long paidAmountHp, SettlementStatus status) {
+            this(sourceType, sourceId, payoutType, receiverUserId, grossAmountHp, paidAmountHp, status, null, null);
+        }
     }
 }

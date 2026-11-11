@@ -22,7 +22,8 @@ import com.hapbang.billing.domain.WalletType;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
-// 프로모션 지갑 대사가 칸 캐시 대조에 더해 P1(가용 칸 식·earmark ≤ 순 충전)·P3(예약·보류 칸 = 예산 예약 합)·예약별 원장 합을 보고,
+// 프로모션 지갑 대사가 칸 캐시 대조에 더해 P1(가용 칸 식·earmark ≤ 순 충전)·P3(예약·보류 칸 = 예산 예약 합)·예약별 원장 합과
+// 보류 중인 프로모션 보류 합을 보고,
 // 일부러 어긋나게 만든 예약 행·지갑 칸·원장을 불일치로 잡되 고치지 않는지 실제 PostgreSQL로 검증한다.
 @IntegrationTest
 @ExtendWith(OutputCaptureExtension.class)
@@ -100,8 +101,11 @@ class PromotionWalletReconciliationIntegrationTest {
 
         assertThat(result.matched()).isFalse();
         assertThat(result.buckets()).allMatch(WalletReconciliation.BucketReconciliation::matched);
+        // 프로모션 보류 행 없이 보류 중만 늘었으므로 그 예약의 P2_HOLD_RECORDS도 틀린다
         assertThat(mismatchedNames(result)).containsExactly(PromotionWalletReconciliation.P3_RESERVED,
-                PromotionWalletReconciliation.P3_HELD);
+                PromotionWalletReconciliation.P3_HELD,
+                PromotionWalletReconciliation.P2_HELD_LEDGER + " reservationId=" + reservationId(42L),
+                PromotionWalletReconciliation.P2_HOLD_RECORDS + " reservationId=" + reservationId(42L));
         assertThat(result.invariant(PromotionWalletReconciliation.P3_HELD))
                 .extracting(WalletReconciliation.InvariantCheck::leftHp, WalletReconciliation.InvariantCheck::rightHp)
                 .containsExactly(0L, 100L);
@@ -208,6 +212,8 @@ class PromotionWalletReconciliationIntegrationTest {
                 .isOne();
         assertThat(output.getOut()).contains("잔액 대사 불일치 walletId=" + walletId + ", buckets=[], invariants=["
                 + PromotionWalletReconciliation.P3_RESERVED + " 4500 = 4400, " + PromotionWalletReconciliation.P3_HELD
+                + " 0 = 100, " + PromotionWalletReconciliation.P2_HELD_LEDGER + " reservationId=" + reservationId(42L)
+                + " 0 = 100, " + PromotionWalletReconciliation.P2_HOLD_RECORDS + " reservationId=" + reservationId(42L)
                 + " 0 = 100]");
     }
 
@@ -222,6 +228,11 @@ class PromotionWalletReconciliationIntegrationTest {
         promotionBudgetUseCase.release(new BudgetReleaseCommand("coupon-42-release-v1", reserved.reservationId(),
                 500L, "UNISSUED:5", null));
         return walletRepository.findByWalletType(WalletType.PROMOTION).orElseThrow().getId();
+    }
+
+    private Long reservationId(long couponId) {
+        return jdbcTemplate.queryForObject("SELECT id FROM billing.budget_reservation WHERE coupon_id = ?", Long.class,
+                couponId);
     }
 
     private static List<String> mismatchedNames(WalletReconciliation result) {
