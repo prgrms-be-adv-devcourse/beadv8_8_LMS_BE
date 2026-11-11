@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-039 · 2026-11-11 · 통과 (#859 origin/dev 병합 뒤, 시험 태스크 UP-TO-DATE)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-039 |
+| 실행 날짜 | 2026-11-11 14:05 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-859` |
+| 커밋 | `a9efa88b`(`56634220` + origin/dev `e9a37bbd` 병합) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | dev 병합(#858: k8s kustomization·인프라 문서·alert 규칙, 알림 코드와 겹치는 파일 없음) 뒤 회귀 |
+| 관련 NT ID | NR-038과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-036과 같다 |
+| 결과 | 통과(종료 코드 0, 6초) |
+| 건수 | 새로 실행한 시험 없음: `:notification:test`·`:auxiliary-app:test`·`:auxiliary-global`·`:chatbot`·`:search` test 모두 `UP-TO-DATE`(병합이 시험 입력을 바꾸지 않음. 결과 XML은 NR-038의 `:notification` 171·`:auxiliary-app` 12, 실패 0). `verifyModuleStructure`는 새로 실행·통과 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-038과 같다 |
+| 관련 변경 | #859 |
+
 #### NR-038 · 2026-11-11 · 통과 (#859 S6 리뷰 반영 뒤)
 
 | 항목 | 값 |
