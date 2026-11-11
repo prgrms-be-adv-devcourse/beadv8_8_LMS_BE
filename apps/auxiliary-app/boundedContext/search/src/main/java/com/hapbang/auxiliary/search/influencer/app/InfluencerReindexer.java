@@ -12,6 +12,7 @@ import com.hapbang.auxiliary.search.common.app.Reindexer.ReindexResult;
 import com.hapbang.auxiliary.search.common.app.SearchJob;
 import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.influencer.out.MemberListSource;
 
@@ -44,7 +45,7 @@ public class InfluencerReindexer {
             InfluencerMemberIndexer indexer, ContentCategoryNames categoryNames, MemberListSource members,
             InfluencerStatsSync statsSync, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
             MeterRegistry registry, Clock clock, Duration retryInterval, Duration maxWait, Instant startedAt) {
-        this.reindexer = new Reindexer(SearchMetrics.TARGET_INFLUENCER, indexSetup, store.writes(),
+        this.reindexer = new Reindexer(InfluencerIndexDefinition.METRIC_TARGET, indexSetup, store.writes(),
                 new InfluencerIndexLoader(store, indexer, categoryNames, members, statsSync), reconciler, jobRunner,
                 SearchJob.REINDEX, registry, clock, retryInterval, maxWait, startedAt);
     }

@@ -12,14 +12,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher.SearchResult;
-
-import lombok.RequiredArgsConstructor;
 
 /**
  * 인플루언서 검색(#771, {@code GET /api/v1/search/influencers}). 로그인 회원만 쓴다.
@@ -33,7 +33,6 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  */
 @Service
-@RequiredArgsConstructor
 public class InfluencerSearchFacade {
 
     /** 볼 수 있는 결과 범위(앞에서부터) */
@@ -41,8 +40,16 @@ public class InfluencerSearchFacade {
 
     private final InfluencerSearcher searcher;
     private final RatingBaseline ratingBaseline;
-    private final SearchMetrics metrics;
+    private final SearchMetrics.Target metrics;
     private final ZeroResultKeywords zeroResultKeywords;
+
+    public InfluencerSearchFacade(InfluencerSearcher searcher, RatingBaseline ratingBaseline, SearchMetrics metrics,
+            ZeroResultKeywords zeroResultKeywords) {
+        this.searcher = searcher;
+        this.ratingBaseline = ratingBaseline;
+        this.metrics = metrics.forTarget(InfluencerIndexDefinition.METRIC_TARGET);
+        this.zeroResultKeywords = zeroResultKeywords;
+    }
 
     /**
      * @param userId 검색한 회원 ID. 0건 검색어를 "서로 다른 회원 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
@@ -65,12 +72,12 @@ public class InfluencerSearchFacade {
             started = System.nanoTime();
             result = searcher.search(condition, baseline, MAX_RESULT_WINDOW);
         } catch (IllegalStateException e) {
-            metrics.influencerSearched("error", Duration.ofNanos(System.nanoTime() - started));
+            metrics.searched("error", Duration.ofNanos(System.nanoTime() - started));
             throw new SearchException(SearchErrorCode.SEARCH_UNAVAILABLE, e);
         }
-        metrics.influencerSearched(result.total() == 0 ? "empty" : "ok", Duration.ofNanos(System.nanoTime() - started));
+        metrics.searched(result.total() == 0 ? "empty" : "ok", Duration.ofNanos(System.nanoTime() - started));
         if (result.total() == 0 && condition.keyword() != null && !hasFilter(condition)) {
-            metrics.influencerZeroResult();
+            metrics.zeroResult();
             zeroResultKeywords.record(condition.keyword(), userId);
         }
         return new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()), result.total());

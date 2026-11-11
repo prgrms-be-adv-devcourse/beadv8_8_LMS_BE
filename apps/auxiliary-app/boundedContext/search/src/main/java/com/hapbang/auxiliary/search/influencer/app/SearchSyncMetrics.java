@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheckStore;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.SyncCursor;
 import com.hapbang.auxiliary.search.influencer.out.SyncCursorStore;
 
@@ -18,7 +19,7 @@ import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 검색 문서가 원본과 맞는지 보는 지표(#772). 검색 API 지표는 {@link SearchMetrics}, 처음 적재·재색인 지표는 공통 {@code Reindexer}다(#868).
+ * 검색 문서가 원본과 맞는지 보는 지표(#772). 검색 API 지표는 공통 {@code SearchMetrics}, 처음 적재·재색인 지표는 공통 {@code Reindexer}다(#868).
  * 태그에 회원 ID를 넣지 않는다.
  * <ul>
  *     <li>{@code hapbang.search.reconcile.members{kind}}: 증분 보정이 반영한 회원 수({@link ReconcileKind}). inserted·hidden·overwritten이
@@ -60,7 +61,7 @@ public class SearchSyncMetrics {
                 .description("지금 - 증분 보정이 마지막으로 끝까지 읽은 시각").baseUnit("seconds").strongReference(true)
                 .register(registry);
         Gauge.builder("hapbang.search.consistency.difference", this, SearchSyncMetrics::consistencyDifference)
-                .tag("target", SearchMetrics.TARGET_INFLUENCER).description("원본 정상 인플루언서 수 - 검색에 보이는 문서 수")
+                .tag("target", InfluencerIndexDefinition.METRIC_TARGET).description("원본 정상 인플루언서 수 - 검색에 보이는 문서 수")
                 .strongReference(true).register(registry);
     }
 

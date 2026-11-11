@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
+import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 

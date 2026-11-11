@@ -16,6 +16,8 @@ public final class InfluencerIndexDefinition {
     public static final String ALIAS = "search-influencers";
     /** index 이름 앞부분. 뒤에 설정 해시가 붙는다 */
     public static final String INDEX_PREFIX = ALIAS + "-";
+    /** 지표·로그의 대상 태그 값({@code target=influencer}) */
+    public static final String METRIC_TARGET = "influencer";
 
     private InfluencerIndexDefinition() {
     }

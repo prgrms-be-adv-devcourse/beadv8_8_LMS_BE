@@ -36,6 +36,18 @@ class ZeroResultKeywordsTest {
     }
 
     @Test
+    @DisplayName("비회원은 IP 해시 문자열로 센다. 같은 해시는 한 명, 회원 ID와 해시는 서로 다른 검색자다(L19, #868)")
+    void guestSearchersByIpHash() {
+        keywords.record("프리미어", "ip:ab12");
+        keywords.record("프리미어", "ip:ab12");
+        assertThat(keywords.flush()).isEmpty();
+
+        keywords.record("컷편집", "ip:ab12");
+        keywords.record("컷편집", 1L);
+        assertThat(keywords.flush()).containsExactly(Map.entry("컷편집", 2L));
+    }
+
+    @Test
     @DisplayName("이메일·URL·전화번호 모양과 30자를 넘는 말은 여러 명이 찾아도 세지 않는다")
     void excludesContactLike() {
         for (long user = 1; user <= 3; user++) {
