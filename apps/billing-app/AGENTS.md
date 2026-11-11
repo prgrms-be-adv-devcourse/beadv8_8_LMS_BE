@@ -41,7 +41,7 @@ Billing은 다음 기능을 담당한다.
 
 현재 테이블 목록·수와 추가한 마이그레이션은 `docs/billing/module.md` 8.2가 원본이다. 필드·자료형·제약 조건은 Flyway 마이그레이션(`apps/billing-app/src/main/resources/db/migration`)에서 확인한다.
 
-- 기획서 ERD에 없던 테이블은 결정으로 추가했다: `mock_payout_transfer`(BD-99), `billing_user`(BD-103), `hold_void`(BD-125), `wallet_withdrawal`(BD-141), `wallet_reconciliation_run`·`wallet_reconciliation_run_wallet`(BD-146), `promotion_funding`·`promotion_withdrawal`·`budget_reservation`·`budget_release`(BD-147~BD-150). Spring Modulith 발행 기록 테이블은 BD-130.
+- 기획서 ERD에 없던 테이블은 결정으로 추가했다: `mock_payout_transfer`(BD-99), `billing_user`(BD-103), `hold_void`(BD-125), `wallet_withdrawal`(BD-141), `wallet_reconciliation_run`·`wallet_reconciliation_run_wallet`(BD-146), `promotion_funding`·`promotion_withdrawal`·`budget_reservation`·`budget_release`(BD-147~BD-150), `promotion_hold`(BD-157~BD-160). Spring Modulith 발행 기록 테이블은 BD-130.
 - 무엇을 기준 ERD로 삼을지는 미결이다(`docs/billing/decisions.md` 10장 "Billing 기준 ERD" 행). 임의로 정하지 않는다.
 
 결정(`BD-*`) 없이 테이블이나 컬럼을 임의로 추가하지 않는다.
@@ -74,7 +74,7 @@ Billing은 다음 기능을 담당한다.
 - HP 종류는 `CHARGE`(충전 HP)·`REVENUE`(수익 HP)이고, 플랫폼 지갑 전용으로 `FEE`(수수료 수입, 가용 칸만)가 있다(BD-115). 회원 지갑에는 FEE를, 플랫폼 지갑에는 충전·수익 HP를 기록하지 않는다(BD-117). 프로모션 지갑 전용으로 `PROMOTION`(프로모션 HP, 가용·예약·보류 칸)이 있고 다른 지갑에는 기록하지 않는다(BD-147). 지갑 유형별 HP 종류는 `WalletType.holds`, HP 종류별 칸은 `PointType.has`가 정한다.
 - 가용·보류 잔액은 `AVAILABLE`과 `HELD`로 구분한다. 예약 칸 `RESERVED`(쿠폰 예산으로 묶은 HP)는 프로모션 HP만 있다(BD-147).
 - `WALLET`의 잔액 칸(충전·수익 × 가용·보류 4개 + `fee_balance_hp` + 프로모션 HP 3개 `promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`)은 원장 합계의 캐시다(BD-114·BD-115·BD-147).
-- 프로모션 지갑의 칸 이동(충전 가용 +, 회수 가용 −, 예산 예약 가용 − / 예약 +, 예산 해제 예약 − / 가용 +)은 `PromotionLedgerOperations`만 정하고 `LedgerRecordUseCase`로 기록한다. 쿠폰 예산 예약(`budget_reservation`)의 총액 = 남은 + 보류 중 + 지급됨 + 해제됨이고, 예약 칸 = Σ 남은 예산, 보류 칸 = Σ 보류 중이다(BD-148·BD-156). 지갑 대사가 이 불변식을 함께 본다.
+- 프로모션 지갑의 충전·회수·예산 예약·해제 및 주문 항목 보류(`PROMOTION_HOLD`: 예약 − / 보류 +)·복구(`PROMOTION_RESTORE`: 보류 − / 예약 +)는 `PromotionLedgerOperations`로 만든다. 판매자 지급(`PAYOUT`)은 `HoldPayoutUseCase`가 구매자·프로모션 보류 차감과 판매자 수익 HP 증가를 합산한다. 모두 `LedgerRecordUseCase`로 같은 트랜잭션에서 기록한다(BD-148·BD-157~BD-160). 쿠폰 예산 예약(`budget_reservation`)의 총액 = 남은 + 보류 중 + 지급됨 + 해제됨이고, 예약 칸 = Σ 남은 예산, 보류 칸 = Σ 보류 중이다(BD-156). 지갑 대사가 이 불변식을 함께 본다.
 - 원장(`POINT_LEDGER`)은 append-only다.
 - 기존 원장 행을 수정하거나 삭제하지 않는다.
 - 정정은 역분개를 통해 신규 원장 행으로 기록한다.
