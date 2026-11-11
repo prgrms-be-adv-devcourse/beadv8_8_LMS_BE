@@ -11,5 +11,7 @@ public enum WriteOutcome {
     /** 문서가 없어 건너뛰었다(통계 동기화) */
     MISSING,
     /** 쓰지 못했다(통계 동기화, 다음 회차에 다시 쓴다) */
-    FAILED
+    FAILED,
+    /** ES가 그 회원의 값 때문에 거절했다(bulk, 다시 써도 같다). 처음 적재는 그 회원만 건너뛴다(#773) */
+    REJECTED
 }

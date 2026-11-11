@@ -41,7 +41,7 @@ class InfluencerStatsSyncTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
-        new InfluencerIndexSetup(client).ensureReady();
+        SearchElasticsearch.createIndex(client);
         source.categories(category("GAME", "게임"), category("MAPLESTORY", "메이플스토리"));
     }
 

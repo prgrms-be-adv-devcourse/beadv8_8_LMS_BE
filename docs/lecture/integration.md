@@ -448,3 +448,12 @@ sequenceDiagram
 
 ---
 
+
+### 플랫폼 쿠폰 재원 연결 (#843)
+
+- 주문 계산의 F > 0 차단을 제거한다. 항목 금액과 쿠폰별 할인·플랫폼·판매자 몫의 합이 맞아야 주문을 저장한다.
+- 선점 트랜잭션에서 `OrderItemCoupon`의 쿠폰 ID·발급 쿠폰 ID·reservedGeneration·플랫폼 몫을 읽어 불변 요청으로 만든다. HTTP는 트랜잭션 밖에서 부른다.
+- HOLD는 구매자 금액 P−D와 플랫폼 F·목록, PAYOUT은 합 P−S와 재원별 값, RELEASE/VOID는 구매자 반환액과 쿠폰별 복구 목록을 대조한다. 사용 세대가 다르거나 누락·추가된 복구는 성공으로 기록하지 않는다.
+- 구매자 0·F > 0인 항목도 HP 작업을 실행한다. 구매자와 F가 모두 0인 항목만 지갑을 생략한다.
+- 성공한 취소·반환의 복구 목록은 결과 handler를 통해 `OrderCouponEvents`로 넘겨 같은 결과기록 트랜잭션에서 발행한다. 결과 기록 전 중단되면 같은 billing 요청 ID의 replay로 다시 얻는다.
+- `LectureHpReconciliationComparer`는 조회의 `promotion{held,paid,restored}`와 `promotions[]`, 지급 건의 buyerPaidHp·promotionPaidHp를 주문 쿠폰 스냅샷과 비교한다. 보류 결과 불명은 확인 전 성공으로 바꾸지 않는다. VOID의 구매자 금액 불일치는 기존 D73대로 보류 종료를 확인하면 로그 뒤 완료하며, 플랫폼 복구 목록·금액 불일치는 DEAD로 남긴다.

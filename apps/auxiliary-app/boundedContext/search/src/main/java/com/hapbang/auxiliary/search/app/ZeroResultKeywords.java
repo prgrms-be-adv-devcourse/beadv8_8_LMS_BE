@@ -10,8 +10,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
-
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -29,7 +27,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 public class ZeroResultKeywords {
 
     static final int MAX_KEYWORDS = 1_000;

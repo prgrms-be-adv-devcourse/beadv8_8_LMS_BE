@@ -86,6 +86,257 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-035 · 2026-11-10 · 통과 (#847 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-035 |
+| 실행 날짜 | 2026-11-10 20:58~21:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리(NR-034 뒤 시험 1개 변경) |
+| 작업 트리 변경 | NR-034 목록 + `NotificationWebSocketConfigTest`(스레드 스냅샷을 이 설정의 접두사 `notification-ws-in-`·`-out-`·`-heartbeat-`로만 셈, 생성 도우미로 중복 제거) |
+| 대상 기능 | 재리뷰(S6) 지적: 연결 만료 스케줄러(`notification-ws-expiry-`)가 스냅샷에 섞여 거짓 실패할 위험 |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123, 실패 0(새로 실행). `:auxiliary-app:check`의 test 태스크는 모두 `UP-TO-DATE` |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+#### NR-034 · 2026-11-10 · 통과 (#847 Bot 리뷰 반영 뒤 자체 리뷰)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-034 |
+| 실행 날짜 | 2026-11-10 20:50~20:53 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리 |
+| 작업 트리 변경 | NR-033 목록 + `NotificationWebSocketConfigTest`(잘못된 값이면 스레드를 만들지 않음 단정, 올바른 값 시험의 정리를 try/finally로), `NotificationWebSocketConfig` Javadoc |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123, 실패 0(새로 실행). `:auxiliary-app:check`의 test 태스크는 모두 `UP-TO-DATE`(운영 코드 변경은 Javadoc뿐, 마지막 실행 NR-033·NR-032) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+#### NR-033 · 2026-11-10 · 통과 (#847 PR Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-033 |
+| 실행 날짜 | 2026-11-10 20:45~20:49 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `24b1a2f6` + 작업 트리 |
+| 작업 트리 변경 | `NotificationWebSocketConfig`(heart-beat 설정값 0 이하·5분 이상이면 생성자에서 `IllegalArgumentException`, 실행기 생성 전 검사, `MAX_HEARTBEAT`), `NotificationWebSocketConfigTest`(2건 추가), `gateway.yaml` 주석, decisions(ND-068)·api·module·test-spec·이 문서·PROGRESS |
+| 대상 기능 | heart-beat 설정값 검증(ND-068) |
+| 관련 NT ID | NT-RT-07 |
+| 명령 | RED: `./gradlew :notification:test --tests "*NotificationWebSocketConfigTest"`. 회귀: `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 123(2건 추가), 실패 0. `:auxiliary-app:check`에서 `:auxiliary-app:test` 새로 실행 12, 실패 0. `:auxiliary-global`·`:chatbot`·`:search`는 `UP-TO-DATE`(마지막 실행 NR-032), `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-032와 같다 |
+| 관련 변경 | #847 |
+
+**메모**
+- RED: 잘못된 값(0s·-1s·5m·10m) 시험이 "Expecting code to raise a throwable"로 실패했다. 올바른 값(1ms·25s·5분-1ms) 시험은 기존 동작이라 처음부터 통과했다.
+
+#### NR-032 · 2026-11-10 · 통과 (#847 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-032 |
+| 실행 날짜 | 2026-11-10 19:59~20:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `aa18750b`(origin/dev `2ed68b3a` 병합, #850 포함) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 뒤 회귀. NR-031 뒤 `NotificationHeartbeatTest`의 닫힘 뒤 `isOpen()` 단정을 상태가 바뀔 때까지 기다리게 고친 것(#849와 같은 이유) 포함 |
+| 관련 NT ID | NR-029와 같다 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0. `:auxiliary-app:check`에서 새로 실행: `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 160, 실패 0. `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 병합 충돌은 이 문서뿐이었다(#849의 NR-026~NR-028과 이 브랜치의 기록). 두 쪽을 모두 남기고 이 브랜치 기록을 NR-029~NR-031로 바꿨다 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check`(PR CI), kubeconform(CI manifests job), 병합 뒤 Gateway E2E(manifest 변경 없음, NR-030) |
+| 관련 변경 | #847 |
+
+#### NR-031 · 2026-11-10 · 통과 (#847 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-031 |
+| 실행 날짜 | 2026-11-10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | NR-029 목록 + `NotificationWebSocketConfig`(heart-beat 값을 `Duration`으로 두고 브로커 설정 때 배열을 만듦), `RawStomp`(`connectAndSubscribe`가 `connect`를 씀), api·INDEX 문서 |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NR-029와 같다 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0(새로 실행). `:auxiliary-app:check`에서 `:auxiliary-app:test` 새로 실행 12, 실패 0. `:auxiliary-global`·`:chatbot`·`:search`·`:notification` test는 `UP-TO-DATE`(마지막 실행 NR-029·바로 앞 명령) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-029와 같다. Gateway E2E(NR-030)는 manifest를 바꾸지 않아 다시 돌리지 않았다 |
+| 관련 변경 | #847 |
+
+#### NR-030 · 2026-11-10 · 통과 (#847 Gateway E2E, 로컬 k3d)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-030 |
+| 실행 날짜 | 2026-11-10 (KST), 3회 실행 중 마지막 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | NR-029와 같다 |
+| 대상 기능 | Gateway route·인증 경계·`exp` claim·WebSocket stream idle(ND-062~ND-064·ND-067) |
+| 관련 NT ID | NT-RT-07(Gateway 쪽), NT-RT-09 |
+| 명령 | 레포 밖 스크립트(시험용 backend + `run_e2e.py`, 커밋하지 않음). `k3d cluster create --config k8s/local/k3d.yaml` → `k8s/cluster/namespaces.yaml` → `bash k8s/gateway/tools/install-local.sh` → auxiliary-app local overlay의 HTTPRoute·SecurityPolicy·BackendTrafficPolicy를 경로 그대로 복제해 backend와 JWKS만 시험용으로 바꿔 적용 |
+| 실행 환경 | k3d `hapbang`(k3s v1.36.5, 2 node), Envoy Gateway v1.9.3(`install/envoy-gateway`), Docker Desktop 8GiB. platform 없이 Gateway만 설치. tracing backend `hapbang-platform/alloy`가 없어 Gateway가 `Accepted=False`라 이 cluster에만 빈 대역 Service·pod(`alloy-standin`, busybox)를 두었다 |
+| 결과 | 통과 21/21(종료 코드 0) |
+| 건수 | 상태 7(route 3·SecurityPolicy 1·BackendTrafficPolicy 2 Accepted, WebSocket route가 SecurityPolicy 대상 아님), E1·E1b, E2 2건, E3·E3b, E4 3건, E6 3건, E5 2건 |
+| 실패 원인 분류 | 최종 실패 없음. 이전 두 실행의 실패는 시험 장치(아래 메모) |
+| 수정 내용 | 시험 스크립트만 고쳤다(제품 코드·manifest 변경 없음) |
+| 재실행 결과 | 3회째 21/21 |
+| 미검증 항목 | 실제 auxiliary-app·member를 거친 E2E(backend는 앱 동작을 흉내 낸 시험 서버), 실제 15분 만료까지 Envoy를 거친 4401(앱 쪽은 NR-029, Gateway 유지는 E5로 나눠 확인), WebSocket route에서 위조 헤더가 실제로 지워지는지(업그레이드만 확인, 지우는 정책은 Gateway 전체 `ClientTrafficPolicy`라 E4 REST 결과와 같다), 운영 EC2 |
+| 관련 변경 | #847 |
+
+**메모**
+- 확인 결과: JWT 없는 `GET /api/v1/notifications/ws`와 잘못된 `Authorization`이 실린 요청 모두 Gateway를 지나 101(E1·E1b). 티켓 없음·틀림은 backend 401이 그대로 전달(E2). 티켓 발급 `POST`에 `X-User-Token-Exp` = 토큰 `exp`, 외부 위조 값은 지워지고 JWT 없는 요청에는 헤더가 없음(E3·E4). 잘못된 토큰의 발급 요청은 Envoy 401(E3b). `POST /ws`·`GET /ws/x`는 일반 route(E6).
+- E5: 25초마다 양쪽이 heart-beat를 보낸 연결은 330초 뒤에도 열려 있었고(서버 heart-beat 13개), heart-beat 없는 대조 연결은 300.99초에 끊겼다(stream idle 5분).
+- 1회째: `GET /ws/x` 웹소켓 업그레이드가 401이 아니라 403이었다. 일반 route는 웹소켓 업그레이드를 받지 않아 Envoy가 403으로 거절한다(본문 제한 정책이 걸린 route로 보임, 원인 확정 안 함). WebSocket route가 받지 않는다는 목적은 맞아 기대값을 "업그레이드 없음 → JWT 401, 업그레이드 → 101 아님"으로 고쳤다.
+- 2회째: E3·E4(JWT 요청)가 401이었다. 스크립트가 실행마다 서명 키를 새로 만들고 ConfigMap을 바꾸지만, 이미 떠 있던 backend pod의 마운트가 늦게 갱신되어 이전 JWKS를 내주었다(실행 뒤 마운트와 ConfigMap이 같아진 것을 확인). 시험 자원을 지우고 다시 실행해 통과했다.
+- Gateway 전체(상위)에 걸린 SecurityPolicy는 없다(`k8s/gateway/base`는 `kafka-ui` route의 basicAuth뿐). 그래서 WebSocket route를 targetRefs에서 빼면 JWT 필터가 붙지 않는다(ND-067).
+
+#### NR-029 · 2026-11-10 · 통과 (#847 heart-beat 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-029 |
+| 실행 날짜 | 2026-11-10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | `NotificationWebSocketConfig`(STOMP heart-beat 25초, 스케줄러 1스레드 소유·종료), 테스트 `NotificationHeartbeatTest`(새)·`NotificationWebSocketConfigTest`·`RawStomp`(heart-beat 보조), `apps/auxiliary-app/k8s/base/gateway.yaml`, 알림 문서(decisions·module·test-spec·api·PROGRESS·INDEX·AGENTS·이 문서) |
+| 대상 기능 | 서버 STOMP heart-beat(ND-063) |
+| 관련 NT ID | NT-RT-07(앱 쪽), NT-RT-05·06 회귀 |
+| 명령 | RED·GREEN: `./gradlew :notification:test --tests "*NotificationHeartbeatTest"`(+ `*NotificationWebSocketConfigTest`). 회귀: `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0. `:auxiliary-app:check`에서 새로 실행: `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 132, 실패 0. `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check`, kubeconform(로컬에 없음, CI manifests job), Gateway 경유(NR-030) |
+| 관련 변경 | #847 |
+
+**메모**
+- RED: `NotificationHeartbeatTest` 5건 중 3건이 기대한 이유로 실패했다(CONNECTED `heart-beat:0,0`, 서버 heart-beat 0개, 클라이언트 heart-beat가 끊겨도 닫히지 않음). 받기 0이면 서버 heart-beat 없음·heart-beat 중 4401은 기존 동작이라 처음부터 통과했다(회귀 보호).
+- `NotificationWebSocketConfigTest`는 생성자 인자가 늘어 구현 전에는 컴파일되지 않는 상태로 고쳤고, 실패 출력은 따로 보지 않았다. 구현 뒤 스레드 5개(수신 2·송신 2·heart-beat 1)가 모두 끝나는 것을 확인했다.
+
+#### NR-028 · 2026-11-10 · 통과 (#849 PR 리뷰 3차 반영, NR-027 근거 보충)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-028 |
+| 실행 날짜 | 2026-11-10 17:35~17:37 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `6dafcd48` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`의 구독 거절 확인: 실패 메시지에 실제 대기 시간(6초 = WAIT 5초 + 닫힘 대기 1초) 표시, 설명을 `RawStomp` 큐 동작(닫히기 전에 받은 프레임은 남는다)에 맞게 고침. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 3차 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 1회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 통과(17:35~17:36). 검증 명령(17:36~17:37): `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과), 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 메시지·주석만(시험 판정 동작 변경 없음) |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-026과 같다 |
+| 관련 변경 | #849 |
+
+**메모 — 1002 근거(NR-027 보충)**
+- 확인한 대상: spring-websocket 7.0.9 jar의 `org.springframework.web.socket.messaging.StompSubProtocolHandler`, `javap -c -p`로 바이트코드를 봤다.
+- `private void sendErrorMessage(WebSocketSession, Throwable)`가 `CloseStatus.PROTOCOL_ERROR`를 읽어 `WebSocketSession.close(CloseStatus)`를 부르는 곳이 3곳 있다. 클라이언트 프레임 처리 실패는 `handleError(WebSocketSession, Throwable, Message)` → `sendErrorMessage`로 이 경로를 탄다.
+- `private void sendToClient(WebSocketSession, StompHeaderAccessor, byte[])`도 ERROR 프레임을 보낸 뒤 같은 코드로 닫는 곳이 3곳 있다.
+- 알림 모듈에는 별도 STOMP 오류 처리기(`StompSubProtocolErrorHandler` 재정의)가 없다.
+
+#### NR-027 · 2026-11-10 · 통과 (#849 PR 리뷰 반영, NR-026 정정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-027 |
+| 실행 날짜 | 2026-11-10 17:15~17:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `7e4aa64d` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`: 중복·밀려난 알림 시험이 앞서 받은 20건의 `targetId`가 `new-0`~`new-19`와 정확히 같은지 확인, 구독 거절 시험의 닫힘 판정을 `PROTOCOL_ERROR`(1002)로 좁힘. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 지적 2건 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 3회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 3회 모두 통과(`NotificationRealtimeIntegrationTest` 13건). 검증 명령: `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과). 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 자체 리뷰(import 순서, 저장 목록을 한 번만 만들기) 반영 뒤 17:24~17:25 검증 명령 다시 실행: `:notification` 116 새 실행·통과(`NotificationRealtimeIntegrationTest` 13건), 나머지 `UP-TO-DATE`, 종료 코드 0 |
+| 미검증 항목 | NR-026과 같다(CI 재실행 없이 연속 3회, B·C 로컬 재현 못 함) |
+| 관련 변경 | #849 |
+
+**메모**
+- 1002 근거: spring-websocket 7.0.9 `StompSubProtocolHandler`는 클라이언트 프레임 처리 실패 때(`handleError` → `sendErrorMessage`) ERROR를 보내고 `CloseStatus.PROTOCOL_ERROR`로 닫는다(바이트코드 확인). 알림 모듈에는 별도 STOMP 오류 처리기가 없다.
+- **NR-026 정정**: NR-026 메모의 줄 번호(196·117·343행)는 수정 전 파일 기준이라 수정 뒤 파일과 맞지 않는다. 메서드 이름으로 읽는다: A `중복과_밀려난_알림은_프레임을_보내지_않고_중복_방지와_20개_보존은_그대로다`, B `연결_만료가_되면_서버가_연결을_4401로_닫는다`, C `자기_알림_목적지_말고는_구독할_수_없다`, 추가 `Redis가_멈춰도_저장은_끝나고_되돌려지지_않으며_재접속_뒤_목록으로_맞춘다`.
+
+#### NR-026 · 2026-11-10 · 통과 (#849 CI 간헐 실패 시험 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-026 |
+| 실행 날짜 | 2026-11-10 16:20~17:02 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849`(worktree, origin/dev `6d8b1688` 기준) |
+| 커밋 | `6d8b1688` |
+| 작업 트리 변경 | 있음(커밋 전). 시험만: `NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 먼저 연결하고 앞선 20건을 받아 비움, Redis 멈춤은 멈춘 동안 발행 실패가 기록된 뒤 되살림, 구독 거절은 ERROR 또는 연결 닫힘을 거절로 보고 거절된 연결로 다른 회원 프레임이 오지 않는지 확인), `NotificationConnectionExpiryTest`(만료 뒤 `isOpen()`이 바뀔 때까지 기다림). 운영 코드 변경 없음 |
+| 대상 기능 | CI에서 간헐 실패한 실시간 시험(#849) |
+| 관련 NT ID | NT-RT-01~06·08(시험 안정성), NT-RET-02·NT-IDEM-01 실시간 부분 |
+| 명령 | ① 재현: `Relay.deliver` 앞에 150ms 지연을 임시로 넣고 `:notification:test --tests '*NotificationRealtimeIntegrationTest.중복*'` ② 지연을 둔 채 `--tests '*NotificationRealtimeIntegrationTest' --tests '*NotificationConnectionExpiryTest' --rerun` 3회 ③ 지연을 지우고 같은 명령 5회 ④ `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25, Docker Testcontainers(PostgreSQL, Redis 8, Kafka) |
+| 결과 | 통과 |
+| 건수 | ④ 새 실행(worktree 첫 빌드): `:notification` 116, `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 132. 합계 481, 실패 0. ②는 3회 모두, ③은 5회 모두 두 클래스 통과 |
+| 실패 원인 분류 | F-TEST(시험이 비동기 전달·세션 상태 전환 시점에 기댐). 운영 코드 결함 아님 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 위 ②③④. 자체 리뷰(S6) 반영 뒤 17:05~17:08: 두 클래스 `--rerun` 1회 통과, ④ 다시 실행(`:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`), 종료 코드 0 |
+| 미검증 항목 | CI에서 재실행 없이 연속 3회 통과(이슈 완료 조건, PR 뒤 확인), B·C는 로컬에서 재현하지 못함 |
+| 관련 변경 | #849 |
+
+**메모 — 원인**
+- A(`중복과_밀려난_알림은…` 196행): 지연 주입으로 재현했다. 받은 프레임은 `"targetId":"new-4"`였다. 연결 전에 저장한 20건의 프레임이 연결 뒤 늦게 도착한 것으로 확정했다. 먼저 연결하고 20건을 받은 뒤 확인하도록 바꿨다.
+- 추가(`Redis가_멈춰도…`, 이슈 "공통" 점검 중 발견): 지연 주입 때 함께 실패했다. 발행 시도가 Redis를 되살린 뒤에 일어나면 성공해 `while-down` 프레임이 재접속한 연결로 왔다. 멈춘 동안 `hapbang.notification.realtime.dropped{reason=publish_failed}`가 오를 때까지 기다린 뒤 되살리도록 바꿨다(이 지표 이름·태그에 기댄다).
+- B(`연결_만료가_되면…` 117행): 닫힘 콜백 안에서 깨어나 `isOpen()`을 바로 보는 경합으로 추정. 상태가 바뀔 때까지 기다리게 바꿨다(재현 못 함).
+- C(`자기_알림_목적지_말고는…` 343행, 이슈 추가 보고): 로그가 없어 원인을 확정하지 못했다. ERROR 프레임 또는 정상 종료(1000)가 아닌 코드의 연결 닫힘을 거절로 보고, 둘 다 없으면 목적지를 실패 메시지에 남기게 바꿨다. 거절된 연결로 다른 회원의 프레임이 오지 않는지 확인을 더했다. `RawStomp`는 닫히기 전에 받은 프레임을 큐에 남긴다(확인).
+- 같은 파일의 다른 "프레임 없음" 시험(롤백·commit 전·다른 회원·읽음·파기·SEND)은 앞선 저장이 없거나 먼저 비우므로 같은 위험이 없다.
+
 #### NR-025 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 뒤 자체 리뷰)
 
 | 항목 | 값 |

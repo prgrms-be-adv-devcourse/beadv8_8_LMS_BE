@@ -58,14 +58,44 @@ public final class RawStomp {
 
     /** CONNECT 뒤 CONNECTED를 받고 {@code destination}을 구독한다 */
     public static RawStomp connectAndSubscribe(String url, String destination) throws Exception {
-        RawStomp stomp = open(url);
-        stomp.send("CONNECT\naccept-version:1.2\nhost:localhost\nheart-beat:0,0\n\n\0");
-        String connected = stomp.nextFrame(Duration.ofSeconds(5));
-        if (connected == null || !connected.startsWith("CONNECTED")) {
-            throw new IllegalStateException("CONNECTED가 아님: " + connected);
+        RawStomp stomp = connect(url, 0, 0);
+        if (stomp.awaitConnected(Duration.ofSeconds(5)) == null) {
+            throw new IllegalStateException("CONNECTED를 받지 못함");
         }
         stomp.subscribe(destination);
         return stomp;
+    }
+
+    /**
+     * CONNECT에 {@code heart-beat:<보내기>,<받기>}(밀리초)를 실어 보내고 CONNECTED 프레임을 돌려준다. 구독은 하지 않는다.
+     */
+    public static RawStomp connect(String url, long clientSendMillis, long clientReceiveMillis) throws Exception {
+        RawStomp stomp = open(url);
+        stomp.send("CONNECT\naccept-version:1.2\nhost:localhost\nheart-beat:" + clientSendMillis + ","
+                + clientReceiveMillis + "\n\n\0");
+        return stomp;
+    }
+
+    /** CONNECTED 프레임을 기다린다. 시간 안에 없으면 null */
+    public String awaitConnected(Duration timeout) throws InterruptedException {
+        String frame = nextFrame(timeout);
+        return frame != null && frame.startsWith("CONNECTED") ? frame : null;
+    }
+
+    /** 클라이언트 heart-beat(줄바꿈 하나)를 보낸다 */
+    public void sendHeartbeat() throws Exception {
+        session.sendMessage(new TextMessage("\n"));
+    }
+
+    /** 지금까지 받은 프레임 중 하트비트(빈 줄)만 꺼내 센다. 다른 프레임은 남겨 둔다 */
+    public int drainHeartbeats() {
+        int count = 0;
+        for (String frame : frames) {
+            if (frame.isBlank() && frames.remove(frame)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** 구독 프레임만 보낸다. 서버가 구독을 등록했는지는 호출한 시험이 서버 쪽 사용자 목록으로 확인한다 */

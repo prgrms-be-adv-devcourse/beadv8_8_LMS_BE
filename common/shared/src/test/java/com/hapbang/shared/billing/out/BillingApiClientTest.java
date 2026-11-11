@@ -30,10 +30,13 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.BillingSettlementStatus;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.PayoutType;
+import com.hapbang.shared.billing.domain.PromotionBudgetWorkKind;
+import com.hapbang.shared.billing.domain.PromotionBudgetWorkStatus;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.domain.WithdrawalCloseOutcome;
 import com.hapbang.shared.billing.domain.WithdrawalReopenOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
 import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.HoldStateDto;
@@ -44,6 +47,12 @@ import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReleaseCommand;
+import com.hapbang.shared.billing.dto.PromotionBudgetReleaseResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReservationDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReserveCommand;
+import com.hapbang.shared.billing.dto.PromotionBudgetReserveResultDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetWorkDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
@@ -122,6 +131,45 @@ class BillingApiClientTest {
                 "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31,\"amountHp\":10000}"));
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(
                 new HoldResultDto(BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L, false)));
+    }
+
+    @Test
+    void 플랫폼_몫이_있는_보류는_promotions를_실어_보내고_플랫폼_몫_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"HP를 보류했습니다.","data":{
+                  "referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"heldHp":8000,"promotionHeldHp":1000,
+                  "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"amountHp":1000}],"replayed":false}}""");
+
+        BillingCallResult<HoldResultDto> result = client().hold(new HoldCommand(7L,
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 8_000L, List.of(new HoldPromotionDto(42L, 901L, 2L, 1_000L))));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/holds", API_KEY,
+                "application/json", "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31,"
+                        + "\"amountHp\":8000,\"promotions\":[{\"couponId\":42,\"memberCouponId\":901,\"generation\":2,"
+                        + "\"amountHp\":1000}]}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 8_000L, 1_000L,
+                List.of(new HoldPromotionDto(42L, 901L, 2L, 1_000L)), false)));
+    }
+
+    @Test
+    void 플랫폼_몫이_없는_보류_응답은_promotionHeldHp_0과_빈_promotions로_읽는다() {
+        respond(200, "application/json", HOLD_SUCCEEDED);
+
+        BillingCallResult<HoldResultDto> result = client().hold(holdCommand());
+
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L, 0L, List.of(), false)));
+    }
+
+    @Test
+    void 플랫폼_몫_예산_부족은_Failed이고_새_코드를_바꾼다() {
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"쿠폰 예산이 부족합니다.","code":"PROMOTION_BUDGET_INSUFFICIENT"}""");
+
+        assertThat(client().hold(holdCommand())).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.PROMOTION_BUDGET_INSUFFICIENT, "쿠폰 예산이 부족합니다.", 409,
+                "PROMOTION_BUDGET_INSUFFICIENT"));
     }
 
     @Test
@@ -552,8 +600,69 @@ class BillingApiClientTest {
         assertThat(states.get(0).settlements()).containsExactly(new HoldStateDto.Settlement(
                 SettlementSourceType.APPEARANCE_REQUEST, 51L, PayoutType.PENALTY, 8L, 3_000, 3_000,
                 BillingSettlementStatus.COMPLETED));
+        assertThat(states.get(0).promotions()).isEmpty();
+        assertThat(states.get(0).promotion()).isNull();
         assertThat(states.get(1).hold()).isNull();
         assertThat(states.get(1).voided()).isEqualTo(new HoldStateDto.Voided(HoldVoidOutcome.VOIDED, 0));
+    }
+
+    @Test
+    void 프로모션_조회_응답은_쿠폰_예약과_지급된_구매자_플랫폼_금액을_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":[
+                  {"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,
+                   "hold":{"status":"PAID","payerUserId":7,
+                     "original":{"chargeHp":0,"revenueHp":8000,"totalHp":8000},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "paid":{"chargeHp":0,"revenueHp":8000,"totalHp":8000},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,
+                   "settlements":[{"sourceType":"LECTURE_ORDER_ITEM","sourceId":31,"payoutType":"NORMAL",
+                     "receiverUserId":8,"grossAmountHp":9000,"paidAmountHp":9000,"status":"COMPLETED",
+                     "buyerPaidHp":8000,"promotionPaidHp":1000}],
+                   "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"reservationId":"PB-7",
+                     "amountHp":1000,"status":"PAID"}],
+                   "promotion":{"held":0,"paid":1000,"restored":0}}]}""");
+
+        BillingCallResult<List<HoldStateDto>> result = client().queryHolds(
+                new HoldQueryCommand(BillingReferenceType.LECTURE_ORDER_ITEM, List.of(31L)));
+
+        HoldStateDto state = ((BillingCallResult.Succeeded<List<HoldStateDto>>) result).value().getFirst();
+        assertThat(state.promotions()).containsExactly(new HoldStateDto.Promotion(42L, 901L, 2L, "PB-7", 1_000L,
+                "PAID"));
+        assertThat(state.promotion()).isEqualTo(new HoldStateDto.PromotionAmount(0L, 1_000L, 0L));
+        assertThat(state.settlements()).containsExactly(new HoldStateDto.Settlement(
+                SettlementSourceType.LECTURE_ORDER_ITEM, 31L, PayoutType.NORMAL, 8L, 9_000L, 9_000L,
+                BillingSettlementStatus.COMPLETED, 8_000L, 1_000L));
+    }
+
+    @Test
+    void 프로모션_목록_응답은_구매자_0원_앵커와_보류중인_플랫폼_몫을_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[
+                  {"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,
+                   "hold":{"status":"HELD","payerUserId":7,
+                     "original":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "paid":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,"settlements":[],
+                   "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"reservationId":"PB-7",
+                     "amountHp":1000,"status":"HELD"}],
+                   "promotion":{"held":1000,"paid":0,"restored":0}}],
+                  "nextUpdatedAfter":"2026-11-03T01:02:03Z","nextAfterId":42,"hasMore":false}}""");
+
+        BillingCallResult<HoldStatePageDto> result = client().listHolds(BillingReferenceType.LECTURE_ORDER_ITEM,
+                Instant.EPOCH, 0L, 100);
+
+        HoldStateDto state = ((BillingCallResult.Succeeded<HoldStatePageDto>) result).value().items().getFirst();
+        assertThat(state.hold().status()).isEqualTo(BillingHoldStatus.HELD);
+        assertThat(state.hold().original().totalHp()).isZero();
+        assertThat(state.promotions()).containsExactly(new HoldStateDto.Promotion(42L, 901L, 2L, "PB-7", 1_000L,
+                "HELD"));
+        assertThat(state.promotion()).isEqualTo(new HoldStateDto.PromotionAmount(1_000L, 0L, 0L));
     }
 
     @Test
@@ -575,6 +684,117 @@ class BillingApiClientTest {
                 Instant.parse("2026-11-03T01:02:03.456789Z"), 42L, true)));
     }
 
+
+    @Test
+    void 예산_예약은_promotion_budgets_reservations_경로로_보내고_예약_ID를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"쿠폰 예산을 예약했습니다.","data":{
+                  "workId":"coupon-42-reserve-v1","reservationId":"PB-7","couponId":42,"amountHp":100000,"replayed":false}}""");
+
+        BillingCallResult<PromotionBudgetReserveResultDto> result = client().reserveBudget(
+                new PromotionBudgetReserveCommand("coupon-42-reserve-v1", 42L, 1, 100_000L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/promotion-budgets/reservations",
+                API_KEY, "application/json",
+                "{\"workId\":\"coupon-42-reserve-v1\",\"couponId\":42,\"policyVersion\":1,\"amountHp\":100000}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(
+                new PromotionBudgetReserveResultDto("coupon-42-reserve-v1", "PB-7", 42L, 100_000L, false)));
+    }
+
+    @Test
+    void 예산_해제는_promotion_budgets_releases_경로로_보내고_해제_금액과_남은_예산을_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"쿠폰 예산을 해제했습니다.","data":{
+                  "workId":"coupon-42-release-unissued-v1","reservationId":"PB-7","releasedHp":30000,
+                  "remainingHp":52000,"replayed":true}}""");
+
+        BillingCallResult<PromotionBudgetReleaseResultDto> result = client().releaseBudget(
+                new PromotionBudgetReleaseCommand("coupon-42-release-unissued-v1", "PB-7", 30_000L, "UNISSUED:30",
+                        "발급 종료"));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/promotion-budgets/releases",
+                API_KEY, "application/json", "{\"workId\":\"coupon-42-release-unissued-v1\",\"reservationId\":\"PB-7\","
+                        + "\"amountHp\":30000,\"target\":\"UNISSUED:30\",\"reason\":\"발급 종료\"}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new PromotionBudgetReleaseResultDto(
+                "coupon-42-release-unissued-v1", "PB-7", 30_000L, 52_000L, true)));
+    }
+
+    @Test
+    void 예산_작업_조회는_works_경로에_GET으로_보내고_기록이_없으면_NOT_FOUND_상태를_돌려준다() {
+        queue(new Response(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"workId":"coupon-42-reserve-v1","kind":"RESERVE","status":"DONE",
+                  "reservationId":"PB-7","amountHp":100000}}"""));
+        queue(new Response(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"workId":"coupon-43-reserve-v1","kind":null,"status":"NOT_FOUND",
+                  "reservationId":null,"amountHp":null}}"""));
+
+        BillingCallResult<PromotionBudgetWorkDto> done = client().getBudgetWork("coupon-42-reserve-v1");
+        BillingCallResult<PromotionBudgetWorkDto> notFound = client().getBudgetWork("coupon-43-reserve-v1");
+
+        assertThat(requests).extracting(Request::method, Request::path).containsExactly(
+                tuple("GET", "/api/v1/internal/billing/promotion-budgets/works/coupon-42-reserve-v1"),
+                tuple("GET", "/api/v1/internal/billing/promotion-budgets/works/coupon-43-reserve-v1"));
+        assertThat(requests).allSatisfy(request -> assertThat(request.apiKey()).isEqualTo(API_KEY));
+        assertThat(done).isEqualTo(new BillingCallResult.Succeeded<>(new PromotionBudgetWorkDto("coupon-42-reserve-v1",
+                PromotionBudgetWorkKind.RESERVE, PromotionBudgetWorkStatus.DONE, "PB-7", 100_000L)));
+        assertThat(notFound).isEqualTo(new BillingCallResult.Succeeded<>(new PromotionBudgetWorkDto(
+                "coupon-43-reserve-v1", null, PromotionBudgetWorkStatus.NOT_FOUND, null, null)));
+    }
+
+    @Test
+    void 예산_예약_조회는_reservations_경로에_GET으로_보내고_나눈_금액을_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reservationId":"PB-7","couponId":42,"amountHp":100000,
+                  "remainingHp":52000,"heldHp":9000,"paidHp":9000,"releasedHp":30000}}""");
+
+        BillingCallResult<PromotionBudgetReservationDto> result = client().getBudgetReservation("PB-7");
+
+        assertThat(requests).extracting(Request::method, Request::path, Request::apiKey).containsExactly(
+                tuple("GET", "/api/v1/internal/billing/promotion-budgets/reservations/PB-7", API_KEY));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new PromotionBudgetReservationDto("PB-7", 42L,
+                100_000L, 52_000L, 9_000L, 9_000L, 30_000L)));
+    }
+
+    @Test
+    void 예산_예약_해제의_업무_거절은_Failed이고_새_코드를_바꾼다() {
+        for (String code : List.of("PROMOTION_BALANCE_INSUFFICIENT", "BUDGET_RESERVATION_EXISTS",
+                "BUDGET_RELEASE_EXCEEDS_REMAINING")) {
+            queue(new Response(409, "application/problem+json",
+                    "{\"status\":409,\"detail\":\"거절\",\"code\":\"" + code + "\"}"));
+        }
+        queue(new Response(404, "application/problem+json",
+                "{\"status\":404,\"detail\":\"없음\",\"code\":\"BUDGET_RESERVATION_NOT_FOUND\"}"));
+        PromotionBudgetReserveCommand reserve = new PromotionBudgetReserveCommand("coupon-42-reserve-v1", 42L, 1, 1L);
+        PromotionBudgetReleaseCommand release = new PromotionBudgetReleaseCommand("coupon-42-release-v1", "PB-7", 1L,
+                "ADMIN", null);
+
+        assertThat(client().reserveBudget(reserve)).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.PROMOTION_BALANCE_INSUFFICIENT, "거절", 409, "PROMOTION_BALANCE_INSUFFICIENT"));
+        assertThat(client().reserveBudget(reserve)).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.BUDGET_RESERVATION_EXISTS, "거절", 409, "BUDGET_RESERVATION_EXISTS"));
+        assertThat(client().releaseBudget(release)).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.BUDGET_RELEASE_EXCEEDS_REMAINING, "거절", 409, "BUDGET_RELEASE_EXCEEDS_REMAINING"));
+        assertThat(client().getBudgetReservation("PB-7")).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.BUDGET_RESERVATION_NOT_FOUND, "없음", 404, "BUDGET_RESERVATION_NOT_FOUND"));
+    }
+
+    @Test
+    void 예산_요청도_429는_재시도_가능이고_5xx는_결과_불명이다() {
+        respond(429, "application/problem+json", "{\"status\":429,\"code\":\"TOO_MANY_REQUESTS\"}");
+        assertRetryable(() -> client().reserveBudget(new PromotionBudgetReserveCommand("w", 42L, 1, 1L)), 429,
+                "TOO_MANY_REQUESTS");
+
+        respond(500, "application/problem+json", "{\"status\":500,\"code\":\"INTERNAL_ERROR\"}");
+        assertUnknown(() -> client().releaseBudget(new PromotionBudgetReleaseCommand("w", "PB-7", 1L, "ADMIN", null)),
+                500, "INTERNAL_ERROR");
+    }
+
+    @Test
+    void 예산_조회는_형식이_틀린_작업_ID나_예약_ID를_보내지_않는다() {
+        assertThatThrownBy(() -> client().getBudgetWork("coupon:42")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client().getBudgetReservation("7")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(requests).isEmpty();
+    }
 
     private BillingApiClient client() {
         return client(baseUrl());

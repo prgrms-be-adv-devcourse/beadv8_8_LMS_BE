@@ -1,6 +1,9 @@
 package com.hapbang.appearance.out.event;
 
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.APPLICATION_SUBMITTED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CANCEL_REQUESTED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CANCEL_REQUEST_ACCEPTED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CANCEL_REQUEST_REJECTED;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CHANGED;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_TYPE;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_VERSION;
@@ -53,6 +56,7 @@ import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.AppearanceReviewFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
+import com.hapbang.appearance.app.dto.AppearanceCancelRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
@@ -62,10 +66,14 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
+import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
@@ -253,7 +261,8 @@ class AppearanceEventKafkaTest {
     }
 
     @Test
-    @DisplayName("출연이 성립하고 취소 요청되면(각각 커밋) key appearance:<출연 ID>로 출연 변경 이벤트가 하나씩 나가고, version은 커밋된 값이다 (#713)")
+    @DisplayName("출연이 성립하고 취소 요청되면(각각 커밋) key appearance:<출연 ID>로 출연 변경 이벤트가 하나씩 나가고, version은 커밋된 값이다 (#713). "
+            + "취소 요청 이벤트도 같은 key로 하나 나간다 (#817)")
     void appearanceChanged() {
         AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                 AppearanceRequestFixture.content(clock.now()));
@@ -261,7 +270,12 @@ class AppearanceEventKafkaTest {
         ConsumerRecord<String, String> established = awaitExactly(appearanceKey(appearanceId), 1).getFirst();
         appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
 
-        List<ConsumerRecord<String, String>> records = awaitExactly(appearanceKey(appearanceId), 2);
+        List<ConsumerRecord<String, String>> records = awaitExactly(appearanceKey(appearanceId), 3);
+        assertThat(records).extracting(record -> header(record, EVENT_TYPE))
+                .containsExactlyInAnyOrder(CHANGED, CHANGED, CANCEL_REQUESTED);
+        List<ConsumerRecord<String, String>> changed = records.stream()
+                .filter(record -> CHANGED.equals(header(record, EVENT_TYPE)))
+                .toList();
 
         assertThat(header(established, EVENT_TYPE)).isEqualTo(CHANGED);
         assertThat(header(established, EVENT_VERSION)).isEqualTo("1");
@@ -275,9 +289,54 @@ class AppearanceEventKafkaTest {
         Long committedVersion = jdbcTemplate.queryForObject(
                 "select version from appearances.appearances where id = ?", Long.class, appearanceId);
         assertThat(committedVersion).isEqualTo(1L);
-        assertThat(jsonMapper.readValue(records.get(1).value(), AppearanceChangedEvent.class).appearance())
+        assertThat(jsonMapper.readValue(changed.get(1).value(), AppearanceChangedEvent.class).appearance())
                 .isEqualTo(new AppearanceSyncDto(appearanceId, HOST, GUEST, AppearanceResult.SCHEDULED,
                         sent.scheduledAt(), committedVersion));
+    }
+
+    @Test
+    @DisplayName("취소 요청·거절·다시 요청·수락하면(각각 커밋) key appearance:<출연 ID>로 취소 요청 이벤트 3종이 종류 헤더와 사건 시각을 담아 나간다 (#817)")
+    void cancelRequestEvents() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(clock.now()));
+        Long appearanceId = appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId();
+        LocalDateTime before = clock.now();
+        appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
+        appearanceFacade.rejectCancel(HOST, appearanceId, "이미 홍보 중입니다.");
+        appearanceFacade.requestCancel(GUEST, appearanceId, "다시 요청합니다.");
+        List<AppearanceCancelRequestResDto> cancelRequests =
+                appearanceFacade.acceptCancel(HOST, appearanceId).cancelRequests();
+        LocalDateTime after = clock.now();
+
+        // 출연 변경 5건(성립·요청·거절·요청·수락) + 취소 요청 이벤트 4건
+        List<ConsumerRecord<String, String>> records = awaitExactly(appearanceKey(appearanceId), 9);
+
+        List<ConsumerRecord<String, String>> requested = ofType(records, CANCEL_REQUESTED);
+        assertThat(requested).hasSize(2).allSatisfy(record -> {
+            assertThat(header(record, EVENT_VERSION)).isEqualTo("1");
+            assertThat(header(record, "__TypeId__")).isEqualTo(AppearanceCancelRequestedEvent.class.getName());
+        });
+        assertThat(requested).extracting(record -> jsonMapper.readValue(record.value(),
+                        AppearanceCancelRequestedEvent.class))
+                .allSatisfy(event -> assertThat(event.requestedAt()).isBetween(before, after))
+                .extracting(AppearanceCancelRequestedEvent::cancelRequest)
+                .extracting(AppearanceCancelRequestDto::cancelRequestId)
+                .containsExactlyInAnyOrder(cancelRequests.get(0).id(), cancelRequests.get(1).id());
+
+        assertThat(ofType(records, CANCEL_REQUEST_REJECTED)).hasSize(1);
+        AppearanceCancelRequestRejectedEvent rejected = jsonMapper.readValue(
+                ofType(records, CANCEL_REQUEST_REJECTED).getFirst().value(), AppearanceCancelRequestRejectedEvent.class);
+        assertThat(rejected.cancelRequest()).isEqualTo(new AppearanceCancelRequestDto(cancelRequests.get(0).id(),
+                appearanceId, sent.title(), HOST, GUEST, 1, sent.scheduledAt()));
+        assertThat(rejected.autoRejected()).isFalse();
+        assertThat(rejected.rejectedAt()).isBetween(before, after);
+
+        assertThat(ofType(records, CANCEL_REQUEST_ACCEPTED)).hasSize(1);
+        AppearanceCancelRequestAcceptedEvent accepted = jsonMapper.readValue(
+                ofType(records, CANCEL_REQUEST_ACCEPTED).getFirst().value(), AppearanceCancelRequestAcceptedEvent.class);
+        assertThat(accepted.cancelRequest().cancelRequestId()).isEqualTo(cancelRequests.get(1).id());
+        assertThat(accepted.cancelRequest().sequence()).isEqualTo(2);
+        assertThat(accepted.acceptedAt()).isBetween(rejected.rejectedAt(), after);
     }
 
     @Test
@@ -366,6 +425,11 @@ class AppearanceEventKafkaTest {
         return received.stream()
                 .filter(record -> key.equals(record.key()))
                 .toList();
+    }
+
+    private static List<ConsumerRecord<String, String>> ofType(List<ConsumerRecord<String, String>> records,
+            String eventType) {
+        return records.stream().filter(record -> eventType.equals(header(record, EVENT_TYPE))).toList();
     }
 
     private static String header(ConsumerRecord<String, String> record, String name) {

@@ -78,7 +78,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 
 - 저장 트랜잭션이 **commit된 뒤** Redis Pub/Sub으로 발행하고, 알림 모듈 자체 STOMP의 `/user/queue/notifications`로 보낸다. chat-app 연결을 빌리지 않는다(ND-027).
 - 실시간 전달은 유실될 수 있다. DB가 원천이고, 재접속하면 REST 목록으로 맞춘다(ND-027).
-- STOMP 연결 티켓·Pub/Sub·Kafka 소비 설정은 채팅 코드를 복사해 쓴다. 다른 앱 코드를 의존하지 않는다(ND-028). 연결 만료·끊는 경우·수치·프레임을 보내는 때는 ND-056~ND-059를 따른다. 실시간 전달(N3)은 Gateway를 바꾸지 않고, Gateway 경로(U14)와 `exp` claim(U15 남은 일)은 N4에서 한다(ND-055).
+- STOMP 연결 티켓·Pub/Sub·Kafka 소비 설정은 채팅 코드를 복사해 쓴다. 다른 앱 코드를 의존하지 않는다(ND-028). 연결 만료·끊는 경우·수치·프레임을 보내는 때는 ND-056~ND-059를 따른다. Gateway 경로·시간 제한·`exp` claim은 N4에서 ND-062~ND-064·ND-067을 따른다(ND-055).
 
 ### 3.6 예약 알림
 

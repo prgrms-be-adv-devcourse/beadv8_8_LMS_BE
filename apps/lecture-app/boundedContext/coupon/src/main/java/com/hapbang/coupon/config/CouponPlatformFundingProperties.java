@@ -3,26 +3,17 @@ package com.hapbang.coupon.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * 플랫폼 쿠폰 재원 설정 ({@code hapbang.coupon.platform-funding-enabled}). 값을 주지 않으면 코드 기본값이다.
- * <p>
- * <b>확정 전 값이다.</b> 플랫폼 부담분을 보류·지급·반환할 지갑 계약이 아직 없어 플랫폼 부담이 있는 주문은 강의가 막는다. 그동안 기본값
- * {@code false}로 플랫폼 쿠폰을 사용 경로에서 뺀다: 계산·미리보기의 추천 후보에서 빼고, 직접 고르면 409 {@code COUPON_NOT_USABLE}
- * (detail {@code PLATFORM_FUNDING_DISABLED})이며, 강의에 쓸 수 있는 쿠폰 목록에 넣지 않는다. 쿠폰함(내 쿠폰 목록)에는 그대로 보인다.
- * 지갑 계약이 붙으면 {@code true}로 바꾼다.
- * <p>
- * 켜는 절차는 두 단계다. {@code true}로 바꾸는 것만으로는 주문이 열리지 않는다(강의가 플랫폼 부담이 있는 주문을 409로 막는다).
- * 강의의 플랫폼 부담 차단 제거와 함께(지갑 후속 이슈) 켠다. 두 모듈은 JVM 분리를 가정해 이 설정을 공유하지 않는다.
- *
- * @param platformFundingEnabled 플랫폼 쿠폰을 사용 경로에 내보내는가. 기본 false
+ * 플랫폼 쿠폰 사용 재원 설정. 기본값은 true이며, false를 명시하면 계산·추천·사용 가능 목록에서 플랫폼 쿠폰을 제외한다.
+ * 예산 예약과 주문 항목의 구매자·플랫폼 재원 처리는 billing 내부 API로 수행한다.
  */
 @ConfigurationProperties("hapbang.coupon")
 public record CouponPlatformFundingProperties(Boolean platformFundingEnabled) {
 
     public CouponPlatformFundingProperties {
-        platformFundingEnabled = platformFundingEnabled != null && platformFundingEnabled;
+        platformFundingEnabled = platformFundingEnabled == null || platformFundingEnabled;
     }
 
-    /** 모두 기본값(플랫폼 재원 비활성) */
+    /** 모두 기본값(플랫폼 재원 활성) */
     public static CouponPlatformFundingProperties defaults() {
         return new CouponPlatformFundingProperties(null);
     }

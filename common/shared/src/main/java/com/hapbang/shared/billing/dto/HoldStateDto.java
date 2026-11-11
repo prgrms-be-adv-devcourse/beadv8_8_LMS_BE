@@ -2,6 +2,8 @@ package com.hapbang.shared.billing.dto;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.BillingSettlementStatus;
@@ -17,11 +19,26 @@ public record HoldStateDto(
         Long referenceId,
         Hold hold,
         Voided voided,
-        List<Settlement> settlements
+        List<Settlement> settlements,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Promotion> promotions,
+        @JsonInclude(JsonInclude.Include.NON_NULL) PromotionAmount promotion
 ) {
 
     public HoldStateDto {
         settlements = List.copyOf(settlements);
+        promotions = promotions == null ? List.of() : List.copyOf(promotions);
+    }
+
+    public HoldStateDto(BillingReferenceType referenceType, Long referenceId, Hold hold, Voided voided,
+            List<Settlement> settlements) {
+        this(referenceType, referenceId, hold, voided, settlements, List.of(), null);
+    }
+
+    public record Promotion(Long couponId, Long memberCouponId, long generation, String reservationId,
+            long amountHp, String status) {
+    }
+
+    public record PromotionAmount(long held, long paid, long restored) {
     }
 
     // 보류. original = remaining + released + paid + captured 가 HP 종류마다 성립한다.
@@ -60,7 +77,13 @@ public record HoldStateDto(
             Long receiverUserId,
             long grossAmountHp,
             long paidAmountHp,
-            BillingSettlementStatus status
+            BillingSettlementStatus status,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long buyerPaidHp,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long promotionPaidHp
     ) {
+        public Settlement(SettlementSourceType sourceType, Long sourceId, PayoutType payoutType,
+                Long receiverUserId, long grossAmountHp, long paidAmountHp, BillingSettlementStatus status) {
+            this(sourceType, sourceId, payoutType, receiverUserId, grossAmountHp, paidAmountHp, status, null, null);
+        }
     }
 }

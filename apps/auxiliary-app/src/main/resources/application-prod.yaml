@@ -58,6 +58,6 @@ hapbang:
         popularity-weight: 0.05
   search:
     elasticsearch:
-      # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806). 스위치가 꺼져 있으면 읽지 않는다
+      # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806)
       api-key: "${ES_SEARCH_API_KEY}"
       ssl-bundle: elasticsearch

@@ -12,7 +12,6 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -37,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 public class InfluencerDocumentStore {
 
     /** 숨길 때 비우는 개인정보 필드 */
@@ -113,6 +111,9 @@ public class InfluencerDocumentStore {
     /** 부분 갱신할 문서가 없을 때의 오류 종류 */
     static final String DOCUMENT_MISSING = "document_missing_exception";
 
+    /** index·alias가 없을 때의 오류 종류. alias로 쓰다 이것을 받으면 ES를 새로 만들어 alias가 사라진 것이다(#773 리뷰) */
+    static final String INDEX_NOT_FOUND = "index_not_found_exception";
+
     private final ElasticsearchClient client;
 
     public InfluencerDocumentStore(@Qualifier(SearchElasticsearchConfig.CLIENT) ElasticsearchClient client) {
@@ -127,18 +128,7 @@ public class InfluencerDocumentStore {
      * @throws IllegalStateException     그 밖에 쓰지 못한 경우
      */
     public WriteOutcome show(long userId, Long version, MemberProfile profile) {
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("nickname", profile.nickname());
-        fields.put("bio", profile.bio());
-        fields.put("role", profile.role());
-        fields.put("verified", profile.verified());
-        fields.put("contentCategories", profile.contentCategories().stream().map(category -> {
-            Map<String, Object> value = new HashMap<>();
-            value.put("code", category.code());
-            value.put("name", category.name());
-            return value;
-        }).toList());
-        return writeMember(userId, version, true, fields, Instant.EPOCH);
+        return writeMember(userId, version, true, profileFields(profile), Instant.EPOCH);
     }
 
     /**
@@ -169,6 +159,9 @@ public class InfluencerDocumentStore {
             Map<Long, IndexedMember> found = new HashMap<>();
             for (MultiGetResponseItem<Map> item : response.docs()) {
                 if (item.isFailure()) {
+                    if (INDEX_NOT_FOUND.equals(item.failure().error().type())) {
+                        throw aliasMissing();
+                    }
                     throw new IllegalStateException("검색 문서를 읽지 못했습니다 userId=" + item.failure().id()
                             + ", error=" + item.failure().error().type());
                 }
@@ -178,7 +171,10 @@ public class InfluencerDocumentStore {
                 }
             }
             return found;
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            throwIfAliasMissing(e);
+            throw new IllegalStateException("검색 문서를 읽지 못했습니다", e);
+        } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 읽지 못했습니다", e);
         }
     }
@@ -189,11 +185,25 @@ public class InfluencerDocumentStore {
      * @throws IllegalStateException 세지 못한 경우
      */
     public long countVisible() {
+        return countVisible(InfluencerIndexDefinition.ALIAS);
+    }
+
+    /**
+     * 이 index(또는 alias)에서 보이는 문서 수(#773: alias를 옮기기 전에 새 index를 센다). 세기 전에 refresh해야 방금 쓴 문서가 보인다.
+     *
+     * @throws IllegalStateException 세지 못한 경우
+     */
+    public long countVisible(String target) {
         try {
-            return client.count(c -> c.index(InfluencerIndexDefinition.ALIAS)
+            return client.count(c -> c.index(target)
                     .query(q -> q.term(t -> t.field("hidden").value(false)))).count();
-        } catch (IOException | ElasticsearchException e) {
-            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다", e);
+        } catch (ElasticsearchException e) {
+            if (InfluencerIndexDefinition.ALIAS.equals(target)) {
+                throwIfAliasMissing(e);
+            }
+            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다 target=" + target, e);
+        } catch (IOException e) {
+            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다 target=" + target, e);
         }
     }
 
@@ -214,7 +224,10 @@ public class InfluencerDocumentStore {
                                     .lt(JsonData.of(hiddenBefore.toEpochMilli()))))))))
                     .deleted();
             return deleted == null ? 0 : deleted;
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            throwIfAliasMissing(e);
+            throw new IllegalStateException("숨긴 검색 문서를 정리하지 못했습니다", e);
+        } catch (IOException e) {
             throw new IllegalStateException("숨긴 검색 문서를 정리하지 못했습니다", e);
         }
     }
@@ -230,38 +243,110 @@ public class InfluencerDocumentStore {
      * @throws IllegalStateException 요청 자체를 보내지 못한 경우
      */
     public Map<Long, WriteOutcome> applyStats(List<InfluencerStats> stats) {
+        return applyStats(InfluencerIndexDefinition.ALIAS, stats);
+    }
+
+    /**
+     * 이 index(또는 alias)에 통계를 부분 갱신한다(#773: alias를 옮기기 전에 새 index를 채운다). 규칙은 {@link #applyStats(List)}와 같다.
+     *
+     * @param target alias면 {@code require_alias}로 쓴다
+     */
+    public Map<Long, WriteOutcome> applyStats(String target, List<InfluencerStats> stats) {
         if (stats.isEmpty()) {
             return Map.of();
         }
         try {
             BulkResponse response = client.bulk(b -> {
-                b.index(InfluencerIndexDefinition.ALIAS).requireAlias(true);
+                b.index(target).requireAlias(InfluencerIndexDefinition.ALIAS.equals(target));
                 stats.forEach(s -> b.operations(op -> op.update(u -> u.id(String.valueOf(s.userId())).retryOnConflict(3)
                         .action(a -> a.script(script -> script.source(src -> src.scriptString(STATS_SCRIPT))
                                 .params("stats", JsonData.of(statsFields(s))))))));
                 return b;
             });
-            Map<Long, WriteOutcome> outcomes = new HashMap<>();
-            List<String> failures = new ArrayList<>();
-            for (BulkResponseItem item : response.items()) {
-                long userId = Long.parseLong(item.id());
-                if (item.error() == null) {
-                    outcomes.put(userId, "noop".equals(item.result()) ? WriteOutcome.NOOP : WriteOutcome.UPDATED);
-                } else if (DOCUMENT_MISSING.equals(item.error().type())) {
-                    // 문서 없음만 건너뛴다. alias·index가 없어서 난 404(index_not_found_exception)는 실패로 센다
-                    outcomes.put(userId, WriteOutcome.MISSING);
-                } else {
-                    outcomes.put(userId, WriteOutcome.FAILED);
-                    failures.add(item.id() + ":" + item.error().type());
-                }
-            }
+            Map<Long, WriteOutcome> outcomes = bulkOutcomes(response);
+            List<String> failures = failures(response);
             if (!failures.isEmpty()) {
-                log.warn("검색 통계 일부를 쓰지 못해 다음 회차에 다시 쓴다 failures={}", failures);
+                log.warn("검색 통계 일부를 쓰지 못해 다음 회차에 다시 쓴다 target={}, failures={}", target, failures);
             }
             return outcomes;
         } catch (IOException | ElasticsearchException e) {
-            throw new IllegalStateException("검색 통계를 쓰지 못했습니다", e);
+            throw new IllegalStateException("검색 통계를 쓰지 못했습니다 target=" + target, e);
         }
+    }
+
+    /**
+     * 회원들을 이름을 정한 index에 한 번에(bulk) 넣는다(#773 처음 적재·재색인). alias가 아니라 아직 alias가 없는 새 index에 쓴다. 정상 인플루언서는
+     * 보이는 문서, 그 밖의 회원은 숨김 문서다. 회원 이벤트와 같은 script(회원 version 조건부 쓰기)라 같은 회원이 두 번 와도 더 새 version만 남는다.
+     * <p>
+     * index를 먼저 만들고 부른다. bulk에는 "index가 있어야 한다"는 옵션이 없어, 없는 index에 넣으면 ES가 기본 설정(nori·mapping 없음)으로
+     * 만들어 버린다.
+     *
+     * @param index 새 index 이름
+     * @return 회원 ID별 결과. ES가 그 회원 값 때문에 거절했으면 {@link WriteOutcome#REJECTED}, 그 밖에 실패했으면 {@link WriteOutcome#FAILED}
+     * (둘 다 WARN을 남긴다)
+     * @throws IllegalStateException 요청 자체를 보내지 못한 경우
+     */
+    public Map<Long, WriteOutcome> loadMembers(String index, List<MemberDocument> members) {
+        if (members.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            BulkResponse response = client.bulk(b -> {
+                b.index(index);
+                members.forEach(m -> b.operations(op -> op.update(u -> u.id(String.valueOf(m.userId()))
+                        .action(a -> a.scriptedUpsert(true).upsert(Map.of())
+                                .script(script -> script.source(src -> src.scriptString(MEMBER_SCRIPT))
+                                        .params(memberParams(m.userId(), m.version(), m.isVisible(),
+                                                m.isVisible() ? profileFields(m.profile()) : Map.of(),
+                                                m.isVisible() ? Instant.EPOCH : m.hiddenAt())))))));
+                return b;
+            });
+            Map<Long, WriteOutcome> outcomes = bulkOutcomes(response);
+            List<String> failures = failures(response);
+            if (!failures.isEmpty()) {
+                log.warn("검색 index에 회원 일부를 넣지 못했다 index={}, failures={}", index, failures);
+            }
+            return outcomes;
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("검색 index에 회원을 넣지 못했습니다 index=" + index, e);
+        }
+    }
+
+    /**
+     * bulk 항목별 결과. 문서 없음은 {@link WriteOutcome#MISSING}, 그 회원 값 때문에 거절은 {@link WriteOutcome#REJECTED}, 그 밖의 오류는
+     * {@link WriteOutcome#FAILED}다
+     */
+    private static Map<Long, WriteOutcome> bulkOutcomes(BulkResponse response) {
+        Map<Long, WriteOutcome> outcomes = new HashMap<>();
+        for (BulkResponseItem item : response.items()) {
+            long userId = Long.parseLong(item.id());
+            if (item.error() == null) {
+                outcomes.put(userId, switch (item.result()) {
+                    case "created" -> WriteOutcome.CREATED;
+                    case "noop" -> WriteOutcome.NOOP;
+                    default -> WriteOutcome.UPDATED;
+                });
+            } else if (DOCUMENT_MISSING.equals(item.error().type())) {
+                // 문서 없음만 건너뛴다. alias·index가 없어서 난 404(index_not_found_exception)는 실패로 센다
+                outcomes.put(userId, WriteOutcome.MISSING);
+            } else if (REJECTED_TYPES.contains(item.error().type())) {
+                outcomes.put(userId, WriteOutcome.REJECTED);
+            } else {
+                outcomes.put(userId, WriteOutcome.FAILED);
+            }
+        }
+        return outcomes;
+    }
+
+    /** 실패한 bulk 항목의 "회원 ID:오류 종류"(문서 없음은 빼고) */
+    private static List<String> failures(BulkResponse response) {
+        List<String> failures = new ArrayList<>();
+        for (BulkResponseItem item : response.items()) {
+            if (item.error() != null && !DOCUMENT_MISSING.equals(item.error().type())) {
+                failures.add(item.id() + ":" + item.error().type());
+            }
+        }
+        return failures;
     }
 
     /**
@@ -282,7 +367,10 @@ public class InfluencerDocumentStore {
                             .params("names", JsonData.of(names))))
                     .updated();
             return updated == null ? 0 : updated;
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            throwIfAliasMissing(e);
+            throw new IllegalStateException("검색 문서의 분야 이름을 맞추지 못했습니다", e);
+        } catch (IOException e) {
             throw new IllegalStateException("검색 문서의 분야 이름을 맞추지 못했습니다", e);
         }
     }
@@ -309,8 +397,25 @@ public class InfluencerDocumentStore {
         return fields;
     }
 
-    private WriteOutcome writeMember(long userId, Long version, boolean visible, Map<String, Object> profile,
-            Instant hiddenAt) {
+    /** 프로필을 문서 필드로 */
+    private static Map<String, Object> profileFields(MemberProfile profile) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("nickname", profile.nickname());
+        fields.put("bio", profile.bio());
+        fields.put("role", profile.role());
+        fields.put("verified", profile.verified());
+        fields.put("contentCategories", profile.contentCategories().stream().map(category -> {
+            Map<String, Object> value = new HashMap<>();
+            value.put("code", category.code());
+            value.put("name", category.name());
+            return value;
+        }).toList());
+        return fields;
+    }
+
+    /** {@link #MEMBER_SCRIPT}에 넘기는 값 */
+    private static Map<String, JsonData> memberParams(long userId, Long version, boolean visible,
+            Map<String, Object> profile, Instant hiddenAt) {
         Map<String, JsonData> params = new HashMap<>();
         params.put("userId", JsonData.of(userId));
         params.put("hasVersion", JsonData.of(version != null));
@@ -319,6 +424,12 @@ public class InfluencerDocumentStore {
         params.put("profile", JsonData.of(profile));
         params.put("personal", JsonData.of(PERSONAL_FIELDS));
         params.put("now", JsonData.of(hiddenAt.toEpochMilli()));
+        return params;
+    }
+
+    private WriteOutcome writeMember(long userId, Long version, boolean visible, Map<String, Object> profile,
+            Instant hiddenAt) {
+        Map<String, JsonData> params = memberParams(userId, version, visible, profile, hiddenAt);
         try {
             Result result = client.update(u -> u.index(InfluencerIndexDefinition.ALIAS).id(String.valueOf(userId))
                     .requireAlias(true)
@@ -329,6 +440,7 @@ public class InfluencerDocumentStore {
                     .result();
             return outcome(result);
         } catch (ElasticsearchException e) {
+            throwIfAliasMissing(e);
             if (isRejectedByContent(e)) {
                 throw new DocumentRejectedException("ES가 검색 문서를 거절했습니다 userId=" + userId + ", error="
                         + e.error().type(), e);
@@ -337,6 +449,17 @@ public class InfluencerDocumentStore {
         } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
         }
+    }
+
+    /** alias가 없어(ES를 새로 만듦) 난 오류면 {@link IndexNotReadyException}을 던진다. 다음 처음 적재가 채운다 */
+    private static void throwIfAliasMissing(ElasticsearchException e) {
+        if (e.status() == 404 && e.error() != null && INDEX_NOT_FOUND.equals(e.error().type())) {
+            throw aliasMissing();
+        }
+    }
+
+    private static IndexNotReadyException aliasMissing() {
+        return new IndexNotReadyException("검색 alias가 없습니다. 처음 적재 전입니다 alias=" + InfluencerIndexDefinition.ALIAS);
     }
 
     /** 그 회원의 값 때문에 거절됐는지(다시 써도 같다). 배포 실수·장애는 false다 */

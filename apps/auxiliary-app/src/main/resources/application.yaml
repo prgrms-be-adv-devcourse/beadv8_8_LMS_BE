@@ -145,10 +145,8 @@ hapbang:
         # 강의 추천 α·β(#718). 공급자별 값은 프로필 파일에 있다. 아래는 모델을 끈 실행용 값이다(벡터 검색을 하지 않는다)
         interest-weight: 0.3
         popularity-weight: 0.05
-  # 인플루언서 검색(#771). 운영 ES의 검색용 API key(#806)가 생기기 전이라 스위치를 꺼 둔다. 꺼지면 검색 모듈 빈이 하나도 뜨지 않는다.
-  # #806(검색 key)과 #772(증분 보정)가 모두 끝나면 스위치(enabled와 ConditionalOnSearchEnabled)를 지운다
+  # 인플루언서 검색(#771)
   search:
-    enabled: false
     elasticsearch:
       # 챗봇과 같은 cluster다. key만 다르다(application-prod.yaml)
       uris: "${spring.elasticsearch.uris:http://localhost:9200}"
@@ -159,7 +157,7 @@ hapbang:
   clients:
     member:
       # 회원 내부 API(검색 10분 통계 동기화 #771, 챗봇 회원 싱크 #717). k8s ConfigMap이 회원 앱의 내부 포트(8081) 주소를 준다.
-      # 로컬은 application-local.yaml. 검색은 스위치가 꺼져 있으면 읽지 않는다. 기본값을 두지 않는 이유는 아래 출연과 같다
+      # 로컬은 application-local.yaml. 기본값을 두지 않는 이유는 아래 출연과 같다
       base-url: "${MEMBER_API_BASE_URL}"
     appearance:
       # 출연 내부 API(챗봇 출연 싱크, #716). k8s ConfigMap이 출연 앱의 내부 포트(8081) 주소를 준다. 로컬은 application-local.yaml

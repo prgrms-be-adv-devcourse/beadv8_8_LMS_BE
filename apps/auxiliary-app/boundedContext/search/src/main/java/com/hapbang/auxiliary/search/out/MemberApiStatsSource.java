@@ -3,7 +3,6 @@ package com.hapbang.auxiliary.search.out;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.shared.member.dto.ContentCategoriesDto;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 import com.hapbang.shared.member.out.MemberApiClient;
@@ -13,7 +12,6 @@ import com.hapbang.shared.member.out.MemberApiClient;
  * (auxiliary-app README "다른 앱 내부 API"). 주소는 {@code hapbang.clients.member.base-url}({@code MEMBER_API_BASE_URL}).
  */
 @Component
-@ConditionalOnSearchEnabled
 @Import(MemberApiClient.class)
 class MemberApiStatsSource implements MemberStatsSource {
 

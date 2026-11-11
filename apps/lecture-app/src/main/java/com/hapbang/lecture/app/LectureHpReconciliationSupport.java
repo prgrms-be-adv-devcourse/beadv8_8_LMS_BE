@@ -24,12 +24,14 @@ import com.hapbang.lecture.domain.LectureHpReconciliationRun;
 import com.hapbang.lecture.domain.LectureHpReconciliationStatus;
 import com.hapbang.lecture.domain.LectureHpReconciliationTrigger;
 import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.out.LectureHpReconciliationCursorRepository;
 import com.hapbang.lecture.out.LectureHpReconciliationMismatchRepository;
 import com.hapbang.lecture.out.LectureHpReconciliationRunRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.lecture.out.OrderItemWithOrderId;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
@@ -52,6 +54,7 @@ public class LectureHpReconciliationSupport {
     private final LectureHpReconciliationCursorRepository cursorRepository;
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskRepository lectureHpTaskRepository;
+    private final OrderItemCouponRepository orderItemCouponRepository;
 
     /** 지갑 보류 목록 커서. 저장한 적이 없으면 처음부터 ({@link Instant#EPOCH}, 0) */
     record Cursor(Instant updatedAfter, long afterId) {
@@ -109,10 +112,16 @@ public class LectureHpReconciliationSupport {
         Map<Long, List<LectureHpTask>> tasksByOrder = orderIds.isEmpty() ? Map.of()
                 : lectureHpTaskRepository.findByOrderIdIn(orderIds).stream()
                 .collect(Collectors.groupingBy(LectureHpTask::getOrderId));
+        Map<Long, List<OrderItemCoupon>> coupons = orderItemCouponRepository
+                .findByOrderItemIdInOrderByOrderItemIdAscApplyOrderAsc(orderItemIds).stream()
+                .collect(Collectors.groupingBy(OrderItemCoupon::getOrderItemId));
         Map<Long, LectureHpReconciliationTarget> targets = new LinkedHashMap<>();
         for (OrderItemWithOrderId row : items) {
             targets.put(row.item().getId(), LectureHpReconciliationTarget.of(row.item(), row.orderId(),
-                    tasksByOrder.getOrDefault(row.orderId(), List.of())));
+                    tasksByOrder.getOrDefault(row.orderId(), List.of()),
+                    // 예약 전·예약 거절 항목에는 generation이 없다. 완료된 보류에서 빠진 예약은 비교기의 금액 합으로 잡는다.
+                    LectureHpPromotions.of(coupons.getOrDefault(row.item().getId(), List.of()).stream()
+                            .filter(coupon -> coupon.getReservedGeneration() != null).toList())));
         }
         return targets;
     }

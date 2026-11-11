@@ -24,7 +24,6 @@ import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.config.SearchRankingProperties;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
-import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.InfluencerSearcher;
 import com.hapbang.auxiliary.search.out.InfluencerStats;
 import com.hapbang.auxiliary.search.out.MemberProfile;
@@ -133,7 +132,7 @@ class GoldenQueryTest {
     @BeforeAll
     void load() throws Exception {
         SearchElasticsearch.reset(client);
-        new InfluencerIndexSetup(client).ensureReady();
+        SearchElasticsearch.createIndex(client);
         InfluencerDocumentStore store = new InfluencerDocumentStore(client);
         for (Doc doc : DOCS) {
             store.show(doc.id(), 1L, new MemberProfile(doc.nickname(), doc.bio(),

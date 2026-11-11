@@ -13,6 +13,7 @@
 > - 2026-11-09 PR 리뷰 반영(#794): 구현 상태 서술을 이미 발행 중인 ⚠️·기존 변경 이벤트에 맞게 고쳤다. 0.3 예약 짝 키를 새로 두었다(U16 계약 쪽). 3장에 ND-040의 지급 요청 변경 범위를 적고 7장에 근거 행을 더했다.
 > - 2026-11-09 PR 리뷰 반영(#794, 2차): 7장 ND-040 근거에 강의 지급 경로(`LectureHpTaskExecutor`)와 출연·강의 HP 작업 엔티티에 제목이 없는 점을 더했다. 채팅 토픽 key를 ND-044·kafka.md 규칙대로 방 ID(접두어 없음)로 고쳤다.
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
+> - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
 
 ## 0. 읽는 법
 
@@ -57,9 +58,9 @@
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `AppearanceCancelRequestedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 지금 값(`AppearanceCancelRequestDto`: 취소 요청 ID, 출연 ID, 제목, 호스트·게스트 ID, 차수, 방송 예정 일시) + 사건 시각 | 취소 요청 ID | 요청 시각(추가) | 호스트 | `APPEARANCE_CANCEL_REQUESTED` | 확정 |
-| `AppearanceCancelRequestAcceptedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + 사건 시각 | 취소 요청 ID | 수락 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_ACCEPTED`, 예약 취소 입력(합의 취소) | 확정 |
-| `AppearanceCancelRequestRejectedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + `autoRejected` + 사건 시각 | 취소 요청 ID | 거절 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_REJECTED` | 확정 |
+| `AppearanceCancelRequestedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 지금 값(`AppearanceCancelRequestDto`: 취소 요청 ID, 출연 ID, 제목, 호스트·게스트 ID, 차수, 방송 예정 일시) + 사건 시각 | 취소 요청 ID | 요청 시각(추가) | 호스트 | `APPEARANCE_CANCEL_REQUESTED` | 구현됨(#817) |
+| `AppearanceCancelRequestAcceptedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + 사건 시각 | 취소 요청 ID | 수락 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_ACCEPTED`, 예약 취소 입력(합의 취소) | 구현됨(#817) |
+| `AppearanceCancelRequestRejectedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + `autoRejected` + 사건 시각 | 취소 요청 ID | 거절 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_REJECTED` | 구현됨(#817) |
 | `AppearanceRequestAcceptedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 출연 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 수락 시각 | 요청서 ID | 수락 시각 | 호스트 | `APPEARANCE_REQUEST_ACCEPTED`, 예약 생성 입력(출연 시작·확인 기간), 예약 취소 입력(요청 만료 임박) | 확정 |
 | `AppearanceRequestRejectedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 거절 시각 | 요청서 ID | 거절 시각 | 호스트 | `APPEARANCE_REQUEST_REJECTED`, 예약 취소 입력 | 확정 |
 | `AppearanceRequestCanceledEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 취소 시각 | 요청서 ID | 취소 시각 | 게스트 | `APPEARANCE_REQUEST_CANCELED`, 예약 취소 입력 | 확정 |
@@ -72,6 +73,8 @@
 | `AppearanceCanceledByHostEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 위약금, 취소 시각 | 출연 ID | 취소 시각 | 게스트 | `APPEARANCE_CANCELED_BY_HOST`, 예약 취소 입력 | 확정 |
 | `AppearanceConfirmedEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, `confirmType`, 확인 시각 | 출연 ID | 확인 시각 | 호스트 | `APPEARANCE_CONFIRMED`, 예약 취소 입력 | 확정 |
 | `AppearanceAbsentEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 불참 처리 시각 | 출연 ID | 불참 처리 시각 | 게스트 | `APPEARANCE_ABSENT`, 예약 취소 입력 | 확정 |
+
+- M1 구현(#817, 출연): 3종 모두 `@Externalized`로 key `appearance:<출연 ID>`에 나간다. `eventType` 헤더는 레코드 이름과 같다. 기존 필드(`cancelRequest`: `AppearanceCancelRequestDto` 7개 값, 거절의 `autoRejected`) 뒤에 사건 시각(`LocalDateTime`, KST)을 붙였다. 요청 `requestedAt`, 수락 `acceptedAt`, 거절 `rejectedAt`(자동 거절이면 자동 거절을 처리한 시각)이다. 값은 상태를 바꾼 처리의 시각이다(수락·거절은 이력의 응답 시각과 같고, 요청은 이력의 요청 시각과 몇 ms 다를 수 있다. 운영 서버 시간대가 `Asia/Seoul`이라 둘 다 KST다). 한 취소 요청에 결과 이벤트(수락 또는 거절)는 많아야 하나다.
 
 예약을 만들고 취소하는 짝은 [알림 종류](notification-catalog.md) 7장이 원본이다. 짝을 이루는 이벤트는 같은 (대상 ID, 받는 사람)을 준다(ND-034).
 
@@ -174,7 +177,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 
 | 묶음 | 발행 담당 | 이벤트 | Issue | 상태 |
 | --- | --- | --- | --- | --- |
-| M1 | 출연 | 취소 요청 3종 Kafka 발행 | — | 계약 확정, Issue 발송 전 |
+| M1 | 출연 | 취소 요청 3종 Kafka 발행 | #817 | 구현됨 |
 | M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | #818 | 구현됨 |
 | M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |

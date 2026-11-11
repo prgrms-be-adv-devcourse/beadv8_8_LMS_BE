@@ -8,10 +8,10 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
+import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.InfluencerStats;
 import com.hapbang.auxiliary.search.out.MemberStatsSource;
@@ -35,7 +35,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnSearchEnabled
 public class InfluencerStatsSync {
 
     /** 통계 한 페이지 크기(회원 API 상한) */
@@ -113,29 +112,39 @@ public class InfluencerStatsSync {
     private StatsSyncResult syncOnce() {
         indexSetup.ensureReady();
         long categoryDocuments = syncCategoryNames();
+        StatsPass pass = applyAllStats(InfluencerIndexDefinition.ALIAS);
+        long indexVisible = countVisible();
 
+        StatsSyncResult result = new StatsSyncResult(pass.pages(), pass.count(WriteOutcome.UPDATED),
+                pass.count(WriteOutcome.NOOP), pass.count(WriteOutcome.MISSING), pass.count(WriteOutcome.FAILED),
+                categoryDocuments, pass.sourceInfluencers(), indexVisible);
+        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, failed={}, categoryDocuments={}, "
+                        + "sourceInfluencers={}, indexVisible={}", result.pages(), result.updated(), result.noop(),
+                result.missing(), result.failed(), result.categoryDocuments(), result.sourceInfluencers(),
+                result.indexVisible());
+        return result;
+    }
+
+    /**
+     * 인플루언서 통계를 처음부터 끝까지 읽어 이 index(또는 alias)에 부분 갱신한다. 10분 동기화(alias)와 처음 적재·재색인(alias 없는 새 index, #773)이
+     * 함께 쓴다. 락 없이 돈다.
+     *
+     * @param target alias 또는 새 index 이름
+     */
+    StatsPass applyAllStats(String target) {
         Map<WriteOutcome, Long> counts = new EnumMap<>(WriteOutcome.class);
         Long afterId = null;
         int pages = 0;
         long sourceInfluencers = 0;
         do {
             InfluencerStatsPageDto page = source.influencerStats(afterId, PAGE_SIZE);
-            store.applyStats(page.items().stream().map(InfluencerStats::from).toList())
+            store.applyStats(target, page.items().stream().map(InfluencerStats::from).toList())
                     .values().forEach(outcome -> counts.merge(outcome, 1L, Long::sum));
             sourceInfluencers += page.items().size();
             afterId = page.nextAfterId();
             pages++;
         } while (afterId != null);
-        long indexVisible = countVisible();
-
-        StatsSyncResult result = new StatsSyncResult(pages, counts.getOrDefault(WriteOutcome.UPDATED, 0L),
-                counts.getOrDefault(WriteOutcome.NOOP, 0L), counts.getOrDefault(WriteOutcome.MISSING, 0L),
-                counts.getOrDefault(WriteOutcome.FAILED, 0L), categoryDocuments, sourceInfluencers, indexVisible);
-        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, failed={}, categoryDocuments={}, "
-                        + "sourceInfluencers={}, indexVisible={}", result.pages(), result.updated(), result.noop(),
-                result.missing(), result.failed(), result.categoryDocuments(), result.sourceInfluencers(),
-                result.indexVisible());
-        return result;
+        return new StatsPass(pages, sourceInfluencers, counts);
     }
 
     /**
@@ -163,6 +172,24 @@ public class InfluencerStatsSync {
         } catch (RuntimeException e) {
             log.warn("분야 이름을 맞추지 못해 건너뛰고 통계는 계속 맞춘다", e);
             return -1;
+        }
+    }
+
+    /**
+     * 통계 한 바퀴의 결과
+     *
+     * @param pages             읽은 통계 페이지 수
+     * @param sourceInfluencers 원본(통계 API)의 정상 인플루언서 수
+     * @param counts            쓰기 결과별 회원 수
+     */
+    record StatsPass(int pages, long sourceInfluencers, Map<WriteOutcome, Long> counts) {
+
+        StatsPass {
+            counts = Map.copyOf(counts);
+        }
+
+        long count(WriteOutcome outcome) {
+            return counts.getOrDefault(outcome, 0L);
         }
     }
 

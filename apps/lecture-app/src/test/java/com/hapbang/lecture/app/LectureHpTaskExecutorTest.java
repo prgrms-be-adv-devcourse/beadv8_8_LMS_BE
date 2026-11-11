@@ -28,6 +28,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureHpAttemptResult;
+import com.hapbang.lecture.domain.OrderItemCoupon;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
+import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskAttempt;
 import com.hapbang.lecture.domain.LectureHpTaskOutcome;
@@ -77,6 +83,9 @@ class LectureHpTaskExecutorTest {
 
     @Autowired
     private FakeBillingApiClient billing;
+
+    @Autowired
+    private OrderItemCouponRepository orderItemCouponRepository;
 
     // 실행기만 확인하도록 운영 CANCEL 처리기 자리에 결과만 남기는 처리기를 넣는다
     @TestBean(methodName = RecordingCancelResultHandler.FACTORY)
@@ -432,6 +441,61 @@ class LectureHpTaskExecutorTest {
         assertThat(billing.calls()).hasSize(1);
         assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
         assertThat(attempts(id)).hasSize(1);
+    }
+
+    @Test
+    void 구매자_0원도_플랫폼_보류를_보내고_쿠폰_예약_세대를_대조한다() {
+        LectureOrder order = platformOrder(PRICE_HP);
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "anchor-hold-" + itemId,
+                order.getId(), itemId, 7L, null, 0L, LocalDateTime.now(clock)));
+
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+        assertThat(billing.calls()).singleElement().satisfies(call -> {
+            assertThat(call.transactionActive()).isFalse();
+            assertThat((HoldCommand) call.command()).extracting(HoldCommand::amountHp).isEqualTo(0L);
+            assertThat(((HoldCommand) call.command()).promotions())
+                    .containsExactly(new HoldPromotionDto(42, 901, 3, PRICE_HP));
+        });
+    }
+
+    @Test
+    void 두_재원이_모두_0인_작업은_지갑을_부르지_않고_불변식_오류로_멈춘다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, "zero", 0));
+        executor.execute(id);
+        assertThat(billing.calls()).isEmpty();
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(find(id).getLastErrorCode()).isEqualTo("PROMOTION_PAYLOAD_INVALID");
+    }
+
+    @Test
+    void 반환_총액이_맞아도_플랫폼_복구의_사용_세대가_다르면_완료하지_않는다() {
+        LectureOrder order = platformOrder(1_000);
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL, "platform-cancel-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP - 1_000, LocalDateTime.now(clock)));
+        billing.respond(command -> new BillingCallResult.Succeeded<>(new ReleaseResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, itemId, "platform-cancel-" + itemId, PRICE_HP - 1_000,
+                0L, 1_000L, List.of(new PromotionRestorationDto(42L, 901L, 2L, 1_000L)), false)));
+
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(find(id).getLastErrorCode()).isEqualTo(LectureHpTaskExecutor.AMOUNT_MISMATCH);
+    }
+
+    private LectureOrder platformOrder(long platformHp) {
+        LectureOrder order = LectureOrderFixture.pending(7L, List.of(withId(onSaleLecture(), 10L)),
+                LocalDateTime.now(clock));
+        order.applyItemDiscount(10L, platformHp, platformHp, 0L);
+        LectureOrder saved = lectureOrderRepository.save(order);
+        OrderItemCoupon coupon = OrderItemCoupon.create(saved.getItems().getFirst().getId(), 901L, 42L, "PLATFORM",
+                0, PRICE_HP, platformHp, platformHp, 0, 2, 1);
+        coupon.recordReserved(3L);
+        orderItemCouponRepository.save(coupon);
+        return saved;
     }
 
     private LectureHpTask task(LectureHpTaskPurpose purpose, String requestId, long amount) {

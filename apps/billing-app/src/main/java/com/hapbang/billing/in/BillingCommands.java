@@ -1,6 +1,7 @@
 package com.hapbang.billing.in;
 
 import com.hapbang.billing.app.PaymentHoldCommand;
+import com.hapbang.billing.app.PaymentHoldPromotion;
 import com.hapbang.billing.app.PaymentHoldVoidCommand;
 import com.hapbang.billing.app.PaymentPayoutCommand;
 import com.hapbang.billing.app.PaymentPenaltyCommand;
@@ -20,7 +21,10 @@ final class BillingCommands {
 
     static PaymentHoldCommand hold(HoldCommand command) {
         return new PaymentHoldCommand(command.userId(), command.referenceType(), command.referenceId(),
-                command.amountHp());
+                command.amountHp(), command.promotions().stream()
+                        .map(promotion -> new PaymentHoldPromotion(promotion.couponId(), promotion.memberCouponId(),
+                                promotion.generation(), promotion.amountHp()))
+                        .toList());
     }
 
     static PaymentReleaseCommand release(ReleaseCommand command) {

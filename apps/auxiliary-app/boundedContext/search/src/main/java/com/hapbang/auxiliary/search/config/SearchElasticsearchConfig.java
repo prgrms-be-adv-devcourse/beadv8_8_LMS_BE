@@ -31,7 +31,6 @@ import co.elastic.clients.transport.rest5_client.low_level.Rest5ClientBuilder;
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnSearchEnabled
 @EnableConfigurationProperties(SearchElasticsearchProperties.class)
 public class SearchElasticsearchConfig {
 

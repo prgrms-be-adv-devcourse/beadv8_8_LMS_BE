@@ -26,6 +26,8 @@ public record PayoutResult(
         long paidHp,
         long paidRevenueHp,
         long paidChargeHp,
+        long buyerPaidHp,
+        long promotionPaidHp,
         List<ChargeConsumption> chargeConsumptions,
         long remainingHeldHp,
         PointHoldStatus holdStatus,
@@ -40,10 +42,11 @@ public record PayoutResult(
     // 지급 상세·지급 건과 그 지급의 충전 건별 소진, 현재 보류 상태로 결과를 만든다.
     static PayoutResult of(PointHold hold, PointHoldDetail detail, Settlement settlement,
             List<ChargeConsumption> chargeConsumptions, boolean replayed) {
-        return new PayoutResult(hold.getId(), detail.getId(), settlement.getId(), hold.getWalletId(),
+        return new PayoutResult(hold.getId(), detail == null ? null : detail.getId(), settlement.getId(), hold.getWalletId(),
                 settlement.getReceiverWalletId(), hold.getReferenceType(), hold.getReferenceId(),
-                settlement.getSourceType(), settlement.getSourceId(), settlement.getPayoutType(), detail.totalAmountHp(),
-                detail.getRevenueAmountHp(), detail.getChargeAmountHp(), chargeConsumptions, hold.heldTotalHp(),
+                settlement.getSourceType(), settlement.getSourceId(), settlement.getPayoutType(), settlement.getPaidAmountHp(),
+                detail == null ? 0L : detail.getRevenueAmountHp(), detail == null ? 0L : detail.getChargeAmountHp(),
+                settlement.getBuyerPaidHp(), settlement.getPromotionPaidHp(), chargeConsumptions, hold.heldTotalHp(),
                 hold.getStatus(), replayed);
     }
 

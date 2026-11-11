@@ -1,5 +1,6 @@
 package com.hapbang.billing.app;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.postgresql.util.PSQLException;
@@ -35,16 +36,16 @@ public class HoldVoidUseCase {
     static final String UNIQUE_VIOLATION = "23505";
 
     private final HoldProcessing holdProcessing;
-    private final LedgerRecordUseCase ledgerRecordUseCase;
     private final PointHoldRepository pointHoldRepository;
     private final HoldVoidRepository holdVoidRepository;
     private final HoldReleaseUseCase holdReleaseUseCase;
+    private final PromotionReleaseProcessing promotionReleaseProcessing;
 
     @Transactional
     public HoldVoidResult voidHold(PaymentHoldVoidCommand command) {
         Long walletId = holdProcessing.walletIdOf(command.userId());
         // 보류(HoldCreateUseCase)와 같은 지갑 락으로 직렬화한다. 락 뒤의 조회는 먼저 커밋된 보류·무효화 기록을 본다.
-        ledgerRecordUseCase.lockWallet(walletId);
+        promotionReleaseProcessing.lockWallets(walletId, command.referenceType(), command.referenceId());
 
         Optional<HoldVoid> existing = holdVoidRepository.findByReferenceTypeAndReferenceId(command.referenceType(),
                 command.referenceId());
@@ -52,28 +53,47 @@ public class HoldVoidUseCase {
             if (!existing.get().getUserId().equals(command.userId())) {
                 throw new BillingException(BillingErrorCode.HOLD_OWNER_MISMATCH);
             }
-            return HoldVoidResult.of(existing.get(), true);
+            HoldVoid record = existing.get();
+            List<ReleaseResult.PromotionRestoration> restorations = List.of();
+            if (record.getPromotionRestoredHp() > 0) {
+                PointHold hold = holdProcessing.lockHold(BillingKeys.hold(command.referenceType(), command.referenceId()),
+                        walletId);
+                restorations = promotionReleaseProcessing.replay(promotionReleaseProcessing.promotions(hold),
+                        VOID_RELEASE_REQUEST_ID);
+                long restoredHp = restorations.stream().mapToLong(ReleaseResult.PromotionRestoration::amountHp)
+                        .reduce(0L, Math::addExact);
+                if (restoredHp != record.getPromotionRestoredHp()) {
+                    throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+                }
+            }
+            return HoldVoidResult.of(record, restorations, true);
         }
 
         Optional<PointHold> hold = pointHoldRepository.findByIdempotencyKey(
                 BillingKeys.hold(command.referenceType(), command.referenceId()));
         HoldVoidOutcome outcome;
         long releasedHp = 0L;
+        long promotionRestoredHp = 0L;
+        List<ReleaseResult.PromotionRestoration> restorations = List.of();
         if (hold.isEmpty()) {
             outcome = HoldVoidOutcome.VOIDED;
         } else {
             // 소유 확인과 보류 락(지갑 → 보류 순서). 다른 회원의 보류면 HOLD_OWNER_MISMATCH다.
             PointHold locked = holdProcessing.lockHold(hold.get().getIdempotencyKey(), walletId);
-            if (locked.isOpen() && locked.heldTotalHp() > 0) {
-                releasedHp = holdReleaseUseCase.release(PaymentReleaseCommand.full(command.userId(),
-                        command.referenceType(), command.referenceId(), VOID_RELEASE_REQUEST_ID)).releasedHp();
+            if (locked.isOpen() && (locked.heldTotalHp() > 0
+                    || !promotionReleaseProcessing.promotions(locked).isEmpty())) {
+                ReleaseResult released = holdReleaseUseCase.release(PaymentReleaseCommand.full(command.userId(),
+                        command.referenceType(), command.referenceId(), VOID_RELEASE_REQUEST_ID));
+                releasedHp = released.releasedHp();
+                promotionRestoredHp = released.promotionRestoredHp();
+                restorations = released.promotionRestorations();
                 outcome = HoldVoidOutcome.RELEASED;
             } else {
                 outcome = HoldVoidOutcome.ALREADY_CLOSED;
             }
         }
         return HoldVoidResult.of(save(HoldVoid.of(command.userId(), walletId, command.referenceType(),
-                command.referenceId(), outcome, releasedHp)), false);
+                command.referenceId(), outcome, releasedHp, promotionRestoredHp)), restorations, false);
     }
 
     // 무효화 기록을 저장한다. 다른 회원이 같은 참조 대상을 동시에 무효화해 참조 대상 UNIQUE가 충돌하면(같은 회원은 지갑 락으로
