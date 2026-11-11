@@ -107,13 +107,16 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("정합 점검: 분야 이름 표가 없어도(회원 API 장애) 마스킹 문서의 요청은 적고, 이름이 필요한 회원만 건너뛴 뒤 실패로 끝낸다")
+    @DisplayName("정합 점검: 분야 이름 표가 없어도(회원 API 장애) 마스킹 삭제·정지 숨김 요청은 적고, 이름이 필요한 회원만 건너뛴 뒤 실패로 끝낸다")
     void checkerWithoutCategoryNames() {
         influencer(11L, "GAME", "롤");
         influencer(12L, "MUSIC", "노래");
         index(11L, 12L);
+        influencer(14L, "COOKING", "요리");
+        index(14L);
         memberMasking.mask(new UserMaskedEvent(12L, Instant.parse("2026-11-10T01:00:00Z")));
         influencer(13L, "GAME", "새로 온 인플루언서");
+        member(14L, Role.INFLUENCER, UserStatus.SUSPENDED, List.of("COOKING"), "요리");
         clearTasks();
         memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
         InfluencerIndexChecker starting = new InfluencerIndexChecker(handler, index, store,
@@ -121,7 +124,8 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
 
         // 11(글 비교)·13(새 문서)은 이름이 필요해 건너뛴다
         assertThatThrownBy(starting::check).isInstanceOf(IllegalStateException.class).hasMessageContaining("skipped=2");
-        assertThat(influencerTasks()).containsExactly("12");
+        // 12(마스킹 삭제)·14(정지 숨김)는 이름 없이 판단한다
+        assertThat(influencerTasks()).containsExactlyInAnyOrder("12", "14");
     }
 
     private List<String> influencerTasks() {

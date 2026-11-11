@@ -91,7 +91,7 @@ public class InfluencerIndexChecker {
         handler.ensureIndex();
         int queued = 0;
         int skipped = 0;
-        IllegalStateException namesFailure = null;
+        ContentCategoryNames.Unavailable namesFailure = null;
         long afterId = 0;
         while (true) {
             List<Long> ids = store.memberIdsAfter(afterId, properties.checkPageSize());
@@ -108,7 +108,7 @@ public class InfluencerIndexChecker {
                     if (InfluencerIndexPlan.decide(profiles.get(id), categoryNames::current, indexed.get(docId)).needsWork()) {
                         stale.add(docId);
                     }
-                } catch (IllegalStateException e) {
+                } catch (ContentCategoryNames.Unavailable e) {
                     namesFailure = e;
                     skipped++;
                 }

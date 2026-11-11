@@ -74,7 +74,7 @@ class ContentCategoryNamesTest extends ChatbotIntegrationTestBase {
     void neverFetched() {
         memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
 
-        assertThatThrownBy(names::current).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(names::current).isInstanceOf(ContentCategoryNames.Unavailable.class);
         assertThat(names.namesOf(List.of("GAME", "MUSIC"))).containsExactly("GAME", "MUSIC");
         assertThat(memberSource.categoryCalls()).isEqualTo(1);
 
@@ -104,7 +104,8 @@ class ContentCategoryNamesTest extends ChatbotIntegrationTestBase {
         });
         second.start();
         // 첫 호출이 받는 동안 두 번째 호출은 표를 기다린다(예외로 끝나지 않는다)
-        await().atMost(WAIT).until(() -> second.getState() == Thread.State.BLOCKED || !second.isAlive());
+        // 잠금(ReentrantLock)을 기다리는 스레드는 WAITING이다
+        await().atMost(WAIT).until(() -> second.getState() == Thread.State.WAITING || !second.isAlive());
         assertThat(second.isAlive()).isTrue();
 
         release.countDown();
@@ -112,6 +113,27 @@ class ContentCategoryNamesTest extends ChatbotIntegrationTestBase {
         assertThat(first.get(WAIT.toSeconds(), TimeUnit.SECONDS)).containsEntry("GAME", "게임");
         assertThat(secondResult.get()).isInstanceOf(Map.class);
         assertThat(memberSource.categoryCalls()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("화면용 namesOf는 처음 받는 중이어도 기다리지 않고 코드를 그대로 보여 준다")
+    void displayDoesNotWait() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        memberSource.blockCategoryNames(entered, release);
+        FutureTask<Map<String, String>> first = new FutureTask<>(names::current);
+        new Thread(first).start();
+        assertThat(entered.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+
+        // 이 스레드가 기다리면 release를 내릴 수 없어 테스트가 끝나지 않는다(상한 10초 뒤 실패)
+        FutureTask<List<String>> display = new FutureTask<>(() -> names.namesOf(List.of("GAME")));
+        new Thread(display).start();
+        try {
+            assertThat(display.get(WAIT.toSeconds(), TimeUnit.SECONDS)).containsExactly("GAME");
+        } finally {
+            release.countDown();
+        }
+        assertThat(first.get(WAIT.toSeconds(), TimeUnit.SECONDS)).containsEntry("GAME", "게임");
     }
 
     private Duration afterTtl() {

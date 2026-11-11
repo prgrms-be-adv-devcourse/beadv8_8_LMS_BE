@@ -1,8 +1,10 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.regex.Pattern;
 
@@ -71,7 +73,7 @@ public class InfluencerRecommendExplainer {
             explanations.put(candidate.memberId(), reasonSentence(candidate));
         }
         if (candidates.isEmpty()) {
-            return new Explained.ByLlm(explanations);
+            return new Explained.Done(explanations);
         }
         String prompt = prompt(candidates);
         LlmCallGuard.Result<List<Explanation>> result = llm.call(chatClient != null, properties.explainTimeout(),
@@ -82,19 +84,20 @@ public class InfluencerRecommendExplainer {
             }
             return new Explained.Fallback(explanations, result.reason());
         }
-        int used = 0;
         List<Explanation> answered = result.value() == null ? List.of() : result.value();
+        // 같은 순번이 여러 번 오면 처음 답만 쓴다
+        Set<Integer> answeredCandidates = new HashSet<>();
         for (Explanation explanation : answered) {
-            if (usable(explanation, candidates.size())) {
+            if (usable(explanation, candidates.size()) && answeredCandidates.add(explanation.candidate())) {
                 explanations.put(candidates.get(explanation.candidate() - 1).memberId(), explanation.reason().strip());
-                used++;
             }
         }
+        int used = answeredCandidates.size();
         if (used == 0) {
             log.warn("인플루언서 추천 설명에 쓸 만한 답이 없어 이유 코드 문장으로 답한다 answered={}", answered.size());
             return new Explained.Fallback(explanations, FallbackReason.ERROR);
         }
-        return new Explained.ByLlm(explanations);
+        return new Explained.Done(explanations);
     }
 
     /** 이유 코드를 정해진 문장으로(LLM 실패·빠진 후보) */
@@ -142,8 +145,8 @@ public class InfluencerRecommendExplainer {
 
         Map<Long, String> explanations();
 
-        /** LLM 답을 썼다(빠진 후보는 이유 코드 문장) */
-        record ByLlm(Map<Long, String> explanations) implements Explained {
+        /** 설명했다: LLM 답을 썼다(빠진 후보는 이유 코드 문장). 후보가 없으면 LLM을 부르지 않고 이것이다 */
+        record Done(Map<Long, String> explanations) implements Explained {
         }
 
         /** LLM 답을 쓰지 못해 모든 후보를 이유 코드 문장으로 답했다 */

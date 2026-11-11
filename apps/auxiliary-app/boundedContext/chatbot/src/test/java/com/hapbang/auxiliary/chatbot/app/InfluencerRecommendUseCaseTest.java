@@ -160,6 +160,20 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("index가 없으면(첫 색인 전·ES 오류로 검색 실패) 인기순으로 채운다. needsInterest는 false(입력이 없는 것이 아니다)")
+    void searchFailsWithoutIndex() throws Exception {
+        member(7L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        member(8L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        deleteInfluencerIndex();
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(result.needsInterest()).isFalse();
+        assertThat(result.items()).hasSize(5).extracting(Candidate::memberId).doesNotContain(1L, 5L);
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.reasons()).contains(InfluencerReason.POPULAR));
+    }
+
+    @Test
     @DisplayName("요청 회원의 사본이 아직 없으면(가입 직후) 숨김과 같이 빈 결과다(#717 규칙). 화면은 안내 문구를 띄운다")
     void requesterWithoutCopy() {
         InfluencerRecommendation result = useCase.recommend(404L, null);

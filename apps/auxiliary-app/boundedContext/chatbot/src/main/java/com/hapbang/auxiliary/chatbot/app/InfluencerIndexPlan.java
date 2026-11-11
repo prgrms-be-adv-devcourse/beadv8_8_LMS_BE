@@ -28,6 +28,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>추천 가능 → 문서가 없거나 글 해시가 다르면 임베딩해 넣는다. 해시가 같고 숨겨져 있으면 {@code hidden=false}로만 바꾼다.</li>
  * </ol>
  * <b>분야 한글 이름 표는 4번(글 해시)에서만 쓴다.</b> 1~3번은 사본만으로 정하므로 회원 API가 죽어 있어도 마스킹 삭제·숨김은 된다.
+ * 복구(숨김 해제)는 글이 바뀌었는지 봐야 하므로 4번이고, 표를 받을 때까지 숨긴 채로 둔다(추천이 잘못 나가지 않는 쪽).
  * 문서 ID는 회원 ID의 문자열이다({@link #docIdOf}·{@link #memberIdOf}).
  */
 final class InfluencerIndexPlan {
@@ -69,7 +70,7 @@ final class InfluencerIndexPlan {
      * @param profile       회원 사본(없으면 null)
      * @param categoryNames 분야 코드 → 한글 이름 표. 4번(글 해시)에서만 부른다
      * @param indexed       지금 색인 문서(없으면 null)
-     * @throws IllegalStateException 4번까지 와서 분야 이름 표를 받을 수 없을 때
+     * @throws ContentCategoryNames.Unavailable 4번까지 와서 분야 이름 표를 받을 수 없을 때
      */
     static Decision decide(@Nullable InfluencerProfile profile, Supplier<Map<String, String>> categoryNames,
             @Nullable IndexedProfile indexed) {

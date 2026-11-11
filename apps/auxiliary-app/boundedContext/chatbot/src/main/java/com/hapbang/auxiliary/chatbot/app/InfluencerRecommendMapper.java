@@ -20,8 +20,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 class InfluencerRecommendMapper {
 
-    /** 요청 회원이 숨김(대개 가입 직후 회원 정보가 아직 동기화되지 않음)일 때 화면에 띄우는 문구 */
-    static final String REQUESTER_HIDDEN_NOTICE = "회원 정보를 아직 불러오지 못해 추천할 수 없어요. 잠시 뒤 다시 시도해 주세요.";
+    /**
+     * 요청 회원이 숨김일 때 화면에 띄우는 문구. 로그인한 회원이 숨김인 경우는 대개 가입 직후 동기화 전이지만, 탈퇴·마스킹 회원에게도
+     * 틀리지 않게 까닭을 단정하지 않는다.
+     */
+    static final String REQUESTER_HIDDEN_NOTICE = "지금은 인플루언서를 추천할 수 없어요. 가입한 지 얼마 안 됐다면 잠시 뒤 다시 시도해 주세요.";
 
     private final ContentCategoryNames categoryNames;
 
