@@ -33,6 +33,7 @@ import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.PromotionFundingSourceType;
+import com.hapbang.billing.domain.PromotionHoldStatus;
 import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.billing.domain.WalletReconciliationResult;
 import com.hapbang.billing.domain.WalletType;
@@ -92,6 +93,7 @@ class BillingEnumStorageTest {
         columns.put("ck_wallet_withdrawal_reopen_outcome", WithdrawalReopenOutcome.class);
         columns.put("ck_wallet_reconciliation_run_wallet_result", WalletReconciliationResult.class);
         columns.put("ck_promotion_funding_source_type", PromotionFundingSourceType.class);
+        columns.put("ck_promotion_hold_status", PromotionHoldStatus.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
@@ -130,7 +132,9 @@ class BillingEnumStorageTest {
             "ck_wallet_withdrawal_2", "ck_wallet_withdrawal_3",
             // ck_point_ledger_reserved_bucket은 예약 칸은 프로모션 HP만 있다는 규칙, ck_point_ledger_promotion_transaction은
             // 프로모션 충전·회수·예산 예약·해제가 바꾸는 HP 종류·칸 규칙이다
-            "ck_point_ledger_reserved_bucket", "ck_point_ledger_promotion_transaction");
+            "ck_point_ledger_reserved_bucket", "ck_point_ledger_promotion_transaction",
+            // 복구 상태와 반환 요청 ID의 쌍을 확인하는 업무 규칙이다
+            "ck_promotion_hold_restoration");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

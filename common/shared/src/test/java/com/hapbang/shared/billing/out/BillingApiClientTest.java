@@ -36,6 +36,7 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.domain.WithdrawalCloseOutcome;
 import com.hapbang.shared.billing.domain.WithdrawalReopenOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
 import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.HoldStateDto;
@@ -130,6 +131,45 @@ class BillingApiClientTest {
                 "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31,\"amountHp\":10000}"));
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(
                 new HoldResultDto(BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L, false)));
+    }
+
+    @Test
+    void 플랫폼_몫이_있는_보류는_promotions를_실어_보내고_플랫폼_몫_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"HP를 보류했습니다.","data":{
+                  "referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"heldHp":8000,"promotionHeldHp":1000,
+                  "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"amountHp":1000}],"replayed":false}}""");
+
+        BillingCallResult<HoldResultDto> result = client().hold(new HoldCommand(7L,
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 8_000L, List.of(new HoldPromotionDto(42L, 901L, 2L, 1_000L))));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/holds", API_KEY,
+                "application/json", "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31,"
+                        + "\"amountHp\":8000,\"promotions\":[{\"couponId\":42,\"memberCouponId\":901,\"generation\":2,"
+                        + "\"amountHp\":1000}]}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 8_000L, 1_000L,
+                List.of(new HoldPromotionDto(42L, 901L, 2L, 1_000L)), false)));
+    }
+
+    @Test
+    void 플랫폼_몫이_없는_보류_응답은_promotionHeldHp_0과_빈_promotions로_읽는다() {
+        respond(200, "application/json", HOLD_SUCCEEDED);
+
+        BillingCallResult<HoldResultDto> result = client().hold(holdCommand());
+
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L, 0L, List.of(), false)));
+    }
+
+    @Test
+    void 플랫폼_몫_예산_부족은_Failed이고_새_코드를_바꾼다() {
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"쿠폰 예산이 부족합니다.","code":"PROMOTION_BUDGET_INSUFFICIENT"}""");
+
+        assertThat(client().hold(holdCommand())).isEqualTo(new BillingCallResult.Failed<>(
+                BillingFailureCode.PROMOTION_BUDGET_INSUFFICIENT, "쿠폰 예산이 부족합니다.", 409,
+                "PROMOTION_BUDGET_INSUFFICIENT"));
     }
 
     @Test
@@ -560,8 +600,69 @@ class BillingApiClientTest {
         assertThat(states.get(0).settlements()).containsExactly(new HoldStateDto.Settlement(
                 SettlementSourceType.APPEARANCE_REQUEST, 51L, PayoutType.PENALTY, 8L, 3_000, 3_000,
                 BillingSettlementStatus.COMPLETED));
+        assertThat(states.get(0).promotions()).isEmpty();
+        assertThat(states.get(0).promotion()).isNull();
         assertThat(states.get(1).hold()).isNull();
         assertThat(states.get(1).voided()).isEqualTo(new HoldStateDto.Voided(HoldVoidOutcome.VOIDED, 0));
+    }
+
+    @Test
+    void 프로모션_조회_응답은_쿠폰_예약과_지급된_구매자_플랫폼_금액을_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":[
+                  {"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,
+                   "hold":{"status":"PAID","payerUserId":7,
+                     "original":{"chargeHp":0,"revenueHp":8000,"totalHp":8000},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "paid":{"chargeHp":0,"revenueHp":8000,"totalHp":8000},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,
+                   "settlements":[{"sourceType":"LECTURE_ORDER_ITEM","sourceId":31,"payoutType":"NORMAL",
+                     "receiverUserId":8,"grossAmountHp":9000,"paidAmountHp":9000,"status":"COMPLETED",
+                     "buyerPaidHp":8000,"promotionPaidHp":1000}],
+                   "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"reservationId":"PB-7",
+                     "amountHp":1000,"status":"PAID"}],
+                   "promotion":{"held":0,"paid":1000,"restored":0}}]}""");
+
+        BillingCallResult<List<HoldStateDto>> result = client().queryHolds(
+                new HoldQueryCommand(BillingReferenceType.LECTURE_ORDER_ITEM, List.of(31L)));
+
+        HoldStateDto state = ((BillingCallResult.Succeeded<List<HoldStateDto>>) result).value().getFirst();
+        assertThat(state.promotions()).containsExactly(new HoldStateDto.Promotion(42L, 901L, 2L, "PB-7", 1_000L,
+                "PAID"));
+        assertThat(state.promotion()).isEqualTo(new HoldStateDto.PromotionAmount(0L, 1_000L, 0L));
+        assertThat(state.settlements()).containsExactly(new HoldStateDto.Settlement(
+                SettlementSourceType.LECTURE_ORDER_ITEM, 31L, PayoutType.NORMAL, 8L, 9_000L, 9_000L,
+                BillingSettlementStatus.COMPLETED, 8_000L, 1_000L));
+    }
+
+    @Test
+    void 프로모션_목록_응답은_구매자_0원_앵커와_보류중인_플랫폼_몫을_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[
+                  {"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,
+                   "hold":{"status":"HELD","payerUserId":7,
+                     "original":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "paid":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,"settlements":[],
+                   "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"reservationId":"PB-7",
+                     "amountHp":1000,"status":"HELD"}],
+                   "promotion":{"held":1000,"paid":0,"restored":0}}],
+                  "nextUpdatedAfter":"2026-11-03T01:02:03Z","nextAfterId":42,"hasMore":false}}""");
+
+        BillingCallResult<HoldStatePageDto> result = client().listHolds(BillingReferenceType.LECTURE_ORDER_ITEM,
+                Instant.EPOCH, 0L, 100);
+
+        HoldStateDto state = ((BillingCallResult.Succeeded<HoldStatePageDto>) result).value().items().getFirst();
+        assertThat(state.hold().status()).isEqualTo(BillingHoldStatus.HELD);
+        assertThat(state.hold().original().totalHp()).isZero();
+        assertThat(state.promotions()).containsExactly(new HoldStateDto.Promotion(42L, 901L, 2L, "PB-7", 1_000L,
+                "HELD"));
+        assertThat(state.promotion()).isEqualTo(new HoldStateDto.PromotionAmount(1_000L, 0L, 0L));
     }
 
     @Test

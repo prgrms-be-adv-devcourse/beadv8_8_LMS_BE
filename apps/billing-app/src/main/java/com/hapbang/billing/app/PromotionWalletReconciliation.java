@@ -12,6 +12,7 @@ import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BudgetReservation;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
+import com.hapbang.billing.domain.PromotionHoldStatus;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.BudgetReleaseRepository;
 import com.hapbang.billing.out.BudgetReleaseSum;
@@ -19,6 +20,8 @@ import com.hapbang.billing.out.BudgetReservationRepository;
 import com.hapbang.billing.out.LedgerReferenceSum;
 import com.hapbang.billing.out.LedgerTransactionSum;
 import com.hapbang.billing.out.PointLedgerRepository;
+import com.hapbang.billing.out.PromotionHoldRepository;
+import com.hapbang.billing.out.PromotionHoldSum;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 import lombok.RequiredArgsConstructor;
@@ -31,7 +34,8 @@ import lombok.RequiredArgsConstructor;
 // - P1_AVAILABLE_NON_NEGATIVE: 가용 칸 ≥ 0
 // - P1_EARMARK: Σ 예약 earmark(총액 − 해제됨) ≤ 순 충전(충전 − 회수)
 // - P3_RESERVED: 예약 칸 = Σ 남은 예산, P3_HELD: 보류 칸 = Σ 보류 중
-// - 예약 하나마다(P2의 원장 부분): 예약 원장(예약 칸 +) = 총액, 해제 원장(가용 칸 +) 합 = 해제됨, 해제 기록 합 = 해제됨.
+// - 예약 하나마다(P2의 원장 부분): 예약 원장(예약 칸 +) = 총액, 해제 원장(가용 칸 +) 합 = 해제됨, 해제 기록 합 = 해제됨,
+//   보류 중(HELD)인 프로모션 보류 합 = 보류 중.
 //   맞지 않는 예약만 "P2_… reservationId=…" 항목으로 더한다.
 @Component
 @RequiredArgsConstructor
@@ -45,10 +49,15 @@ class PromotionWalletReconciliation {
     static final String P2_RESERVE_LEDGER = "P2_RESERVE_LEDGER";
     static final String P2_RELEASE_LEDGER = "P2_RELEASE_LEDGER";
     static final String P2_RELEASE_RECORDS = "P2_RELEASE_RECORDS";
+    static final String P2_HOLD_RECORDS = "P2_HOLD_RECORDS";
+
+    static final String P2_PAID_RECORDS = "P2_PAID_RECORDS";
+    static final String P2_HELD_LEDGER = "P2_HELD_LEDGER";
 
     private final PointLedgerRepository pointLedgerRepository;
     private final BudgetReservationRepository budgetReservationRepository;
     private final BudgetReleaseRepository budgetReleaseRepository;
+    private final PromotionHoldRepository promotionHoldRepository;
 
     List<WalletReconciliation.InvariantCheck> check(Wallet wallet) {
         Long walletId = wallet.getId();
@@ -98,6 +107,8 @@ class PromotionWalletReconciliation {
             List<BudgetReservation> reservations) {
         Map<Long, Long> reserveLedger = new HashMap<>();
         Map<Long, Long> releaseLedger = new HashMap<>();
+        Map<Long, Long> holdLedger = new HashMap<>();
+        Map<Long, Long> restoreLedger = new HashMap<>();
         for (LedgerReferenceSum sum : pointLedgerRepository.sumAmountByReference(walletId,
                 BillingReferenceType.COUPON_BUDGET)) {
             if (sum.transactionType() == LedgerTransactionType.BUDGET_RESERVE
@@ -106,6 +117,12 @@ class PromotionWalletReconciliation {
             } else if (sum.transactionType() == LedgerTransactionType.BUDGET_RELEASE
                     && sum.balanceBucket() == BalanceBucket.AVAILABLE) {
                 releaseLedger.put(sum.referenceId(), sum.amountHp());
+            } else if (sum.transactionType() == LedgerTransactionType.PROMOTION_HOLD
+                    && sum.balanceBucket() == BalanceBucket.HELD) {
+                holdLedger.put(sum.referenceId(), sum.amountHp());
+            } else if (sum.transactionType() == LedgerTransactionType.PROMOTION_RESTORE
+                    && sum.balanceBucket() == BalanceBucket.HELD) {
+                restoreLedger.put(sum.referenceId(), sum.amountHp());
             }
         }
         Map<Long, Long> releaseRecords = new HashMap<>();
@@ -113,15 +130,33 @@ class PromotionWalletReconciliation {
             releaseRecords.put(sum.budgetReservationId(), sum.amountHp());
         }
 
+        Map<Long, Long> heldRecords = new HashMap<>();
+        for (PromotionHoldSum sum : promotionHoldRepository.sumAmountByReservation(walletId, PromotionHoldStatus.HELD)) {
+            heldRecords.put(sum.budgetReservationId(), sum.amountHp());
+        }
+
+        Map<Long, Long> paidRecords = new HashMap<>();
+        for (PromotionHoldSum sum : promotionHoldRepository.sumAmountByReservation(walletId, PromotionHoldStatus.PAID)) {
+            paidRecords.put(sum.budgetReservationId(), sum.amountHp());
+        }
         List<WalletReconciliation.InvariantCheck> mismatched = new ArrayList<>();
         for (BudgetReservation reservation : reservations) {
-            String suffix = " reservationId=" + reservation.getId();
+            Long id = reservation.getId();
+            String suffix = " reservationId=" + id;
+            addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_PAID_RECORDS + suffix,
+                    paidRecords.getOrDefault(id, 0L), reservation.getPaidHp()));
+            addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_HELD_LEDGER + suffix,
+                    Math.subtractExact(Math.addExact(holdLedger.getOrDefault(id, 0L),
+                            restoreLedger.getOrDefault(id, 0L)), paidRecords.getOrDefault(id, 0L)),
+                    reservation.getHeldHp()));
             addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_RESERVE_LEDGER + suffix,
                     reserveLedger.getOrDefault(reservation.getId(), 0L), reservation.getAmountHp()));
             addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_RELEASE_LEDGER + suffix,
                     releaseLedger.getOrDefault(reservation.getId(), 0L), reservation.getReleasedHp()));
             addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_RELEASE_RECORDS + suffix,
                     releaseRecords.getOrDefault(reservation.getId(), 0L), reservation.getReleasedHp()));
+            addIfMismatched(mismatched, WalletReconciliation.InvariantCheck.equal(P2_HOLD_RECORDS + suffix,
+                    heldRecords.getOrDefault(reservation.getId(), 0L), reservation.getHeldHp()));
         }
         return mismatched;
     }

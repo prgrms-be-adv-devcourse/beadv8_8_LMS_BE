@@ -53,6 +53,10 @@ public enum BillingFailureCode {
     BUDGET_RESERVATION_NOT_FOUND,
     // 해제 금액이 예약의 남은 예산보다 많다(409, 아무것도 바꾸지 않음)
     BUDGET_RELEASE_EXCEEDS_REMAINING,
+    // 주문 항목 보류의 플랫폼 몫이 그 쿠폰 예약의 남은 예산보다 많다(409, 구매자 보류도 만들지 않음)
+    PROMOTION_BUDGET_INSUFFICIENT,
+    /** 프로모션 보류는 전체 반환·지급만 가능하다. */
+    PROMOTION_PARTIAL_NOT_SUPPORTED,
 
     // 락 대기 초과(503). 지갑이 처리하지 않고 롤백했으므로 같은 요청을 다시 보내면 된다 (#273)
     HP_LOCK_TIMEOUT,

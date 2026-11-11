@@ -1,6 +1,6 @@
 # 지갑 내부 API 계약
 
-강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산하고, 더는 쓰지 않는 보류를 무효화할 때 쓰는 내부 HTTP API다. 쿠폰이 플랫폼 쿠폰 예산을 프로모션 지갑에서 예약·해제하는 API는 5장이다. 지갑이 내부 API(#273)를, `shared.billing`이 계약(`dto`·`domain`)과 Client(`out.BillingApiClient`, #272)를 제공하고, 소비 모듈은 Client만 쓴다 (D62, D64).
+강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산하고, 더는 쓰지 않는 보류를 무효화할 때 쓰는 내부 HTTP API다. 쿠폰이 플랫폼 쿠폰 예산을 프로모션 지갑에서 예약·해제하는 API는 5장, 주문 항목 보류·지급·반환의 프로모션 재원 확장은 6장이다. 지갑이 내부 API(#273)를, `shared.billing`이 계약(`dto`·`domain`)과 Client(`out.BillingApiClient`, #272)를 제공하고, 소비 모듈은 Client만 쓴다 (D62, D64).
 
 - 공통 규칙(경로, 내부 API 키 인증, 회원 세션 불가, 진입점 차단, RsData·ProblemDetail, Swagger 노출)은 [수익 내부 API 계약 1장](internal-earnings.md#1-공통-규칙)과 같다.
 - 소비 모듈: 출연(#274), 강의(#275~#277), 쿠폰(5장, #841). 같은 JVM 호출용 shared `BillingPort`는 #486에서 지웠다(#280).
@@ -27,7 +27,7 @@
 
 - 요청은 `{userId, referenceType, referenceId}`이다. `userId`는 보류한 회원이다.
 - 결과 `outcome`:
-  - `RELEASED`: 남은 보류를 전부 반환했다(`releasedHp` > 0). 반환 요청 ID `VOID`로 기존 반환과 같이 처리한다(원장 `RELEASE`).
+  - `RELEASED`: 남은 보류를 전부 반환했다(`releasedHp` > 0 또는 `promotionRestoredHp` > 0). 반환 요청 ID `VOID`로 기존 반환과 같이 처리한다(구매자 원장 `RELEASE`, 프로모션 원장 `PROMOTION_RESTORE`).
   - `ALREADY_CLOSED`: 보류가 이미 끝났다(전부 반환·지급). 아무것도 바꾸지 않는다(`releasedHp` 0).
   - `VOIDED`: 보류가 없다. 무효 표시만 남긴다(`releasedHp` 0).
 - 세 경우 모두 무효화 기록을 남긴다. 기록이 있는 참조 대상의 보류 요청은 409 `HOLD_VOIDED`로 거절한다. 무효화 전에 만든 보류의 재요청도 거절한다.
@@ -98,9 +98,9 @@ Client의 다섯 메서드(`hold`·`release`·`payout`·`settlePenalty`·`voidHo
 | 지갑·잔액 | `WALLET_NOT_FOUND`, `INSUFFICIENT_BALANCE`, `BALANCE_OVERFLOW`, `INVALID_POINT_AMOUNT` |
 | 멱등 | `IDEMPOTENCY_KEY_CONFLICT` |
 | 보류 | `HOLD_NOT_FOUND`, `HOLD_OWNER_MISMATCH`, `HOLD_ALREADY_CLOSED`, `HOLD_VOIDED`(#479), `HOLD_TYPE_NOT_SUPPORTED`, `HOLD_CHARGE_NOT_FOUND`, `HOLD_STATE_INCONSISTENT`(500), `CHARGE_PRINCIPAL_MISMATCH`(500) |
-| 반환·지급 | `RELEASE_AMOUNT_EXCEEDS_HELD`, `PAYOUT_AMOUNT_EXCEEDS_HELD`, `PAYOUT_TO_PAYER`, `PAYOUT_SOURCE_MISMATCH`, `PAYOUT_ALREADY_SETTLED` |
+| 반환·지급 | `RELEASE_AMOUNT_EXCEEDS_HELD`, `PAYOUT_AMOUNT_EXCEEDS_HELD`, `PAYOUT_TO_PAYER`, `PAYOUT_SOURCE_MISMATCH`, `PAYOUT_ALREADY_SETTLED`, `PROMOTION_PARTIAL_NOT_SUPPORTED`(#842) |
 | 위약금 (출연) | `PENALTY_BASE_EXCEEDS_HELD`, `PENALTY_AMOUNT_ZERO` |
-| 쿠폰 예산 (5장) | `PROMOTION_BALANCE_INSUFFICIENT`, `BUDGET_RESERVATION_EXISTS`, `BUDGET_RESERVATION_NOT_FOUND`(404), `BUDGET_RELEASE_EXCEEDS_REMAINING` |
+| 쿠폰 예산 (5장) | `PROMOTION_BALANCE_INSUFFICIENT`, `BUDGET_RESERVATION_EXISTS`, `BUDGET_RESERVATION_NOT_FOUND`(404), `BUDGET_RELEASE_EXCEEDS_REMAINING`, `PROMOTION_BUDGET_INSUFFICIENT`(#842) |
 | 락 대기 | `HP_LOCK_TIMEOUT`(503). 결과 불명으로 오며, 같은 키로 다시 보내면 된다 (#273) |
 | 변환 불가 | `UNMAPPED` |
 
@@ -143,7 +143,9 @@ try {
 | `hold` | 보류. 없으면 `null`. `status`(`BillingHoldStatus`: `HELD`·`PARTIALLY_PROCESSED`·`RELEASED`·`PAID`·`CAPTURED`·`MIXED`), `payerUserId`(보류한 회원), 금액 `original`·`remaining`·`released`·`paid`·`captured` |
 | 금액 | 각각 `{chargeHp, revenueHp, totalHp}`(충전 HP·수익 HP·합계). HP 종류마다 `original = remaining + released + paid + captured` 다. 반환·지급·확정 차감은 보류 상세(처리 건) 합이다 |
 | `voided` | 보류 무효화 기록(#479). 없으면 `null`. `{outcome, releasedHp}`. 보류 없이 무효화만 있을 수 있다(`hold`는 `null`) |
-| `settlements` | 그 보류에서 나간 지급 건 전부(상태 무관). `{sourceType, sourceId, payoutType(NORMAL·PENALTY), receiverUserId, grossAmountHp, paidAmountHp, status(BillingSettlementStatus)}` |
+| `settlements` | 그 보류에서 나간 지급 건 전부(상태 무관). `{sourceType, sourceId, payoutType(NORMAL·PENALTY), receiverUserId, grossAmountHp, paidAmountHp, status(BillingSettlementStatus)}`. 프로모션 지급이면 `buyerPaidHp`·`promotionPaidHp`를 함께 준다 |
+| `promotions` | 참조 대상에 붙은 플랫폼 몫 목록(루트 필드). `{couponId, memberCouponId, generation, reservationId, amountHp, status}`. `reservationId`는 `PB-{ID}`, 상태는 `HELD`·`PAID`·`RESTORED`, 쿠폰 ID 오름차순. 없으면 JSON에서 생략 |
+| `promotion` | 플랫폼 몫 상태별 합계(루트 필드). `{held, paid, restored}`. 구매자 금액은 기존 `hold`의 금액 필드에 그대로 둔다. 플랫폼 몫이 없으면 생략 |
 
 - 지갑에 기록이 없는 참조 ID도 `hold`·`voided`가 `null`이고 `settlements`가 빈 기록으로 준다. 빠진 ID가 없다.
 - 지갑·보류·원장 ID와 충전 건별 배분은 담지 않는다. HP 종류별 금액은 대사용 조회에서만 준다(다른 내부 API 결과는 합계만 준다).
@@ -154,7 +156,7 @@ try {
 
 ## 5. 쿠폰 예산 예약·해제 (#841)
 
-쿠폰이 플랫폼 쿠폰의 플랫폼 부담 예산을 프로모션 지갑에서 예약하고, 쓰지 않은 예산을 해제하고, 응답을 잃었을 때 결과를 확인한다. 지갑 결정은 `docs/billing/decisions.md` BD-147~BD-156, 계약 초안은 쿠폰 설계 문서(billing 프로모션 지갑 계약 초안 2·3·4번)다. 인증(`X-Internal-Api-Key`)·응답 형식(RsData·ProblemDetail)·결과 분류(2장)·회로·재시도는 위와 같다. 주문 항목 보류·지급·반환에 프로모션 몫을 싣는 확장은 다음 이슈다.
+쿠폰이 플랫폼 쿠폰의 플랫폼 부담 예산을 프로모션 지갑에서 예약하고, 쓰지 않은 예산을 해제하고, 응답을 잃었을 때 결과를 확인한다. 지갑 결정은 `docs/billing/decisions.md` BD-147~BD-156, 계약 초안은 쿠폰 설계 문서(billing 프로모션 지갑 계약 초안 2·3·4번)다. 인증(`X-Internal-Api-Key`)·응답 형식(RsData·ProblemDetail)·결과 분류(2장)·회로·재시도는 위와 같다. 주문 항목 보류·지급·반환에 프로모션 몫을 싣는 계약은 6장이다.
 
 | 메서드·경로 | 요청 (`shared.billing.dto`) | 응답 `data` | 멱등 키 | Client |
 | --- | --- | --- | --- | --- |
@@ -170,7 +172,7 @@ try {
 - 금액 0 이하는 400 `INVALID_POINT_AMOUNT`(DTO는 금액을 검사하지 않는다). 쿠폰 ID ≤ 0, 정책 버전 < 1, 해제 대상 없음·공백·200자 초과, 사유 500자 초과, 필수 값 누락은 400 `INVALID_REQUEST`다.
 - **거절은 아무것도 저장하지 않는다.** 같은 `workId`로 고쳐서 다시 보낼 수 있다.
 - 같은 `workId`·같은 내용이면 처음 결과를 `replayed = true`로 준다. 재요청 확인은 잔액·남은 예산 확인보다 먼저라, 이미 처리한 작업은 그 뒤 잔액이 줄었어도 처음 결과를 받는다. 같은 `workId`에 다른 내용이면 409 `IDEMPOTENCY_KEY_CONFLICT`다.
-- 예약·해제는 프로모션 지갑 락으로 직렬화한다. 해제는 프로모션 지갑 → 예약 행 순서로 잠근다. 지갑이 여럿 걸리는 흐름(다음 이슈의 주문 항목 보류·지급)은 관련 지갑 전부를 지갑 ID 오름차순으로 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다(BD-155).
+- 예약·해제는 프로모션 지갑 락으로 직렬화한다. 해제는 프로모션 지갑 → 예약 행 순서로 잠근다. 지갑이 여럿 걸리는 흐름(주문 항목 보류·지급·반환)은 관련 지갑 전부를 지갑 ID 오름차순으로 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다(BD-155).
 - 락 대기 초과는 503 `HP_LOCK_TIMEOUT`(처리하지 않음, 같은 요청을 다시 보낸다).
 
 **예약** — 프로모션 지갑의 예약되지 않은 가용 HP를 쿠폰 하나의 예산(예약 칸)으로 옮긴다(원장 `BUDGET_RESERVE`: 가용 −, 예약 +).
@@ -225,3 +227,60 @@ GET /api/v1/internal/billing/promotion-budgets/reservations/PB-7
 ```
 
 **결과 분류(쿠폰 어댑터 기준, 계약 초안)**: 2xx → 성공(예약 ID). 업무 4xx(`PROMOTION_BALANCE_INSUFFICIENT`·`BUDGET_RELEASE_EXCEEDS_REMAINING`·`BUDGET_RESERVATION_NOT_FOUND` 등) → `Failed`로 거절. `BUDGET_RESERVATION_EXISTS`와 408·425·429·5xx·I/O → 결과 불명으로 보고 작업 조회 또는 같은 `workId` 재전송으로 확인한다. Client 자체의 분류는 2장 표와 같다.
+
+
+## 6. 주문 항목의 프로모션 보류·지급·반환 (#842)
+
+플랫폼 쿠폰의 플랫폼 부담분을 쿠폰별 예산 예약에서 보류하고, 구매자 몫과 합쳐 지급하거나 같은 예약으로 복구한다. 쿠폰·강의의 실제 호출 연결과 플랫폼 쿠폰 사용 허용은 후속 이슈다. 기존 경로·멱등키는 그대로 쓰며, `promotions`가 없거나 비면 구매자 전용 요청·응답 JSON과 동작을 유지한다(BD-157~BD-161).
+
+### 6.1 보류
+
+- `HoldCommand.amountHp`는 구매자 부담액이다. 선택 필드 `promotions`는 `[{couponId, memberCouponId, generation, amountHp}]`이고, billing이 `couponId`로 예산 예약을 찾는다. 쿠폰마다 한 항목, ID는 양수, 사용 세대는 0 이상이다. 같은 쿠폰이 중복되거나 필수 값이 없으면 400 `INVALID_REQUEST`다.
+- 구매자 부담액은 0 이상, 플랫폼 몫은 각각 양수여야 하고 전체 합이 `long`을 넘지 않아야 한다. 플랫폼 몫이 없으면 구매자 부담액도 양수다. 금액 위반은 400 `INVALID_POINT_AMOUNT`다.
+- 구매자 보류·프로모션 보류·원장·예산 예약을 한 트랜잭션으로 처리한다. 예약 없음은 404 `BUDGET_RESERVATION_NOT_FOUND`, 남은 예산 부족은 409 `PROMOTION_BUDGET_INSUFFICIENT`이며 구매자 보류도 남기지 않는다.
+- 구매자 몫 0 + 플랫폼 몫 양수이면 금액 0의 `PointHold`를 앵커로 만든다. 구매자 원장·충전 배분·상세는 만들지 않는다. 프로모션 원장 `PROMOTION_HOLD`는 예약 칸에서 보류 칸으로 옮긴다.
+- 같은 참조 대상 재요청은 구매자 금액과 플랫폼 몫의 쿠폰·발급 쿠폰·세대·금액이 전부 같아야 한다. 목록 순서는 정규화하며, 내용이 바뀌면 409 `IDEMPOTENCY_KEY_CONFLICT`다.
+
+```json
+POST /api/v1/internal/billing/holds
+{"userId":7,"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"amountHp":8000,
+ "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"amountHp":1000}]}
+
+{"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"heldHp":8000,"promotionHeldHp":1000,
+ "promotions":[{"couponId":42,"memberCouponId":901,"generation":2,"amountHp":1000}],"replayed":false}
+```
+
+위 응답 예는 `RsData.data`다. `heldHp`는 구매자 최초 보류액이며 플랫폼 몫은 `promotionHeldHp`로 구분한다.
+
+### 6.2 지급
+
+- 요청은 기존 `PayoutCommand`다. 플랫폼 몫이 있는 보류는 `amountHp` 없음 또는 `null`인 전액 지급만 받는다. 금액을 지정한 부분 지급은 409 `PROMOTION_PARTIAL_NOT_SUPPORTED`이며 아무것도 바뀌지 않는다.
+- 구매자 남은 보류 + 플랫폼 보류 전부를 판매자의 수익 HP로 지급한다. `paidHp`는 그 합계(`P − S`)이고, 응답에 `buyerPaidHp`·`promotionPaidHp`를 더한다. 구매자만 지급한 기존 응답에는 두 필드를 싣지 않는다.
+- `Settlement`는 주문 항목당 한 건이며 `gross_amount_hp = buyer_paid_hp + promotion_paid_hp`다. 프로모션 보류는 `PAID`, 예산 예약은 보류 중에서 지급됨으로 옮긴다.
+- 원장 작업 키는 기존 `PAYOUT:{holdId}:{payoutRequestId}`다. 구매자 HP 종류별 보류 감소, 프로모션 보류 합계 감소 한 줄, 판매자 수익 HP 합계 증가 한 줄을 같은 작업으로 기록한다. 0원 앵커에는 구매자 상세·원장 없이 지급 건과 프로모션 보류 상태를 남긴다.
+- 같은 요청 ID 재요청도 처음 재원별 지급액을 돌려주고 두 번 지급하지 않는다. 받는 회원·지급 원천이 바뀌면 409 `IDEMPOTENCY_KEY_CONFLICT`다.
+
+```json
+{"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"payoutRequestId":"LECTURE-PAY-31",
+ "receiverUserId":8,"sourceType":"LECTURE_ORDER_ITEM","sourceId":31,
+ "paidHp":9000,"buyerPaidHp":8000,"promotionPaidHp":1000,"remainingHeldHp":0,"replayed":false}
+```
+
+### 6.3 반환·무효화
+
+- 요청은 기존 `ReleaseCommand`·`HoldVoidCommand`다. 플랫폼 몫이 있으면 전액 반환만 받고 부분 반환은 409 `PROMOTION_PARTIAL_NOT_SUPPORTED`다.
+- 구매자 몫은 기존 원장 `RELEASE`로 구매자에게, 플랫폼 몫은 `PROMOTION_RESTORE`로 **그 보류가 사용한 같은 예산 예약**에 복구한다. 예약 `held_hp`는 줄고 `remaining_hp`가 늘며 프로모션 보류는 `RESTORED`로 끝난다. 프로모션 가용 칸으로 직접 돌리지 않는다.
+- `releasedHp`는 구매자 몫이고, `promotionRestoredHp`와 `promotionRestorations[{couponId, memberCouponId, generation, amountHp}]`가 플랫폼 복구분이다. 목록은 쿠폰 ID 오름차순이며, 플랫폼 몫이 없으면 두 필드를 생략한다.
+- 재요청에 같은 결과를 돌려주도록 프로모션 보류의 `restoration_request_id`에 반환 요청 ID를 남긴다. 무효화는 `VOID`를 사용하고 `hold_void.promotion_restored_hp`에도 합계를 보관한다. 0원 앵커의 반환은 구매자 상세·원장 없이 끝나며 무효화 결과도 `RELEASED`다.
+- 관련 지갑을 ID 오름차순, 예약 행을 쿠폰 ID 오름차순으로 잠근다. 지급·반환·무효화가 경쟁해도 두 재원은 한 트랜잭션에서 같은 결과로 끝난다.
+
+```json
+{"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"releaseRequestId":"LECTURE-CANCEL-31",
+ "releasedHp":8000,"promotionRestoredHp":1000,
+ "promotionRestorations":[{"couponId":42,"memberCouponId":901,"generation":2,"amountHp":1000}],
+ "remainingHeldHp":0,"replayed":false}
+```
+
+### 6.4 조회와 검증
+
+`holds/query`와 `GET holds`는 4장의 루트 `promotions`·`promotion`과 지급 건의 재원별 금액을 준다. 구매자 0원 앵커도 기존 보류와 같은 경로로 조회된다. 구매자 금액과 플랫폼 금액을 더하면 판매자 지급액이고, 반환은 원래 구매자 HP 종류·쿠폰 예약으로 각각 복구된다. 잔액 대사는 프로모션 보류 상태별 합을 예약 행과 대조한다. 원장에는 금액 0인 줄을 만들지 않는다.
