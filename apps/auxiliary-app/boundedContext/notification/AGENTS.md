@@ -42,7 +42,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 
 - Gradle `:notification`, 패키지 `com.hapbang.auxiliary.notification`, 디렉터리 `boundedContext/notification`이다. `:auxiliary-global`·`:shared`에만 의존한다(ND-006).
 - 저장소는 database `auxiliary` 안의 schema `notification`이다. 엔티티는 `@Table(schema = "notification")`, SQL의 테이블 이름에도 schema를 붙인다. 다른 모듈 schema와 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다. 첫 SQL은 `CREATE SCHEMA IF NOT EXISTS notification;`이다(ND-007).
-- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷이다(ND-025). 처음 쓰는 작업에서 만들고(ND-046), `notification`에는 언급 회원 ID 칸(`bigint[]`, GIN)을 둔다(ND-051). `notification_payout_item` 세부는 U9를 정한 뒤 확정한다.
+- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷(ND-025)과 운영 설정 `notification_runtime_setting`(키·값, 알림 시작 시각 한 행, ND-095)이다. 처음 쓰는 작업에서 만들고(ND-046), `notification`에는 언급 회원 ID 칸(`bigint[]`, GIN)을 둔다(ND-051). `notification_payout_item` 세부는 U9를 정한 뒤 확정한다.
 
 ### 3.2 입력
 
