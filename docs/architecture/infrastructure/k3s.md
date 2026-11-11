@@ -204,7 +204,7 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 ### 현재 권고
 
-**EC2 k3s에는 prod 한 벌만 두고 dev 브랜치를 배포한다(#559). dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
+**EC2 k3s에는 prod 한 벌만 두고 dev 브랜치를 배포한다(#559). dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 모듈 앱 7개와 React 정적 서버(`web`)는 위 예산 표대로 두 node에 나눈다.
 
 dev 서버는 2026-10-30에 지웠다(#440). 프론트가 dev 서버로 API를 확인하던 경로(#332)도 없어졌으므로 로컬 확인 방법을 프론트와 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 

@@ -106,7 +106,7 @@
 | Gateway·관측성 | [`docs/deploy/gateway.md`](../deploy/gateway.md), [`observability.md`](../architecture/infrastructure/observability.md) | 따름 |
 | 원본 설계 | [`docs/architecture/infrastructure/notification.md`](../architecture/infrastructure/notification.md) | 이 문서 체계의 원천(보존) |
 
-`final-project-infrastructure.md`에는 폐기된 notification-app 서술이 남아 있다([ND-903](decisions.md)). 현재 구조는 ND-006·ND-007이다.
+현재 구조는 ND-006·ND-007이다. 폐기된 notification-app 계획은 [ND-903](decisions.md)에 남아 있고, `final-project-infrastructure.md`는 auxiliary-app의 알림 모듈로 맞췄다(#876).
 
 ## 8. 정책 결정과 미결 사항 찾기
 
