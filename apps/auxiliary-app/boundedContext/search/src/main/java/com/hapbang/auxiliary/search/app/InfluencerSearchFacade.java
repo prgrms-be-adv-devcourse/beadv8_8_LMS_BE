@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.InfluencerSearcher;
 import com.hapbang.auxiliary.search.out.InfluencerSearcher.SearchResult;
 
@@ -33,7 +32,6 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  */
 @Service
-@ConditionalOnSearchEnabled
 @RequiredArgsConstructor
 public class InfluencerSearchFacade {
 

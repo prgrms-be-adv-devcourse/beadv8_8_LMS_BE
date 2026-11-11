@@ -7,18 +7,15 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
-
 import lombok.RequiredArgsConstructor;
 
 /**
  * 증분 보정 커서 {@code search.sync_cursor}(#772). 한 문장씩 바로 커밋한다(페이지마다 저장해 회차 중간에 멈춰도 거기서 이어 가게).
  * <p>
- * JPA Repository가 아니라 JDBC다. Spring Data Repository 빈에는 검색 기능 스위치를 붙일 수 없어, 스위치가 꺼져도 검색 패키지 빈이
- * 생긴다({@code AuxiliaryApplicationTest#searchSwitchOff}).
+ * JPA Repository가 아니라 JDBC다. 처음에는 Spring Data Repository 빈에 검색 기능 스위치를 붙일 수 없어 JDBC로 썼다. 스위치를
+ * 지운 뒤(#860)에도 행 하나를 SQL 한 문장으로 다루기에 충분해 그대로 둔다.
  */
 @Repository
-@ConditionalOnSearchEnabled
 @RequiredArgsConstructor
 public class SyncCursorStore {
 

@@ -11,7 +11,6 @@ import com.hapbang.auxiliary.search.app.InfluencerStatsSync;
 import com.hapbang.auxiliary.search.app.MemberChangeReconciler;
 import com.hapbang.auxiliary.search.app.TombstoneCleanup;
 import com.hapbang.auxiliary.search.app.ZeroResultKeywords;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchConfig;
 
 
@@ -19,7 +18,6 @@ import com.hapbang.auxiliary.search.config.SearchConfig;
  * 검색 배치(#771, 증분 보정 #772, 처음 적재·재색인 확인 #773). 실행 시각만 정하고 처리는 app 서비스가 한다. 한 pod 실행은 각 서비스가 advisory lock으로 맞춘다.
  */
 @Component
-@ConditionalOnSearchEnabled
 @ConditionalOnSchedulingEnabled
 class SearchBatch {
 

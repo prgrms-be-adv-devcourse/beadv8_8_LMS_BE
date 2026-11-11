@@ -19,6 +19,7 @@ import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
 
 /**
  * 서비스 간 HP 대사 비교 규칙 (#580, D74). DB·지갑 없이 항목 상태와 지갑 기록만으로 비교한다.
@@ -49,6 +50,15 @@ class LectureHpReconciliationComparerTest {
     void 지급은_보류가_전부_지급되고_판매자에게_지급_건이_하나_있으면_정상이다() {
         assertThat(LectureHpReconciliationComparer.compare(target(OrderItemStatus.PAID_OUT),
                 paid(settlement(SELLER_ID, PRICE, BillingSettlementStatus.COMPLETED)))).isEmpty();
+    }
+
+    @Test
+    void 플랫폼_없는_지급도_구매자_재원_응답이_있으면_그_금액을_대조한다() {
+        var settlement = new HoldStateDto.Settlement(SettlementSourceType.LECTURE_ORDER_ITEM, ITEM_ID,
+                PayoutType.NORMAL, SELLER_ID, PRICE, PRICE, BillingSettlementStatus.COMPLETED, PRICE - 1, 0L);
+
+        assertThat(rules(LectureHpReconciliationComparer.compare(target(OrderItemStatus.PAID_OUT), paid(settlement))))
+                .containsExactly(LectureHpReconciliationRule.SETTLEMENT_MISMATCH);
     }
 
     @Test
@@ -180,6 +190,50 @@ class LectureHpReconciliationComparerTest {
 
         assertThat(finding.lectureState()).contains("주문 항목 31", "주문 3", "CANCELED", "가격 10000");
         assertThat(finding.walletState()).contains("보류 HELD", "남은 10000");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderItemStatus.class, names = {"PURCHASED", "CANCELED", "PAID_OUT"})
+    void 구매자_0원이어도_플랫폼_보류와_지급_복구를_재원별로_대조한다(OrderItemStatus status) {
+        var target = new LectureHpReconciliationTarget(ITEM_ID, ORDER_ID, status, PRICE, 0L, PRICE, BUYER_ID,
+                SELLER_ID, 1L, LocalDateTime.of(2026, 11, 1, 12, 0), false, List.of(),
+                List.of(new HoldPromotionDto(42, 901, 3, PRICE)));
+        String promotionStatus = status == OrderItemStatus.CANCELED ? "RESTORED"
+                : status == OrderItemStatus.PAID_OUT ? "PAID" : "HELD";
+        var summary = new HoldStateDto.PromotionAmount(status == OrderItemStatus.PURCHASED ? PRICE : 0L,
+                status == OrderItemStatus.PAID_OUT ? PRICE : 0L, status == OrderItemStatus.CANCELED ? PRICE : 0L);
+        var settlement = new HoldStateDto.Settlement(SettlementSourceType.LECTURE_ORDER_ITEM, ITEM_ID,
+                PayoutType.NORMAL, SELLER_ID, PRICE, PRICE, BillingSettlementStatus.COMPLETED, 0L, PRICE);
+        var wallet = new HoldStateDto(BillingReferenceType.LECTURE_ORDER_ITEM, ITEM_ID,
+                hold(status == OrderItemStatus.CANCELED ? BillingHoldStatus.RELEASED
+                        : status == OrderItemStatus.PAID_OUT ? BillingHoldStatus.PAID : BillingHoldStatus.HELD,
+                        BUYER_ID, 0L, 0L, 0L, 0L), null,
+                status == OrderItemStatus.PAID_OUT ? List.of(settlement) : List.of(),
+                List.of(new HoldStateDto.Promotion(42L, 901L, 3L, "PB-7", PRICE, promotionStatus)), summary);
+
+        assertThat(LectureHpReconciliationComparer.compare(target, wallet)).isEmpty();
+        assertThat(rules(LectureHpReconciliationComparer.compare(target, empty())))
+                .contains(LectureHpReconciliationRule.HOLD_MISSING);
+        var wrongGeneration = new HoldStateDto(wallet.referenceType(), ITEM_ID, wallet.hold(), null,
+                wallet.settlements(), List.of(new HoldStateDto.Promotion(42L, 901L, 2L, "PB-7", PRICE, promotionStatus)),
+                summary);
+        assertThat(rules(LectureHpReconciliationComparer.compare(target, wrongGeneration)))
+                .contains(LectureHpReconciliationRule.HOLD_MISMATCH);
+    }
+
+    @Test
+    void 구매자_0원_결제실패에도_플랫폼_보류가_남으면_불일치다() {
+        var target = new LectureHpReconciliationTarget(ITEM_ID, ORDER_ID, OrderItemStatus.HOLD_FAILED, PRICE, 0L,
+                PRICE, BUYER_ID, SELLER_ID, 1L, null, false, List.of());
+        var wallet = new HoldStateDto(BillingReferenceType.LECTURE_ORDER_ITEM, ITEM_ID, null, null, List.of(),
+                List.of(new HoldStateDto.Promotion(42L, 901L, 3L, "PB-7", PRICE, "HELD")),
+                new HoldStateDto.PromotionAmount(PRICE, 0L, 0L));
+        assertThat(rules(LectureHpReconciliationComparer.compare(target, wallet)))
+                .containsExactly(LectureHpReconciliationRule.HOLD_NOT_CLOSED);
+        var missingSummary = new HoldStateDto(wallet.referenceType(), ITEM_ID, wallet.hold(), null,
+                wallet.settlements(), wallet.promotions(), null);
+        assertThat(rules(LectureHpReconciliationComparer.compare(target, missingSummary)))
+                .containsExactly(LectureHpReconciliationRule.HOLD_NOT_CLOSED);
     }
 
     private static LectureHpReconciliationTarget target(OrderItemStatus status) {

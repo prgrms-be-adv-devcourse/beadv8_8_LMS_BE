@@ -7,8 +7,6 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
-
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -16,7 +14,6 @@ import lombok.RequiredArgsConstructor;
  * 같은 값을 낸다(pod 메모리에 두면 예전에 점검한 pod가 낡은 차이를 계속 낸다). JDBC인 이유는 {@link SyncCursorStore}와 같다.
  */
 @Repository
-@ConditionalOnSearchEnabled
 @RequiredArgsConstructor
 public class ConsistencyCheckStore {
 

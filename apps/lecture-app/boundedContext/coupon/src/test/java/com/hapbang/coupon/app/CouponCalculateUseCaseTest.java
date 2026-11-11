@@ -45,8 +45,8 @@ class CouponCalculateUseCaseTest {
     void setUp() {
         usageSupport = support(memberCouponRepository, mock(ProcessedOperationRepository.class), transactionManager());
         couponSupport = new CouponSupport(mock(CouponRepository.class), lectureCatalog, mock(CouponIssueStore.class));
-        // 기본값: 플랫폼 재원 비활성
-        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponPlatformFundingProperties.defaults(),
+        // 비활성 설정의 기존 거절 경로도 검증한다
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, new CouponPlatformFundingProperties(false),
                 CLOCK);
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, PRICE, "ON_SALE")));
@@ -162,7 +162,7 @@ class CouponCalculateUseCaseTest {
 
     @Test
     void 플랫폼_재원이_켜져_있으면_플랫폼_쿠폰도_추천하고_직접_고를_수_있다() {
-        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, new CouponPlatformFundingProperties(true),
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponPlatformFundingProperties.defaults(),
                 CLOCK);
         givenSellerAndPlatformAvailable();
         givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));

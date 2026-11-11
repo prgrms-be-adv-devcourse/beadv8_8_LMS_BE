@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.hapbang.lecture.app.CancelResultHandler;
+import com.hapbang.shared.billing.dto.PromotionRestorationDto;
 import com.hapbang.lecture.domain.LectureHpTask;
 
 /**
@@ -47,6 +48,11 @@ public class RecordingCancelResultHandler extends CancelResultHandler {
     @Override
     public void onSucceeded(LectureHpTask task) {
         record("succeeded:" + task.getRequestId());
+    }
+
+    @Override
+    public void onSucceeded(LectureHpTask task, List<PromotionRestorationDto> restorations) {
+        onSucceeded(task);
     }
 
     @Override

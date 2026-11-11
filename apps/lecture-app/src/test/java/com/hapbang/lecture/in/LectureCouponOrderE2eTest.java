@@ -25,6 +25,8 @@ import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.AfterAll;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +48,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.app.OrderPayoutUseCase;
+import com.hapbang.lecture.app.LectureHpTaskBatchUseCase;
+import com.hapbang.lecture.fake.PromotionBudgetHttpStub;
+import com.hapbang.shared.billing.dto.PayoutCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.lecture.fake.CommittedCouponOrderEvents;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fake.FakeCouponApiClientConfig;
@@ -116,6 +123,11 @@ class LectureCouponOrderE2eTest {
     private static final String COUPON_ORDER_GROUP = "lecture-app.coupon-order";
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final int PORT = freePort();
+    private static final PromotionBudgetHttpStub BUDGET = new PromotionBudgetHttpStub();
+
+    @Autowired JdbcTemplate jdbcTemplate;
+    @Autowired OrderPayoutUseCase orderPayoutUseCase;
+    @Autowired LectureHpTaskBatchUseCase hpTaskBatch;
 
     @Autowired
     private MockMvc mockMvc;
@@ -146,12 +158,19 @@ class LectureCouponOrderE2eTest {
     @DynamicPropertySource
     static void serverPort(DynamicPropertyRegistry registry) {
         registry.add("server.port", () -> PORT);
+        registry.add("hapbang.clients.billing.base-url", BUDGET::baseUrl);
     }
 
     @BeforeEach
     void setUp() {
         billing.reset();
         committedEvents.reset();
+        BUDGET.reset();
+    }
+
+    @AfterAll
+    static void stopBudgetStub() {
+        BUDGET.close();
     }
 
     @AfterEach
@@ -250,6 +269,94 @@ class LectureCouponOrderE2eTest {
 
         // 주문 요청 안에서 보상 반환까지 끝나고 결제 실패가 확정되어 쿠폰 해제를 보냈다
         assertThat(memberCouponStatus(coupon)).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    void 플랫폼_전액_쿠폰은_0원_앵커로_결제하고_취소_복구_뒤_재사용해_판매자에게_전액_지급한다() throws Exception {
+        billing.setSettledHp(0L);
+        Lecture lecture = saveOnSale();
+        long memberCouponId = issuePlatformCoupon(lecture);
+        long couponId = BUDGET.reservations().getFirst().couponId();
+        assertThat(BUDGET.reservations()).singleElement().satisfies(reserve -> {
+            assertThat(reserve.amountHp()).isEqualTo(PRICE_HP * 10);
+            assertThat(reserve.workId()).doesNotContain(":");
+        });
+        assertThat(quotedBuyerAmount(lecture, memberCouponId)).isZero();
+
+        String first = perform(order(lecture, memberCouponId, 0))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.status").value("PAID"))
+                .andExpect(jsonPath("$.data.buyerAmountHp").value(0))
+                .andReturn().getResponse().getContentAsString();
+        long firstOrder = ((Number) JsonPath.read(first, "$.data.orderId")).longValue();
+        long firstItem = ((Number) JsonPath.read(first, "$.data.items[0].orderItemId")).longValue();
+        assertThat(billing.calls()).singleElement().satisfies(call -> {
+            assertThat(call.transactionActive()).isFalse();
+            assertThat(call.command()).isInstanceOfSatisfying(HoldCommand.class, hold -> {
+                assertThat(hold.amountHp()).isZero();
+                assertThat(hold.promotions()).singleElement().satisfies(promotion -> {
+                    assertThat(promotion.couponId()).isEqualTo(couponId);
+                    assertThat(promotion.memberCouponId()).isEqualTo(memberCouponId);
+                    assertThat(promotion.generation()).isEqualTo(1L);
+                    assertThat(promotion.amountHp()).isEqualTo(PRICE_HP);
+                });
+            });
+        });
+        awaitMemberCoupon(memberCouponId, "USED");
+        perform(post("/api/v1/lectures/orders/{orderId}/items/{itemId}/cancel", firstOrder, firstItem)
+                .with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CANCELED"));
+        awaitMemberCoupon(memberCouponId, "AVAILABLE");
+        assertThat(billing.calls().getLast().command()).isInstanceOf(ReleaseCommand.class);
+        assertThat(committedEvents.cancelCompleted()).singleElement().satisfies(event -> {
+            assertThat(event.billingReleaseRequestId()).isNotBlank();
+            assertThat(event.budgetRestorations()).singleElement().satisfies(restored -> {
+                assertThat(restored.couponId()).isEqualTo(couponId);
+                assertThat(restored.memberCouponId()).isEqualTo(memberCouponId);
+                assertThat(restored.generation()).isEqualTo(1L);
+                assertThat(restored.amount()).isEqualTo(PRICE_HP);
+            });
+        });
+
+        String second = perform(order(lecture, memberCouponId, 0))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.status").value("PAID"))
+                .andReturn().getResponse().getContentAsString();
+        long secondOrder = ((Number) JsonPath.read(second, "$.data.orderId")).longValue();
+        long secondItem = ((Number) JsonPath.read(second, "$.data.items[0].orderItemId")).longValue();
+        awaitMemberCoupon(memberCouponId, "USED");
+        assertThat(billing.calls().getLast().command()).isInstanceOfSatisfying(HoldCommand.class,
+                hold -> assertThat(hold.promotions().getFirst().generation()).isEqualTo(2L));
+        perform(post("/api/v1/lectures/orders/{orderId}/items/{itemId}/confirm", secondOrder, secondItem)
+                .with(GatewayLogin.as(BUYER_ID, Role.USER))).andExpect(status().isOk());
+        jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = timestamp '2000-01-01 00:00:00' where id = ?",
+                secondItem);
+        billing.setSettledHp(PRICE_HP);
+        orderPayoutUseCase.payOutDueItems();
+        hpTaskBatch.runDue();
+        assertThat(jdbcTemplate.queryForObject("select status from lectures.order_item where id = ?", String.class, secondItem))
+                .isEqualTo("PAID_OUT");
+        assertThat(billing.calls().getLast().command()).isInstanceOfSatisfying(PayoutCommand.class,
+                payout -> assertThat(payout.referenceId()).isEqualTo(secondItem));
+        assertThat(memberCouponStatus(memberCouponId)).isEqualTo("USED");
+    }
+
+    private long issuePlatformCoupon(Lecture lecture) throws Exception {
+        Instant now = Instant.now();
+        String created = perform(post("/api/v1/coupons/admin").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"플랫폼 전액","targetType":"LECTURE","lectureId":%d,"discountType":"AMOUNT",
+                         "discountValue":%d,"quantity":10,"issueStartAt":"%s","issueEndAt":"%s",
+                         "expiryType":"RELATIVE","expiryDays":30,"stackable":false}
+                        """.formatted(lecture.getId(), PRICE_HP, now.minus(Duration.ofHours(1)), now.plus(Duration.ofDays(7)))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long couponId = ((Number) JsonPath.read(created, "$.data.couponId")).longValue();
+        createdCouponIds.add(couponId);
+        perform(post("/api/v1/coupons/admin/{couponId}/open", couponId).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("OPEN"));
+        perform(post("/api/v1/coupons/{couponId}/issue-requests", couponId).with(GatewayLogin.as(BUYER_ID, Role.USER))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"issueRequestId\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isAccepted());
+        await().atMost(TIMEOUT).until(() -> memberCouponIdOf(couponId) != null);
+        return memberCouponIdOf(couponId);
     }
 
     // ---------------------------------------------------------------------------------------------

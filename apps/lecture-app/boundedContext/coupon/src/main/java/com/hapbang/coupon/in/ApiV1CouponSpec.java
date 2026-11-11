@@ -93,7 +93,7 @@ public interface ApiV1CouponSpec {
                     + "expectedBuyerAmountHp로 보낸다. 주문 때 다시 계산한 금액이 다르면 주문이 409 ORDER_QUOTE_CHANGED라 다시 미리보기를 "
                     + "한다. 강의 수가 상한을 넘으면 400 COUPON_TOO_MANY_ITEMS, 같은 강의가 두 번이면 400 COUPON_DUPLICATE_LECTURE, 강의가 "
                     + "없으면 404 LECTURE_NOT_FOUND, 강의 조회가 안 되면 503. 고른 쿠폰을 쓸 수 없으면 409(COUPON_NOT_APPLICABLE·"
-                    + "COUPON_NOT_USABLE·COUPON_STACKING_VIOLATION, memberCouponId 포함). 플랫폼 재원이 꺼져 있는 동안(기본값)은 추천에서 "
+                    + "COUPON_NOT_USABLE·COUPON_STACKING_VIOLATION, memberCouponId 포함). 플랫폼 재원을 명시적으로 false로 설정하면(기본값 true) 추천에서 "
                     + "플랫폼 쿠폰을 빼고, 플랫폼 쿠폰을 고르면 409 COUPON_NOT_USABLE(detail PLATFORM_FUNDING_DISABLED)이다.")
     RsData<CouponCalculateResponse> quote(Long memberId, CouponQuoteRequest request);
 }

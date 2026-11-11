@@ -4,8 +4,6 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
-
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -20,7 +18,6 @@ import io.micrometer.core.instrument.Timer;
  * 태그에 검색어를 넣지 않는다(값 종류가 끝없이 늘고 닉네임일 수 있다).
  */
 @Component
-@ConditionalOnSearchEnabled
 public class SearchMetrics {
 
     static final String TARGET_INFLUENCER = "influencer";

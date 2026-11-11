@@ -19,7 +19,7 @@ import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
 import co.elastic.clients.transport.rest5_client.low_level.Request;
 
 /**
- * 검색 기능 스위치와 검색 전용 client 설정(#771). ES 없이 JDK HTTP 서버로 client가 보내는 인증 헤더를 본다.
+ * 검색 전용 client 설정(#771). ES 없이 JDK HTTP 서버로 client가 보내는 인증 헤더를 본다.
  */
 class SearchElasticsearchConfigTest {
 
@@ -50,17 +50,9 @@ class SearchElasticsearchConfigTest {
     }
 
     @Test
-    @DisplayName("스위치가 없거나 꺼져 있으면 검색 client를 만들지 않는다")
-    void switchOff() {
-        runner.run(context -> assertThat(context).doesNotHaveBean(SearchElasticsearchConfig.CLIENT));
-        runner.withPropertyValues("hapbang.search.enabled=false")
-                .run(context -> assertThat(context).doesNotHaveBean(SearchElasticsearchConfig.CLIENT));
-    }
-
-    @Test
-    @DisplayName("스위치가 켜지면 검색 client를 만들고, API key가 있으면 ApiKey 인증 헤더를 싣는다")
+    @DisplayName("검색 client를 만들고, API key가 있으면 ApiKey 인증 헤더를 싣는다")
     void apiKeyHeader() {
-        runner.withPropertyValues("hapbang.search.enabled=true", "hapbang.search.elasticsearch.uris=" + serverUri(),
+        runner.withPropertyValues("hapbang.search.elasticsearch.uris=" + serverUri(),
                 "hapbang.search.elasticsearch.api-key=c2VhcmNoOmtleQ==").run(context -> {
             assertThat(context).hasBean(SearchElasticsearchConfig.CLIENT);
             call(context.getBean(SearchElasticsearchConfig.CLIENT, ElasticsearchClient.class));
@@ -72,7 +64,7 @@ class SearchElasticsearchConfigTest {
     @Test
     @DisplayName("API key가 비어 있으면(보안을 끈 로컬·테스트) 인증 헤더를 싣지 않는다")
     void noApiKey() {
-        runner.withPropertyValues("hapbang.search.enabled=true", "hapbang.search.elasticsearch.uris=" + serverUri(),
+        runner.withPropertyValues("hapbang.search.elasticsearch.uris=" + serverUri(),
                 "hapbang.search.elasticsearch.api-key=").run(context -> {
             call(context.getBean(SearchElasticsearchConfig.CLIENT, ElasticsearchClient.class));
 
@@ -81,16 +73,15 @@ class SearchElasticsearchConfigTest {
     }
 
     @Test
-    @DisplayName("스위치가 켜졌는데 주소가 없으면 기동에 실패한다")
+    @DisplayName("주소가 없으면 기동에 실패한다")
     void requiresUris() {
-        runner.withPropertyValues("hapbang.search.enabled=true")
-                .run(context -> assertThat(context).hasFailed());
+        runner.run(context -> assertThat(context).hasFailed());
     }
 
     @Test
     @DisplayName("설정을 문자열로 남겨도 API key는 가린다")
     void masksApiKey() {
-        runner.withPropertyValues("hapbang.search.enabled=true", "hapbang.search.elasticsearch.uris=" + serverUri(),
+        runner.withPropertyValues("hapbang.search.elasticsearch.uris=" + serverUri(),
                 "hapbang.search.elasticsearch.api-key=secret-value").run(context ->
                 assertThat(context.getBean(SearchElasticsearchProperties.class).toString())
                         .doesNotContain("secret-value").contains("apiKey=****"));

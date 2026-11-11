@@ -16,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -43,7 +42,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnSearchEnabled
 public class InfluencerIndexSetup {
 
     private final ElasticsearchClient client;

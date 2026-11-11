@@ -183,11 +183,11 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 
 인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
 
-- **검색 기능 스위치** `hapbang.search.enabled`(기본 꺼짐): 켜야 검색 빈이 뜬다. 운영 ES의 검색용 key(`ES_SEARCH_API_KEY`, #806)와 증분 보정(#772)이 모두 들어오면 스위치를 **지운다**(켜는 것이 아니다). 꺼져 있으면 `search` schema만 생기고 챗봇·알림은 그대로다.
+- 검색 기능 스위치는 #860에서 지웠다. 검색 빈은 늘 뜨고, ES가 없어도 챗봇·알림은 그대로이며 검색 API만 503이다(`docs/search/module.md` 2장).
 - ES는 챗봇과 같은 cluster지만 검색 전용 client가 `ES_SEARCH_API_KEY`(role `search`, `search-*`)로 따로 붙는다(`hapbang.search.elasticsearch.*`). 검색 index는 nori를 쓰므로 로컬 `compose.yaml`의 ES는 nori를 설치한 이미지다.
 - Kafka: `member.events.v1`, 그룹 `auxiliary-app.search-member`. 배치: 통계 동기화·문서 수 정합성 점검(끝난 뒤 10분, `JobLock` 771_002), 회원 변경분 증분 보정(끝난 뒤 10분, 772_001), tombstone 정리(매일 04:30, 771_001), 0건 검색어 로그(10분, 락 없음).
 - 나눠 쓰는 자원: DB는 증분 보정 커서(`search.sync_cursor`, 보정 페이지마다 짧은 쓰기 1번)와 정합성 점검 결과(`search.consistency_check`, 10분에 쓰기 1번) 두 행, 지표 수집 때 읽기 2번, `JobLock` 연결만 쓴다. 배치 스레드 2개를 챗봇과 나눠 쓰지만 검색 작업은 짧은 ES·HTTP 호출이라 그대로 둔다. 메모리는 client와 10분 캐시(분야 이름, 평점 평균, 0건 검색어 최대 1,000개)뿐이라 limit을 바꾸지 않는다.
-- 로컬 실행: [`docs/search/module.md`](../../docs/search/module.md) 9장.
+- 로컬 실행: [`docs/search/module.md`](../../docs/search/module.md) 10장.
 
 ## 운영 배포
 

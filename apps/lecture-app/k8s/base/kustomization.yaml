@@ -21,7 +21,10 @@ configMapGenerator:
       # Tenured 사용은 최대 98Mi다(pod 21개). 비율로 두면 heap 상한 + heap 밖(약 394Mi)이 limit을 넘는다(#727, #610).
       # chat-app의 256m(heap 사용 최대의 약 1.5배)이 아니라 224m인 것은 heap committed(약 244Mi)를 224Mi 이하로 묶기 위해서다.
       # 적용 뒤 k6 100 RPS에서 heap 사용이 205Mi(상한 216.6Mi의 95%)까지 올라 더 내리지 않는다(#730).
-      - JAVA_TOOL_OPTIONS=-Xmx224m
+      # JVM이 heap·metaspace 등을 할당하지 못해 OutOfMemoryError를 던지면 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
+      # 끝내지 않으면 오류만 내며 떠 있어 어떤 alert도 울리지 않는다. 다시 시작하면 Grafana "컨테이너 재시작" alert가 받는다(#854).
+      # Java 코드가 직접 만들어 던지는 OutOfMemoryError(direct buffer 한도 초과 등)는 종료하지 않는다.
+      - JAVA_TOOL_OPTIONS=-Xmx224m -XX:+ExitOnOutOfMemoryError
       # glibc malloc arena 수를 줄여 heap 밖 native 메모리를 줄인다. 기본값은 CPU 수 × 8이다(#610).
       - MALLOC_ARENA_MAX=2
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/lecture

@@ -32,7 +32,7 @@ public interface ApiV1CouponInternalSpec {
             - 값이 있으면 그 매핑만 검증·계산한다. 매핑에 없는 강의는 추천으로 채우지 않는다.
             추천이 아니면(`[]`·매핑) `recommended=false`, `optimal=false`다.
             강의마다 강의 조회로 가격·판매자를 다시 확인한다.
-            플랫폼 재원이 꺼져 있으면(`hapbang.coupon.platform-funding-enabled=false`, 기본값) 추천 후보에서 플랫폼 쿠폰을 빼고, 매핑에 플랫폼 쿠폰이 있으면 409 COUPON_NOT_USABLE(detail `PLATFORM_FUNDING_DISABLED`, memberCouponId 포함)이다.
+            플랫폼 재원이 꺼져 있으면(`hapbang.coupon.platform-funding-enabled=false`, 기본값 true) 추천 후보에서 플랫폼 쿠폰을 빼고, 매핑에 플랫폼 쿠폰이 있으면 409 COUPON_NOT_USABLE(detail `PLATFORM_FUNDING_DISABLED`, memberCouponId 포함)이다.
 
             오류: 항목이 많음 400 COUPON_TOO_MANY_ITEMS, 같은 강의 두 번 400 COUPON_DUPLICATE_LECTURE, 필수 값 없음·빈 items·음수 가격 400 INVALID_REQUEST,
             강의 없음 404 LECTURE_NOT_FOUND, 가격·판매자 불일치 409 COUPON_LECTURE_PRICE_MISMATCH(detail에 강의 ID), 적용 대상 아님 409 COUPON_NOT_APPLICABLE, 사용 불가(소유·상태·기한) 409 COUPON_NOT_USABLE,

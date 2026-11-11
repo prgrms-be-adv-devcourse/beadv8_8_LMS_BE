@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer.MemberIndexResult;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.DocumentRejectedException;
 import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.IndexedMember;
@@ -47,7 +46,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnSearchEnabled
 public class MemberChangeReconciler {
 
     /** 변경분 한 페이지 크기(회원 API 상한) */

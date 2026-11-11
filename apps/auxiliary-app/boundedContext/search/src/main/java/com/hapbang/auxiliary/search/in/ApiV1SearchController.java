@@ -13,7 +13,6 @@ import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
 import com.hapbang.auxiliary.search.app.InfluencerSearchFacade;
 import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
-import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,7 +22,6 @@ import lombok.RequiredArgsConstructor;
  * {@code @Validated}를 붙이면 AOP 검증이 먼저 돌아 공통 처리기가 모르는 예외(500)가 나므로 붙이지 않는다(챗봇과 같다).
  */
 @RestController
-@ConditionalOnSearchEnabled
 @RequestMapping("/api/v1/search")
 @RequiredArgsConstructor
 public class ApiV1SearchController implements ApiV1SearchSpec {

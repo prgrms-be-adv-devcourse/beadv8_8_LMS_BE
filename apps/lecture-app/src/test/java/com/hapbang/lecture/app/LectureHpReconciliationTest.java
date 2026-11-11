@@ -38,6 +38,7 @@ import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskOutcome;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
@@ -47,6 +48,7 @@ import com.hapbang.lecture.out.LectureHpReconciliationRunRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -106,6 +108,9 @@ class LectureHpReconciliationTest {
     private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
+    private OrderItemCouponRepository orderItemCouponRepository;
+
+    @Autowired
     private FakeBillingApiClient billing;
 
     @Autowired
@@ -147,6 +152,31 @@ class LectureHpReconciliationTest {
         assertThat(queriedIds()).containsExactlyInAnyOrder(purchased.id(), canceled.id(), paidOut.id(),
                 holdFailed.id());
         assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH)).isZero();
+    }
+
+    @Test
+    void 플랫폼_쿠폰_예약이_거절돼_generation이_없어도_결제실패를_대사할_수_있다() {
+        Long itemId = transactionTemplate.execute(tx -> {
+            Lecture lecture = lectureRepository.save(onSaleLecture());
+            LectureOrder order = lectureOrderRepository.saveAndFlush(
+                    LectureOrderFixture.pending(BUYER_ID, List.of(lecture), old));
+            var item = order.getItems().getFirst();
+            order.applyItemDiscount(lecture.getId(), PRICE_HP, PRICE_HP, 0L);
+            orderItemCouponRepository.save(OrderItemCoupon.create(item.getId(), 901L, 42L, "PLATFORM", 1,
+                    PRICE_HP, PRICE_HP, PRICE_HP, 0L, 2L, 1));
+            order.markHoldFailed();
+            lectureHpTaskRepository.save(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD,
+                    "LECTURE-ORDER-HOLD-" + item.getId(), order.getId(), item.getId(), BUYER_ID, null, 0L, old))
+                    .complete(LectureHpTaskOutcome.REJECTED, old);
+            return item.getId();
+        });
+
+        assertThat(support.loadTargets(List.of(itemId)).get(itemId).promotions()).isEmpty();
+        LectureHpReconciliationRun run = useCase.runScheduled();
+
+        assertThat(run.getStatus()).isEqualTo(LectureHpReconciliationStatus.COMPLETED);
+        assertThat(run.getCheckedCount()).isEqualTo(1);
+        assertThat(run.getMismatchCount()).isZero();
     }
 
     @Test

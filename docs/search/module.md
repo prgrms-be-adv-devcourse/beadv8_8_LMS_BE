@@ -19,11 +19,12 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 처음 적재(#773)가 끝나면 index가 원본 전체를 담는다. FE는 이 뒤에 연결한다.
 
-## 2. 검색 기능 스위치 (임시)
+## 2. 운영에서 켜기까지
 
-`hapbang.search.enabled`(기본 `false`)가 켜져야 검색 모듈의 빈(ES client, 이벤트 소비자, 배치, API)이 하나라도 뜬다. 운영 ES의 검색용 API key(`ES_SEARCH_API_KEY`, #806)가 생기기 전에 병합하려고 둔 장치다. 꺼져 있어도 auxiliary-app(챗봇·알림)은 그대로 뜨고 `search` schema만 생긴다.
+#771은 검색 기능 스위치(`hapbang.search.enabled`, 기본 꺼짐)를 두고 병합했다. 운영 ES의 검색용 key(#806)가 없었고, 증분 보정(#772) 전에는 ES가 멈춰 DLT로 빠진 회원 이벤트를 사람이 되돌려야 했기 때문이다(5장 "ES가 멈췄을 때"). 두 이슈가 끝나 #860에서 스위치를 켜지 않고 지웠다(PR #828 리뷰, #771 Q19).
 
-**#806(검색 key)과 #772(증분 보정)가 모두 끝나면 스위치를 켜는 것이 아니라 지운다**(PR #828 리뷰, #771 Q19). #772는 들어왔으므로 #806이 끝나면 작은 PR로 지운다. 증분 보정을 기다리는 이유는 5장 "ES가 멈췄을 때"다. 지울 것: `ConditionalOnSearchEnabled`와 그 사용처, `application.yaml`의 `hapbang.search.enabled`, 모듈 테스트 설정의 `enabled: true`, `AuxiliaryApplicationTest#searchSwitchOff`.
+- 이제 검색 모듈 빈은 늘 뜬다. ES가 없거나 멈춰도 auxiliary-app(챗봇·알림)은 뜨고, 검색 API만 503 `SEARCH_UNAVAILABLE`이다.
+- 운영 프로필은 `ES_SEARCH_API_KEY`(Secret `auxiliary-app-secrets`, #806)를 기본값 없이 읽는다. 값이 없으면 auxiliary-app이 뜨지 않는다.
 
 ## 3. 구조
 
@@ -46,7 +47,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | out | `InfluencerDocumentStore` | 문서 쓰기(회원·통계·분야 이름·정리). 처음 적재용으로 이름을 정한 새 index에 bulk 넣기·통계·세기 |
 | out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource`, `MemberApiChangeSource`, `MemberApiListSource` | 회원 내부 API(통계·분야 목록·변경분 #769, 회원 목록 #773) |
-| out | `SyncCursorStore`, `ConsistencyCheckStore` | 증분 보정 커서(`search.sync_cursor`)와 문서 수 정합성 점검 결과(`search.consistency_check`). JDBC(Repository 빈에는 스위치를 붙일 수 없다) |
+| out | `SyncCursorStore`, `ConsistencyCheckStore` | 증분 보정 커서(`search.sync_cursor`)와 문서 수 정합성 점검 결과(`search.consistency_check`). JDBC |
 
 ## 4. index
 
@@ -231,7 +232,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 
 1. `docker compose -f apps/auxiliary-app/compose.yaml up -d` — ES는 nori를 설치한 이미지다(처음 한 번 빌드).
 2. 회원 앱(`./gradlew :member-app:bootRun`, 8081)을 띄운다. 통계 동기화가 회원 내부 API를 부른다.
-3. `HAPBANG_SEARCH_ENABLED=true ./gradlew :auxiliary-app:bootRun`
+3. `./gradlew :auxiliary-app:bootRun`
 4. `curl 'localhost:8087/api/v1/search/influencers?keyword=메이플' -H 'X-User-Id: 1' -H 'X-User-Role: USER'`
 
 ## 11. 테스트
@@ -260,4 +261,4 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 동의어 일치와 원문 일치의 가중치가 같다(G05). 원문 일치를 위로 올리려면 동의어 없는 하위 필드를 작은 가중치로 더한다.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.
 - 처음 적재·재색인은 한 pod가 회원 목록(모든 회원)을 500명씩 읽어 페이지마다 bulk로 넣는다. 일반 유저도 숨김 문서로 들어가 문서 수는 회원 수만큼이고 7일 뒤 정리된다. 회원 수만 명까지는 수십 초로 본다. 훨씬 커지면 `reindex.duration`을 보고 bulk 크기·refresh 끄기를 검토한다.
-- #771·#772 코드로 이미 alias가 붙은 로컬 ES는 해시가 같아 처음 적재가 돌지 않는다(운영은 스위치가 꺼져 index가 없다). 로컬의 `search-influencers-*`를 지우고 띄운다.
+- #771·#772 코드로 이미 alias가 붙은 로컬 ES는 해시가 같아 처음 적재가 돌지 않는다(운영은 #860 전까지 검색이 꺼져 있어 index가 없다). 로컬의 `search-influencers-*`를 지우고 띄운다.
