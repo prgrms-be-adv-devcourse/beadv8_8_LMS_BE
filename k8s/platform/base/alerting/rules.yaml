@@ -571,6 +571,42 @@ groups:
             Redis 연결·쓰기 또는 Pub/Sub 구독이 실패해 메시지 실시간 전달을 멈췄다. 앱이 재확인해 스스로 다시 연다.
             Redis pod 상태(메모리 상한·재시작)와 Loki {namespace="hapbang-prod", app="chat-app"}의 WARN·ERROR 로그를 본다.
 
+      # 알림 출연·지갑 소비자가 기동 회원 복제본 Backfill을 기다리는 상태(gauge, pod마다 1이면 기다리는 중, 시작하면 0, #859 ND-093).
+      # pod가 아니라 앱별 max로 묶는다: "어느 pod든 기다리는 중"이고, 배포 때 옛 pod series가 사라져도 새 pod가 기다리면 이어진다.
+      # 기동 직후의 짧은 대기(보통 몇 초)는 30분 지속 조건으로 거른다. 여러 pod가 번갈아 기다려도 앱 단위로 30분 넘게 끊김 없이 기다리면 울린다.
+      - uid: hapbang-notification-backfill-waiting
+        title: 알림 소비 대기(Backfill 미완료)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (hapbang_notification_alert_listeners_waiting)
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 30m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}의 알림 출연·지갑 소비가 30분 넘게 회원 복제본 Backfill을 기다리고 있다.'
+          description: >-
+            기동 Backfill이 회원 목록 내부 API·DB 장애나 잠금 경쟁으로 끝나지 않아 출연·지갑 알림을 만들지 않는 중이다(이벤트는 토픽에 72시간 남는다).
+            member-app 상태와 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "NOTIFICATION_BACKFILL_STALLED]" 또는 "Backfill" 로그를 본다.
+            원인을 고치면 앱이 스스로 다시 시도한다. 관리자 Backfill 재실행(POST /api/v1/notifications/admin/user-replica/backfill)은 같은 잠금이라 함께 돌지 않는다.
+
       # @Scheduled 메서드가 예외로 끝난 실행(Spring 관측 지표 tasks.scheduled.execution의 exception tag).
       # 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다. 예외 series는 첫 실패 때 생기므로 10분 안에 새로 생긴 series도 친다.
       - uid: hapbang-scheduled-task-failure

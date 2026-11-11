@@ -25,9 +25,28 @@ public final class NotificationKafkaConstants {
     /** 회원 이벤트 소비를 켤지. 없으면 켜고(운영), 모듈 테스트 설정이 끈다 */
     public static final String MEMBER_EVENTS_ENABLED = "hapbang.notification.member-events.enabled";
 
+    // 출연 이벤트 → 알림(N5: 출연 요청 도착·모집 지원 도착, ND-069)
+
+    public static final String APPEARANCE_EVENTS_TOPIC = "appearance.events.v1";
+    public static final String APPEARANCE_ALERT_GROUP = GROUP_PREFIX + "appearance-alert";
+    public static final String APPEARANCE_EVENTS_DLT = deadLetterTopic(APPEARANCE_EVENTS_TOPIC, APPEARANCE_ALERT_GROUP);
+    public static final String APPEARANCE_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.appearance.event";
+    public static final String APPEARANCE_EVENTS_ENABLED = "hapbang.notification.appearance-events.enabled";
+
+    // 지갑 이벤트 → 알림(N5: 지갑 7종, ND-069)
+
+    public static final String BILLING_EVENTS_TOPIC = "billing.events.v1";
+    public static final String BILLING_ALERT_GROUP = GROUP_PREFIX + "billing-alert";
+    public static final String BILLING_EVENTS_DLT = deadLetterTopic(BILLING_EVENTS_TOPIC, BILLING_ALERT_GROUP);
+    public static final String BILLING_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.billing.event";
+    public static final String BILLING_EVENTS_ENABLED = "hapbang.notification.billing-events.enabled";
+
     // 소비
 
-    /** 커밋한 offset이 없는 새 그룹의 시작점. 보존 기간 안의 과거 회원 이벤트로 복제본을 채운다(ND-048) */
+    /**
+     * 커밋한 offset이 없는 새 그룹의 시작점(kafka.md 팀 규칙). 보존 기간 안의 과거 회원 이벤트로 복제본을 채운다(ND-048). 알림을 만드는
+     * 그룹이 읽는 과거 사건은 알림 시작 시각으로 거른다(ND-076)
+     */
     public static final String AUTO_OFFSET_RESET = "earliest";
     /** 소비자 동시성. 알림 담당 제안(U13, 확정 전)대로 1로 시작한다 */
     public static final int CONCURRENCY = 1;
@@ -42,7 +61,7 @@ public final class NotificationKafkaConstants {
 
     // DLT
 
-    /** 원본과 같은 partition 수(member-app이 member.events.v1을 3개로 선언). 원본과 같은 partition 번호로 보낸다 */
+    /** 원본과 같은 partition 수(회원·출연·지갑 토픽 모두 3개). 원본과 같은 partition 번호로 보낸다 */
     public static final int DEAD_LETTER_PARTITIONS = 3;
     /** 브로커가 1대라 1이다 */
     public static final short DEAD_LETTER_REPLICAS = 1;
