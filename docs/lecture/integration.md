@@ -200,9 +200,17 @@ Kafka 토픽·key·헤더·재시도 규칙은 [`kafka.md`](../architecture/infr
 | `LecturePurchaseChangedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | aux-app (AI) | `LecturePurchaseSyncDto` | 구매 사본 반영. 구매 결과·실린 값이 바뀌는 전이에서만 (D82) |
 | `CartItemChangedEvent` (`lecture.events.v1`, `cart-item:<장바구니 항목 ID>`) | 강의 | aux-app (AI) | `CartItemSyncDto` | 장바구니 사본 반영. 담기·빼기·결제 뒤 자동 빼기 (D82) |
 | `LectureReviewChangedEvent` (`lecture.events.v1`, `lecture-review:<리뷰 ID>`) | 강의 | aux-app (AI) | `LectureReviewSyncDto` | 리뷰 별점 사본 반영. 작성·수정·삭제·반환된 항목 리뷰 대체·이의 제기 인정으로 `counted` 변경 (D82) |
+| `LectureApprovedEvent` (`lecture.events.v1`, `lecture:<강의 ID>`) | 강의 | 알림 | `lectureId`, `sellerUserId`, `lectureTitle`, `inspectionSequence`, `approvedAt` | 판매자에게 검수 승인 알림. 같은 `<강의 ID>:<검수 회차>`는 한 번만 (D85) |
+| `LectureRejectedEvent` (`lecture.events.v1`, `lecture:<강의 ID>`) | 강의 | 알림 | `lectureId`, `sellerUserId`, `lectureTitle`, `rejectionReason`, `inspectionSequence`, `rejectedAt` | 판매자에게 검수 반려 알림 (D85) |
+| `LectureOrderPaidEvent` (`lecture.events.v1`, `order:<주문 ID>`) | 강의 | 알림 | `orderId`, `buyerUserId`, `items`(`orderItemId`, `lectureId`, `lectureTitle`, `buyerAmountHp`), `paidAt` | 구매자에게 구매 완료 알림, 항목마다 구매 취소 마감 임박 예약 (D85) |
+| `LectureOrderHoldFailedEvent` (`lecture.events.v1`, `order:<주문 ID>`) | 강의 | 알림 | `orderId`, `buyerUserId`, `items`(위와 같음), `failedAt` | 구매자에게 결제 실패 알림. 결제 실패로 바꾸는 모든 경로에서 주문마다 한 번 (D85) |
+| `LectureOrderItemCanceledEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 알림 | `orderItemId`, `buyerUserId`, `lectureTitle`, `buyerAmountHp`, `canceledAt` | 구매자에게 구매 취소 완료 알림, 예약 취소 (D85) |
+| `LectureOrderItemConfirmedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 알림 | `orderItemId`, `buyerUserId`, `lectureTitle`, `confirmationType`(`DIRECT`·`FIRST_PLAY`·`AUTO`), `confirmedAt` | 예약 취소, `AUTO`면 자동 구매 확정 알림. 직접 확정·재생 동의·자동 확정 모두 항목마다 한 번 (D85) |
+| `LectureObjectionFiledEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 알림 | `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `filedAt` | 구매자·판매자에게 이의 제기 접수 알림(알림 ND-015). 처음 처리한 접수 명령에서만 (D85) |
 
 - 강의 리스너(`lecture-app.objection-command`)는 예상된 업무 거절이면 **예외를 던지지 않고** 거절 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB 같은 기술 실패는 예외를 던져 Kafka 재시도(3회) 뒤 그룹별 DLT로 보낸다.
-- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`). 결과 이벤트 4종은 `LectureObjectionEvents`가 주문 항목으로 만든다.
+- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`). 결과 이벤트 4종은 `LectureObjectionEvents`가 주문 항목으로 만든다. 이의 제기 접수 이벤트도 접수 명령을 처리한 트랜잭션에서 `LectureObjectionEvents`가 만든다(D85).
+- 알림용 검수·주문·구매 이벤트(D85)는 상태를 바꾼 트랜잭션에서 `LectureInspectionEvents`·`LectureOrderEvents`가 만든다. 알림은 강의 DB를 조회하지 않으므로 받는 사람 ID·제목·금액·사건 시각을 이벤트에 싣는다.
 - 결과 이벤트 4종의 받는 사람 ID·강의 제목(구매 때 제목)·사건 시각(KST offset)·반환 지연 회차는 알림센터용이다(D83, #818). 반환 지연 회차는 반환 작업이 DEAD가 될 때 같은 트랜잭션에서 `order_item.return_delay_count`를 1 올린 값이다. 발행 기록에 JSON으로 남으므로 재발행해도 같다. 새 필드는 기존 필드 뒤에 붙였고 `null`을 허용한다(D83 (2)).
 - AI 추천용 동기화 이벤트 4종(D82, [계약](../api/internal-lecture-sync.md))은 대상을 바꾼 강의 트랜잭션에서 `LectureSyncEvents`가 flush한 뒤 엔티티의 `toSyncDto()`로 만들어 발행한다(flush 전이면 오르기 전 version이 실린다). 고객센터 리스너는 이 타입을 기본 처리기에서 무시한다.
 - 고객센터 리스너(`customer-support-app.objection-result`)는 문의 행을 잠그고, 처리 중인 명령(명령 ID가 같음)의 결과만 기록한다. 중복·늦은 결과는 무시하고, HP 반환 상태는 앞으로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.
