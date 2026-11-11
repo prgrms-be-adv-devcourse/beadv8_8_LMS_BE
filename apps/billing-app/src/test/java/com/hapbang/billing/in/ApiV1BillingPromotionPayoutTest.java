@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -62,12 +64,14 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.domain.WalletType;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.PayoutCompletedEvent;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 구매자 보류와 플랫폼 쿠폰 재원을 합쳐 전액 지급하고 재원별 결과·원장·예약 상태를 같은 트랜잭션으로 남긴다.
 @IntegrationTest
 @AutoConfigureMockMvc
+@RecordApplicationEvents
 class ApiV1BillingPromotionPayoutTest {
 
     private static final long BUYER = 7L;
@@ -86,6 +90,7 @@ class ApiV1BillingPromotionPayoutTest {
     @Autowired WalletReconciliationUseCase walletReconciliationUseCase;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired PlatformTransactionManager transactionManager;
+    @Autowired ApplicationEvents applicationEvents;
 
     @Test
     @DisplayName("구매자 보류와 플랫폼 몫을 합쳐 판매자에게 지급하고 지급 건·예약·원장이 재원별 합과 일치한다")
@@ -122,6 +127,24 @@ class ApiV1BillingPromotionPayoutTest {
                 WHERE operation_key LIKE 'PAYOUT:%:pay-31' AND point_type = 'PROMOTION'""", Long.class))
                 .isEqualTo(-1_000L);
         assertBalanced(buyerWalletId, sellerWalletId);
+    }
+
+    @Test
+    @DisplayName("플랫폼 몫을 합친 지급도 요청의 출처 제목을 지급 완료 이벤트에 담고, 제목만 다른 재요청은 이벤트를 다시 내지 않는다 (#873)")
+    void promotionPayoutSourceTitle() throws Exception {
+        member(BUYER, 10_000L);
+        member(SELLER, 0L);
+        hold(8_000L, 1_000L);
+
+        payoutWithTitle("pay-31", " OBS 방송 세팅 ").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        payoutWithTitle("pay-31", "다른 제목").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.replayed").value(true));
+
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.paidAmountHp()).isEqualTo(9_000L);
+            assertThat(event.sourceTitle()).isEqualTo("OBS 방송 세팅");
+        });
     }
 
     @Test
@@ -460,6 +483,17 @@ class ApiV1BillingPromotionPayoutTest {
         budget(42L);
         holdCreateUseCase.hold(new PaymentHoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, buyerHp,
                 List.of(new PaymentHoldPromotion(42L, 901L, 2L, promotionHp))));
+    }
+
+    private ResultActions payoutWithTitle(String requestId, String sourceTitle) throws Exception {
+        return mockMvc.perform(post("/api/v1/internal/billing/payouts")
+                .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"payerUserId":7,"referenceType":"LECTURE_ORDER_ITEM","referenceId":31,
+                         "payoutRequestId":"%s","receiverUserId":%d,"sourceType":"LECTURE_ORDER_ITEM",
+                         "sourceId":31,"sourceTitle":"%s"}
+                        """.formatted(requestId, SELLER, sourceTitle)));
     }
 
     private ResultActions payout(String requestId, long receiverId, Long amountHp) throws Exception {

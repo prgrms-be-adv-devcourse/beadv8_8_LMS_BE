@@ -9,6 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.modulith.events.Externalized;
 
 import com.hapbang.shared.billing.event.ChargeCompletedEvent;
+import com.hapbang.shared.billing.event.ChargeFailedEvent;
+import com.hapbang.shared.billing.event.ExchangeApprovedEvent;
+import com.hapbang.shared.billing.event.RefundFailedEvent;
+import com.hapbang.shared.billing.event.RefundManualReviewRequiredEvent;
 import com.hapbang.shared.billing.event.ExchangeCompletedEvent;
 import com.hapbang.shared.billing.event.ExchangeFinalFailedEvent;
 import com.hapbang.shared.billing.event.ExchangePayoutFailedEvent;
@@ -22,11 +26,12 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 class BillingExternalEventsTest {
 
     @Test
-    @DisplayName("지갑 이벤트 7개는 모두 내보낸다")
+    @DisplayName("지갑 이벤트 11개(#873 알림용 4개 포함)는 모두 내보낸다")
     void externalized() {
         assertThat(List.of(ChargeCompletedEvent.class, PayoutCompletedEvent.class, RefundCompletedEvent.class,
                 ExchangeCompletedEvent.class, ExchangeRejectedEvent.class, ExchangePayoutFailedEvent.class,
-                ExchangeFinalFailedEvent.class))
+                ExchangeFinalFailedEvent.class, ChargeFailedEvent.class, RefundFailedEvent.class,
+                RefundManualReviewRequiredEvent.class, ExchangeApprovedEvent.class))
                 .allMatch(BillingExternalEvents::isExternalizedType);
     }
 
