@@ -165,8 +165,15 @@ public class CouponBudgetWorkUseCase {
                 }
             } else {
                 current.markFailed(confirmed.reason(), clock.instant());
-                log.error("프로모션 예산 작업이 확정 거절됐다 workId={}, couponId={}, reason={}", id,
-                        work.getCouponId(), confirmed.reason());
+                if (work.getKind() == BudgetWorkKind.RESERVE
+                        && "PROMOTION_BALANCE_INSUFFICIENT".equals(confirmed.reason())) {
+                    log.info("프로모션 예산이 부족해 발급을 열지 않았다 workId={}, couponId={}, reason={}", id,
+                            work.getCouponId(), confirmed.reason());
+                } else {
+                    log.error("[COUPON_BUDGET_WORK_REJECTED] 프로모션 예산 작업이 확정 거절됐다 "
+                                    + "workId={}, couponId={}, kind={}, reason={}", id,
+                            work.getCouponId(), work.getKind(), confirmed.reason());
+                }
             }
         });
     }

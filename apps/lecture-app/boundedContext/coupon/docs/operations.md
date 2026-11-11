@@ -182,6 +182,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `[COUPON_RECOVERY_RESULT_UNKNOWN]` | 재구축·재개 결과 불명 |
 | `[COUPON_RECOVERY_REJECTED]` | 복구 단계 전제 조건 미충족으로 거절 |
 | `[COUPON_RECOVERY_QUANTITY_MISMATCH]` | 재개 전 수량 대사 불일치 |
+| `[COUPON_BUDGET_WORK_REJECTED]` | 예산 예약·해제 확정 거절로 FAILED(자동 재시도 제외). 예약의 `PROMOTION_BALANCE_INSUFFICIENT`는 관리자에게 409를 돌려주는 정상 거절이므로 INFO로 남기며 이 표식을 붙이지 않음. 해제 실패는 작업·예약·예정 누적액을 확인해 운영자가 처리 |
 | `[COUPON_ORDER_DLT_ISOLATED]` | 주문 결제·취소 완료 이벤트를 DLT로 격리(`coupon_dlt_log` kind ORDER) |
 | `[LECTURE_COUPON_AUTH_FAILED]` | 강의 → 쿠폰 내부 API가 401·403(내부 API 키 설정 문제). 주문은 503 또는 202 |
 | `[LECTURE_COUPON_RESERVATION_MISMATCH]` | 예약 응답이 주문 스냅샷과 다름. 주문 HOLD_FAILED + RELEASE |
