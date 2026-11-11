@@ -26,7 +26,8 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
  *     <li>자기소개는 이메일·전화번호를 지운 글로 임베딩 API에만 보낸다. ES에는 글의 해시만 둔다.</li>
  *     <li>지금 문서는 ES 검색으로 읽는다(검색은 refresh 뒤의 쓰기만 본다). 그래서 쓴 묶음은 끝에 refresh해 다음 묶음이
  *     방금 쓴 상태를 보게 한다(정지 직후 복구가 오면 숨김 해제를 놓치지 않는다).</li>
- *     <li>분야 한글 이름을 받지 못하면 예외를 던져 묶음 전체를 실행기가 다시 시도한다.</li>
+ *     <li>분야 한글 이름은 글 해시를 비교할 문서에서만 부른다. 받지 못하면 그 문서만 실패로 돌려 실행기가 다시 시도한다.
+ *     <b>마스킹 삭제·숨김은 회원 API 장애와 상관없이 된다.</b></li>
  * </ul>
  */
 @Component
@@ -74,14 +75,13 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
         }
         Map<Long, InfluencerProfile> profiles = store.profiles(memberIds.values());
         Map<String, IndexedProfile> indexed = index.documents(IndexType.INFLUENCER, memberIds.keySet(), IndexedProfile.class);
-        Map<String, String> names = categoryNames.current();
         List<Pending> toEmbed = new ArrayList<>();
         boolean wrote = false;
         for (Map.Entry<String, Long> entry : memberIds.entrySet()) {
             String docId = entry.getKey();
             InfluencerProfile profile = profiles.get(entry.getValue());
             try {
-                Decision decision = InfluencerIndexPlan.decide(profile, names, indexed.get(docId));
+                Decision decision = InfluencerIndexPlan.decide(profile, categoryNames::current, indexed.get(docId));
                 switch (decision.action()) {
                     case NONE -> {
                     }
@@ -90,7 +90,7 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
                     case SHOW -> setHidden(docId, false);
                     case EMBED -> toEmbed.add(new Pending(docId, profile, decision.text()));
                 }
-                wrote |= decision.action() != InfluencerIndexPlan.Action.NONE;
+                wrote |= decision.needsWork();
             } catch (RuntimeException e) {
                 failures.put(docId, e);
             }

@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.chatbot.app;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
@@ -19,28 +20,36 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 class InfluencerRecommendMapper {
 
+    /** 요청 회원이 숨김(대개 가입 직후 회원 정보가 아직 동기화되지 않음)일 때 화면에 띄우는 문구 */
+    static final String REQUESTER_HIDDEN_NOTICE = "회원 정보를 아직 불러오지 못해 추천할 수 없어요. 잠시 뒤 다시 시도해 주세요.";
+
     private final ContentCategoryNames categoryNames;
 
-    /**
-     * 추천 응답.
-     *
-     * @param explanations 후보 회원 ID → 이유 문장. 설명이 없는 경로(위젯·Tool)면 null
-     * @param fallback     LLM 답을 쓰지 못하고 이유 코드 문장으로 답했는지
-     */
-    InfluencerRecommendResDto response(InfluencerRecommendation recommendation, @Nullable Map<Long, String> explanations,
-            boolean fallback) {
-        return new InfluencerRecommendResDto(items(recommendation.items(), explanations), recommendation.needsInterest(),
-                fallback);
+    /** 설명 없는 응답(위젯 API·Tool) */
+    InfluencerRecommendResDto response(InfluencerRecommendation recommendation) {
+        return response(recommendation, candidate -> null, false);
     }
 
-    /** @param explanations 후보 회원 ID → 이유 문장. 설명이 없는 경로면 null */
-    List<InfluencerItemResDto> items(List<Candidate> candidates, @Nullable Map<Long, String> explanations) {
+    /**
+     * 설명을 붙인 응답(설명 API).
+     *
+     * @param explanations 후보 회원 ID → 이유 문장(모든 후보)
+     * @param fallback     LLM 답을 쓰지 못하고 이유 코드 문장으로 답했는지
+     */
+    InfluencerRecommendResDto explained(InfluencerRecommendation recommendation, Map<Long, String> explanations,
+            boolean fallback) {
+        return response(recommendation, candidate -> explanations.get(candidate.memberId()), fallback);
+    }
+
+    private InfluencerRecommendResDto response(InfluencerRecommendation recommendation,
+            Function<Candidate, @Nullable String> explanation, boolean fallback) {
         List<InfluencerItemResDto> items = new ArrayList<>();
-        for (Candidate candidate : candidates) {
+        for (Candidate candidate : recommendation.items()) {
             items.add(new InfluencerItemResDto(candidate.memberId(), categoryNames.namesOf(candidate.categories()),
                     candidate.completedAppearances(), candidate.averageRating(), candidate.orderedReasons(),
-                    explanations == null ? null : explanations.get(candidate.memberId())));
+                    explanation.apply(candidate)));
         }
-        return items;
+        return new InfluencerRecommendResDto(items, recommendation.needsInterest(), fallback,
+                recommendation.requesterHidden() ? REQUESTER_HIDDEN_NOTICE : null);
     }
 }

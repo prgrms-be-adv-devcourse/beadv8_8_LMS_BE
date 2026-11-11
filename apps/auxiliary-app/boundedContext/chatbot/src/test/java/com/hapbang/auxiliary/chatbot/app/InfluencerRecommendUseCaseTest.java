@@ -156,6 +156,16 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
 
         assertThat(result.items()).isEmpty();
         assertThat(result.needsInterest()).isFalse();
+        assertThat(result.requesterHidden()).isTrue();
+    }
+
+    @Test
+    @DisplayName("요청 회원의 사본이 아직 없으면(가입 직후) 숨김과 같이 빈 결과다(#717 규칙). 화면은 안내 문구를 띄운다")
+    void requesterWithoutCopy() {
+        InfluencerRecommendation result = useCase.recommend(404L, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.requesterHidden()).isTrue();
     }
 
     @Test

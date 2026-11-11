@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 
@@ -26,6 +27,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>추천 가능한데 분야·자기소개가 모두 없음 → 문서가 있으면 지운다(벡터 없는 문서는 두지 않는다. 인기순 후보는 DB에서 고른다).</li>
  *     <li>추천 가능 → 문서가 없거나 글 해시가 다르면 임베딩해 넣는다. 해시가 같고 숨겨져 있으면 {@code hidden=false}로만 바꾼다.</li>
  * </ol>
+ * <b>분야 한글 이름 표는 4번(글 해시)에서만 쓴다.</b> 1~3번은 사본만으로 정하므로 회원 API가 죽어 있어도 마스킹 삭제·숨김은 된다.
  * 문서 ID는 회원 ID의 문자열이다({@link #docIdOf}·{@link #memberIdOf}).
  */
 final class InfluencerIndexPlan {
@@ -56,14 +58,20 @@ final class InfluencerIndexPlan {
 
     /** 할 일과, 임베딩할 때 쓸 글 */
     record Decision(Action action, @Nullable InfluencerProfileText text) {
+
+        /** 색인 문서를 바꿔야 한다 */
+        boolean needsWork() {
+            return action != Action.NONE;
+        }
     }
 
     /**
      * @param profile       회원 사본(없으면 null)
-     * @param categoryNames 분야 코드 → 한글 이름
+     * @param categoryNames 분야 코드 → 한글 이름 표. 4번(글 해시)에서만 부른다
      * @param indexed       지금 색인 문서(없으면 null)
+     * @throws IllegalStateException 4번까지 와서 분야 이름 표를 받을 수 없을 때
      */
-    static Decision decide(@Nullable InfluencerProfile profile, Map<String, String> categoryNames,
+    static Decision decide(@Nullable InfluencerProfile profile, Supplier<Map<String, String>> categoryNames,
             @Nullable IndexedProfile indexed) {
         boolean exists = indexed != null;
         if (profile == null || profile.masked()) {
@@ -72,15 +80,23 @@ final class InfluencerIndexPlan {
         if (!profile.recommendable()) {
             return new Decision(exists && !indexed.hidden() ? Action.HIDE : Action.NONE, null);
         }
-        InfluencerProfileText text = InfluencerProfileText.of(
-                ContentCategoryNames.namesOf(profile.categories(), categoryNames), profile.bio());
-        if (text.isEmpty()) {
+        if (!hasText(profile)) {
             return new Decision(exists ? Action.DELETE : Action.NONE, null);
         }
+        InfluencerProfileText text = InfluencerProfileText.of(
+                ContentCategoryNames.namesOf(profile.categories(), categoryNames.get()), profile.bio());
         if (!exists || !text.hash().equals(indexed.textHash())) {
             return new Decision(Action.EMBED, text);
         }
         return new Decision(indexed.hidden() ? Action.SHOW : Action.NONE, null);
+    }
+
+    /**
+     * 임베딩할 글이 있다(분야나, 개인정보를 지우고도 남는 자기소개). 없으면 문서를 두지 않는다.
+     * 이름 표 없이 코드로 판단한다: 이름은 코드마다 하나씩이라 비었는지가 같다.
+     */
+    static boolean hasText(InfluencerProfile profile) {
+        return !InfluencerProfileText.of(profile.categories(), profile.bio()).isEmpty();
     }
 
     /** 넣을 문서의 벡터 밖 필드 */

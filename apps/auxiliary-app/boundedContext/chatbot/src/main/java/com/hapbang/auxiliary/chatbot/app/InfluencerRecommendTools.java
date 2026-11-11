@@ -6,6 +6,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>관심사 문장은 대화에서 모델이 채운다(예: "롤 방송"). 있으면 그 문장으로 찾고, 없으면 버튼 경로와 같다.
  *     {@code interest-max-length}를 넘으면 자른다(임베딩 비용 상한). 대화 전체의 호출 제한은 자유 질문(#720)이 건다.</li>
  *     <li>{@code needsInterest}가 true면 개인 신호가 없어 인기순이다. 대화 LLM이 원하는 분야를 되물을 수 있다.</li>
+ *     <li>사용 지표는 API와 같은 {@code INFLUENCER_RECOMMEND}로 센다(경로는 나누지 않는다).</li>
  *     <li>돌려주는 값에는 닉네임·자기소개가 없다. 대화 LLM은 이 값으로 설명하고, 카드는 회원 ID로 FE가 그린다.</li>
  * </ul>
  */
@@ -32,6 +34,7 @@ public class InfluencerRecommendTools {
     private final InfluencerRecommendUseCase useCase;
     private final InfluencerRecommendMapper mapper;
     private final ChatbotInfluencerRecommendProperties properties;
+    private final ChatbotMetrics metrics;
 
     @Tool(name = "recommendInfluencers", description = """
             합방(함께 방송) 출연 상대로 어울리는 인플루언서를 추천한다. 사용자가 출연 상대·합방할 사람·비슷한 인플루언서를 찾을 때 쓴다. \
@@ -44,7 +47,8 @@ public class InfluencerRecommendTools {
             @Nullable String interest,
             ToolContext toolContext) {
         long userId = userId(toolContext);
-        return mapper.response(useCase.recommend(userId, normalize(interest)), null, false);
+        metrics.request(Feature.INFLUENCER_RECOMMEND);
+        return mapper.response(useCase.recommend(userId, normalize(interest)));
     }
 
     private static long userId(ToolContext toolContext) {

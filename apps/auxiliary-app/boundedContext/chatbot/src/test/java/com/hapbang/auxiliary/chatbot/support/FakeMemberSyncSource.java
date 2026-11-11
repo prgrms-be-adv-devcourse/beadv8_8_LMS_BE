@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.chatbot.support;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.CountDownLatch;
 
 import com.hapbang.auxiliary.chatbot.out.MemberSyncSource;
 import com.hapbang.shared.member.dto.MemberPageDto;
@@ -22,6 +23,8 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
     private final Map<String, String> categoryNames = new TreeMap<>();
     private RuntimeException categoryFailure;
     private int categoryCalls;
+    private CountDownLatch categoryEntered;
+    private CountDownLatch categoryRelease;
 
     public static FakeMemberSyncSource source() {
         return INSTANCE;
@@ -33,6 +36,8 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
         categoryNames.putAll(Map.of("GAME", "게임", "MUSIC", "음악", "COOKING", "요리"));
         categoryFailure = null;
         categoryCalls = 0;
+        categoryEntered = null;
+        categoryRelease = null;
     }
 
     public synchronized void put(UserDto... items) {
@@ -61,12 +66,37 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
         categoryNames.put(code, name);
     }
 
+    /** 다음 분야 이름 호출 한 번을 멈춘다: 들어오면 entered를 내리고 release가 내려갈 때까지 기다린다(이 객체의 잠금은 잡지 않는다) */
+    public synchronized void blockCategoryNames(CountDownLatch entered, CountDownLatch release) {
+        categoryEntered = entered;
+        categoryRelease = release;
+    }
+
     @Override
-    public synchronized Map<String, String> categoryNames() {
-        categoryCalls++;
-        if (categoryFailure != null) {
-            throw categoryFailure;
+    public Map<String, String> categoryNames() {
+        CountDownLatch entered;
+        CountDownLatch release;
+        synchronized (this) {
+            categoryCalls++;
+            entered = categoryEntered;
+            release = categoryRelease;
+            categoryEntered = null;
+            categoryRelease = null;
         }
-        return Map.copyOf(categoryNames);
+        if (entered != null) {
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+        synchronized (this) {
+            if (categoryFailure != null) {
+                throw categoryFailure;
+            }
+            return Map.copyOf(categoryNames);
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,7 +11,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
+import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
+import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -26,6 +30,15 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
 
     @Autowired
     private MemberMasking memberMasking;
+
+    @Autowired
+    private InfluencerRecommendStore store;
+
+    @Autowired
+    private IndexTaskStore indexTaskStore;
+
+    @Autowired
+    private ChatbotInfluencerRecommendProperties properties;
 
     @Test
     @DisplayName("회원 사본의 값이 바뀌면 INFLUENCER UPSERT를 적고, 값이 같은 싱크 반영은 적지 않는다. 일반 회원도 적는다(강등 문서 숨김)")
@@ -91,6 +104,24 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
         assertThat(checker.check()).isZero();
         assertThat(document(11L).hidden()).isFalse();
         assertThat(document(12L).hidden()).isFalse();
+    }
+
+    @Test
+    @DisplayName("정합 점검: 분야 이름 표가 없어도(회원 API 장애) 마스킹 문서의 요청은 적고, 이름이 필요한 회원만 건너뛴 뒤 실패로 끝낸다")
+    void checkerWithoutCategoryNames() {
+        influencer(11L, "GAME", "롤");
+        influencer(12L, "MUSIC", "노래");
+        index(11L, 12L);
+        memberMasking.mask(new UserMaskedEvent(12L, Instant.parse("2026-11-10T01:00:00Z")));
+        influencer(13L, "GAME", "새로 온 인플루언서");
+        clearTasks();
+        memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
+        InfluencerIndexChecker starting = new InfluencerIndexChecker(handler, index, store,
+                new ContentCategoryNames(memberSource, properties, clockBean), indexTaskStore, properties, clockBean);
+
+        // 11(글 비교)·13(새 문서)은 이름이 필요해 건너뛴다
+        assertThatThrownBy(starting::check).isInstanceOf(IllegalStateException.class).hasMessageContaining("skipped=2");
+        assertThat(influencerTasks()).containsExactly("12");
     }
 
     private List<String> influencerTasks() {

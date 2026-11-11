@@ -18,7 +18,6 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
-import com.hapbang.auxiliary.chatbot.domain.InfluencerProfileText;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -43,7 +42,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>검색: kNN({@code hidden=false}) → 본인·추천 불가(DB로 다시 확인, 색인이 늦어도 안전) 제외 →
  *     {@code (1 − β)·유사도 + β·정규화 인기}(후보 안 min-max). 동점은 회원 ID 내림차순.</li>
  *     <li>이미 함께 출연한 상대는 빼지 않는다(관계가 일회성이 아님). {@code PAST_PARTNER}를 붙인다.</li>
- *     <li>모자라면 인기순으로 채워 {@code size}명을 맞춘다(추천 가능한 회원이 그보다 적으면 그만큼). 요청 회원이 숨김(탈퇴·마스킹)이면 빈 결과다.</li>
+ *     <li>모자라면 인기순으로 채워 {@code size}명을 맞춘다(추천 가능한 회원이 그보다 적으면 그만큼).</li>
+ *     <li>요청 회원이 숨김({@link MemberVisibility}: 사본 없음·탈퇴·마스킹)이면 빈 결과이고 {@code requesterHidden=true}다.
+ *     사본이 없는 것은 가입 직후 동기화 전이라 화면은 정해진 안내 문구를 띄운다(#717 규칙을 강의 추천과 같이 따른다).</li>
  *     <li>임베딩·ES를 쓸 수 없거나 실패하면 인기순으로 답한다(그때 {@code needsInterest}는 false: 입력이 없어서가 아니다).</li>
  * </ul>
  */
@@ -78,7 +79,7 @@ public class InfluencerRecommendUseCase {
      */
     public InfluencerRecommendation recommend(long userId, @Nullable String interest) {
         if (!memberVisibility.isVisible(userId)) {
-            return new InfluencerRecommendation(List.of(), false);
+            return InfluencerRecommendation.forHiddenRequester();
         }
         Set<Long> partners = store.completedPartners(userId);
         InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
@@ -112,14 +113,14 @@ public class InfluencerRecommendUseCase {
             items.add(candidate.complete(profile == null ? List.of() : profile.categories(),
                     partners.contains(candidate.memberId())));
         }
-        return new InfluencerRecommendation(items, needsInterest);
+        return new InfluencerRecommendation(items, needsInterest, false);
     }
 
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
     private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, Set<Long> partners,
             @Nullable String interest) {
         if (interest != null) {
-            return Taste.single(embedder.embedQuery(interest), InfluencerReason.MATCHES_INTEREST);
+            return new Taste.Single(embedder.embedQuery(interest), InfluencerReason.MATCHES_INTEREST);
         }
         if (me == null || !me.isInfluencer()) {
             return null;
@@ -131,20 +132,21 @@ public class InfluencerRecommendUseCase {
             float[] own = Vectors.normalize(mine);
             float[] others = Vectors.normalize(partnerMean);
             float[] mixed = Vectors.weightedSum(own, 1 - properties.partnerWeight(), others, properties.partnerWeight());
-            return new Taste(mixed, null, own, others);
+            return new Taste.Mixed(mixed, own, others);
         }
         if (mine != null) {
-            return Taste.single(mine, InfluencerReason.SIMILAR_CATEGORY);
+            return new Taste.Single(mine, InfluencerReason.SIMILAR_CATEGORY);
         }
         if (partnerMean != null) {
-            return Taste.single(partnerMean, InfluencerReason.SIMILAR_TO_PARTNERS);
+            return new Taste.Single(partnerMean, InfluencerReason.SIMILAR_TO_PARTNERS);
         }
         return null;
     }
 
-    // 인플루언서이고 분야나 자기소개가 있다(문서가 아직 없어도 개인 신호는 있다)
+    // 인플루언서이고 색인할 글이 있다(문서가 아직 없어도 개인 신호는 있다). 추천 가능 여부는 보지 않는다:
+    // 정지된 인플루언서의 문서도 숨김일 뿐 벡터는 있어 취향으로 쓴다
     private static boolean hasOwnProfile(@Nullable InfluencerProfile me) {
-        return me != null && me.isInfluencer() && !InfluencerProfileText.of(me.categories(), me.bio()).isEmpty();
+        return me != null && me.isInfluencer() && InfluencerIndexPlan.hasText(me);
     }
 
     // 추천 가능한 상대들의 벡터 평균. 없으면 null
@@ -180,7 +182,7 @@ public class InfluencerRecommendUseCase {
         for (Candidate candidate : top) {
             topIds.add(candidate.memberId());
         }
-        Map<String, float[]> vectors = taste.mixed()
+        Map<String, float[]> vectors = taste instanceof Taste.Mixed
                 ? index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds)) : Map.of();
         for (Candidate candidate : top) {
             float[] vector = vectors.get(InfluencerIndexPlan.docIdOf(candidate.memberId()));
@@ -226,44 +228,54 @@ public class InfluencerRecommendUseCase {
         double score(Stats stats, double normalizedPopularity);
     }
 
-    /**
-     * 취향 벡터.
-     *
-     * @param reason 모든 후보에 붙일 이유. 섞은 취향이면 null(후보마다 더 가까운 쪽)
-     * @param own    섞은 취향의 내 프로필 쪽(정규화). 아니면 null
-     * @param others 섞은 취향의 상대 평균 쪽(정규화). 아니면 null
-     */
-    private record Taste(float[] vector, @Nullable InfluencerReason reason, float @Nullable [] own,
-            float @Nullable [] others) {
+    /** 취향 벡터와, 후보마다 붙일 이유 */
+    private sealed interface Taste {
 
-        static Taste single(float[] vector, InfluencerReason reason) {
-            return new Taste(vector, reason, null, null);
-        }
+        float[] vector();
 
-        boolean mixed() {
-            return reason == null;
-        }
+        /** @param candidate 후보의 저장된 벡터(못 읽었으면 null) */
+        InfluencerReason reasonFor(float @Nullable [] candidate);
 
-        // 섞은 취향이면 후보 벡터가 내 프로필과 상대 평균 중 더 가까운 쪽(같거나 벡터를 못 읽으면 내 분야)
-        InfluencerReason reasonFor(float @Nullable [] candidate) {
-            if (reason != null) {
+        /** 한 가지 신호. 모든 후보에 같은 이유 */
+        record Single(float[] vector, InfluencerReason reason) implements Taste {
+
+            @Override
+            public InfluencerReason reasonFor(float @Nullable [] candidate) {
                 return reason;
             }
-            if (candidate == null || own == null || others == null) {
-                return InfluencerReason.SIMILAR_CATEGORY;
+        }
+
+        /**
+         * 내 프로필과 함께 마친 상대 평균을 섞은 취향. 후보마다 더 가까운 쪽이 이유다(같거나 벡터를 못 읽으면 내 분야).
+         *
+         * @param own    내 프로필 쪽(정규화)
+         * @param others 상대 평균 쪽(정규화)
+         */
+        record Mixed(float[] vector, float[] own, float[] others) implements Taste {
+
+            @Override
+            public InfluencerReason reasonFor(float @Nullable [] candidate) {
+                if (candidate == null) {
+                    return InfluencerReason.SIMILAR_CATEGORY;
+                }
+                float[] normalized = Vectors.normalize(candidate);
+                return Vectors.dot(normalized, others) > Vectors.dot(normalized, own) ? InfluencerReason.SIMILAR_TO_PARTNERS
+                        : InfluencerReason.SIMILAR_CATEGORY;
             }
-            float[] normalized = Vectors.normalize(candidate);
-            return Vectors.dot(normalized, others) > Vectors.dot(normalized, own) ? InfluencerReason.SIMILAR_TO_PARTNERS
-                    : InfluencerReason.SIMILAR_CATEGORY;
         }
     }
 
     /**
      * 추천 결과.
      *
-     * @param needsInterest 개인 신호(내 프로필·함께 마친 상대)가 없어 인기순으로만 골랐다. 대화 화면이 관심사를 물어볼 수 있다
+     * @param needsInterest   개인 신호(내 프로필·함께 마친 상대)가 없어 인기순으로만 골랐다. 대화 화면이 관심사를 물어볼 수 있다
+     * @param requesterHidden 요청 회원이 숨김이라 추천하지 않았다(items는 비어 있다)
      */
-    public record InfluencerRecommendation(List<Candidate> items, boolean needsInterest) {
+    public record InfluencerRecommendation(List<Candidate> items, boolean needsInterest, boolean requesterHidden) {
+
+        static InfluencerRecommendation forHiddenRequester() {
+            return new InfluencerRecommendation(List.of(), false, true);
+        }
     }
 
     /**

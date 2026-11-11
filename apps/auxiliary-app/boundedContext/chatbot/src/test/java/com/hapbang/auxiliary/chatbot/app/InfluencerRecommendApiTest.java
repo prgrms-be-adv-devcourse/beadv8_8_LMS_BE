@@ -31,6 +31,9 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.shared.member.domain.Role;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 인플루언서 추천 API·LLM 설명·Tool (#719). 로그인은 운영처럼 Gateway 사용자 헤더로 한다.
  * <p>
@@ -46,6 +49,9 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
 
     @Autowired
     private InfluencerRecommendTools tools;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @BeforeEach
     void setUpInfluencers() {
@@ -74,17 +80,27 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
                 .andExpect(jsonPath("$.data.items[0].completedAppearances").value(0))
                 .andExpect(jsonPath("$.data.items[0].averageRating").isEmpty())
                 .andExpect(jsonPath("$.data.items[0].reasons", contains("SIMILAR_CATEGORY")))
-                .andExpect(jsonPath("$.data.items[0]", not(hasKey("explanation"))));
+                .andExpect(jsonPath("$.data.items[0]", not(hasKey("explanation"))))
+                .andExpect(jsonPath("$.data", not(hasKey("notice"))));
         assertThat(chatModel.calls()).isZero();
     }
 
     @Test
-    @DisplayName("설명 API: LLM 이유를 붙인다. 후보 밖 회원·빈 문장은 버리고 이유 코드 문장으로 채운다. 프롬프트에 닉네임·자기소개 원문이 없다")
+    @DisplayName("요청 회원의 사본이 아직 없으면(가입 직후) 빈 목록과 정해진 안내 문구")
+    void requesterNotSyncedYet() throws Exception {
+        mockMvc.perform(get(BASE).with(login(404L, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)))
+                .andExpect(jsonPath("$.data.notice").value(InfluencerRecommendMapper.REQUESTER_HIDDEN_NOTICE));
+    }
+
+    @Test
+    @DisplayName("설명 API: LLM 이유를 후보 순번으로 받아 붙인다. 범위 밖 순번·빈 문장은 버리고 이유 코드 문장으로 채운다. 프롬프트에 닉네임·자기소개 원문이 없다")
     void explained() throws Exception {
         chatModel.reply("""
-                [{"memberId": 2, "reason": "게임 방송 분야가 같아 합이 잘 맞을 거예요."},
-                 {"memberId": 999, "reason": "후보 밖 회원"},
-                 {"memberId": 3, "reason": "  "}]""");
+                [{"candidate": 1, "reason": "게임 방송 분야가 같아 합이 잘 맞을 거예요."},
+                 {"candidate": 9, "reason": "범위 밖 후보"},
+                 {"candidate": 2, "reason": "  "}]""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -96,16 +112,30 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
                         .value(InfluencerReason.SIMILAR_CATEGORY.getDescription()));
 
         String prompt = promptText();
-        assertThat(prompt).contains("memberId=2", "분야: 게임", "memberId=3", "분야: 음악");
-        assertThat(prompt).doesNotContain(SECRET_BIO, "회원1", "회원2", "회원3", "memberId=1");
+        assertThat(prompt).contains("후보 1 | 분야: 게임", "후보 2 | 분야: 음악");
+        assertThat(prompt).doesNotContain(SECRET_BIO, "회원1", "회원2", "회원3", "memberId");
     }
 
     @Test
-    @DisplayName("설명 API: 후보 회원 ID 숫자를 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 fallback=true")
-    void explainedDropsIdLeaks() throws Exception {
+    @DisplayName("설명 API: 프롬프트에 회원 ID를 넣지 않는다(모델이 회원 ID를 알 수 없다)")
+    void promptHasNoMemberIds() throws Exception {
+        influencer(90017L, "GAME", "롤");
+        index(90017L);
+        chatModel.reply("[]");
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].memberId", contains(90017, 2, 3)));
+
+        assertThat(promptText()).contains("후보 1 | 분야: 게임").doesNotContain("90017");
+    }
+
+    @Test
+    @DisplayName("설명 API: 후보 순번을 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 fallback=true")
+    void explainedDropsCandidateMentions() throws Exception {
         chatModel.reply("""
-                [{"memberId": 2, "reason": "회원 2번은 게임 방송을 해요."},
-                 {"memberId": 3, "reason": "3 님과 잘 맞아요."}]""");
+                [{"candidate": 1, "reason": "후보 1은 게임 방송을 해요."},
+                 {"candidate": 2, "reason": "후보2번과 잘 맞아요."}]""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -117,17 +147,17 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("설명 API: 문장에 든 수치(출연 3회, 별점 4.5점)는 회원 ID로 보지 않는다")
+    @DisplayName("설명 API: 문장에 든 수치(출연 3회, 2번, 3명, 별점 4.5점)는 그대로 쓴다")
     void explainedKeepsNumbers() throws Exception {
         chatModel.reply("""
-                [{"memberId": 2, "reason": "완료한 출연이 3회이고 평균 별점이 4.5점이에요."},
-                 {"memberId": 3, "reason": "음악 방송을 하며 출연을 2 회 마쳤어요."}]""");
+                [{"candidate": 1, "reason": "완료한 출연이 3회이고 평균 별점이 4.5점이에요."},
+                 {"candidate": 2, "reason": "음악 방송을 2번 했고 3명과 함께했어요."}]""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.fallback").value(false))
                 .andExpect(jsonPath("$.data.items[0].explanation").value("완료한 출연이 3회이고 평균 별점이 4.5점이에요."))
-                .andExpect(jsonPath("$.data.items[1].explanation").value("음악 방송을 하며 출연을 2 회 마쳤어요."));
+                .andExpect(jsonPath("$.data.items[1].explanation").value("음악 방송을 2번 했고 3명과 함께했어요."));
     }
 
     @Test
@@ -183,9 +213,17 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         // 설명 글에 줄 합치기로 생긴 연속 공백이 없다(모델 프롬프트로 그대로 나간다)
         assertThat(callback.getToolDefinition().description()).doesNotContain("  ");
 
+        double before = requests();
         String result = callback.call("{}", new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
         assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false")
                 .doesNotContain(SECRET_BIO);
+        // Tool 경로도 API와 같은 사용 지표로 센다
+        assertThat(requests()).isEqualTo(before + 1);
+    }
+
+    private double requests() {
+        Counter counter = meterRegistry.find("hapbang.chatbot.requests").tag("feature", "influencer_recommend").counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private String promptText() {

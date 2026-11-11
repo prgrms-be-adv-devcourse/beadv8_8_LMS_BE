@@ -16,8 +16,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
+import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -33,6 +35,15 @@ class InfluencerIndexTaskHandlerTest extends InfluencerIntegrationTestBase {
 
     @Autowired
     private MemberMasking memberMasking;
+
+    @Autowired
+    private ChatbotEmbedder embedder;
+
+    @Autowired
+    private InfluencerRecommendStore store;
+
+    @Autowired
+    private ChatbotInfluencerRecommendProperties properties;
 
     @Test
     @DisplayName("추천 가능한 인플루언서: 분야 이름 + 정리한 소개를 임베딩해 hidden=false로 넣는다. 공급자에는 이메일·전화번호가 가지 않는다")
@@ -165,10 +176,35 @@ class InfluencerIndexTaskHandlerTest extends InfluencerIntegrationTestBase {
         assertThat(document(12L)).isNull();
     }
 
+    @Test
+    @DisplayName("회원 API(분야 이름)가 기동 때부터 죽어 있어도 마스킹 문서는 지우고 정지는 숨긴다. 이름이 필요한 문서(임베딩)만 실패로 돌린다")
+    void categoryNamesDown() {
+        influencer(INFLUENCER, "GAME", "롤");
+        influencer(12L, "MUSIC", "노래");
+        index(INFLUENCER, 12L);
+        memberMasking.mask(new UserMaskedEvent(INFLUENCER, Instant.parse("2026-11-10T01:00:00Z")));
+        member(12L, Role.INFLUENCER, UserStatus.SUSPENDED, List.of("MUSIC"), "노래");
+        influencer(13L, "GAME", "새로 온 인플루언서");
+        memberSource.failCategoryNames(new IllegalStateException("회원 API 장애"));
+        // 표를 한 번도 받지 못한 처리기(기동 직후)
+        InfluencerIndexTaskHandler starting = new InfluencerIndexTaskHandler(index, embedder, store,
+                new ContentCategoryNames(memberSource, properties, clockBean));
+
+        Map<String, RuntimeException> failures = starting.handle(docs(INFLUENCER, 12L, 13L));
+        index.refresh(IndexType.INFLUENCER);
+
+        assertThat(failures).containsOnlyKeys("13");
+        assertThat(document(INFLUENCER)).isNull();
+        assertThat(document(12L).hidden()).isTrue();
+        assertThat(document(13L)).isNull();
+    }
+
     // refresh 없이 처리기만 부른다(처리기 자신의 refresh를 확인한다)
-    private static SequencedMap<String, IndexAction> docs(long id) {
+    private static SequencedMap<String, IndexAction> docs(long... ids) {
         SequencedMap<String, IndexAction> docs = new LinkedHashMap<>();
-        docs.put(String.valueOf(id), IndexAction.UPSERT);
+        for (long id : ids) {
+            docs.put(String.valueOf(id), IndexAction.UPSERT);
+        }
         return docs;
     }
 
