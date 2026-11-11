@@ -1,10 +1,12 @@
 package com.hapbang.member.app;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.InfluencerUpgradeRequestRejectedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,6 +34,7 @@ public class MemberUpgradeReviewUseCase {
     private final InfluencerUpgradeRequestRepository influencerUpgradeRequestRepository;
     private final InfluencerChannelRepository influencerChannelRepository;
     private final MemberSupport memberSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 심사 목록 (정상 회원만). 목록에 나온 회원들의 승인된 채널을 한 번에 모아 붙인다 */
     public Page<UpgradeRequestReview> findRequests(UpgradeRequestStatus status, Pageable pageable) {
@@ -56,9 +60,14 @@ public class MemberUpgradeReviewUseCase {
         memberSupport.changeRole(user, Role.VERIFIED_INFLUENCER);
     }
 
-    /** 반려 (역할은 그대로) */
+    /** 반려 (역할은 그대로). 승급 반려 이벤트를 낸다 (#874) */
     public void reject(Long adminId, Long requestId, String reason) {
-        findReviewable(requestId).reject(adminId, reason, LocalDateTime.now());
+        InfluencerUpgradeRequest request = findReviewable(requestId);
+        request.reject(adminId, reason, LocalDateTime.now());
+        eventPublisher.publishEvent(new InfluencerUpgradeRequestRejectedEvent(request.getUser().getId(),
+                request.getId(), request.getRejectionReason(),
+                // 엔티티는 서버 시간대(KST)의 LocalDateTime, 회원 이벤트는 Instant를 쓴다
+                request.getReviewedAt().atZone(ZoneId.systemDefault()).toInstant()));
     }
 
     /** 잠가서 읽고, 신청한 회원이 정상 회원이 아니면 409 (목록을 거치지 않은 호출도 막는다) */
