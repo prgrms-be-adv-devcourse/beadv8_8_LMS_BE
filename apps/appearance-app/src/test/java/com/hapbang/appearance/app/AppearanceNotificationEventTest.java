@@ -1,6 +1,11 @@
 package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
@@ -93,6 +99,10 @@ class AppearanceNotificationEventTest {
 
     @Autowired
     AppearanceAutoConfirmUseCase appearanceAutoConfirmUseCase;
+
+    /** 자동 확인 배치가 제목을 출연마다 읽지 않고(N+1) 한 번에 읽는지 본다 */
+    @MockitoSpyBean
+    AppearanceTitleSupport appearanceTitleSupport;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -436,14 +446,19 @@ class AppearanceNotificationEventTest {
         }
 
         @Test
-        @DisplayName("D+7 자동 확인 배치: 출연마다 확인(AUTO)과 출처 제목(요청서·모집글 출처가 섞여도 각자의 제목)")
+        @DisplayName("D+7 자동 확인 배치: 출연마다 확인(AUTO)과 출처 제목(요청서·모집글 출처가 섞여도 각자의 제목). 제목은 출연마다가 아니라 한 번에 읽는다")
         void confirmedAutomatically() {
             Long fromRequest = establishFromRequest();
             Long recruitId = postRecruit();
             Long fromRecruit = appearanceApplicationFacade.accept(HOST, apply(recruitId, GUEST2)).appearanceId();
             clock.advanceTo(scheduledAtOf(fromRecruit).plusDays(7));
+            clearInvocations(appearanceTitleSupport);
 
             assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(2);
+
+            // 제목은 회차 시작에 대상 전체를 한 번에 읽는다. 출연마다 출처를 읽는 길(titleOf)은 타지 않는다
+            verify(appearanceTitleSupport).titlesByAppearanceIds(anyCollection());
+            verify(appearanceTitleSupport, never()).titleOf(any());
 
             List<AppearanceConfirmedEvent> events = applicationEvents.stream(AppearanceConfirmedEvent.class).toList();
             assertThat(events).extracting(AppearanceConfirmedEvent::confirmType)
