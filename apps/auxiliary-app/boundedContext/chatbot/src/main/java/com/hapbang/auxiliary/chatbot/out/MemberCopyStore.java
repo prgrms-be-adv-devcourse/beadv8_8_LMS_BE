@@ -26,12 +26,11 @@ public class MemberCopyStore {
     static final CopyTable TABLE = new CopyTable("member_copy", "id", List.of("role", "status", "categories", "bio"),
             Set.of("categories"), true, false);
 
-    // 보임 = 사본 있음 ∧ 탈퇴 아님 ∧ 마스킹 안 됨 (MemberVisibility)
-    private static final String VISIBLE = """
-            SELECT m.id FROM chatbot.member_copy m
-            WHERE m.id IN (:ids) AND m.status <> 'WITHDRAWN'
-              AND NOT EXISTS (SELECT 1 FROM chatbot.masked_member x WHERE x.user_id = m.id)
-            """;
+    // 보임 = 사본 있음 ∧ 탈퇴 아님 ∧ 마스킹 안 됨 (MemberVisibility). 회원 사본의 별칭은 m
+    private static final String VISIBLE_MEMBER =
+            "m.status <> 'WITHDRAWN' AND NOT EXISTS (SELECT 1 FROM chatbot.masked_member x WHERE x.user_id = m.id)";
+
+    private static final String VISIBLE = "SELECT m.id FROM chatbot.member_copy m WHERE m.id IN (:ids) AND " + VISIBLE_MEMBER;
 
     private static final String ROLE_AND_STATUS = """
             SELECT m.role, m.status FROM chatbot.member_copy m
@@ -48,6 +47,14 @@ public class MemberCopyStore {
                 .addValue("categories", JsonColumns.write(copy.categories()))
                 .addValue("bio", copy.bio());
         return TABLE.save(jdbc, params, copy.version(), copy.hash(), null, now);
+    }
+
+    /**
+     * SQL 조건: {@code userIdColumn}의 회원이 보인다({@link #findVisible}과 같은 규칙). 다른 store가 목록을 SQL 안에서 거르고 나서
+     * {@code LIMIT}을 걸어야 할 때 쓴다.
+     */
+    static String visibleCondition(String userIdColumn) {
+        return "EXISTS (SELECT 1 FROM chatbot.member_copy m WHERE m.id = " + userIdColumn + " AND " + VISIBLE_MEMBER + ")";
     }
 
     /** 주어진 회원 중 보이는 회원의 ID */
