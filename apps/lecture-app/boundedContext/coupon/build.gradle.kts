@@ -26,3 +26,11 @@ dependencies {
     // Facade 테스트의 역할 넣기(@WithMockUser)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
+
+// 예산 연동 통합 테스트는 billing 실행 파일을 별도 JVM으로 띄워 실제 내부 HTTP API를 호출한다.
+tasks.withType<Test>().configureEach {
+    dependsOn(":billing-app:e2eServerJar")
+    systemProperty("hapbang.billing.e2e.enabled", "true")
+    systemProperty("hapbang.billing.e2e.jar", rootProject.file("apps/billing-app/build/libs/billing-e2e-server.jar").absolutePath)
+    systemProperty("sun.net.http.retryPost", "false")
+}

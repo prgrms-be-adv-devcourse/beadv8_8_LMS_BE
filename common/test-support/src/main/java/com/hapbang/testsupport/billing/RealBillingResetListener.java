@@ -1,0 +1,16 @@
+package com.hapbang.testsupport.billing;
+
+import org.springframework.test.context.TestContext;
+import org.springframework.test.context.support.AbstractTestExecutionListener;
+
+/** 테스트 트랜잭션을 시작하기 전에 이번 테스트 전용 billing 상태를 초기화한다. */
+public class RealBillingResetListener extends AbstractTestExecutionListener {
+    @Override
+    public int getOrder() { return 2_900; }
+
+    @Override
+    public void beforeTestMethod(TestContext context) {
+        var fixtures = context.getApplicationContext().getBeansOfType(RealBillingTestFixture.class);
+        fixtures.values().forEach(RealBillingTestFixture::reset);
+    }
+}

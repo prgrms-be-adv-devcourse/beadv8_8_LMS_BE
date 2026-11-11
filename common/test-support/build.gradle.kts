@@ -17,6 +17,8 @@ dependencies {
 
     // 테스트 로그인 헬퍼(TestLogin)
     implementation(project(":shared"))
+    // 실제 지갑 Client의 회로 상태만 조작·관측한다. 업무 응답은 실제 서버가 만든다.
+    implementation(libs.resilience4j.circuitbreaker)
     // 보안을 안 쓰는 모듈 테스트에 Spring Security가 끼어들지 않도록 compileOnly
     // (TestLogin을 쓰는 모듈은 security-test를 직접 추가한다)
     compileOnly("org.springframework.boot:spring-boot-starter-security-test")
