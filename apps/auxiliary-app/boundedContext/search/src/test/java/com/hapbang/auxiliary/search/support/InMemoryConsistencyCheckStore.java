@@ -4,8 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import com.hapbang.auxiliary.search.out.ConsistencyCheck;
-import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
+import com.hapbang.auxiliary.search.common.out.ConsistencyCheck;
+import com.hapbang.auxiliary.search.common.out.ConsistencyCheckStore;
 
 /** DB 없이 정합성 점검 결과를 메모리에 두는 가짜(#772). SQL은 {@code ConsistencyCheckStoreTest}가 본다 */
 public class InMemoryConsistencyCheckStore extends ConsistencyCheckStore {

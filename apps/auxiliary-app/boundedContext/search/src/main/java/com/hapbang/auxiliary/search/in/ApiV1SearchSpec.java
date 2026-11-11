@@ -6,7 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import com.hapbang.auxiliary.global.response.RsData;
-import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
+import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;

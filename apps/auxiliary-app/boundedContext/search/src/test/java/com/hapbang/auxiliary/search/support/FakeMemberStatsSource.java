@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.hapbang.auxiliary.search.out.MemberStatsSource;
+import com.hapbang.auxiliary.search.influencer.out.MemberStatsSource;
 import com.hapbang.shared.member.dto.ContentCategoriesDto;
 import com.hapbang.shared.member.dto.ContentCategoryDto;
 import com.hapbang.shared.member.dto.InfluencerChannelDto;

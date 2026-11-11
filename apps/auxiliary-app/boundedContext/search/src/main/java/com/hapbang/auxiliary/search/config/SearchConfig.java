@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
+import com.hapbang.auxiliary.search.influencer.config.SearchRankingProperties;
+
 /** 검색 설정: 순위 계수(#771), 처음 적재·재색인 실행기(#773) */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SearchRankingProperties.class)
