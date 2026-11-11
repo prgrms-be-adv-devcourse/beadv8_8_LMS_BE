@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)는 [릴리스 전 배포](#릴리스-전-배포)로 처음 올라가 route·JWT 검증까지 연결됐고(2026-11-02, member #500, chat #545, 나머지 넷 #541), 같은 날 [dev 자동 배포](#dev-자동-배포-전환)의 첫 run이 6개 앱을 Actions가 발행한 이미지로 다시 배포했다(#561, #571). 이후 dev에 병합하면 바뀐 앱이 자동으로 배포된다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)는 [릴리스 전 배포](#릴리스-전-배포)로 처음 올라가 route·JWT 검증까지 연결됐고(2026-11-02, member #500, chat #545, 나머지 넷 #541), 같은 날 [dev 자동 배포](#dev-자동-배포-전환)의 첫 run이 6개 앱을 Actions가 발행한 이미지로 다시 배포했다(#561, #571). 검색·챗봇·알림을 담는 auxiliary-app은 2026-11-06(#714)에 route·JWT 검증과 함께 올라가 지금 업무 앱은 7개다. 이후 dev에 병합하면 바뀐 앱이 자동으로 배포된다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -327,7 +327,7 @@ dev push → Publish and deploy(publish.yml)
   build   고른 앱을 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<태그 커밋>으로 발행
   deploy  deploy.yml 호출. 차례가 왔을 때 이 커밋이 dev 최신이 아니면 건너뛴다(뒤 push의 run이 배포)
     지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인
-    → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support)
+    → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support → auxiliary)
        SSM Run Command로 large에서 .github/scripts/k3s-deploy.sh apply
          ghcr-pull Secret 확인 → 해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
          실패하면 원인을 알리고 그 앱만 rollout undo, 남은 앱은 배포하지 않음

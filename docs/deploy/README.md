@@ -1,12 +1,12 @@
 # 배포 개요
 
-합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. `/` route는 FE 레포 `k8s/`가 소유한다(#454). 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)가 모두 route와 JWT 검증까지 연결됐다(2026-11-02 릴리스 전 배포, member #500, chat #545, 나머지 넷 #541). 같은 날부터 dev에 병합하면 바뀐 앱이 운영에 자동으로 배포되고, 첫 자동 배포가 6개 앱을 다시 배포했다(#561, #571). Swagger는 앱마다 `/api/v1/<모듈>/swagger-ui.html`에서 열린다.
+합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. `/` route는 FE 레포 `k8s/`가 소유한다(#454). 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)가 모두 route와 JWT 검증까지 연결됐다(2026-11-02 릴리스 전 배포, member #500, chat #545, 나머지 넷 #541). 같은 날부터 dev에 병합하면 바뀐 앱이 운영에 자동으로 배포되고, 첫 자동 배포가 6개 앱을 다시 배포했다(#561, #571). 검색·챗봇·알림을 담는 auxiliary-app이 2026-11-06(#714)에 route·JWT 검증과 함께 더해져 지금 업무 앱은 7개다. Swagger는 앱마다 `/api/v1/<모듈>/swagger-ui.html`에서 열린다.
 
 기존 Docker Compose(prod·dev app·web·PostgreSQL과 edge nginx·certbot)는 2026-10-30에 컨테이너와 볼륨까지 모두 지웠다(#440). 기존 운영 DB는 백업하지 않았다. 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다. dev 서버는 없다. 개발 확인은 로컬과 k3d에서 한다([로컬 개발](../dev/local.md)).
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 6개가 route에 연결됐다. 업무 앱은 dev에 병합하면 바뀐 앱이 자동으로 배포된다(#559, 첫 자동 배포 2026-11-02 [기록](k8s.md#dev-자동-배포-전환)). main에는 서버가 없다 |
+| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 7개(auxiliary-app 포함)가 route에 연결됐다. 업무 앱은 dev에 병합하면 바뀐 앱이 자동으로 배포된다(#559, 첫 자동 배포 2026-11-02 [기록](k8s.md#dev-자동-배포-전환)). main에는 서버가 없다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 
