@@ -135,6 +135,11 @@ hapbang:
       index-name: chatbot-faq-none
       dimensions: 768
       similarity-threshold: 0.7
+    # 강의·인플루언서 추천 벡터 index(#718). 공급자별 값은 프로필 파일에 있다. 아래는 모델을 끈 실행용 값이다
+    index:
+      lecture-name: chatbot-lectures-none
+      influencer-name: chatbot-influencers-none
+      dimensions: 768
   # 인플루언서 검색(#771). 운영 ES의 검색용 API key(#806)가 생기기 전이라 스위치를 꺼 둔다. 꺼지면 검색 모듈 빈이 하나도 뜨지 않는다.
   # #806(검색 key)과 #772(증분 보정)가 모두 끝나면 스위치(enabled와 ConditionalOnSearchEnabled)를 지운다
   search:

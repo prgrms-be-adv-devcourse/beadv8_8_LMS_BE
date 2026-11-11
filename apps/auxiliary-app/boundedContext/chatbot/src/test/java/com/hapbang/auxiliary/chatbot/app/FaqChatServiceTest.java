@@ -23,6 +23,7 @@ import org.springframework.boot.task.SimpleAsyncTaskExecutorBuilder;
 
 import com.hapbang.auxiliary.chatbot.app.FaqAnswer.FaqSource;
 import com.hapbang.auxiliary.chatbot.config.ChatbotFaqProperties;
+import com.hapbang.auxiliary.chatbot.config.ChatbotLlmProperties;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -51,11 +52,13 @@ class FaqChatServiceTest {
             .build());
 
     private FaqChatService service;
+    private LlmCallGuard guard;
 
     @AfterEach
     void close() {
-        if (service != null) {
-            service.close();
+        chatModel.release();
+        if (guard != null) {
+            guard.close();
         }
     }
 
@@ -123,14 +126,13 @@ class FaqChatServiceTest {
     @DisplayName("모델이 시간 상한을 넘기면 기다리지 않고 fallback으로 답한다")
     void chatTimesOut() {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
-        chatModel.mode(FakeChatModel.Mode.SLOW);
-        chatModel.delay(Duration.ofSeconds(10));
+        // 모델은 풀어 줄 때까지 답하지 않는다. 답이 돌아왔다는 것 자체가 시간 상한에서 끊었다는 뜻이다
+        chatModel.hold();
+        chatModel.mode(FakeChatModel.Mode.HANG);
         service = service(Duration.ofMillis(300), 4, true);
 
-        long start = System.nanoTime();
         FaqAnswer answer = service.chat("출연 취소");
 
-        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(3));
         assertThat(answer.fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "timeout")).isEqualTo(1);
     }
@@ -159,17 +161,19 @@ class FaqChatServiceTest {
     @DisplayName("동시 대화 상한에 걸리면 모델을 부르지 않고 fallback(busy)이다")
     void busyWhenConcurrentLimitReached() throws Exception {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
-        chatModel.mode(FakeChatModel.Mode.SLOW);
-        chatModel.delay(Duration.ofSeconds(1));
-        service = service(Duration.ofSeconds(5), 1, true);
+        // 첫 대화는 풀어 줄 때까지 모델 안에 머문다(시간 상한은 길게 두어 끊기지 않게 한다)
+        chatModel.hold();
+        chatModel.mode(FakeChatModel.Mode.HANG);
+        service = service(Duration.ofSeconds(30), 1, true);
 
         CompletableFuture<FaqAnswer> first = CompletableFuture.supplyAsync(() -> service.chat("첫 질문"));
-        await().atMost(Duration.ofSeconds(3)).until(() -> chatModel.calls() == 1);
+        await().atMost(Duration.ofSeconds(10)).until(() -> chatModel.calls() == 1);
         FaqAnswer second = service.chat("두 번째 질문");
 
         assertThat(second.fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "busy")).isEqualTo(1);
-        assertThat(first.get(5, TimeUnit.SECONDS).fallback()).isFalse();
+        chatModel.release();
+        assertThat(first.get(10, TimeUnit.SECONDS).fallback()).isFalse();
     }
 
     @Test
@@ -231,15 +235,16 @@ class FaqChatServiceTest {
     @DisplayName("스트림이 전체 시간 상한을 넘기면 fallback으로 답한다")
     void streamTimesOut() {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
-        chatModel.mode(FakeChatModel.Mode.SLOW);
-        chatModel.delay(Duration.ofSeconds(10));
+        chatModel.hold();
+        chatModel.mode(FakeChatModel.Mode.HANG);
         service = service(Duration.ofMillis(300), 4, true);
 
+        // verify 상한은 테스트가 멈추지 않게 하는 안전장치다. 모델이 답하지 않으므로 끝났다면 시간 상한에서 끊은 것이다
         StepVerifier.create(service.stream("출연 취소"))
                 .expectNext(new FaqStreamEvent.Token(HIT.answer()))
                 .expectNextMatches(event -> event instanceof FaqStreamEvent.Done done && done.fallback())
                 .expectComplete()
-                .verify(Duration.ofSeconds(3));
+                .verify(Duration.ofSeconds(30));
         assertThat(fallbacks("faq_stream", "timeout")).isEqualTo(1);
     }
 
@@ -261,18 +266,34 @@ class FaqChatServiceTest {
     @DisplayName("사용자가 스트림을 끊으면 동시 대화 자리를 돌려준다")
     void cancelledStreamReleasesPermit() throws Exception {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
-        chatModel.mode(FakeChatModel.Mode.SLOW);
-        chatModel.delay(Duration.ofSeconds(10));
-        service = service(Duration.ofSeconds(5), 1, true);
+        chatModel.hold();
+        chatModel.mode(FakeChatModel.Mode.HANG);
+        service = service(Duration.ofSeconds(30), 1, true);
 
         CountDownLatch subscribed = new CountDownLatch(1);
         Disposable stream = service.stream("첫 질문").doOnSubscribe(s -> subscribed.countDown()).subscribe();
-        assertThat(subscribed.await(2, TimeUnit.SECONDS)).isTrue();
-        await().atMost(Duration.ofSeconds(3)).until(() -> chatModel.calls() == 1);
+        assertThat(subscribed.await(10, TimeUnit.SECONDS)).isTrue();
+        await().atMost(Duration.ofSeconds(10)).until(() -> chatModel.calls() == 1);
         stream.dispose();
         chatModel.mode(FakeChatModel.Mode.TOOL_ANSWER);
 
         assertThat(service.chat("두 번째 질문").fallback()).isFalse();
+    }
+
+    @Test
+    @DisplayName("동시 상한은 챗봇 기능 전체가 나눠 쓴다: 다른 기능이 자리를 쥐고 있으면 FAQ 대화는 busy, 돌려주면 다시 부른다")
+    void concurrentLimitSharedAcrossFeatures() {
+        when(searchService.search(anyString())).thenReturn(List.of(HIT));
+        service = service(Duration.ofSeconds(2), 1, true);
+        // 다른 기능(예: 강의 추천 설명)이 같은 장치로 자리를 잡는다
+        LlmCallGuard.Permit other = guard.acquire(true);
+        assertThat(other.blocked()).isNull();
+
+        assertThat(service.chat("출연 취소").fallback()).isTrue();
+        assertThat(fallbacks("faq_chat", "busy")).isEqualTo(1);
+
+        other.succeeded();
+        assertThat(service.chat("출연 취소").fallback()).isFalse();
     }
 
     private FaqChatService service(Duration timeout, int maxConcurrent, boolean withModel) {
@@ -282,10 +303,11 @@ class FaqChatServiceTest {
             beans.registerSingleton("chatClientBuilder", ChatClient.builder(chatModel));
         }
         ChatbotFaqProperties properties = new ChatbotFaqProperties("chatbot-faq-test-8", 8, 0.8, 3, "", "", timeout, timeout,
-                maxConcurrent, false, Duration.ofMinutes(10), new ChatbotFaqProperties.RateLimit(10, Duration.ofMinutes(1), 100));
+                false, Duration.ofMinutes(10), new ChatbotFaqProperties.RateLimit(10, Duration.ofMinutes(1), 100));
+        guard = new LlmCallGuard(circuitBreaker, new ChatbotLlmProperties(maxConcurrent), new SimpleAsyncTaskExecutorBuilder());
         return new FaqChatService(beans.getBeanProvider(org.springframework.ai.chat.model.ChatModel.class),
                 beans.getBeanProvider(ChatClient.Builder.class), new FaqTools(searchService), searchService,
-                properties, new ChatbotMetrics(registry), circuitBreaker, new SimpleAsyncTaskExecutorBuilder());
+                properties, new ChatbotMetrics(registry), guard);
     }
 
     private double fallbacks(String feature, String reason) {

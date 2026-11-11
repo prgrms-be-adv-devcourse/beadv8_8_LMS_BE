@@ -46,10 +46,10 @@ class CopySyncTargets {
     }
 
     @Bean
-    SyncTarget<LectureSyncDto> lectureSyncTarget(LectureSyncSource source, CopyApplier applier, LectureCopyStore store) {
+    SyncTarget<LectureSyncDto> lectureSyncTarget(LectureSyncSource source, CopyApplier applier) {
         return new CopySyncTarget<>(SyncType.LECTURE, ChatbotJob.LECTURE_SYNC,
                 pages(source::lectures, LectureSyncPageDto::items, LectureSyncPageDto::nextAfterId),
-                LectureSyncDto::id, LectureSyncDto::version, applier::apply, store::markMissingLectures);
+                LectureSyncDto::id, LectureSyncDto::version, applier::apply, applier::markMissingLectures);
     }
 
     @Bean

@@ -14,7 +14,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 /**
- * FAQ 챗봇 설정(#715). 공급자(임베딩 모델)마다 값이 달라 프로필 파일에서 정한다(local=Ollama, prod=OpenAI).
+ * FAQ 챗봇 설정(#715). LLM 동시 호출 상한은 앱 전체 공통({@link ChatbotLlmProperties}). 공급자(임베딩 모델)마다 값이 달라 프로필 파일에서 정한다(local=Ollama, prod=OpenAI).
  *
  * @param indexName           Elasticsearch index 이름. 공급자·차원을 넣는다(예: {@code chatbot-faq-openai-1536}). 모델을 바꾸면 새 index에 다시 색인한다
  * @param dimensions          임베딩 차원. 모델과 맞아야 한다
@@ -24,7 +24,6 @@ import jakarta.validation.constraints.Positive;
  * @param queryPrefix         질문을 임베딩할 때 앞에 붙이는 글(nomic-embed-text는 {@code search_query: })
  * @param chatTimeout         한 번에 받는 대화의 LLM 응답 상한. 넘으면 fallback으로 답한다
  * @param streamTimeout       스트림 대화 전체 상한. Gateway 스트림 route(60s)·MVC 비동기 상한보다 짧아야 fallback·오류가 먼저 나간다
- * @param maxConcurrentCalls  동시에 진행할 수 있는 LLM 대화 수(앱 전체). 넘으면 LLM 없이 fallback으로 답한다
  * @param syncOnStartup       시작할 때 시드를 맞추고 색인한다(테스트는 끄고 직접 부른다)
  * @param indexCheckInterval  색인 점검 주기. 실패한 색인을 다시 한다(배치를 켠 실행만)
  * @param rateLimit           회원별 호출 제한
@@ -40,7 +39,6 @@ public record ChatbotFaqProperties(
         @DefaultValue("") String queryPrefix,
         @DefaultValue("20s") @NotNull Duration chatTimeout,
         @DefaultValue("45s") @NotNull Duration streamTimeout,
-        @DefaultValue("4") @Positive int maxConcurrentCalls,
         @DefaultValue("true") boolean syncOnStartup,
         @DefaultValue("10m") @NotNull Duration indexCheckInterval,
         @DefaultValue @Valid RateLimit rateLimit) {

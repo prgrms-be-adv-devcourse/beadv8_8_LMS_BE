@@ -25,7 +25,12 @@ public enum ChatbotJob implements JobLockKey {
     /** 장바구니 싱크 (#717) */
     CART_ITEM_SYNC(717_004L, "chatbot-cart-item-sync"),
     /** 강의 리뷰 싱크 (#717) */
-    LECTURE_REVIEW_SYNC(717_005L, "chatbot-lecture-review-sync");
+    LECTURE_REVIEW_SYNC(717_005L, "chatbot-lecture-review-sync"),
+    /**
+     * 색인 요청 가져가기 (#718). 다른 작업과 달리 {@code JobLock}(세션 락)이 아니라 가져가기 트랜잭션 안에서
+     * {@code pg_advisory_xact_lock}으로 잠깐 잡는다. 여러 pod의 가져가기를 한 줄로 세워 같은 문서를 두 pod가 함께 가져가지 않게 한다
+     */
+    INDEX_TASK_CLAIM(718_001L, "chatbot-index-task-claim");
 
     private final long lockKey;
     private final String tag;

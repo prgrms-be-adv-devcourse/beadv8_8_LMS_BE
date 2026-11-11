@@ -50,3 +50,9 @@ hapbang:
       # 상한이 먼저 터지지 않게 넉넉히 둔다. 시간 상한 동작 자체는 FaqChatServiceTest가 짧은 값으로 확인한다
       chat-timeout: 8s
       stream-timeout: 8s
+    index:
+      # 가짜 임베딩(8차원)에 맞춘 값. 테스트는 이 index만 쓰고 지운다
+      lecture-name: chatbot-lectures-test-8
+      influencer-name: chatbot-influencers-test-8
+      dimensions: 8
+      query-prefix: "query: "

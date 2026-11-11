@@ -6,8 +6,10 @@ import static com.hapbang.auxiliary.chatbot.support.CopyFixtures.lectureReview;
 import static com.hapbang.auxiliary.chatbot.support.CopyFixtures.member;
 import static com.hapbang.auxiliary.chatbot.support.CopyFixtures.purchase;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -19,10 +21,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
+import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
+import com.hapbang.auxiliary.chatbot.out.CopyWrite;
+import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.CopyFixtures;
 import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -64,6 +70,51 @@ class MemberLectureCopyApplierTest extends ChatbotIntegrationTestBase {
         UserDto renamed = new UserDto(1L, "새이름", Role.INFLUENCER, UserStatus.ACTIVE, 2L, List.of("GAME"),
                 "게임 방송을 합니다.");
         assertThat(copyApplier.apply(renamed).outcome()).isEqualTo(CopyOutcome.SAME_VERSION_DIFFERENT);
+    }
+
+    @Test
+    @DisplayName("강의 색인 요청: 값이 바뀌거나 원본 없음 표시가 바뀔 때만 같은 트랜잭션에서 적는다. 값이 같은 반영·version만 오른 반영은 적지 않는다")
+    void lectureIndexTasks() {
+        copyApplier.apply(lecture(5, 1), null);
+        assertThat(lectureTasks()).containsExactly("5");
+
+        // 같은 값(이벤트 중복, 매시 싱크)과 version만 오른 값은 색인을 바꾸지 않는다
+        copyApplier.apply(lecture(5, 1), null);
+        copyApplier.apply(lecture(5, 1), 1L);
+        assertThat(copyApplier.apply(lecture(5, 2), 1L).outcome()).isEqualTo(CopyOutcome.VERSION_ONLY);
+        assertThat(lectureTasks()).hasSize(1);
+
+        // 판매 중지
+        LectureSyncDto stopped = new LectureSyncDto(5L, 900L, "강의5", "소개", false, false, lecture(5, 3).contents(), 3L);
+        assertThat(copyApplier.apply(stopped, null).outcome()).isEqualTo(CopyOutcome.SOURCE_NEWER);
+        assertThat(lectureTasks()).containsExactly("5", "5");
+
+        // 원본 없음 표시, 다시 보임(값은 같아도 색인의 표시가 바뀐다)
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(copyApplier.markMissingLectures(2L, CopyTimes.now(clockBean))).extracting(MissingCopy::sourceId)
+                .containsExactly(5L);
+        assertThat(lectureTasks()).containsExactly("5", "5", "5");
+        CopyWrite restored = copyApplier.apply(stopped, 3L);
+        assertThat(restored.outcome()).isEqualTo(CopyOutcome.UNCHANGED);
+        assertThat(restored.restored()).isTrue();
+        assertThat(lectureTasks()).containsExactly("5", "5", "5", "5");
+        assertThat(rows.indexTasks()).allSatisfy(task -> assertThat(task).containsEntry("index_type", "LECTURE")
+                .containsEntry("action", "UPSERT"));
+    }
+
+    @Test
+    @DisplayName("회원 역할·상태가 비어 있으면 이벤트와 싱크 모두 같은 메시지로 거절한다")
+    void memberRequiresRoleAndStatus() {
+        assertThatThrownBy(() -> copyApplier.apply(new UserDto(1L, "회원1", null, UserStatus.ACTIVE, 1L, List.of(), null)))
+                .isInstanceOf(NullPointerException.class).hasMessage("user.role은 필수입니다.");
+        assertThatThrownBy(() -> copyApplier.apply(new UserDto(1L, "회원1", Role.USER, null, 1L, List.of(), null)))
+                .isInstanceOf(NullPointerException.class).hasMessage("user.status는 필수입니다.");
+        assertThat(rows.count("member_copy")).isZero();
+    }
+
+    private List<String> lectureTasks() {
+        return jdbcTemplate.queryForList("SELECT doc_id FROM chatbot.index_task WHERE index_type = 'LECTURE' ORDER BY id",
+                String.class);
     }
 
     @Test
