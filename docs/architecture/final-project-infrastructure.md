@@ -35,7 +35,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
 | 채팅 전달 작업 | PostgreSQL outbox → Redis Streams 도입 | DB 적재 재시도, consumer group·PEL·ACK, Pub/Sub 발행 체크포인트·Redis 유실 재구성(2026-10-29 사용자 변경 결정) |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 단일 chat-app 로컬 전달, 향후 서버 간 fan-out, 접속 상태·짧은 수명 데이터 |
-| 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 `notification-app`·`search-app`을 더해 8개 | 서비스별 빌드·배포·장애 격리 |
+| 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 검색·챗봇·알림을 담는 `auxiliary-app`을 더해 7개. auxiliary-app만 모듈 여럿을 담고 database 하나를 모듈별 schema로 나눈다(#684, #714. 처음 계획은 `notification-app`·`search-app`을 따로 둔 8개) | 서비스별 빌드·배포·장애 격리 |
 | 알림(notification) | 채팅에서 분리해 `notification-app`으로 ([8장](infrastructure/notification.md)) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
 | Elasticsearch + `search-app` | **도입 확정** ([9장](infrastructure/search.md), #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
 | k3s(server 1 + agent 1) + Kustomize + Helm | 도입. 로컬·CI는 같은 manifest를 k3d로 검증. 잘 관리되는 공식·준공식 차트만 Helm으로 | 실제 서버의 Kubernetes 배포, rolling update, probe, node별 workload 분리와 자원 예산 관리 |
@@ -86,9 +86,9 @@ Client
            모듈별 route · 내부 API 차단 · traceparent
                          │
                          ▼
-          모듈 앱 8개 (앱마다 replica 1개) + React 정적 서버
+          모듈 앱 7개 (앱마다 replica 1개) + React 정적 서버
           member · billing · appearance · lecture · chat
-          customer-support · notification · search
+          customer-support · auxiliary(검색·챗봇·알림)
             │  X-User-* 헤더로 @PreAuthorize, Resilience4j rate limit
             │
             ├──── PostgreSQL  ← 업무·HP 원장·채팅 이력의 source of truth
@@ -240,7 +240,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 1. JWT 인증 전환: member-app 발급·refresh·JWKS(#370), 앱 공용 헤더 인증 필터와 chat STOMP 검증(#371)
 2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, CI 렌더링·schema 검사(#373). PR CI smoke/E2E는 앱이 모두 단독 기동한 뒤
-3. 모듈 앱 8개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
+3. 모듈 앱 7개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
 4. Envoy Gateway·cert-manager·ServiceLB, `HTTPRoute`·`SecurityPolicy`, 헤더 위조 차단, 내부 API 차단, 큰 본문 업로드 검증(#372)
 5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둘 계획이었으나, Compose를 먼저 지워 되돌릴 경로는 없다(#440)
 6. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
