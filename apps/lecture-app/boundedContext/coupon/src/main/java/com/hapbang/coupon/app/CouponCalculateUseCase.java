@@ -32,8 +32,7 @@ import com.hapbang.shared.coupon.api.CouponCalculateResponse;
  *     <li>매핑이 {@code null}이면 회원의 AVAILABLE 발급 쿠폰 전부를 후보로 추천하고, 빈 목록이면 쿠폰을 쓰지 않으며, 값이 있으면 그 매핑의
  *     발급 쿠폰만 읽어 검증·계산한다. 판정은 {@code CouponCalculator}가 한다.</li>
  *     <li>플랫폼 재원이 꺼져 있으면({@link CouponPlatformFundingProperties}) 추천 후보에서 플랫폼 쿠폰을 빼고, 매핑에 회원 본인의 플랫폼
- *     쿠폰이 있으면 409 {@code COUPON_NOT_USABLE}(detail {@value #PLATFORM_FUNDING_DISABLED}, 그 발급 쿠폰 ID)다. 플랫폼 부담이 있는
- *     주문은 강의가 막으므로, 추천이 플랫폼 쿠폰을 담아 "추천은 됐는데 주문은 안 되는" 결과가 나지 않게 한다.</li>
+ *     쿠폰이 있으면 409 {@code COUPON_NOT_USABLE}(detail {@value #PLATFORM_FUNDING_DISABLED}, 그 발급 쿠폰 ID)다. 기본값은 플랫폼 재원 활성이고, false를 명시한 경우에만 사용 경로에서 제외한다.</li>
  * </ul>
  * 사용 경로라 Redis를 쓰지 않는다.
  */

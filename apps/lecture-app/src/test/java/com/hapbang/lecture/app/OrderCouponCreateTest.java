@@ -231,14 +231,37 @@ class OrderCouponCreateTest {
     }
 
     @Test
-    void 플랫폼_부담_할인이_있으면_409_COUPON_PLATFORM_FUNDING_UNAVAILABLE이고_주문하지_않는다() {
+    void 항목과_쿠폰별_플랫폼_재원_합이_다르면_주문을_저장하기_전에_503으로_거절한다() {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> {
+            Long lectureId = ((CouponCalculateRequest) request).items().getFirst().lectureId();
+            var applied = new CouponCalculateResponse.Coupon(501L, 11L, "PLATFORM", 1, PRICE_HP, 1_000L,
+                    1_000L, 0L, 4L, 2);
+            return new CouponCallResult.Succeeded<>(new CouponCalculateResponse(false, false,
+                    List.of(new CouponCalculateResponse.Item(lectureId, PRICE_HP, SELLER_DISCOUNT,
+                            SELLER_DISCOUNT, 0L, PRICE_HP - SELLER_DISCOUNT, PRICE_HP, List.of(applied))),
+                    SELLER_DISCOUNT, PRICE_HP - SELLER_DISCOUNT));
+        });
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
+                .isInstanceOf(LectureException.class).extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_UNAVAILABLE);
+        assertNoOrder();
+    }
+
+    @Test
+    void 플랫폼_부담_할인이_있어도_주문을_저장하고_쿠폰_예약_확정을_기다린다() {
         Lecture lecture = saveOnSale();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(platformCoupon((CouponCalculateRequest) request)));
 
-        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - 1_000L))
-                .isInstanceOf(LectureException.class)
-                .extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_PLATFORM_FUNDING_UNAVAILABLE);
-        assertNoOrder();
+        OrderResponse result = orderWithCoupon(lecture, PRICE_HP - 1_000L);
+
+        assertThat(result.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
+        assertThat(jdbcTemplate.queryForMap("select discount_hp, platform_discount_hp, seller_discount_hp "
+                + "from lectures.order_item where order_id = ?", result.orderId()))
+                .containsAllEntriesOf(Map.of("discount_hp", 1_000L, "platform_discount_hp", 1_000L,
+                        "seller_discount_hp", 0L));
+        assertThat(coupon.calls()).hasSize(2);
+        assertThat(billing.calls()).isEmpty();
     }
 
     @Test

@@ -33,7 +33,7 @@ class MemberCouponQueryTest {
     void 플랫폼_재원이_꺼져_있으면_쓸_수_있는_쿠폰에서_플랫폼_쿠폰을_빼고_쿠폰함에는_보인다() {
         givenSellerAndPlatform();
         MemberCouponQuery query = new MemberCouponQuery(memberCouponRepository,
-                CouponPlatformFundingProperties.defaults(), CLOCK);
+                new CouponPlatformFundingProperties(false), CLOCK);
 
         assertThat(query.usableFor(MEMBER_ID, LECTURE_ID)).extracting(MemberCouponView::couponType)
                 .containsExactly(CouponType.SELLER);
@@ -45,7 +45,7 @@ class MemberCouponQueryTest {
     void 플랫폼_재원이_켜져_있으면_쓸_수_있는_쿠폰에_플랫폼_쿠폰도_넣는다() {
         givenSellerAndPlatform();
         MemberCouponQuery query = new MemberCouponQuery(memberCouponRepository,
-                new CouponPlatformFundingProperties(true), CLOCK);
+                CouponPlatformFundingProperties.defaults(), CLOCK);
 
         assertThat(query.usableFor(MEMBER_ID, LECTURE_ID)).extracting(MemberCouponView::memberCouponId)
                 .containsExactly(11L, 12L);
