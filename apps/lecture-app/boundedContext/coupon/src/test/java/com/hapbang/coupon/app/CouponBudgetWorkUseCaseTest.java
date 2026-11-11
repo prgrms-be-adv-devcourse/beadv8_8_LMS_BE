@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -16,6 +17,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.app.port.PromotionBudget;
@@ -41,6 +43,7 @@ class CouponBudgetWorkUseCaseTest {
 
     private final BudgetWorkRepository works = mock();
     private final CouponRepository coupons = mock();
+    private final MemberCouponRepository members = mock();
     private final CouponBudgetReleaseRecorder releaseRecorder = mock();
     private final PromotionBudget budget = mock();
     @SuppressWarnings("unchecked")
@@ -53,9 +56,31 @@ class CouponBudgetWorkUseCaseTest {
     void setUp() {
         coupon = draftPlatformCoupon();
         when(budgetProvider.getIfAvailable()).thenReturn(budget);
-        useCase = new CouponBudgetWorkUseCase(works, coupons, mock(MemberCouponRepository.class), releaseRecorder,
+        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder,
                 budgetProvider, new CouponBudgetWorkProperties(null, LEASE, 100),
                 CouponUsageFixture.transactionManager(), CLOCK);
+    }
+
+    @Test
+    void 후보_정책별로_회원_cursor를_진행하고_실패한_회원도_뒤_정책의_등록을_막지_않는다() {
+        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder, budgetProvider,
+                new CouponBudgetWorkProperties(null, LEASE, 2), CouponUsageFixture.transactionManager(), CLOCK);
+        when(coupons.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(2))).thenReturn(List.of(1L, 2L));
+        when(coupons.findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2))).thenReturn(List.of(3L));
+        when(members.findExpiredPlatformBudgetIds(1, NOW, 0, Limit.of(2))).thenReturn(List.of(11L, 12L));
+        when(members.findExpiredPlatformBudgetIds(1, NOW, 12, Limit.of(2))).thenReturn(List.of(13L));
+        when(members.findExpiredPlatformBudgetIds(2, NOW, 0, Limit.of(2))).thenReturn(List.of(21L));
+        when(members.findExpiredPlatformBudgetIds(3, NOW, 0, Limit.of(2))).thenReturn(List.of(31L));
+        doThrow(new IllegalArgumentException("잘못된 한 발급 쿠폰")).when(releaseRecorder).recordDue(11, NOW);
+
+        useCase.runDue();
+
+        for (long id : List.of(11L, 12L, 13L, 21L, 31L)) {
+            verify(releaseRecorder).recordDue(id, NOW);
+        }
+        verifyNoMoreInteractions(releaseRecorder);
+        verify(coupons).findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2));
+        verify(members).findExpiredPlatformBudgetIds(1, NOW, 12, Limit.of(2));
     }
 
     @Test

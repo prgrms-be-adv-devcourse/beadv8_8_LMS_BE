@@ -239,13 +239,15 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
             @Param("status") MemberCouponStatus status, @Param("before") long before,
             @Param("planned") long planned, @Param("now") Instant now);
 
+    /** 플랫폼 후보 정책을 고른 뒤 그 정책의 키 범위만 읽는다. 전역 ID 순서로 판매자 만료 이력을 훑지 않는다. */
     @Query("""
-            select mc.id from MemberCoupon mc join Coupon c on c.id = mc.couponId
-            where mc.id > :afterId and c.type = com.hapbang.coupon.domain.CouponType.PLATFORM and mc.expiresAt <= :now
+            select mc.id from MemberCoupon mc
+            where mc.couponId = :couponId and mc.id > :afterId and mc.expiresAt <= :now
               and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
                                 com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
               and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status)
             order by mc.id
             """)
-    List<Long> findExpiredPlatformBudgetIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
+    List<Long> findExpiredPlatformBudgetIds(@Param("couponId") long couponId, @Param("now") Instant now,
+            @Param("afterId") long afterId, Limit limit);
 }

@@ -103,10 +103,26 @@ public class CouponBudgetWorkUseCase {
 
     private void registerExpiredRemainders() {
         Instant now = clock.instant();
+        long afterCouponId = 0;
+        while (true) {
+            long cursor = afterCouponId;
+            List<Long> couponIds = transaction.execute(status -> couponRepository.findPlatformMemberBudgetCouponIds(
+                    now, cursor, Limit.of(properties.batchSize())));
+            for (Long couponId : couponIds) {
+                registerExpiredRemainders(couponId, now);
+            }
+            if (couponIds.size() < properties.batchSize()) {
+                return;
+            }
+            afterCouponId = couponIds.getLast();
+        }
+    }
+
+    private void registerExpiredRemainders(long couponId, Instant now) {
         long afterId = 0;
         while (true) {
             long cursor = afterId;
-            List<Long> ids = transaction.execute(status -> memberCouponRepository.findExpiredPlatformBudgetIds(now,
+            List<Long> ids = transaction.execute(status -> memberCouponRepository.findExpiredPlatformBudgetIds(couponId, now,
                     cursor, Limit.of(properties.batchSize())));
             for (Long id : ids) {
                 try {

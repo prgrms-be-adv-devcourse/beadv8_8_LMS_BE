@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.domain.Coupon;
@@ -33,6 +36,9 @@ class MemberCouponRepositoryTest {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Test
     void 같은_회원이_같은_쿠폰을_두_장_가질_수_없다() {
@@ -275,7 +281,7 @@ class MemberCouponRepositoryTest {
         memberCouponRepository.expire(List.of(expired), NOW);
         flushAndClear();
 
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).containsExactly(used, expired);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).containsExactly(used, expired);
         assertThat(memberCouponRepository.planBudgetRelease(used, 0, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 1, 1, NOW)).isZero();
@@ -283,14 +289,103 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.USED, 0, 0, NOW)).isZero();
         assertThat(memberCouponRepository.planBudgetRelease(expired, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
         assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).isEmpty();
 
         // 완료 표식을 모르는 이전 writer의 복원 UPDATE도 status 변경 자체로 재선택된다.
         memberCouponRepository.restore(used, 1, NOW);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).containsExactly(used);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).containsExactly(used);
         assertThat(memberCouponRepository.planBudgetRelease(used, 1, MemberCouponStatus.EXPIRED, 0, 1_000, NOW)).isEqualTo(1);
         assertThat(memberCouponRepository.findBudgetState(used).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(NOW, 0, Limit.of(10))).isEmpty();
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(couponId, NOW, 0, Limit.of(10))).isEmpty();
+    }
+
+    @Test
+    void 판매자_만료가_많아도_플랫폼_미확인_건만_선택하며_로컬_조회_계획을_남긴다() throws Exception {
+        final int sellerCount = 20_000;
+        final int completedPlatformCount = 20_000;
+        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().quantity(sellerCount).build(), NOW));
+        long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long completedPlatform = saveCoupon(Coupon.createPlatform(ADMIN_ID,
+                lectureRate().quantity(completedPlatformCount).build(), NOW));
+        entityManager.flush();
+        jdbc.update("""
+                insert into coupon.member_coupon (member_id, coupon_id, issue_request_id, status, generation,
+                    issued_at, expires_at, created_at, updated_at)
+                select n, ?, 'plan-seller-' || n, 'EXPIRED', 0, ?, ?, ?, ?
+                from generate_series(1, ?) n
+                """, seller, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW),
+                java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW), sellerCount);
+        jdbc.update("""
+                insert into coupon.member_coupon (member_id, coupon_id, issue_request_id, status, generation,
+                    issued_at, expires_at, created_at, updated_at, budget_release_planned_hp, budget_release_checked_status)
+                select n, ?, 'plan-complete-' || n, 'EXPIRED', 0, ?, ?, ?, ?, 1000, 'EXPIRED'
+                from generate_series(1, ?) n
+                """, completedPlatform, java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW),
+                java.sql.Timestamp.from(NOW), java.sql.Timestamp.from(NOW), completedPlatformCount);
+        MemberCoupon pending = MemberCoupon.issue(MEMBER_ID, platform, "plan-platform", NOW, NOW, NOW);
+        ReflectionTestUtils.setField(pending, "status", MemberCouponStatus.EXPIRED);
+        long platformMember = memberCouponRepository.saveAndFlush(pending).getId();
+        jdbc.execute("analyze coupon.coupon");
+        jdbc.execute("analyze coupon.member_coupon");
+
+        assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(100))).containsExactly(platform);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(platform, NOW, 0, Limit.of(100)))
+                .containsExactly(platformMember);
+        String policiesPlan = jdbc.queryForObject("""
+                explain (analyze, buffers, format json)
+                select c.id from coupon.coupon c
+                where c.type = 'PLATFORM' and c.id > 0
+                  and exists (select 1 from coupon.member_coupon mc where mc.coupon_id = c.id and mc.expires_at <= ?
+                    and mc.status in ('USED', 'EXPIRED')
+                    and (mc.budget_release_checked_status is null or mc.budget_release_checked_status <> mc.status))
+                order by c.id limit 100
+                """, String.class, java.sql.Timestamp.from(NOW));
+        String membersPlan = jdbc.queryForObject("""
+                explain (analyze, buffers, format json)
+                select mc.id from coupon.member_coupon mc
+                where mc.coupon_id = ? and mc.id > 0 and mc.expires_at <= ?
+                  and mc.status in ('USED', 'EXPIRED')
+                  and (mc.budget_release_checked_status is null or mc.budget_release_checked_status <> mc.status)
+                order by mc.id limit 100
+                """, String.class, platform, java.sql.Timestamp.from(NOW));
+        Path artifact = Path.of("build", "reports", "budget-release-query-plan.json");
+        Files.createDirectories(artifact.getParent());
+        Files.writeString(artifact, "{\"sellerExpiredRows\":" + sellerCount
+                + ",\"platformCompletedRows\":" + completedPlatformCount
+                + ",\"platformPendingRows\":1,\"policies\":" + policiesPlan + ",\"members\":" + membersPlan + "}");
+    }
+
+    @Test
+    void 예산_후보_정책은_미확인_만료_플랫폼만_정책_ID_cursor로_고른다() {
+        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        long pendingA = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long complete = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long future = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long pendingB = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        budgetMember(seller, MemberCouponStatus.EXPIRED, null, NOW);
+        long first = budgetMember(pendingA, MemberCouponStatus.EXPIRED, null, NOW);
+        budgetMember(complete, MemberCouponStatus.EXPIRED, MemberCouponStatus.EXPIRED, NOW);
+        budgetMember(future, MemberCouponStatus.EXPIRED, null, NOW.plusSeconds(1));
+        long second = budgetMember(pendingB, MemberCouponStatus.USED, null, NOW);
+        flushAndClear();
+
+        assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(1))).containsExactly(pendingA);
+        assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, pendingA, Limit.of(10))).containsExactly(pendingB);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingA, NOW, 0, Limit.of(10)))
+                .containsExactly(first);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingB, NOW, 0, Limit.of(10)))
+                .containsExactly(second);
+        assertThat(memberCouponRepository.findExpiredPlatformBudgetIds(pendingA, NOW, first, Limit.of(10))).isEmpty();
+        memberCouponRepository.planBudgetRelease(first, 0, MemberCouponStatus.EXPIRED, 0, 1_000, NOW);
+        memberCouponRepository.planBudgetRelease(second, 0, MemberCouponStatus.USED, 0, 0, NOW);
+        assertThat(couponRepository.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(10))).isEmpty();
+    }
+
+    private long budgetMember(long couponId, MemberCouponStatus status, MemberCouponStatus checked, Instant expiresAt) {
+        MemberCoupon member = MemberCoupon.issue(MEMBER_ID, couponId, "budget-member", NOW, expiresAt, NOW);
+        ReflectionTestUtils.setField(member, "status", status);
+        ReflectionTestUtils.setField(member, "budgetReleaseCheckedStatus", checked);
+        return memberCouponRepository.saveAndFlush(member).getId();
     }
 
     private Long saveCoupon(Coupon coupon) {
