@@ -19,6 +19,7 @@
   - 완료 상태(`PAID`·`CANCELED`·`RETURNED`·`PAID_OUT`)는 목적별 결과 처리기(`LectureHpTaskResultHandler`)가 결과 기록 트랜잭션에서만 쓴다. 목적마다 처리기는 하나다.
   - 요청 안에서 한 번 시도하는 것은 주문 보류·보상(D58, 예산 D68)과 구매 취소(D59)다. 이의 제기 인정 반환과 지급은 HP 작업 배치가 실행한다(D70).
   - 지갑 회로가 열려 있으면 `LectureHpTaskExecutor`가 선점하지 않는다(`canCallBilling()`, D79). 지갑을 부르는 새 경로도 `execute`를 거쳐 이 확인을 지나게 한다.
+- 플랫폼 쿠폰 재원은 `OrderItemCoupon`의 예약 generation·금액으로 만들고 결과를 대조한다(D84). 구매자 0·플랫폼 양수도 HP 작업을 실행한다. 취소·반환 이벤트의 복구 목록은 대조한 billing 응답을 같은 결과기록 트랜잭션에서 전달한다.
 - billing 지급 예정 건(`Settlement` SCHEDULED)이 남아 있으면 그 항목의 지급이 `PAYOUT_ALREADY_SETTLED`로 거절되고 작업이 `DEAD`가 된다.
 - 서비스 간 HP 대사(D74, integration.md 10.1)는 지갑 조회(`queryHolds`·`listHolds`)만 하고 HP를 움직이지 않는다. 비교 규칙은 `LectureHpReconciliationComparer` 한 곳에 둔다. 항목 상태나 HP 작업 흐름을 바꾸면 규칙 표와 테스트(`LectureHpReconciliationComparerTest`)도 같이 고친다.
 

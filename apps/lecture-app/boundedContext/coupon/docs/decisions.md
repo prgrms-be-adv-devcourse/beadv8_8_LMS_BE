@@ -42,12 +42,14 @@
 | 발행 시 강의 판매 상태 (확정, Q25) | 특정 강의 대상 쿠폰은 **판매 중(ON_SALE) 강의만** 발행·승인할 수 있다. 강의 조회 내부 API의 판매 상태로 검사한다 |
 | 예산 거절 뒤 재시도 (확정, Q27) | billing이 거절(FAILED)한 뒤 관리자가 다시 열면 attempt 번호를 붙인 새 작업 ID로 재예약한다. 이전 작업 이력은 남긴다 |
 | 발행 검증 (확정, #749) | FIXED 만료 시각 > 발급 종료 시각. `base_price` 0 거절. RATE 1~100 정수. 요청 ID 1~64자 `[A-Za-z0-9_-]`, 쿠폰 안에서 유일. 관리자 동시 조작(`@Version` 충돌)은 409. 발급 종료가 지난 쿠폰은 만들거나 열 수 없다(409). 만료 N일과 고정 만료는 `hapbang.coupon.max-expiry-days`(기본 3650, 확정 전) 이내 |
-| billing 계약 | 사용자 담당. 충전 출처·권한·원장, 재원별 요청 DTO·작업 조회·예산 복구/해제 계약 |
+| billing 계약 (연결 반영, #841~#843) | billing 소유의 기존 충전·원장·예산 예약/해제·작업 조회·주문 재원 DTO를 사용한다. 쿠폰 예산 HTTP와 강의 보류·지급·반환 연결은 아래 "플랫폼 재원 연결"을 따른다. 운영 충전 출처·권한은 billing 경계를 유지한다 |
 | 운영 수치 | 쿠폰·합산 용량, 계산 응답시간/규모, 작업 주기·재시도·DLT 운영 권한. 측정과 운영 계약으로 확정 |
 
 예산 기준은 모두 정해졌다(특정 강의: 가격 × 할인율 × 수량 + 가격 인상 제한, 모든 강의 정률: 장당 최대 할인액 × 수량). 미확정 정책을 임의 구현하거나 기능을 완료했다고 보고하지 않는다.
 
-## 플랫폼 재원 비활성 예외 (2026-11-10, #811)
+## 플랫폼 재원 비활성 예외 이력 (2026-11-10, #811)
+
+아래는 billing 연결 전 단계의 결정이다. 기본값과 강의 차단은 #843에서 아래 "플랫폼 재원 연결"로 대체했으며 명시적인 false의 제외 동작은 유지한다.
 
 - billing 프로모션 지갑 계약이 붙기 전까지 설정 `hapbang.coupon.platform-funding-enabled`(코드 기본값 false)로 플랫폼 쿠폰을 사용 경로에서 뺀다. false면 쿠폰 모듈이 추천·`/me/usable`에서 PLATFORM을 빼고 직접 선택은 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)로 거절한다. 강의 모듈의 F > 0 차단(409 `COUPON_PLATFORM_FUNDING_UNAVAILABLE`)은 설정과 무관한 방어로 남는다. 기본 설정에서 강의 주문의 플랫폼 쿠폰 거절은 쿠폰 쪽이 먼저 막아 `COUPON_CALCULATION_REJECTED`(couponCode `COUPON_NOT_USABLE`)로 보인다.
 - 켜는 절차는 두 단계다: 쿠폰 설정 true + 강의 F > 0 차단 제거(billing 후속 이슈에서 함께). 설정만 켜면 추천은 되는데 주문은 409가 되므로 따로 켜지 않는다. 두 모듈은 JVM 분리 가정이라 한 설정을 공유하지 않는다.
@@ -62,8 +64,18 @@
 - 7단계 부하 측정은 로컬 결과로 마무리한다(2026-11-10 사용자 결정). 로컬 1,000 VU 실행 중 노트북 메모리 압박이 있어 재실행하지 않았다. 운영 선착순 측정(Q41)은 이번 이슈에서 하지 않았으므로, 운영 발급을 열기 전에 별도로 측정해 통과해야 한다. 확정 전 값도 운영 측정이 없어 바꾸지 않았다. 개방 조건은 operations.md "운영 발급 개방 체크리스트"다.
 - 관리자 fail의 결과는 셋이다(`RESERVED_RELEASING`·`REJECTED`·`NOT_RESERVED`, 모두 주문 HOLD_FAILED). 쿠폰에 PAID·CANCELED나 강의 근거에 없는 사용 시도가 있으면 409 `COUPON_RESERVATION_SETTLED` + ERROR 표식으로 사람에게 넘긴다. 이미 정산된 것이거나 정확히 해제할 수 없는 상태라 자동으로 고치지 않는다.
 - 관리자 resolve도 PAID·CANCELED가 보이면 409다. 결제 실패 주문에 PAID 사용 시도가 있는 것은 어긋난 상태다.
-- 발급 쿠폰 만료 배치는 SELLER 쿠폰만 대상이다. PLATFORM 만료는 예산 해제와 같은 트랜잭션이어야 해 billing 계약 이슈로 미룬다(Q35). 제외는 대상 조회 쿼리에 둔다.
+- 당시 발급 쿠폰 만료 배치는 SELLER 쿠폰만 대상으로 정했다. PLATFORM 만료는 예산 해제와 같은 트랜잭션이어야 해 billing 계약 이슈로 미뤘다(Q35). 이 제한은 #843에서 만료 상태와 해제 작업의 동시 저장을 붙여 해소했다.
 - 주문 DLT 재처리 제한 시간(`dlt-replay-timeout`(25s, `2 ×` 제한 시간 `< lease`))은 관리자 재처리 경로에만 두고 Kafka 소비는 그대로다. 넘으면 PENDING으로 되돌리고 409 `COUPON_CONCURRENT_UPDATE`(다시 시도)다. 그대로 두면 관리자가 500을 받는다.
+
+## 플랫폼 재원 연결 (2026-11-11, #843)
+
+- `hapbang.coupon.platform-funding-enabled`의 기본값을 true로 바꾸면서 강의의 F > 0 차단을 함께 제거한다. false를 명시하면 쿠폰 추천·사용 가능 목록에서 PLATFORM을 제외하고 직접 선택을 409로 거절한다. 이 설정은 쿠폰의 발행·운영 상태를 바꾸지 않으며 플랫폼 쿠폰 발행은 관리자 발행 경로를 따른다.
+- 쿠폰은 `CouponBillingInternalApi`와 `HttpPromotionBudget`으로 billing의 기존 예산 예약·해제·작업 조회 DTO를 사용한다. 주소·내부 키·연결/응답 제한 시간·circuit breaker는 기존 billing 설정을 쓴다. HTTP 한 번의 결과만 분류하고 재시도는 영속 작업에 맡긴다. 응답 유실·일시 오류·`BUDGET_RESERVATION_EXISTS`·조회 NOT_FOUND는 UNKNOWN으로 두고 같은 workId를 재전송한다. 확정 업무 4xx만 FAILED로 기록한다. 자세한 분류는 contracts.md를 따른다.
+- PLATFORM의 AVAILABLE 만료는 EXPIRED 전이와 예산 해제 작업을 같은 트랜잭션에 저장한다. USED는 상태를 바꾸지 않고 기한 뒤 M-F를 해제 대상으로 등록한다. RESERVED는 시간만으로 해제하지 않는다. 기한 지난 예약 해제·취소 복원이 EXPIRED로 끝나면 M까지의 차액을 등록한다.
+- `member_coupon.budget_release_planned_hp`에 PENDING까지 포함한 해제 등록 누적액을 남긴다. 현재 generation·상태·누적액의 CAS와 작업 저장을 함께 수행하므로 USED 만료의 M-F 작업이 아직 불명이어도 뒤이은 취소는 차액 F만 등록한다. 완료 응답을 받은 금액만 누적하면 응답 유실 중 같은 금액을 다른 작업으로 다시 해제할 수 있어 등록 시점을 기준으로 삼는다.
+- CLOSED 미발급 예산은 정상 대사가 발급 수량 일치와 requestsLeft·inProgress·pendingCompensation 0을 확인한 뒤에만 `(수량 - issued_count) × M`을 등록한다. 등록을 Redis 키의 최종 정리보다 먼저 커밋한다. issue-control 유실이나 고아 용량 정리만으로 발급 요청의 정리가 증명되지는 않으므로 해당 경로에서 예산을 해제하지 않는다.
+- `budget_work`에 예약 ID·target·attempt·leaseUntil·version을 영속화한다. PENDING 선점은 짧은 DB 트랜잭션에서 attempt·version을 올리고, HTTP는 트랜잭션 밖에서 수행하며, 결과는 같은 attempt에만 반영한다. 작업 ID에는 `:`를 쓰지 않고 해제 target에는 미발급 수량 또는 발급 쿠폰 ID를 남긴다. 주기·lease·묶음 크기는 운영 측정 전 기본값이며 operations.md에 기록한다.
+- 강의 HP 작업은 구매자 금액과 양수 플랫폼 재원을 함께 보류·지급·반환하고, 반환 시 billing이 확인한 쿠폰별 복구 결과를 취소 완료 이벤트에 싣는다. 구매자 금액이 0이어도 플랫폼 재원이 양수면 billing 작업과 조회 기준을 남긴다. 양수 재원 처리를 생략하지 않는 F7과 반환 완료 뒤 쿠폰을 복원하는 원칙은 유지한다.
 
 ## 구현 순서와 담당 경계
 
@@ -121,4 +133,4 @@
 
 ## 검토 기준
 
-로컬 coupon-service.md의 2026-11-06 초안과 대화의 최신 정정을 기준으로 재작성했다. 현재 hapbang-backend의 주문 생성·HP 작업·수익 조회·billing 계약·Redis 설정을 참고했다. 문서 재작성만 수행했으며 코드·레포 공통 정책·원격 저장소는 변경하지 않았다.
+로컬 coupon-service.md의 2026-11-06 초안과 대화의 최신 정정을 기준으로 재작성했다. 이후 #843의 쿠폰 예산 HTTP·해제 작업·강의 HP 연결을 반영했다. 레포 공통 정책과 과거 결정의 업무 원칙은 유지한다.
