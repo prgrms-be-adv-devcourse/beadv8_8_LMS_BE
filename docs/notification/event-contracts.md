@@ -14,6 +14,7 @@
 > - 2026-11-09 PR 리뷰 반영(#794, 2차): 7장 ND-040 근거에 강의 지급 경로(`LectureHpTaskExecutor`)와 출연·강의 HP 작업 엔티티에 제목이 없는 점을 더했다. 채팅 토픽 key를 ND-044·kafka.md 규칙대로 방 ID(접두어 없음)로 고쳤다.
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
+> - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
 
 ## 0. 읽는 법
 
@@ -121,11 +122,18 @@ key는 회원 ID다(토픽 표). 회원 이벤트는 `xxxId`, `Instant xxxAt` �
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `InfluencerChannelRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 반려 사유, 반려 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 반려 시각 | 회원 | `INFLUENCER_CHANNEL_REJECTED` | 확정 |
-| `InfluencerUpgradeRequestRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 승급 신청 ID, 반려 사유, 반려 시각 | 승급 신청 ID | 반려 시각 | 회원 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 확정 |
-| `InfluencerChannelApprovedEvent` | 🆕 (ND-042) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 승인 방식(자동·관리자), 승인 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 승인 시각 | 회원 | `INFLUENCER_CHANNEL_APPROVED` | 확정 |
+| `InfluencerChannelRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 반려 사유, 반려 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 반려 시각 | 회원 | `INFLUENCER_CHANNEL_REJECTED` | 구현됨(#874) |
+| `InfluencerUpgradeRequestRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 승급 신청 ID, 반려 사유, 반려 시각 | 승급 신청 ID | 반려 시각 | 회원 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 구현됨(#874) |
+| `InfluencerChannelApprovedEvent` | 🆕 (ND-042) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 승인 방식(자동·관리자), 승인 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 승인 시각 | 회원 | `INFLUENCER_CHANNEL_APPROVED` | 구현됨(#874) |
 
-심사 회차는 채널이 승인 요청(`requestApproval`)될 때마다 1씩 늘어나는 값이다. 승인 방식은 `verifiedBy`가 없으면 자동, 있으면 관리자다.
+심사 회차는 채널의 심사가 시작된 횟수다. 등록만 되면 0이고, 등록하며 바로 자동 승인되면 1이며, 승인 요청(`requestApproval`)마다 1씩 는다. 승인·반려 이벤트는 그때의 회차를 담으므로 1부터 시작한다. 승인 방식은 `verifiedBy`가 없으면 자동, 있으면 관리자다. 자동 승인은 등록 때와 승인 요청 때 모두 승인 이벤트를 낸다.
+
+- M6 구현(#874, 회원): 3종 모두 `@Externalized`로 key 회원 ID(접두어 없음)에 나간다. `eventType` 헤더는 레코드 이름과 같다. 필드는 다음과 같다(시각은 `Instant`).
+  - `InfluencerChannelApprovedEvent(userId, channelId, reviewSequence, autoApproved, approvedAt)`: `reviewSequence`는 `Integer`, `autoApproved`는 `boolean`(자동 승인이면 `true`)이다.
+  - `InfluencerChannelRejectedEvent(userId, channelId, reviewSequence, rejectionReason, rejectedAt)`
+  - `InfluencerUpgradeRequestRejectedEvent(userId, upgradeRequestId, rejectionReason, rejectedAt)`
+- 심사 회차는 회원이 채널(`members.influencer_channel.review_count`)에 저장한다. #874 배포 전 채널은 등록만 된 채널 0, 나머지(심사 대기·반려·승인) 1로 채웠다. 배포 전 심사 결과는 이벤트로 나간 적이 없어 사건 ID가 겹치지 않는다.
+- 사건 시각은 상태를 바꾼 처리의 시각(채널 `verifiedAt`, 승급 신청 `reviewedAt`)이다. 승인은 역할 변경(`UserModifiedEvent`)과 같은 트랜잭션에서 나가고, 역할이 바뀌지 않는 승인(이미 인플루언서인 회원의 채널)에도 나간다. 채널 연동과 승인 요청은 유저만 할 수 있어, 이 경우는 심사 대기 중 관리자 인플루언서 지정(#724)을 받은 회원의 채널을 관리자가 승인할 때다.
 
 ## 5. 고객센터 (`customersupport.events.v1`, M7)
 
@@ -182,6 +190,6 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | — | 계약 확정, Issue 발송 전 |
-| M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨 |
 | M7 | 고객센터 | 고객센터 🆕 3종(수정 회차 포함) | — | 계약 확정, Issue 발송 전 |
 | M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |
