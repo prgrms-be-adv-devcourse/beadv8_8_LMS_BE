@@ -22,7 +22,7 @@ import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexSetup;
 import com.hapbang.auxiliary.search.lecture.out.LectureRating;
 import com.hapbang.auxiliary.search.lecture.out.LectureReviewCopyStore;
-import com.hapbang.auxiliary.search.lecture.out.MemberCopyStore;
+import com.hapbang.auxiliary.search.lecture.out.SearchMemberCopyStore;
 import com.hapbang.auxiliary.search.lecture.out.Seller;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
@@ -40,14 +40,14 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
  * 순서 역전, 처음 적재 전. 사본은 PostgreSQL 컨테이너, 문서는 nori ES 컨테이너다
  */
 @RepositoryTest
-@Import({MemberCopyStore.class, LectureReviewCopyStore.class})
+@Import({SearchMemberCopyStore.class, LectureReviewCopyStore.class})
 class LectureIndexerTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-12T06:00:00Z"), SellerIndexer.ZONE);
     private static final long SELLER = 7L;
 
     @Autowired
-    private MemberCopyStore members;
+    private SearchMemberCopyStore members;
 
     @Autowired
     private LectureReviewCopyStore reviews;

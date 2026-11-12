@@ -24,7 +24,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Repository
 @RequiredArgsConstructor
-public class MemberCopyStore {
+public class SearchMemberCopyStore {
 
     private static final String FIND = """
             SELECT id, nickname, status FROM search.member_copy WHERE id = :id

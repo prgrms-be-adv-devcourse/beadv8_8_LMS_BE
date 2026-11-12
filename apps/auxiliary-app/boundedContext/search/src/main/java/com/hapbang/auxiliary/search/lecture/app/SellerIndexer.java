@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.lecture.out.LectureDocumentStore;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexSetup;
-import com.hapbang.auxiliary.search.lecture.out.MemberCopyStore;
+import com.hapbang.auxiliary.search.lecture.out.SearchMemberCopyStore;
 import com.hapbang.auxiliary.search.lecture.out.Seller;
 import com.hapbang.shared.member.dto.UserDto;
 
@@ -29,15 +29,15 @@ public class SellerIndexer {
 
     private final LectureIndexSetup indexSetup;
     private final LectureDocumentStore documents;
-    private final MemberCopyStore members;
+    private final SearchMemberCopyStore members;
     private final Clock clock;
 
     @Autowired
-    public SellerIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, MemberCopyStore members) {
+    public SellerIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, SearchMemberCopyStore members) {
         this(indexSetup, documents, members, Clock.system(ZONE));
     }
 
-    SellerIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, MemberCopyStore members,
+    SellerIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, SearchMemberCopyStore members,
             Clock clock) {
         this.indexSetup = indexSetup;
         this.documents = documents;

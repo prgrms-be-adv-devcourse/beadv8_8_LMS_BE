@@ -13,7 +13,7 @@ import com.hapbang.auxiliary.search.lecture.out.LectureDocumentStore;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexSetup;
 import com.hapbang.auxiliary.search.lecture.out.LectureRating;
 import com.hapbang.auxiliary.search.lecture.out.LectureReviewCopyStore;
-import com.hapbang.auxiliary.search.lecture.out.MemberCopyStore;
+import com.hapbang.auxiliary.search.lecture.out.SearchMemberCopyStore;
 import com.hapbang.auxiliary.search.lecture.out.Seller;
 import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
 import com.hapbang.shared.lecture.dto.LectureSyncDto;
@@ -33,17 +33,17 @@ public class LectureIndexer {
 
     private final LectureIndexSetup indexSetup;
     private final LectureDocumentStore documents;
-    private final MemberCopyStore members;
+    private final SearchMemberCopyStore members;
     private final LectureReviewCopyStore reviews;
     private final Clock clock;
 
     @Autowired
-    public LectureIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, MemberCopyStore members,
+    public LectureIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, SearchMemberCopyStore members,
             LectureReviewCopyStore reviews) {
         this(indexSetup, documents, members, reviews, Clock.system(SellerIndexer.ZONE));
     }
 
-    LectureIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, MemberCopyStore members,
+    LectureIndexer(LectureIndexSetup indexSetup, LectureDocumentStore documents, SearchMemberCopyStore members,
             LectureReviewCopyStore reviews, Clock clock) {
         this.indexSetup = indexSetup;
         this.documents = documents;

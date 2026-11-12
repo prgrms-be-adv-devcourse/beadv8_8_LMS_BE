@@ -51,7 +51,7 @@ import com.hapbang.auxiliary.search.lecture.app.SellerIndexer;
 import com.hapbang.auxiliary.search.lecture.out.LectureDocumentStore;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
 import com.hapbang.auxiliary.search.lecture.out.LectureRating;
-import com.hapbang.auxiliary.search.lecture.out.MemberCopyStore;
+import com.hapbang.auxiliary.search.lecture.out.SearchMemberCopyStore;
 import com.hapbang.auxiliary.search.lecture.out.Seller;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
@@ -92,7 +92,7 @@ class SearchMemberEventListenerTest {
     private SellerIndexer sellerIndexer;
 
     @Autowired
-    private MemberCopyStore memberCopies;
+    private SearchMemberCopyStore memberCopies;
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;

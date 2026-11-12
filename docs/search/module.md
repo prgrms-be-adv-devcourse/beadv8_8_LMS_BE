@@ -95,7 +95,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `LectureTombstoneCleanup` | 강의 index의 tombstone 정리(한 pod만, `JobLock` 882_001) |
 | out | `LectureIndexDefinition`, `LectureIndexSetup` | 대상 이름(`lectures`)·alias·지표 대상 값(`lecture`)과, 그 정의를 채운 `IndexSetup` |
 | out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query` |
-| out | `MemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. JDBC |
+| out | `SearchMemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. JDBC |
 
 ### 새 대상(강의·모집)을 붙이는 법
 
@@ -311,7 +311,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SearchLectureEventListenerTest` | 실제 Kafka로 강의·리뷰 반영, 쓰지 않는 타입 건너뜀, **이 앱에 클래스가 없는 타입은 DLT로 가지 않고 건너뜀**, 깨진 본문은 DLT, 처음 적재 전엔 사본만(#882) |
 | `LectureIndexerTest` | 강의 등록·수정·판매 중지·삭제, 리뷰 작성·수정·삭제, 판매자 닉네임 변경·정지, 순서 역전, 문서 쓰기 실패 뒤 재시도, 문서를 만드는 사이 바뀐 사본 따라잡기, 처음 적재 전(PostgreSQL + ES) |
 | `LectureDocumentStoreTest`, `LectureIndexSetupTest` | 강의 version 조건부 쓰기·tombstone·판매자·평점 칸, 정지된 판매자 강의는 정리에서 남음, 강의 index 정의·mapping·인플루언서 index와 분리 |
-| `MemberCopyStoreTest`, `LectureReviewCopyStoreTest` | 회원 사본 version 규칙(같은 version 재수신 포함), 리뷰 사본과 counted만 평균(PostgreSQL 컨테이너) |
+| `SearchMemberCopyStoreTest`, `LectureReviewCopyStoreTest` | 회원 사본 version 규칙(같은 version 재수신 포함), 리뷰 사본과 counted만 평균(PostgreSQL 컨테이너) |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
 | `IndexDefinitionTest`, `InfluencerIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868) |

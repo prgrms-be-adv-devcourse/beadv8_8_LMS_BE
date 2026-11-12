@@ -18,13 +18,13 @@ import com.hapbang.testsupport.RepositoryTest;
 
 /** 회원 사본(#882 Q1). 모듈 SQL로 만든 search.member_copy에 PostgreSQL 컨테이너로 쓴다 */
 @RepositoryTest
-@Import(MemberCopyStore.class)
-class MemberCopyStoreTest {
+@Import(SearchMemberCopyStore.class)
+class SearchMemberCopyStoreTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 12, 15, 0);
 
     @Autowired
-    private MemberCopyStore store;
+    private SearchMemberCopyStore store;
 
     @Test
     @DisplayName("처음 받은 회원은 넣고 판매자 정보가 바뀐 것으로 돌려준다")

@@ -54,7 +54,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 
 /**
  * 강의 이벤트 소비(#882). 실제 Kafka에 강의 앱이 보내는 모양(JSON + {@code __TypeId__} 헤더)으로 보내 강의 검색 문서에 반영되는지, 이 앱에 클래스가
- * 없는 새 타입을 DLT로 보내지 않고 건너뛰는지 본다. 토픽·그룹은 이 클래스 전용이다.
+ * 없는 새 타입을 DLT로 보내지 않고 건너뛰는지 본다. 토픽·그룹은 이 클래스 전용이다. 사본(JDBC 표)은 테스트 사이에 비워지지 않으므로 강의·리뷰
+ * ID를 900번대로 두어 다른 테스트와 겹치지 않게 한다.
  */
 @IntegrationTest
 @DirtiesContext
@@ -109,18 +110,18 @@ class SearchLectureEventListenerTest {
     @Test
     @DisplayName("강의·리뷰 이벤트로 문서를 넣고 평점을 고친다. 구매처럼 쓰지 않는 타입은 건너뛴다")
     void appliesLectureAndReview() {
-        send("lecture:11", "LectureChangedEvent", lecture(11, true, 0));
+        send("lecture:911", "LectureChangedEvent", lecture(911, true, 0));
         send("order-item:1", "LecturePurchaseChangedEvent", """
-                {"purchase":{"orderItemId":1,"buyerUserId":3,"lectureId":11,"result":"OWNED",
+                {"purchase":{"orderItemId":1,"buyerUserId":3,"lectureId":911,"result":"OWNED",
                 "orderedAt":"2026-11-12T09:00:00+09:00","version":0}}""");
-        send("lecture-review:1", "LectureReviewChangedEvent", review(1, 11, 4, 0));
-        send("lecture:12", "LectureChangedEvent", lecture(12, false, 1));
+        send("lecture-review:901", "LectureReviewChangedEvent", review(901, 911, 4, 0));
+        send("lecture:912", "LectureChangedEvent", lecture(912, false, 1));
 
         await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
-            assertThat(source(11)).containsEntry("title", "강의11").containsEntry("hidden", false)
+            assertThat(source(911)).containsEntry("title", "강의911").containsEntry("hidden", false)
                     .containsEntry("contentTitles", List.of("1강 설치")).containsEntry("averageRating", 4.0)
                     .containsEntry("reviewCount", 1);
-            assertThat(source(12)).containsEntry("hidden", true);
+            assertThat(source(912)).containsEntry("hidden", true);
         });
     }
 
@@ -129,21 +130,21 @@ class SearchLectureEventListenerTest {
     void skipsMissingType() {
         assertThat(ClassUtils.isPresent(EVENT_PACKAGE + MISSING_TYPE, null)).isFalse();
 
-        send("lecture:13", MISSING_TYPE, "{\"anything\":\"new\"}");
-        send("lecture:14", "LectureChangedEvent", lecture(14, true, 0));
+        send("lecture:913", MISSING_TYPE, "{\"anything\":\"new\"}");
+        send("lecture:914", "LectureChangedEvent", lecture(914, true, 0));
 
         await().atMost(Duration.ofSeconds(30)).ignoreExceptions()
-                .untilAsserted(() -> assertThat(source(14)).containsEntry("hidden", false));
-        assertThat(deadLetterKeys(Duration.ofSeconds(3))).doesNotContain("lecture:13");
+                .untilAsserted(() -> assertThat(source(914)).containsEntry("hidden", false));
+        assertThat(deadLetterKeys(Duration.ofSeconds(3))).doesNotContain("lecture:913");
     }
 
     @Test
     @DisplayName("본문이 깨진 강의 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
     void brokenToDeadLetter() {
-        send("lecture:15", "LectureChangedEvent", "{\"lecture\":");
+        send("lecture:915", "LectureChangedEvent", "{\"lecture\":");
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(deadLetterKeys(Duration.ofMillis(500))).contains("lecture:15"));
+                .untilAsserted(() -> assertThat(deadLetterKeys(Duration.ofMillis(500))).contains("lecture:915"));
     }
 
     @Test
@@ -151,12 +152,12 @@ class SearchLectureEventListenerTest {
     void copiesReviewBeforeFirstLoad() throws Exception {
         SearchElasticsearch.reset(client);
 
-        send("lecture-review:2", "LectureReviewChangedEvent", review(2, 21, 5, 0));
-        send("lecture:21", "LectureChangedEvent", lecture(21, true, 0));
+        send("lecture-review:902", "LectureReviewChangedEvent", review(902, 921, 5, 0));
+        send("lecture:921", "LectureChangedEvent", lecture(921, true, 0));
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(reviews.ratingOf(21L)).isEqualTo(new LectureRating(5.0, 1)));
-        assertThat(deadLetterKeys(Duration.ofSeconds(3))).doesNotContain("lecture-review:2", "lecture:21");
+                .untilAsserted(() -> assertThat(reviews.ratingOf(921L)).isEqualTo(new LectureRating(5.0, 1)));
+        assertThat(deadLetterKeys(Duration.ofSeconds(3))).doesNotContain("lecture-review:902", "lecture:921");
         assertThat(client.indices().exists(e -> e.index(LectureIndexDefinition.ALIAS)).value()).isFalse();
     }
 
