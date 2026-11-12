@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.in;
+package com.hapbang.auxiliary.search.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -41,8 +41,8 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import com.hapbang.auxiliary.search.influencer.app.ContentCategoryNames;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerMemberIndexer;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaConfig;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaSettings;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaConfig;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaSettings;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;

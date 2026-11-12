@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.in.kafka;
+package com.hapbang.auxiliary.search.in.kafka;
 
 import java.time.Duration;
 

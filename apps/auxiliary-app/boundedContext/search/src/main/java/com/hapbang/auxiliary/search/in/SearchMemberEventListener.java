@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.in;
+package com.hapbang.auxiliary.search.in;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.influencer.app.InfluencerMemberIndexer;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerMemberIndexer.MemberIndexResult;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaConfig;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaSettings;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaConfig;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaSettings;
 import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
