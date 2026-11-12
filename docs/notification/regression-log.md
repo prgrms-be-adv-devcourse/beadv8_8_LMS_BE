@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-076 · 2026-11-12 · 통과 (N9 채팅 #921 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-076 |
+| 실행 날짜 | 2026-11-12 19:24~19:33 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | `03b29e9a`(origin/dev `384a871b` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 스테이징한 작업 트리) |
+| 작업 트리 변경 | origin/dev(회원 #915 PR #922, 검색 #923, 고객센터 #918 PR #926) 병합. 충돌 17파일은 dev 내용을 두고 채팅 변경을 다시 더해 풀었다(Kafka 설정·Starter·시험 설정은 고객센터 소비자 옆에 채팅 소비자). 채팅 번호를 ND-129~ND-132, NR-074·NR-075로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 회원 3종 + 고객센터 2종 + N9 채팅 3종, 소비자 시작 순서) |
+| 관련 NT ID | NT-GEN-08, NT-GEN-10, NT-GEN-15, NT-GEN-22, NT-GEN-23, NT-GEN-24, NT-KAF-06, NT-KAF-10, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 326, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 329. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #921 |
+
 #### NR-075 · 2026-11-12 · 통과 (N9 채팅 #921 자체 리뷰 반영)
 
 | 항목 | 값 |
