@@ -19,6 +19,7 @@ import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
+import com.hapbang.auxiliary.chatbot.domain.TasteVectors;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.ScoredId;
@@ -99,8 +100,8 @@ public class InfluencerRecommendUseCase {
                 if (searchFailing.compareAndSet(true, false)) {
                     log.info("인플루언서 추천 검색이 다시 된다");
                 }
-            } catch (RuntimeException e) {
-                // 임베딩·ES 장애. 인기순으로 답한다
+            } catch (VectorCall.Failure e) {
+                // 임베딩·ES 장애. 인기순으로 답한다. DB 오류·코드 오류는 감싸지 않아 그대로 올라간다
                 if (searchFailing.compareAndSet(false, true)) {
                     log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
                 }
@@ -122,18 +123,18 @@ public class InfluencerRecommendUseCase {
     private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, Set<Long> partners,
             @Nullable String interest) {
         if (interest != null) {
-            return new Taste.Single(embedder.embedQuery(interest), InfluencerReason.MATCHES_INTEREST);
+            return new Taste.Single(VectorCall.run(() -> embedder.embedQuery(interest)), InfluencerReason.MATCHES_INTEREST);
         }
         if (me == null || !me.isInfluencer()) {
             return null;
         }
         String myDocId = InfluencerIndexPlan.docIdOf(userId);
-        float[] mine = index.vectors(IndexType.INFLUENCER, List.of(myDocId)).get(myDocId);
+        float[] mine = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, List.of(myDocId))).get(myDocId);
         float[] partnerMean = partnerMean(partners);
         if (mine != null && partnerMean != null) {
-            float[] own = Vectors.normalize(mine);
-            float[] others = Vectors.normalize(partnerMean);
-            float[] mixed = Vectors.weightedSum(own, 1 - properties.partnerWeight(), others, properties.partnerWeight());
+            float[] own = TasteVectors.normalize(mine);
+            float[] others = TasteVectors.normalize(partnerMean);
+            float[] mixed = TasteVectors.weightedSum(own, 1 - properties.partnerWeight(), others, properties.partnerWeight());
             return new Taste.Mixed(mixed, own, others);
         }
         if (mine != null) {
@@ -153,18 +154,18 @@ public class InfluencerRecommendUseCase {
 
     // 추천 가능한 상대들의 벡터 평균. 없으면 null
     private float @Nullable [] partnerMean(Set<Long> partners) {
+        List<String> docIds = InfluencerIndexPlan.docIdsOf(store.recommendableOf(partners));
         List<float[]> vectors = new ArrayList<>();
-        for (float[] vector : index.vectors(IndexType.INFLUENCER,
-                InfluencerIndexPlan.docIdsOf(store.recommendableOf(partners))).values()) {
-            vectors.add(Vectors.normalize(vector));
+        for (float[] vector : VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds)).values()) {
+            vectors.add(TasteVectors.normalize(vector));
         }
-        return vectors.isEmpty() ? null : Vectors.mean(vectors);
+        return vectors.isEmpty() ? null : TasteVectors.mean(vectors);
     }
 
     // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명
     private void similar(long userId, Taste taste, Map<Long, Candidate> chosen, double overallMeanRating) {
-        List<ScoredId> hits = index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(), properties.numCandidates(),
-                NOT_HIDDEN);
+        List<ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
+                properties.numCandidates(), NOT_HIDDEN));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (ScoredId hit : hits) {
             long id = InfluencerIndexPlan.memberIdOf(hit.id());
@@ -185,7 +186,7 @@ public class InfluencerRecommendUseCase {
             topIds.add(candidate.memberId());
         }
         Map<String, float[]> vectors = taste instanceof Taste.Mixed
-                ? index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds)) : Map.of();
+                ? VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds))) : Map.of();
         for (Candidate candidate : top) {
             float[] vector = vectors.get(InfluencerIndexPlan.docIdOf(candidate.memberId()));
             chosen.put(candidate.memberId(), candidate.withReason(taste.reasonFor(vector)));
@@ -262,8 +263,8 @@ public class InfluencerRecommendUseCase {
                 if (candidate == null) {
                     return InfluencerReason.SIMILAR_CATEGORY;
                 }
-                float[] normalized = Vectors.normalize(candidate);
-                return Vectors.dot(normalized, others) > Vectors.dot(normalized, own) ? InfluencerReason.SIMILAR_TO_PARTNERS
+                float[] normalized = TasteVectors.normalize(candidate);
+                return TasteVectors.dot(normalized, others) > TasteVectors.dot(normalized, own) ? InfluencerReason.SIMILAR_TO_PARTNERS
                         : InfluencerReason.SIMILAR_CATEGORY;
             }
         }

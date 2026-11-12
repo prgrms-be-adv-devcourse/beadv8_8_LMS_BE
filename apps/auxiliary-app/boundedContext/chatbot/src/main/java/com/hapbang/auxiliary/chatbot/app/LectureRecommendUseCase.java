@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
@@ -97,7 +96,7 @@ public class LectureRecommendUseCase {
         LectureRecommendation result;
         try {
             result = personalized(memberId, interest, signals, excluded);
-        } catch (VectorCallFailure e) {
+        } catch (VectorCall.Failure e) {
             return unavailable(memberId, excluded, interest, FallbackReason.ERROR, e.getCause());
         }
         if (failing.compareAndSet(true, false)) {
@@ -109,8 +108,8 @@ public class LectureRecommendUseCase {
     private LectureRecommendation personalized(long memberId, @Nullable String interest, List<LectureSignals.Signal> signals,
             Set<Long> excluded) {
         Map<Long, float[]> signalVectors =
-                vectorCall(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
-        float[] interestVector = interest == null ? null : vectorCall(() -> embedder.embedQuery(interest));
+                VectorCall.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
+        float[] interestVector = interest == null ? null : VectorCall.run(() -> embedder.embedQuery(interest));
         LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {
@@ -118,7 +117,7 @@ public class LectureRecommendUseCase {
             return popularOnly(memberId, excluded, true);
         }
 
-        List<RecommendVectorIndex.ScoredId> hits = vectorCall(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
+        List<RecommendVectorIndex.ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
                 properties.numCandidates(), LectureIndexDocument.RECOMMENDABLE));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (RecommendVectorIndex.ScoredId hit : hits) {
@@ -183,7 +182,7 @@ public class LectureRecommendUseCase {
     // 고른 강의(인기순 채움 제외)마다 이유
     private Map<Long, LectureTaste.Reasoned> reasons(List<LectureRanker.Ranked> ranked, LectureTaste taste) {
         List<Long> ids = ranked.stream().filter(item -> !item.popular()).map(LectureRanker.Ranked::lectureId).toList();
-        Map<Long, float[]> itemVectors = vectorCall(() -> vectors(ids));
+        Map<Long, float[]> itemVectors = VectorCall.run(() -> vectors(ids));
         Map<Long, LectureTaste.Reasoned> reasons = new HashMap<>();
         for (Long id : ids) {
             reasons.put(id, taste.reason(itemVectors.get(id)));
@@ -225,25 +224,9 @@ public class LectureRecommendUseCase {
         return vectors;
     }
 
-    // 벡터 호출(ES 검색·임베딩)만 감싼다. 실패를 VectorCallFailure로 바꿔 DB 오류와 구분한다
-    private static <T> T vectorCall(Supplier<T> call) {
-        try {
-            return call.get();
-        } catch (RuntimeException e) {
-            throw new VectorCallFailure(e);
-        }
-    }
-
     private LectureSignals.Weights weights() {
         ChatbotLectureRecommendProperties.Weights weights = properties.weights();
         return new LectureSignals.Weights(weights.owned(), weights.cart(), weights::rating);
     }
 
-    /** 벡터 호출(ES·임베딩) 실패. DB 오류와 구분한다 */
-    private static final class VectorCallFailure extends RuntimeException {
-
-        VectorCallFailure(RuntimeException cause) {
-            super(cause);
-        }
-    }
-}
+    /** 벡터 호출(ES·임베딩) 실패. DB 오류와 구분한다 */}
