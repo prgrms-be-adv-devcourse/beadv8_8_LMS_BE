@@ -86,6 +86,76 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-057 · 2026-11-12 · 통과 (N7 출연 #908 자체 리뷰 반영 뒤 재검증)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-057 |
+| 실행 날짜 | 2026-11-12 14:02~14:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-055 + 자체 리뷰 반영: `NotificationAppearanceEventListener`의 알리지 않는 경우 로그를 DEBUG로 바꾸고 메시지의 `eventType`을 뺐다. `NotificationAppearanceProgressAlertTest`에 조기 마감·호스트 확인의 DLT 없음과 불참 이동 대상 확인을 더했다. module.md N7 행을 줄였다 |
+| 대상 기능 | N7 출연 10종 알림(ND-109~ND-112) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-055와 같다. 다른 빌드가 돌지 않는 상태에서 혼자 실행 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-055) |
+| 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | NR-056의 재실행이다 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #908 |
+
+#### NR-056 · 2026-11-12 · 실패 (N7 출연 #908 자체 리뷰 반영 뒤 재검증, 빌드 겹침)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-056 |
+| 실행 날짜 | 2026-11-12 13:5x~14:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리(NR-057과 같다) |
+| 작업 트리 변경 | NR-057과 같다 |
+| 대상 기능 | N7 출연 10종 알림 |
+| 관련 NT ID | NR-057과 같다 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-055와 같다. 바로 전에 같은 명령을 셸에서 중단했는데 Gradle 데몬이 그 빌드를 계속 돌리고 있었다(로그 첫 줄 "3 busy Daemons could not be reused") |
+| 결과 | 실패(종료 코드 1). `:notification:test FAILED` — `NoSuchFileException: .../notification/build/test-results/test/binary/in-progress-results-generic.bin` |
+| 건수 | 결과 XML이 새로 쓰이지 않았다(실패한 시험 보고 없음) |
+| 실패 원인 분류 | F-ENV(같은 worktree에서 두 빌드가 같은 시험 결과 폴더를 함께 썼다) |
+| 수정 내용 | 없음(코드 결함 아님) |
+| 재실행 결과 | 겹친 빌드가 끝난 뒤 같은 명령을 혼자 다시 돌려 통과(NR-057) |
+| 미검증 항목 | — |
+| 관련 변경 | #908 |
+
+**메모**: 로그의 `java.net.ConnectException` 스택은 통과한 NR-055 로그에도 있던 잡음이라 실패 원인이 아니다. 시험 실행을 셸에서 중단하면 데몬이 빌드를 이어 갈 수 있으니, 다시 돌리기 전에 `./gradlew --status`로 바쁜 데몬이 없는지 본다.
+
+#### NR-055 · 2026-11-12 · 통과 (N7 출연 10종 #908 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-055 |
+| 실행 날짜 | 2026-11-12 12:41~12:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 새 파일 `app/AppearanceProgressAlerts.java`, `app/AppearanceProgressTemplates.java`, 시험 `app/AppearanceProgressAlertsTest.java`, `in/event/NotificationAppearanceProgressAlertTest.java`. 수정 `app/NotificationAlertService.java`, `app/NotificationTemplates.java`, `in/event/NotificationAppearanceEventListener.java`. 문서 decisions·catalog·test-spec·module·event-contracts·api 2.2·PROGRESS |
+| 대상 기능 | N7 출연 10종 알림(ND-109~ND-112) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Windows 10, JDK 25, Gradle 9.7.1, Docker, Testcontainers postgres·kafka·redis) |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 250(새 시험 19: `AppearanceProgressAlertsTest` 11, `NotificationAppearanceProgressAlertTest` 8), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 예약 입력(N10)은 범위 밖 |
+| 관련 변경 | #908 |
+
+**메모**: TDD red는 같은 날 단독 실행으로 확인했다(`AppearanceProgressAlertsTest`는 변환 클래스가 없어 컴파일 실패, `NotificationAppearanceProgressAlertTest`는 처리기가 없어 8개 모두 대기 시간 초과). NR 번호는 N7 지갑(#907)과 병합 순서에 따라 늦게 병합하는 쪽이 고친다(ND-109).
+
 #### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
 
 | 항목 | 값 |
