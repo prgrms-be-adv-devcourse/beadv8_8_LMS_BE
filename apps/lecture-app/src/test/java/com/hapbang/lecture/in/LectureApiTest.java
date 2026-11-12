@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 import org.hamcrest.Matcher;
@@ -239,6 +240,70 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
                 .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()));
+    }
+
+    @Test
+    void 비회원이_썸네일을_일괄_조회하면_요청한_ID마다_판매_중_강의만_URL이고_나머지는_null이다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long onSale = register(SELLER_ID, thumbnail.getId());
+        approve(onSale);
+        Long onSaleWithoutThumbnail = register(SELLER_ID, null);
+        approve(onSaleWithoutThumbnail);
+        Long pendingInspection = register(SELLER_ID, uploadedThumbnail(SELLER_ID).getId());
+        Long missing = pendingInspection + 1_000;
+
+        mockMvc.perform(get("/api/v1/lectures/thumbnails")
+                        .param("ids", "%d,%d,%d,%d,%d".formatted(onSale, onSaleWithoutThumbnail, pendingInspection,
+                                missing, onSale)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.length()").value(4))
+                .andExpect(jsonPath("$.data['%d']".formatted(onSale)).value(thumbnailUrlOf(thumbnail)))
+                .andExpect(jsonPath("$.data['%d']".formatted(onSaleWithoutThumbnail)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(pendingInspection)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(missing)).value(nullValue()));
+    }
+
+    @Test
+    void 썸네일_일괄_조회는_삭제한_강의_반려된_강의_볼_수_없는_썸네일_파일이면_null이다() throws Exception {
+        Long deletedLecture = register(SELLER_ID, uploadedThumbnail(SELLER_ID).getId());
+        approve(deletedLecture);
+        deleteLecture(deletedLecture);
+        Long rejected = register(SELLER_ID, uploadedThumbnail(SELLER_ID).getId());
+        reject(rejected);
+        FileResource deletedThumbnail = uploadedThumbnail(SELLER_ID);
+        Long onSaleWithDeletedFile = register(SELLER_ID, deletedThumbnail.getId());
+        approve(onSaleWithDeletedFile);
+        fileResourceRepository.save(deleted(deletedThumbnail));
+
+        mockMvc.perform(get("/api/v1/lectures/thumbnails")
+                        .param("ids", "%d,%d,%d".formatted(deletedLecture, rejected, onSaleWithDeletedFile)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.data['%d']".formatted(deletedLecture)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(rejected)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(onSaleWithDeletedFile)).value(nullValue()));
+    }
+
+    @Test
+    void 썸네일_일괄_조회는_ids가_0개이거나_100개를_넘거나_숫자가_아니면_400이다() throws Exception {
+        String hundredOne = String.join(",", Collections.nCopies(ApiV1LectureThumbnailSpec.MAX_IDS + 1, "1"));
+
+        mockMvc.perform(get("/api/v1/lectures/thumbnails"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/lectures/thumbnails").param("ids", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/lectures/thumbnails").param("ids", hundredOne))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/lectures/thumbnails").param("ids", "1,abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/lectures/thumbnails")
+                        .param("ids", String.join(",", Collections.nCopies(ApiV1LectureThumbnailSpec.MAX_IDS, "1"))))
+                .andExpect(status().isOk());
     }
 
     @Test

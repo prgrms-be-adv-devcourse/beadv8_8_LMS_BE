@@ -9,10 +9,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
 import com.hapbang.auxiliary.search.influencer.config.SearchRankingProperties;
+import com.hapbang.auxiliary.search.lecture.config.LectureRankingProperties;
 
-/** 검색 설정: 순위 계수(#771), 처음 적재·재색인 실행기(#773) */
+/** 검색 설정: 순위 계수(인플루언서 #771, 강의 #883), 처음 적재·재색인 실행기(#773) */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(SearchRankingProperties.class)
+@EnableConfigurationProperties({SearchRankingProperties.class, LectureRankingProperties.class})
 public class SearchConfig {
 
     public static final String REINDEX_EXECUTOR = "searchReindexExecutor";

@@ -22,8 +22,8 @@ import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
 import com.hapbang.shared.lecture.event.LectureRejectedEvent;
 
 /**
- * 강의 진행 알림 7종의 알림 초안과 문구(N7 강의, NT-GEN-21). 범위(ND-113)·원본 대상 ID(ND-114)·이동 대상(ND-115)·
- * 문구(ND-116, 알림 종류 0.9)·필수 값 검증.
+ * 강의 진행 알림 7종의 알림 초안과 문구(N7 강의, NT-GEN-21). 범위(ND-114)·원본 대상 ID(ND-115)·이동 대상(ND-116)·
+ * 문구(ND-117, 알림 종류 0.9)·필수 값 검증.
  */
 class LectureProgressAlertsTest {
 

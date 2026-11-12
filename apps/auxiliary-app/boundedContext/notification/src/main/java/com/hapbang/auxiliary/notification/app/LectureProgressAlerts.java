@@ -19,14 +19,14 @@ import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
 import com.hapbang.shared.lecture.event.LectureRejectedEvent;
 
 /**
- * 강의 진행 이벤트 7종(N7 강의, M4, ND-113)을 알림 초안으로 바꾼다.
+ * 강의 진행 이벤트 7종(N7 강의, M4, ND-114)을 알림 초안으로 바꾼다.
  * <ul>
  *     <li>받는 사람: 검수 2종은 판매자, 주문 2종·구매 취소·자동 구매 확정은 구매자, 이의 제기 접수는 구매자·판매자 각 1건.</li>
  *     <li>원본 대상 ID는 이벤트의 사건 ID다. 검수 2종은 {@code <강의 ID>:<검수 회차>}, 주문 2종은 주문 ID, 구매 취소·확정은 주문 항목 ID,
- *     이의 제기 접수는 문의 ID(ND-114).</li>
+ *     이의 제기 접수는 문의 ID(ND-115).</li>
  *     <li>이동 대상은 검수 2종 {@code LECTURE}/강의 ID, 주문 2종 {@code LECTURE_ORDER}/주문 ID, 나머지
- *     {@code LECTURE_ORDER_ITEM}/주문 항목 ID(ND-115).</li>
- *     <li>구매 확정은 자동 구매 확정({@code AUTO})만 알린다. 직접·첫 재생 확정은 빈 목록이다(ND-113).</li>
+ *     {@code LECTURE_ORDER_ITEM}/주문 항목 ID(ND-116).</li>
+ *     <li>구매 확정은 자동 구매 확정({@code AUTO})만 알린다. 직접·첫 재생 확정은 빈 목록이다(ND-114).</li>
  *     <li>발생 시각은 이벤트의 사건 시각이다. 필수 값이 비면 {@link IllegalArgumentException}을 던진다.</li>
  * </ul>
  */

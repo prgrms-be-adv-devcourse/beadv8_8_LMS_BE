@@ -4,7 +4,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 강의 진행 알림 7종의 문구(N7 강의, ND-116, 알림 종류 문서 0.9). 값({@link LectureProgressAlerts}가 만든다)만으로 문구를 만든다.
+ * 강의 진행 알림 7종의 문구(N7 강의, ND-117, 알림 종류 문서 0.9). 값({@link LectureProgressAlerts}가 만든다)만으로 문구를 만든다.
  * 다른 회원 닉네임은 넣지 않는다. 형식 버전 {@code v}는 1이다.
  * <p>
  * {@link NotificationTemplates}가 다른 내장 템플릿과 함께 등록한다.
@@ -31,7 +31,7 @@ public enum LectureProgressTemplates implements NotificationTemplate {
             return items(payload) + " 강의 구매가 완료되었습니다.";
         }
     },
-    /** '{강의 제목}' 강의 결제에 실패했습니다. / '{첫 항목 강의 제목}' 외 {n}개 강의 결제에 실패했습니다. 원인은 말하지 않는다(ND-113) */
+    /** '{강의 제목}' 강의 결제에 실패했습니다. / '{첫 항목 강의 제목}' 외 {n}개 강의 결제에 실패했습니다. 원인은 말하지 않는다(ND-114) */
     LECTURE_ORDER_HOLD_FAILED {
         @Override
         public String render(Map<String, Object> payload) {

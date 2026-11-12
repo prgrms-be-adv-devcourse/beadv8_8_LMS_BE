@@ -50,7 +50,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
 /**
- * 강의 진행 이벤트 7종(N7 강의, M4)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-113~ND-116).
+ * 강의 진행 이벤트 7종(N7 강의, M4)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-114~ND-117).
  * test-spec NT-GEN-21, NT-KAF-09
  * <p>
  * 토픽·그룹은 이 클래스 전용(UUID), partition 하나라 마지막에 보낸 표식 이벤트가 처리되면 앞선 레코드도 끝난 것이다.
@@ -68,7 +68,8 @@ class NotificationLectureProgressAlertTest {
     private static final Instant START_AT = Instant.parse("2026-01-01T00:00:00Z");
     /** 2026-11-11 10:00 KST */
     private static final OffsetDateTime AFTER_START = OffsetDateTime.parse("2026-11-11T10:00:00+09:00");
-    private static final AtomicLong NEXT_ID = new AtomicLong(800_000);
+    /** 회원 ID 대역. 같은 DB를 쓰는 다른 시험 클래스(출연 800_000, 지갑 2_100_000 등)와 겹치지 않게 둔다 */
+    private static final AtomicLong NEXT_ID = new AtomicLong(2_200_000);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {

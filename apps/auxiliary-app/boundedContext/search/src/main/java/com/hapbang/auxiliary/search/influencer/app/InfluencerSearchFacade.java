@@ -13,7 +13,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
-import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
@@ -29,7 +28,7 @@ import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher.SearchResu
  *     전체 수도 그만큼까지만 센다.</li>
  *     <li>ES에 닿지 못하면 503 {@code SEARCH_UNAVAILABLE}이다. 회원 앱의 인플루언서 목록({@code GET /api/v1/members/influencers})은
  *     그대로 쓸 수 있다.</li>
- *     <li>필터 없이 검색어만으로 0건이면 검색어를 모은다({@link ZeroResultKeywords}). 필터가 좁아 0건인 것은 사전·동의어 문제가 아니라 세지 않는다.</li>
+ *     <li>필터 없이 검색어만으로 0건이면 검색어를 모은다({@link InfluencerZeroResultKeywords}). 필터가 좁아 0건인 것은 사전·동의어 문제가 아니라 세지 않는다.</li>
  * </ul>
  */
 @Service
@@ -38,13 +37,15 @@ public class InfluencerSearchFacade {
     /** 볼 수 있는 결과 범위(앞에서부터) */
     public static final int MAX_RESULT_WINDOW = 1_000;
 
+    static final String UNSUPPORTED_SORT_DETAIL = "지원하지 않는 정렬입니다. followers,desc 또는 rating,desc만 쓸 수 있습니다.";
+
     private final InfluencerSearcher searcher;
     private final RatingBaseline ratingBaseline;
     private final SearchMetrics.Target metrics;
-    private final ZeroResultKeywords zeroResultKeywords;
+    private final InfluencerZeroResultKeywords zeroResultKeywords;
 
     public InfluencerSearchFacade(InfluencerSearcher searcher, RatingBaseline ratingBaseline, SearchMetrics metrics,
-            ZeroResultKeywords zeroResultKeywords) {
+            InfluencerZeroResultKeywords zeroResultKeywords) {
         this.searcher = searcher;
         this.ratingBaseline = ratingBaseline;
         this.metrics = metrics.forTarget(InfluencerIndexDefinition.METRIC_TARGET);
@@ -104,7 +105,7 @@ public class InfluencerSearchFacade {
                 return InfluencerSort.RATING;
             }
         }
-        throw new SearchException(SearchErrorCode.UNSUPPORTED_SORT);
+        throw new SearchException(SearchErrorCode.UNSUPPORTED_SORT, UNSUPPORTED_SORT_DETAIL);
     }
 
     /** 앞뒤·연속 공백을 정리한다. 비면 null(검색어 없음) */
