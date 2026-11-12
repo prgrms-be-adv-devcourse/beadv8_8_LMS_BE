@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotInfluencerRecommendFacade;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
-import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonRequest;
+import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonReqDto;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
 
@@ -31,8 +31,8 @@ public class ApiV1ChatbotInfluencerRecommendController implements ApiV1ChatbotIn
     @Override
     @PostMapping("/explained")
     public RsData<InfluencerRecommendResDto> recommendExplained(@LoginUserId Long userId,
-            @RequestBody(required = false) RecommendButtonRequest request) {
+            @RequestBody(required = false) RecommendButtonReqDto request) {
         return RsData.ok("인플루언서 추천과 이유입니다.",
-                facade.recommendExplained(userId, RecommendButtonRequest.interestOf(request)));
+                facade.recommendExplained(userId, RecommendButtonReqDto.interestOf(request)));
     }
 }

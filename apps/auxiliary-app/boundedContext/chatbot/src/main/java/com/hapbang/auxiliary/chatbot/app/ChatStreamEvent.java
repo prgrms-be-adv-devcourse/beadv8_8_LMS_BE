@@ -1,5 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
+import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
+
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -26,7 +28,7 @@ public sealed interface ChatStreamEvent {
         }
     }
 
-    record Cards(ChatCards cards) implements ChatStreamEvent {
+    record Cards(ChatCardsResDto cards) implements ChatStreamEvent {
         @Override
         public String eventName() {
             return "cards";

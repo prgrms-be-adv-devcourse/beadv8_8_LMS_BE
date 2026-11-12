@@ -62,7 +62,7 @@ public class ChatbotInfluencerRecommendFacade {
     public InfluencerRecommendResDto recommendExplained(long userId, @Nullable String interest) {
         acquire(rateLimiter, userId, Feature.INFLUENCER_BUTTON);
         metrics.request(Feature.INFLUENCER_BUTTON);
-        Explained explained = explainUseCase.recommend(userId, LectureRecommendUseCase.normalizeInterest(interest));
+        Explained explained = explainUseCase.recommend(userId, RecommendInterest.normalize(interest));
         return mapper.explained(explained.recommendation(), explained.explanations(), explained.fallback());
     }
 

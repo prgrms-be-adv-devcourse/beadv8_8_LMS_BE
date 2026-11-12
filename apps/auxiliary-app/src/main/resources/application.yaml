@@ -85,7 +85,9 @@ spring:
       observations:
         include-content: false
       # 자유 질문 한 요청의 Tool 호출 상한(#720). Tool이 3개라 3으로 둔다(Spring AI 기본은 Tool 하나당 40회·전체 150회로 느슨하다).
-      # 넘으면 기본값(on-limit-exceeded: throw)대로 예외이고, 자유 질문은 실패로 처리한다(카드가 있으면 카드 + 정해진 문장)
+      # on-limit-exceeded는 기본값(throw) 그대로다. Spring AI 2.0.1의 ToolCallingAdvisor는 이 예외를 호출자에게 던지지 않고
+      # 종료 사유 toolCallLimitExceeded인 응답(상한 안내문)으로 돌려준다. 자유 질문이 그 응답을 실패로 바꿔 처리한다(카드가 있으면
+      # 카드 + 정해진 문장, ToolCallLimitReached)
       limits:
         max-total-tool-calls: 3
   # Elasticsearch(챗봇 FAQ 색인, #715). 주소·인증은 프로필 파일에서 정한다. ES가 죽어도 앱은 뜨고 챗봇만 검색 없이 답한다.

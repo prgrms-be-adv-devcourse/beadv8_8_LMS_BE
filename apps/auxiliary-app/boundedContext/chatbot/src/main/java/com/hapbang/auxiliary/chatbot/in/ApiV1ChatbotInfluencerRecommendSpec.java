@@ -1,7 +1,7 @@
 package com.hapbang.auxiliary.chatbot.in;
 
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
-import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonRequest;
+import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonReqDto;
 import com.hapbang.auxiliary.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,5 +29,5 @@ public interface ApiV1ChatbotInfluencerRecommendSpec {
             + "LLM에는 회원 ID·닉네임·자기소개를 보내지 않는다. basis·needsInterest·notice는 위젯 API와 같다. "
             + "회원마다 주기당 호출 수를 제한한다(넘으면 429).")
     RsData<InfluencerRecommendResDto> recommendExplained(@Parameter(hidden = true) Long userId,
-            @Valid RecommendButtonRequest request);
+            @Valid RecommendButtonReqDto request);
 }

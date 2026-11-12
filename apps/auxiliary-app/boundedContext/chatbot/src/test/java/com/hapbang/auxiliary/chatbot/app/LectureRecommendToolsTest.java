@@ -70,7 +70,7 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
 
         double toolCalls = toolCalls();
 
-        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCards.Collector())));
+        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCardCollector())));
 
         assertThat(result).contains("\"lectureId\":10", "\"lectureId\":11", "\"needsInterest\":true", "\"basis\":\"POPULAR\"",
                 "요즘 많이 듣는 강의예요.");
@@ -88,6 +88,20 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
                 .isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> tools.recommendLectures(null, new ToolContext(Map.of())))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining(ChatToolContext.MEMBER_ID);
+    }
+
+    @Test
+    @DisplayName("검색이 잠시 실패하면(ES에 닿지 않음) Tool 결과에 POPULAR_TEMPORARY와 안내 한 줄(guide)을 넣는다. 정상 인기순이면 guide가 없다")
+    void temporaryPopularGuide() {
+        data.member(2);
+        data.purchase(2, 2, 11, "OWNED", RecommendRows.AT);
+        ToolCallback callback = ToolCallbacks.from(tools)[0];
+
+        String temporary = callback.call("{}", new ToolContext(ChatToolContext.of(2L, List.of(), new ChatCardCollector())));
+        String popular = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCardCollector())));
+
+        assertThat(temporary).contains("\"basis\":\"POPULAR_TEMPORARY\"", RecommendGuide.TEMPORARY);
+        assertThat(popular).contains("\"basis\":\"POPULAR\"").doesNotContain(RecommendGuide.TEMPORARY);
     }
 
     private double toolCalls() {

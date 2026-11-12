@@ -107,6 +107,14 @@ public class ChatbotMetrics {
         /** 모델은 답했지만 정해진 형식(JSON)으로 읽을 수 없음. 회로 실패로 세지 않는다 */
         FORMAT,
         /** 한 요청의 Tool 호출이 상한을 넘음. 회로 실패로 세지 않는다 */
-        TOOL_LIMIT
+        TOOL_LIMIT;
+
+        /**
+         * 호출을 했는데 실패한 것인지(오류·시간 초과·형식 오류·Tool 상한). 경고 로그로 남긴다. 모델을 끈 실행·회로 열림·동시 상한은
+         * 부르지 않은 것이라 요청마다 남기지 않는다(지표로 본다)
+         */
+        public boolean attempted() {
+            return this == ERROR || this == TIMEOUT || this == FORMAT || this == TOOL_LIMIT;
+        }
     }
 }

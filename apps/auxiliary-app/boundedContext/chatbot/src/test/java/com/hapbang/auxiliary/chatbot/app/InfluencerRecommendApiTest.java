@@ -199,13 +199,25 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("Tool: 임베딩이 실패하면 결과에 POPULAR_TEMPORARY와 안내 한 줄(guide)을 넣는다")
+    void toolTemporaryPopularGuide() {
+        embeddingModel.failWith(new IllegalStateException("임베딩 장애"));
+        ToolCallback callback = ToolCallbacks.from(tools)[0];
+
+        String result = callback.call("{\"interest\": \"롤 방송\"}",
+                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCardCollector())));
+
+        assertThat(result).contains("\"basis\":\"POPULAR_TEMPORARY\"", RecommendGuide.TEMPORARY);
+    }
+
+    @Test
     @DisplayName("Tool: 관심사 문장은 설정 길이(100자)까지만 임베딩한다")
     void toolTruncatesInterest() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
         String longInterest = "요".repeat(150);
 
         callback.call("{\"interest\": \"" + longInterest + "\"}",
-                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCards.Collector())));
+                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCardCollector())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(100)));
     }
@@ -218,7 +230,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         String interest = "요".repeat(99) + emoji + "요".repeat(10);
 
         callback.call("{\"interest\": \"" + interest + "\"}",
-                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCards.Collector())));
+                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCardCollector())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(99) + emoji));
     }
@@ -282,7 +294,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
 
         double requests = count("hapbang.chatbot.requests", "feature", "influencer_recommend");
         double toolCalls = count("hapbang.chatbot.tool.calls", "tool", "recommendInfluencers");
-        ChatCards.Collector cards = new ChatCards.Collector();
+        ChatCardCollector cards = new ChatCardCollector();
         completed(300L, 1L, 2L);
         String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of(), cards)));
         // 대화 LLM에 가는 결과에는 회원 ID와 함께 출연한 이력이 없다. 카드(FE로 따로 나감)에는 있다

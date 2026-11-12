@@ -29,8 +29,8 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.ScoredId;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 인플루언서 추천 후보 (#719). <b>후보와 순서는 코드가 정한다(같은 상태면 같은 결과).</b> LLM은 고른 후보의 설명만 쓴다
- * ({@link InfluencerRecommendExplainer}).
+ * 인플루언서 추천 후보 (#719, #720). <b>후보 풀과 그 안의 순서는 코드가 정한다(같은 상태면 같은 결과).</b> 버튼 경로는 LLM이
+ * 풀 안에서 다시 고르고 이유를 쓴다({@link InfluencerRecommendExplainUseCase}).
  * <p>취향 벡터:
  * <table>
  *     <tr><th>요청</th><th>취향 벡터</th><th>이유</th></tr>

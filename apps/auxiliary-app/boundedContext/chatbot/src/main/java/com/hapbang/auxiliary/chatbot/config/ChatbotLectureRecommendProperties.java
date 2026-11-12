@@ -19,7 +19,7 @@ import jakarta.validation.constraints.Positive;
  * <p>
  * <b>임시값</b>이라고 적은 값은 평가 없이 정한 값이다. 추천 가중치 보정(#867)에서 더미 데이터로 결과를 보며 다시 정하고, 정할 때 평가 결과(데이터 수, 지표, 회차)를
  * 설정 주석·PR에 적는다. 관심사 최대 길이(100자)는 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라
- * {@code LectureRecommendUseCase.INTEREST_MAX_LENGTH}에 있다.
+ * {@code RecommendInterest.MAX_LENGTH}에 있다.
  *
  * @param resultSize       추천 수(이슈 #718에서 정한 화면 카드 수)
  * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성, 이슈 #718에서 정함)

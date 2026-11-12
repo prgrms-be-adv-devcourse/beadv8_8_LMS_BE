@@ -123,7 +123,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         lecture(61, 200, "추천 강의", FakeEmbeddingModel.withCosine(2, 3, 0.95));
         data.purchase(60, 6, 60, "OWNED", RecommendRows.AT);
         indexAll(60, 61);
-        ToolContext context = new ToolContext(ChatToolContext.of(6L, List.of(), new ChatCards.Collector()));
+        ToolContext context = new ToolContext(ChatToolContext.of(6L, List.of(), new ChatCardCollector()));
 
         LectureRecommendation forScreen = useCase.recommend(6, null);
         LectureRecommendTools.Result forTool = tools.recommendLectures(null, context);

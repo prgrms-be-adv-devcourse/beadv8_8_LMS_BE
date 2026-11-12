@@ -47,7 +47,7 @@ public class ChatbotLectureRecommendFacade {
      */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public LectureRecommendResDto recommend(long userId, @Nullable String interest) {
-        String normalized = LectureRecommendUseCase.normalizeInterest(interest);
+        String normalized = RecommendInterest.normalize(interest);
         acquire(widgetRateLimiter, userId, Feature.LECTURE_RECOMMEND);
         if (normalized != null) {
             acquire(interestRateLimiter, userId, Feature.LECTURE_RECOMMEND);
@@ -65,7 +65,7 @@ public class ChatbotLectureRecommendFacade {
         acquire(buttonRateLimiter, userId, Feature.LECTURE_BUTTON);
         metrics.request(Feature.LECTURE_BUTTON);
         LectureRecommendExplainUseCase.Explained explained =
-                explainUseCase.recommend(userId, LectureRecommendUseCase.normalizeInterest(interest));
+                explainUseCase.recommend(userId, RecommendInterest.normalize(interest));
         return LectureRecommendResDto.from(explained.recommendation(), explained.fallback());
     }
 

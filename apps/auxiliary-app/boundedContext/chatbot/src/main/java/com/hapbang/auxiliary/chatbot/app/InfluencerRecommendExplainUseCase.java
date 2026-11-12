@@ -56,13 +56,8 @@ public class InfluencerRecommendExplainUseCase {
         RecommendReranker.Reranked reranked = reranker.rerank(Feature.INFLUENCER_BUTTON, "함께 방송할 출연 상대", lines,
                 properties.size());
         List<Long> ids = pool.memberIds();
-        List<Long> chosen = new ArrayList<>();
-        for (int index : reranked.orderWithRest(ids.size())) {
-            chosen.add(ids.get(index));
-        }
-        Map<Long, String> llmReasons = new HashMap<>();
-        reranked.reasons().forEach((index, reason) -> llmReasons.put(ids.get(index), reason));
-        InfluencerRecommendation recommendation = useCase.complete(pool, chosen);
+        Map<Long, String> llmReasons = reranked.reasonsById(ids);
+        InfluencerRecommendation recommendation = useCase.complete(pool, reranked.chosenThenRest(ids));
         return new Explained(recommendation, sentences(recommendation, llmReasons), reranked.fallback() != null);
     }
 

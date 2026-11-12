@@ -8,6 +8,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
@@ -48,17 +49,18 @@ public class LectureRecommendTools {
                     + "'유튜브 영상 편집'. 사용자가 말하지 않았으면 비운다") @Nullable String interest,
             ToolContext toolContext) {
         long memberId = ChatToolContext.memberId(toolContext, TOOL_NAME);
-        ChatCards.Collector cards = ChatToolContext.cards(toolContext, TOOL_NAME);
+        ChatCardCollector cards = ChatToolContext.cards(toolContext, TOOL_NAME);
         metrics.toolCall(TOOL_NAME);
         cards.called(TOOL_NAME);
         LectureRecommendation recommendation = recommendUseCase.recommend(memberId, truncate(
-                LectureRecommendUseCase.normalizeInterest(interest)));
+                RecommendInterest.normalize(interest)));
         List<Item> items = recommendation.items().stream()
                 .map(item -> new Item(item.lectureId(), item.title(), item.reason(), item.reason().sentence(null)))
                 .toList();
         // 카드도 기준 강의 제목 없는 문장을 쓴다(대화 화면에 그대로 나가고, LLM 글과 같은 근거를 보이게)
-        cards.lectures(new ChatCards.LectureCards(recommendation.basis(), items.stream()
-                .map(item -> new LectureRecommendResDto.Item(item.lectureId(), item.title(), 0, item.reason(), item.reasonText()))
+        cards.lectures(new ChatCardsResDto.LectureCards(recommendation.basis(), recommendation.items().stream()
+                .map(item -> new LectureRecommendResDto.Item(item.lectureId(), item.title(), item.score(), item.reason(),
+                        item.reason().sentence(null)))
                 .toList()));
         return new Result(items, recommendation.needsInterest(), recommendation.basis(),
                 RecommendGuide.of(recommendation.basis()),
@@ -67,7 +69,7 @@ public class LectureRecommendTools {
 
     // 코드포인트로 센다(TextCut): API 검사(정규식의 .)와 같은 기준이다
     static @Nullable String truncate(@Nullable String interest) {
-        return interest == null ? null : TextCut.head(interest, LectureRecommendUseCase.INTEREST_MAX_LENGTH).strip();
+        return interest == null ? null : TextCut.head(interest, RecommendInterest.MAX_LENGTH).strip();
     }
 
     /**

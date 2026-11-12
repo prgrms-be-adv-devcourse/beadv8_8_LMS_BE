@@ -48,12 +48,15 @@
 | 최근 12개만 쓴다 | 오류 아님(앞에서 버림) |
 | `role`은 `USER`·`ASSISTANT`만 | 400 `INVALID_REQUEST` |
 | `content`는 USER 1~500자, ASSISTANT 1~2,000자. 빈 내용 불가 | 400 `INVALID_CHAT_HISTORY` |
-| 쓰는 대화의 글자 수 합 8,000자까지 | 400 `INVALID_CHAT_HISTORY` |
+| 쓰는(최근 12개) 대화의 글자 수 합 8,000자까지 | 400 `INVALID_CHAT_HISTORY` |
+| 50개까지 보낼 수 있다 | 400 `INVALID_CHAT_HISTORY` |
 | Tool 결과·추천 카드는 보내지 않는다 | 받는 필드가 없다 |
 
 응답(`RsData<ChatAnswer>`): `answer`(설명 글), `sources`(근거 FAQ), `cards`(`{lectures?: {basis, items}, influencers?: {basis, items}}`, 이번 요청에서 추천 Tool을 부른 종류만), `fallback`.
 
 - **카드는 `cards`만 그린다.** `answer`는 설명이다. 스트림 글에서는 후보 ID를 검사할 수 없기 때문이다.
+- 강의 카드는 위젯 응답과 같은 `items` 모양이다. 다만 `reasonText`에 기준 강의 제목을 넣지 않는다("구매하신 강의와 비슷해요.").
+- `history` 규칙 위반(400)은 호출 제한 횟수를 쓰지 않는다.
 - LLM이 실패하면 `fallback=true`. 카드를 이미 만들었으면 카드 + "추천 결과를 아래에 보여 드려요.", 아니면 FAQ 상위 1건 또는 안내 문구.
 
 스트림(SSE) 이벤트:

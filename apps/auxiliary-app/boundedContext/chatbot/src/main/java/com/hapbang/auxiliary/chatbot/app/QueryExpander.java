@@ -13,7 +13,6 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 
@@ -70,9 +69,10 @@ public class QueryExpander {
             return request.call().entity(Expansions.class);
         });
         if (!result.succeeded()) {
-            if (result.reason() == FallbackReason.ERROR || result.reason() == FallbackReason.TIMEOUT
-                    || result.reason() == FallbackReason.FORMAT) {
-                log.warn("관심사 쿼리 확장을 받지 못해 원문으로 검색한다 reason={}", result.reason().tag(), result.error());
+            // 예외 클래스만 남긴다. 형식 오류 메시지에는 모델 출력(관심사를 바꿔 쓴 글)이 들어갈 수 있다
+            if (result.reason().attempted() && result.error() != null) {
+                log.warn("관심사 쿼리 확장을 받지 못해 원문으로 검색한다 reason={} error={}", result.reason().tag(),
+                        result.error().getClass().getName());
             }
             metrics.fallback(Feature.QUERY_EXPANSION, result.reason());
             return List.of(interest);
@@ -85,7 +85,7 @@ public class QueryExpander {
                 break;
             }
             if (phrase != null && !phrase.isBlank()) {
-                queries.add(TextCut.head(phrase.strip(), LectureRecommendUseCase.INTEREST_MAX_LENGTH));
+                queries.add(TextCut.head(phrase.strip(), RecommendInterest.MAX_LENGTH));
             }
         }
         return new ArrayList<>(queries);

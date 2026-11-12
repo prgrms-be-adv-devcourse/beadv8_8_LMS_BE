@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
 
 import lombok.extern.slf4j.Slf4j;
@@ -85,12 +87,17 @@ public class ChatbotConversationService {
         this.llm = llm;
     }
 
+    /** 이전 대화를 검사한다. 진입점이 회원별 호출 제한보다 먼저 부른다 */
+    public ChatHistory.Checked checkHistory(List<ChatHistory.Entry> history) {
+        return ChatHistory.check(history, properties);
+    }
+
     /** 한 번에 받는 자유 질문 */
-    public ChatAnswer chat(long memberId, String message, List<ChatHistory.Entry> history) {
-        List<Message> messages = ChatHistory.toMessages(history, properties);
+    public ChatAnswerResDto chat(long memberId, String message, ChatHistory.Checked history) {
+        List<Message> messages = history.messages();
         long start = System.nanoTime();
         Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
-        ChatCards.Collector cards = new ChatCards.Collector();
+        ChatCardCollector cards = new ChatCardCollector();
         LlmCallGuard.Result<String> result = llm.call(chatClient != null, properties.timeout(), () -> {
             ChatResponse response = prompt(memberId, message, messages, sources, cards).call().chatResponse();
             if (ToolCallLimitReached.isLimitResponse(response)) {
@@ -98,10 +105,10 @@ public class ChatbotConversationService {
             }
             return response == null || response.getResult() == null ? null : response.getResult().getOutput().getText();
         });
-        ChatAnswer answer;
+        ChatAnswerResDto answer;
         if (result.succeeded()) {
             String content = result.value();
-            answer = new ChatAnswer(content == null || content.isBlank() ? NO_ANSWER_MESSAGE : content,
+            answer = new ChatAnswerResDto(content == null || content.isBlank() ? NO_ANSWER_MESSAGE : content,
                     FaqAnswer.sourcesOf(sources), cards.cards(), false);
         } else {
             logFailure(Feature.CHAT, result.reason(), result.error());
@@ -114,12 +121,12 @@ public class ChatbotConversationService {
     /**
      * 스트림 자유 질문. 구독할 때 회로·동시 상한을 확인한다. 이벤트 순서는 {@link ChatStreamEvent}에 있다.
      */
-    public Flux<ChatStreamEvent> stream(long memberId, String message, List<ChatHistory.Entry> history) {
-        List<Message> messages = ChatHistory.toMessages(history, properties);
+    public Flux<ChatStreamEvent> stream(long memberId, String message, ChatHistory.Checked history) {
+        List<Message> messages = history.messages();
         return Flux.defer(() -> {
             long start = System.nanoTime();
             Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
-            ChatCards.Collector cards = new ChatCards.Collector();
+            ChatCardCollector cards = new ChatCardCollector();
             LlmCallGuard.Permit call = llm.acquire(chatClient != null);
             if (call.blocked() != null) {
                 return fallbackStream(call.blocked(), message, sources, cards, history, start);
@@ -186,7 +193,7 @@ public class ChatbotConversationService {
     }
 
     private ChatClient.ChatClientRequestSpec prompt(long memberId, String message, List<Message> history,
-            Collection<FaqHit> sources, ChatCards.Collector cards) {
+            Collection<FaqHit> sources, ChatCardCollector cards) {
         return chatClient.prompt()
                 .messages(history)
                 .user(message)
@@ -195,23 +202,23 @@ public class ChatbotConversationService {
     }
 
     // 카드가 있으면 카드 + 정해진 문장, 없으면 FAQ 검색 상위 1건 또는 안내 문구
-    private ChatAnswer fallback(Feature feature, FallbackReason reason, String message, Collection<FaqHit> sources,
-            ChatCards.Collector cards) {
+    private ChatAnswerResDto fallback(Feature feature, FallbackReason reason, String message, Collection<FaqHit> sources,
+            ChatCardCollector cards) {
         metrics.fallback(feature, reason);
-        ChatCards collected = cards.cards();
+        ChatCardsResDto collected = cards.cards();
         if (!collected.isEmpty()) {
-            return new ChatAnswer(CARDS_FALLBACK_MESSAGE, FaqAnswer.sourcesOf(sources), collected, true);
+            return new ChatAnswerResDto(CARDS_FALLBACK_MESSAGE, FaqAnswer.sourcesOf(sources), collected, true);
         }
         List<FaqHit> hits = searchService.search(message);
         if (hits.isEmpty()) {
-            return new ChatAnswer(NO_ANSWER_MESSAGE, List.of(), collected, true);
+            return new ChatAnswerResDto(NO_ANSWER_MESSAGE, List.of(), collected, true);
         }
         FaqHit top = hits.getFirst();
-        return new ChatAnswer(top.answer(), FaqAnswer.sourcesOf(List.of(top)), collected, true);
+        return new ChatAnswerResDto(top.answer(), FaqAnswer.sourcesOf(List.of(top)), collected, true);
     }
 
     private Flux<ChatStreamEvent> fallbackStream(FallbackReason reason, String message, Collection<FaqHit> sources,
-            ChatCards.Collector cards, List<ChatHistory.Entry> history, long start) {
+            ChatCardCollector cards, ChatHistory.Checked history, long start) {
         // 검색은 블로킹(ES·임베딩·DB)이라 LLM 호출과 같은 executor에서 부른다(trace가 이어진다)
         return Mono.fromCallable(() -> fallback(Feature.CHAT_STREAM, reason, message, sources, cards))
                 .subscribeOn(llm.scheduler())
@@ -225,8 +232,8 @@ public class ChatbotConversationService {
                 });
     }
 
-    private static void addCards(List<ChatStreamEvent> events, ChatCards.Collector cards) {
-        ChatCards collected = cards.cards();
+    private static void addCards(List<ChatStreamEvent> events, ChatCardCollector cards) {
+        ChatCardsResDto collected = cards.cards();
         if (!collected.isEmpty()) {
             events.add(new ChatStreamEvent.Cards(collected));
         }
@@ -242,16 +249,16 @@ public class ChatbotConversationService {
 
     // 대화 본문은 남기지 않는다. 실패 원인 예외의 메시지에도 본문이 없다(시간 초과·Tool 상한·모델 오류)
     private static void logFailure(Feature feature, @Nullable FallbackReason reason, @Nullable Throwable error) {
-        if (reason == FallbackReason.ERROR || reason == FallbackReason.TIMEOUT || reason == FallbackReason.TOOL_LIMIT) {
+        if (reason != null && reason.attempted()) {
             log.warn("자유 질문 LLM이 실패해 정해진 답으로 대신한다 feature={} reason={} error={}", feature.tag(), reason.tag(),
                     error == null ? null : error.getClass().getSimpleName());
         }
     }
 
-    private static void logDone(Feature feature, List<ChatHistory.Entry> history, ChatCards.Collector cards, long start,
+    private static void logDone(Feature feature, ChatHistory.Checked history, ChatCardCollector cards, long start,
             boolean fallback) {
         log.info("자유 질문 답변 feature={} history={} historyLength={} tools={} fallback={} elapsedMs={}", feature.tag(),
-                history.size(), ChatHistory.totalLength(history), cards.calledTools(), fallback,
+                history.count(), history.totalLength(), cards.calledTools(), fallback,
                 Duration.ofNanos(System.nanoTime() - start).toMillis());
     }
 }

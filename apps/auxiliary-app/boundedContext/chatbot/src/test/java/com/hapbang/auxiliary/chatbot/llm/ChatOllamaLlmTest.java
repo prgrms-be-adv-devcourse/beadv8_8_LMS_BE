@@ -21,7 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
-import com.hapbang.auxiliary.chatbot.app.ChatAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
 import com.hapbang.auxiliary.chatbot.app.ChatbotConversationService;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
@@ -172,7 +172,7 @@ class ChatOllamaLlmTest {
         int matched = 0;
         for (Map.Entry<String, String> question : QUESTIONS.entrySet()) {
             Map<String, Double> before = toolCalls();
-            ChatAnswer answer = conversationService.chat(1L, question.getKey(), List.of());
+            ChatAnswerResDto answer = conversationService.chat(1L, question.getKey(), conversationService.checkHistory(List.of()));
             Map<String, Double> after = toolCalls();
             List<String> called = new ArrayList<>();
             for (String tool : TOOLS) {

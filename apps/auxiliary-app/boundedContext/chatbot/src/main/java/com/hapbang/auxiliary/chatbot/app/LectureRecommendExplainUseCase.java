@@ -1,7 +1,6 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,7 +39,7 @@ public class LectureRecommendExplainUseCase {
     private final ChatbotRecommendLlmProperties llmProperties;
 
     /**
-     * @param interest 관심사 원문({@link LectureRecommendUseCase#normalizeInterest}를 거친 값). 없으면 null
+     * @param interest 관심사 원문({@link RecommendInterest#normalize}를 거친 값). 없으면 null
      */
     public Explained recommend(long memberId, @Nullable String interest) {
         List<String> queries = interest == null ? null : queryExpander.expand(interest);
@@ -51,13 +50,8 @@ public class LectureRecommendExplainUseCase {
         List<Long> ids = pool.lectureIds();
         RecommendReranker.Reranked reranked = reranker.rerank(Feature.LECTURE_BUTTON, "수강할 강의", candidateLines(pool),
                 properties.resultSize());
-        List<Long> chosen = new ArrayList<>();
-        for (int index : reranked.orderWithRest(ids.size())) {
-            chosen.add(ids.get(index));
-        }
-        Map<Long, String> llmReasons = new HashMap<>();
-        reranked.reasons().forEach((index, reason) -> llmReasons.put(ids.get(index), reason));
-        LectureRecommendation recommendation = recommendUseCase.complete(pool, chosen)
+        Map<Long, String> llmReasons = reranked.reasonsById(ids);
+        LectureRecommendation recommendation = recommendUseCase.complete(pool, reranked.chosenThenRest(ids))
                 .withReasonTexts(item -> llmReasons.getOrDefault(item.lectureId(), item.reasonText()));
         return new Explained(recommendation, reranked.fallback() != null);
     }

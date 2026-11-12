@@ -199,7 +199,43 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
             tooLong.add(Map.of("role", "ASSISTANT", "content", "나".repeat(2000)));
         }
         mockMvc.perform(message(PATH, "질문", tooLong)).andExpect(status().isBadRequest());
+        List<Map<String, String>> tooMany = new ArrayList<>();
+        for (int i = 0; i < 51; i++) {
+            tooMany.add(Map.of("role", "USER", "content", "대화"));
+        }
+        mockMvc.perform(message(PATH, "질문", tooMany)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CHAT_HISTORY"));
         assertThat(chatModel.calls()).isZero();
+    }
+
+    @Test
+    @DisplayName("FAQ와 함께 쓰는 호출 제한(분당 10회)을 넘으면 429. 스트림은 SSE를 열지 않는다. history 400은 한도를 쓰지 않는다")
+    void rateLimitBeforeStream() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(message(PATH, "질문", List.of(Map.of("role", "USER", "content", " "))))
+                    .andExpect(status().isBadRequest());
+        }
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(message(PATH, "질문 " + i, List.of())).andExpect(status().isOk());
+        }
+
+        mockMvc.perform(message(PATH, "질문", List.of())).andExpect(status().isTooManyRequests());
+        mockMvc.perform(message(PATH + "/stream", "질문", List.of()).accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncNotStarted())
+                .andExpect(status().isTooManyRequests());
+        assertThat(count("hapbang.chatbot.rate.limit.rejected", "feature", "chat_stream")).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SSE: Tool 호출이 3회를 넘으면 실패로 처리해 정해진 문장 token + cards + done(fallback=true)")
+    void streamToolCallLimit() throws Exception {
+        chatModel.toolLoop("recommendLectures");
+
+        String body = stream("강의 계속 추천해 줘");
+
+        assertThat(eventNames(body)).containsExactly("token", "cards", "done");
+        assertThat(body).contains(ChatbotConversationService.CARDS_FALLBACK_MESSAGE).contains("\"fallback\":true")
+                .doesNotContain("limit");
     }
 
     @Test

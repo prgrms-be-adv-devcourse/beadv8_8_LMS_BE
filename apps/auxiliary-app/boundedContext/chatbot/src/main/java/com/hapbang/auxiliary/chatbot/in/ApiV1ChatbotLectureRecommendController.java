@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotLectureRecommendFacade;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
-import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonRequest;
+import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonReqDto;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
 
@@ -36,8 +36,8 @@ public class ApiV1ChatbotLectureRecommendController implements ApiV1ChatbotLectu
     @Override
     @PostMapping("/explained")
     public RsData<LectureRecommendResDto> recommendExplained(@LoginUserId Long userId,
-            @RequestBody(required = false) RecommendButtonRequest request) {
+            @RequestBody(required = false) RecommendButtonReqDto request) {
         return RsData.ok("강의를 추천하고 이유를 붙였습니다.",
-                facade.recommendExplained(userId, RecommendButtonRequest.interestOf(request)));
+                facade.recommendExplained(userId, RecommendButtonReqDto.interestOf(request)));
     }
 }

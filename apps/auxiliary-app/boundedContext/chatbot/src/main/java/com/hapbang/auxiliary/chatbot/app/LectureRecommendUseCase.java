@@ -54,9 +54,6 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class LectureRecommendUseCase {
 
-    /** 관심사 최대 글자 수(앞뒤 공백 제외). API 검증과 Tool이 함께 쓴다 */
-    public static final int INTEREST_MAX_LENGTH = 100;
-
     private final LectureRecommendStore store;
     private final RecommendVectorIndex index;
     private final ChatbotEmbedder embedder;
@@ -69,18 +66,9 @@ public class LectureRecommendUseCase {
     private final AtomicBoolean failing = new AtomicBoolean();
 
     /**
-     * 입력한 관심사를 추천에 넘길 값으로 바꾼다. API와 Tool이 함께 쓴다.
-     *
-     * @return 없거나 공백뿐이면 null, 아니면 앞뒤 공백을 뺀 값
-     */
-    public static @Nullable String normalizeInterest(@Nullable String interest) {
-        return interest == null || interest.isBlank() ? null : interest.strip();
-    }
-
-    /**
      * 위젯·Tool 경로: 맞춤 후보를 추천 수만큼 고르고 모자라면 인기순으로 채운다.
      *
-     * @param interest 사용자가 직접 입력한 관심사 문장({@link #normalizeInterest}를 거친 값). 없으면 null(저장하지 않는다)
+     * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterest#normalize}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
         Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize());

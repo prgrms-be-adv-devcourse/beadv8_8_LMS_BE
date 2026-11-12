@@ -8,6 +8,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerItemResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
@@ -53,11 +54,11 @@ public class InfluencerRecommendTools {
             @Nullable String interest,
             ToolContext toolContext) {
         long memberId = ChatToolContext.memberId(toolContext, TOOL_NAME);
-        ChatCards.Collector cards = ChatToolContext.cards(toolContext, TOOL_NAME);
+        ChatCardCollector cards = ChatToolContext.cards(toolContext, TOOL_NAME);
         metrics.toolCall(TOOL_NAME);
         cards.called(TOOL_NAME);
         InfluencerRecommendResDto response = mapper.response(useCase.recommend(memberId, normalize(interest)));
-        cards.influencers(new ChatCards.InfluencerCards(response.basis(), response.items()));
+        cards.influencers(new ChatCardsResDto.InfluencerCards(response.basis(), response.items()));
         List<Item> items = response.items().stream().map(Result::item).toList();
         return new Result(items, response.needsInterest(), response.basis(), RecommendGuide.of(response.basis()),
                 response.notice());

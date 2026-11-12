@@ -107,7 +107,7 @@ FAQ 원본은 `boundedContext/chatbot/src/main/resources/chatbot/faq-seed.json`(
 - API: `GET /api/v1/chatbot/faqs?category=`, `GET /api/v1/chatbot/faqs/search?q=`, `POST /api/v1/chatbot/chat/faq`, `POST /api/v1/chatbot/chat/faq/stream`(SSE). 검색·대화는 회원마다 분당 10회다(`hapbang.chatbot.faq.rate-limit.*`).
 - 스트림 경로(`/api/v1/chatbot/**/stream`)만 Gateway route를 따로 두어 60초다(`k8s/base/gateway.yaml`의 `auxiliary-app-stream`). 서버 스트림 상한 45초·MVC 비동기 상한 50초가 그보다 짧아 서버의 fallback·error 이벤트가 먼저 나간다.
 - 지표(챗봇 전체, `ChatbotMetrics`)
-  - `hapbang.chatbot.requests{feature}`: 진입점(API)별 사용 수. 위젯은 `lecture_recommend`·`influencer_recommend`, 버튼은 `influencer_button`이다. 대화 Tool 호출은 여기서 세지 않는다.
+  - `hapbang.chatbot.requests{feature}`: 진입점(API)별 사용 수. FAQ는 `faq_list`·`faq_search`·`faq_chat`·`faq_stream`, 위젯은 `lecture_recommend`·`influencer_recommend`, 버튼은 `lecture_button`·`influencer_button`, 자유 질문은 `chat`·`chat_stream`이다. 대화 Tool 호출은 여기서 세지 않는다. `fallbacks`의 기능 태그에는 버튼 경로의 쿼리 확장 `query_expansion`도 있다.
   - `hapbang.chatbot.tool.calls{tool}`: 대화 LLM이 부른 Tool 수(`searchFaq`, `recommendLectures`, `recommendInfluencers`).
   - `hapbang.chatbot.fallbacks{feature,reason}`: LLM 호출이 실패해 정해진 답으로 대신한 수. LLM 실패만 센다.
   - `hapbang.chatbot.recommend.search.errors{feature}`: 추천 검색(ES·임베딩)이 실패해 인기순(`POPULAR_TEMPORARY`)으로 답한 수.
@@ -188,7 +188,6 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 판매자당 2개, 모두 5개. 모자라면 인기순 | 색인 전 강의도 사본으로 채운다 | `LectureRankerTest.capsPerSellerAndSize`, `LectureRecommendUseCaseTest.sellerCapAndPopularFill` |
 | 가중이 0 이하인 강의는 신호가 아니다 | | `LectureSignalsTest.dropsNonPositive` |
 | 대화 Tool 결과에 회원이 산·담은 강의 제목이 없다 | | `toolHidesBasisTitle` |
-| 버튼 경로 프롬프트에 회원 ID·회원이 산 강의가 없다 | | `LectureRecommendToolsTest.explainPromptHasNoMemberInfo` |
 | 검색이 실패하면 관심사가 있든 없든 인기순 + `POPULAR_TEMPORARY`(오류로 답하지 않는다). 모델·ES를 끈 실행은 `POPULAR` | index 없음, 임베딩 장애, 모델·ES 연결 없는 실행 | `unavailableIndex`, `interestEmbeddingFailure`, `LectureRecommendModelOffTest`, `ChatbotLectureRecommendApiIntegrationTest.interestValidation` |
 | 인기순 캐시 뒤 판매 중지·판매자 숨김이 된 강의는 응답에 나오지 않는다. 캐시는 1분 동안 다시 읽지 않는다 | 캐시가 낡아도 | `popularCacheRechecksBeforeAnswer`, `popularCacheTtl` |
 | 위젯은 관심사가 없어도 넓은 호출 제한(429), 관심사 요청은 좁은 제한도 함께 | | `ChatbotLectureRecommendApiIntegrationTest.widgetRateLimit`, `interestRateLimit` |
@@ -242,16 +241,18 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
   - 형식은 구조화 출력(`AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT`)이고 목록을 record로 감싼다(`{"picks": [...]}`, `{"phrases": [...]}`). 범위 밖·중복 순번, 빈 문장, 순번을 말한 문장은 버리고 이유는 80자에서 자른다.
   - LLM이 실패·시간 초과·회로 열림·동시 상한·형식 오류이거나 쓸 만한 답이 0개면 코드 순서 5개 + 이유 코드 문장, `fallback=true`(일부만 쓸 만하면 `false`).
   - 형식 오류(Jackson 파싱 실패)는 회로 실패로 세지 않는다(`fallbacks{reason=format}`). Spring AI 2.0.1은 이때 Jackson 예외를 그대로 던진다.
+  - 리랭킹을 끄면(`rerank.enabled=false`) 코드 순서 앞 5개만 보여 주고 LLM에게는 이유만 받는다(순서는 코드 순서). 실패 로그에는 예외 클래스 이름만 남긴다(형식 오류 메시지에 모델 출력이 들어갈 수 있다).
   - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다. 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
 - **자유 질문**(`ChatbotConversationService`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
-  - 추천 카드는 Tool 결과(코드가 만든 것)만이다. 비스트림은 응답 `cards`, 스트림은 글이 끝난 뒤 `cards` 이벤트다. LLM 글은 설명이다.
+  - 추천 카드는 Tool 결과(코드가 만든 것)만이다. 비스트림은 응답 `cards`, 스트림은 글이 끝난 뒤 `cards` 이벤트다. LLM 글은 설명이다. 강의 카드의 이유 문장은 기준 강의 제목 없이 쓴다(위젯 API의 문장과 다를 수 있다). Tool 결과에는 근거 코드와, 검색이 잠시 실패했으면(`POPULAR_TEMPORARY`) LLM이 그 사실을 말하게 하는 안내 한 줄(`guide`)이 있다.
   - LLM이 실패하면 카드가 있으면 카드 + "추천 결과를 아래에 보여 드려요." + `fallback=true`, 없으면 FAQ 대화와 같이 FAQ 상위 1건 또는 안내 문구(+ FAQ 모아보기 안내). 스트림에서 조각을 보낸 뒤 실패하면 `cards`를 보낸 뒤 `error`로 끝낸다.
   - 한 요청의 Tool 호출은 `spring.ai.tools.limits.max-total-tool-calls: 3`이다. Spring AI 2.0.1의 `ToolCallingAdvisor`는 상한을 넘으면 예외를 던지지 않고 종료 사유 `toolCallLimitExceeded`인 응답(상한 안내문)을 돌려준다. 대화는 이를 실패로 바꿔 위 규칙을 따르고 회로 실패로 세지 않는다(`fallbacks{reason=tool_limit}`). 모듈 테스트는 앱 yaml을 읽지 않아 `hapbang-module-test.yaml`에도 같은 값을 둔다.
   - 시간 상한: 한 번에 받기 전체 25s(`chat.timeout`, Gateway 30s 안), 스트림 45s(`chat.stream-timeout`). 출발값이다.
+  - `history`는 50개까지 받는다(넘으면 400). 글자 수 합 8,000자는 버리고 남은 최근 12개에만 센다. 검사는 회원별 호출 제한보다 먼저 한다(400 요청은 한도를 쓰지 않는다).
   - 호출 제한은 FAQ 검색·대화(#715)의 제한을 함께 쓴다. 대화 내용은 DB·로그에 남기지 않는다(로그에는 history 개수·글자 수·부른 Tool 이름·걸린 시간만).
-- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. local Ollama는 부트의 `RestClient.Builder`를 받아 만든다(5s가 걸리는지는 확인하지 않음).
+- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. chat 클라이언트가 하나라 기능별로 다르게 둘 수 없다. 그래서 리랭킹(12s)·쿼리 확장(5s) 가드가 포기한 뒤에도 HTTP 호출이 최대 50s 남아 동시 상한 4를 넘길 수 있다(남은 위험, 측정 뒤 기능별 클라이언트를 검토). local Ollama는 부트의 `RestClient.Builder`를 받아 만든다.
 - **FE GA4 이벤트 이름 제안**(FE가 정한다): `chatbot_button_click{button}`, `chatbot_recommend_card_impression{kind, basis, reason}`, `chatbot_recommend_card_click{kind, reason, position}`, `chatbot_conversation_start`, `chatbot_retry_click{kind}`(POPULAR_TEMPORARY 안내의 다시 시도).
 
 **지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
@@ -266,8 +267,11 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 자유 질문: 요청마다 Tool 3개를 등록하고 ToolContext에 회원 ID를 넣는다 | | `ChatbotConversationApiTest.registersThreeTools` |
 | 자유 질문: 추천 카드는 비스트림 `cards`·SSE `cards` 이벤트로 나간다 | | `cardsInResponse`, `streamSendsCards` |
 | 자유 질문: Tool이 카드를 만든 뒤 LLM이 실패해도 카드 + 정해진 문장 + `fallback=true`. 조각 뒤 실패는 `cards` 뒤 `error` | LLM 실패(스트림·비스트림) | `cardsSurviveLlmFailure`, `streamCardsBeforeFirstToken`, `streamCardsThenError` |
-| 자유 질문: Tool 호출이 3회를 넘으면 더 부르지 않고 실패로 처리한다(회로 실패 아님) | 모델이 Tool을 계속 요청 | `toolCallLimit` |
-| `history`: 최근 12개만, 허용 밖 role·빈 내용·길이 초과는 400 | | `historyKeepsRecentTwelve`, `historyValidation` |
+| 자유 질문: Tool 호출이 3회를 넘으면 더 부르지 않고 실패로 처리한다(회로 실패 아님) | 모델이 Tool을 계속 요청(스트림·비스트림) | `toolCallLimit`, `streamToolCallLimit` |
+| `history`: 50개까지, 최근 12개만, 허용 밖 role·빈 내용·길이 초과는 400. 400은 호출 한도를 쓰지 않는다 | | `historyKeepsRecentTwelve`, `historyValidation` |
+| 자유 질문: FAQ와 함께 쓰는 호출 제한을 넘으면 429. 스트림은 SSE를 열지 않는다 | | `rateLimitBeforeStream` |
+| 추천 Tool: 검색이 잠시 실패하면 결과에 `POPULAR_TEMPORARY`와 안내 한 줄(`guide`) | 임베딩·ES 장애 | `LectureRecommendToolsTest.temporaryPopularGuide`, `InfluencerRecommendApiTest.toolTemporaryPopularGuide` |
+| 버튼: 리랭킹을 끄면 코드 순서 그대로, LLM 이유만 쓴다 | | `RecommendRerankerTest.disabledKeepsCodeOrder` |
 | 로그에 대화 본문이 남지 않는다 | | `logsHaveNoConversation` |
 
 ## 검색 (#771, #772, #868)

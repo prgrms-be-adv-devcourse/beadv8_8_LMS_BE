@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size;
  * 자유 질문 요청 (#720). 서버는 대화를 저장하지 않는다. FE가 화면에 그린 대화를 오래된 것부터 {@code history}로 보낸다.
  * Tool 결과·추천 카드는 보내지 않는다(받는 필드가 없다).
  */
-public record ChatMessageRequest(
+public record ChatMessageReqDto(
         @Schema(description = "질문(1~500자)", example = "데이터 분석 강의 추천해 줘")
         @NotBlank @Size(max = 500) String message,
         @Schema(description = "이전 대화(오래된 것부터). role은 USER·ASSISTANT만, content는 USER 1~500자·ASSISTANT 1~2,000자, "

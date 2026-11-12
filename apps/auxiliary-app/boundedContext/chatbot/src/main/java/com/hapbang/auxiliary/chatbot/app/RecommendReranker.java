@@ -32,7 +32,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>범위 밖 순번, 중복 순번(처음 것만), 빈 문장, 순번을 말한 문장은 버린다. 이유 문장은 {@code reason-max-length}에서 자른다.</li>
  *     <li>LLM을 못 쓰거나(모델 없음·회로 열림·동시 상한·시간 초과·오류·형식 오류) 쓸 만한 답이 하나도 없으면
  *     {@link Reranked#fallback()}에 이유가 있고 고른 것이 없다. 부르는 쪽은 코드 순서와 이유 코드 문장으로 답한다.</li>
- *     <li>리랭킹을 끄면({@code rerank.enabled=false}) 풀의 앞쪽 {@code pick}개만 보여 주고 이유만 받는다.</li>
+ *     <li>리랭킹을 끄면({@code rerank.enabled=false}) 풀의 앞쪽 {@code pick}개만 보여 주고 이유만 받는다. 순서는 코드 순서 그대로다.</li>
+ *     <li>실패 로그에는 예외 클래스 이름만 남긴다(형식 오류 예외의 메시지에는 모델 출력 일부가 들어갈 수 있다).</li>
  * </ul>
  */
 @Slf4j
@@ -110,13 +111,19 @@ public class RecommendReranker {
             log.warn("추천 리랭킹에 쓸 만한 답이 없어 코드 순서로 답한다 answered={}", picks.size());
             return fallback(feature, FallbackReason.ERROR, null);
         }
+        if (!rerank.enabled()) {
+            // 리랭킹을 껐으면 고른 순서는 쓰지 않는다. 보여 준 후보 전체를 코드 순서로 두고 이유만 쓴다
+            order.clear();
+            for (int i = 0; i < shown.size(); i++) {
+                order.add(i);
+            }
+        }
         return new Reranked(order, reasons, null);
     }
 
     private Reranked fallback(Feature feature, FallbackReason reason, @Nullable Throwable error) {
-        if (reason == FallbackReason.ERROR && error != null || reason == FallbackReason.TIMEOUT
-                || reason == FallbackReason.FORMAT) {
-            log.warn("추천 리랭킹을 받지 못해 코드 순서로 답한다 reason={}", reason.tag(), error);
+        if (reason.attempted() && error != null) {
+            log.warn("추천 리랭킹을 받지 못해 코드 순서로 답한다 reason={} error={}", reason.tag(), error.getClass().getName());
         }
         metrics.fallback(feature, reason);
         return new Reranked(List.of(), Map.of(), reason);
@@ -162,16 +169,28 @@ public class RecommendReranker {
         }
 
         /**
-         * 고른 후보 뒤에 남은 후보를 코드 순서로 붙인 위치 목록. 부르는 쪽은 앞에서부터 추천 수만큼 쓰고, 모자라면 인기순으로 채운다.
+         * 고른 후보 뒤에 남은 후보를 코드 순서로 붙인 ID 목록. 부르는 쪽은 앞에서부터 추천 수만큼 쓰고, 모자라면 인기순으로 채운다.
+         *
+         * @param ids 프롬프트에 보인 후보의 ID(코드 순서, 위치가 순번 − 1)
          */
-        public List<Integer> orderWithRest(int candidateCount) {
-            List<Integer> all = new ArrayList<>(order);
-            for (int i = 0; i < candidateCount; i++) {
-                if (!all.contains(i)) {
-                    all.add(i);
+        public <T> List<T> chosenThenRest(List<T> ids) {
+            List<T> all = new ArrayList<>();
+            for (int index : order) {
+                all.add(ids.get(index));
+            }
+            for (T id : ids) {
+                if (!all.contains(id)) {
+                    all.add(id);
                 }
             }
             return all;
+        }
+
+        /** ID → LLM 이유 문장(LLM이 고른 후보만) */
+        public <T> Map<T, String> reasonsById(List<T> ids) {
+            Map<T, String> byId = new HashMap<>();
+            reasons.forEach((index, reason) -> byId.put(ids.get(index), reason));
+            return byId;
         }
     }
 }
