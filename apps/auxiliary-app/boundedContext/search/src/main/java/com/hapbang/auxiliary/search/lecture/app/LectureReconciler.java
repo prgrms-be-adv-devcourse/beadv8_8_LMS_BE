@@ -37,6 +37,9 @@ import lombok.extern.slf4j.Slf4j;
  *     건너뛴다. 원본이 비어 있으면(읽은 강의 0개) 숨기지 않는다(강의 앱 응답이 잘못돼 모든 문서를 숨기지 않게).</li>
  * </ul>
  * 재색인 뒤 따라잡기(#884 L14 ④)도 이 보정을 같은 락으로 한 번 돈다.
+ * <p>
+ * 한계: 보정 건수는 페이지 앞에서 한 번 읽은 문서와의 비교로 센다(쓰기 결과로 세지 않는다). 그 페이지를 반영하는 사이 같은 강의의 이벤트가 먼저 반영되면
+ * 놓친 이벤트가 아닌데도 보정으로 셀 수 있다(인플루언서 증분 보정과 같은 한계). 쓰기는 강의 version 조건이라 결과는 같다.
  */
 @Slf4j
 @Service
@@ -152,10 +155,7 @@ public class LectureReconciler {
             log.warn("ES가 거절해 강의 검색 보정에서 건너뛴다 lectureId={}", lecture.id(), e);
             return LectureReconcileKind.SKIPPED;
         }
-        if (result.outcome() == WriteOutcome.NOOP) {
-            // 문서를 읽은 뒤 이벤트가 먼저 반영했다
-            return LectureReconcileKind.ALREADY_APPLIED;
-        }
+        // 보정 건수는 쓰기 결과가 아니라 쓰기 전 비교로 센다. 같은 version의 가격만 고치는 쓰기(#909)는 결과가 NOOP이어서 결과로 세면 보정이 빠진다
         LectureReconcileKind kind = indexed == null ? LectureReconcileKind.INSERTED : LectureReconcileKind.OVERWRITTEN;
         log.info("강의 이벤트를 놓친 강의 검색 문서를 보정했다 lectureId={}, kind={}, lectureVersion={}, visible={}",
                 lecture.id(), kind.tag(), lecture.version(), result.visible());
