@@ -139,6 +139,28 @@ class SearchLectureEventListenerTest {
     }
 
     @Test
+    @DisplayName("#872로 더해진 알림용 강의 이벤트 7종(이 앱에 클래스가 있음)은 읽은 뒤 건너뛴다. DLT로 가지 않고 뒤 이벤트도 막지 않는다")
+    void skipsNotificationEventsOf872() {
+        String at = "\"2026-11-12T09:00:00+09:00\"";
+        Map<String, String> events = Map.of(
+                "LectureApprovedEvent", "{\"lectureId\":931,\"sellerUserId\":7,\"lectureTitle\":\"강의\",\"inspectionSequence\":1,\"approvedAt\":" + at + "}",
+                "LectureRejectedEvent", "{\"lectureId\":931,\"sellerUserId\":7,\"lectureTitle\":\"강의\",\"rejectionReason\":\"사유\",\"inspectionSequence\":1,\"rejectedAt\":" + at + "}",
+                "LectureObjectionFiledEvent", "{\"inquiryId\":1,\"orderItemId\":2,\"buyerUserId\":3,\"sellerUserId\":7,\"lectureTitle\":\"강의\",\"filedAt\":" + at + "}",
+                "LectureOrderHoldFailedEvent", "{\"orderId\":4,\"buyerUserId\":3,\"items\":[],\"failedAt\":" + at + "}",
+                "LectureOrderItemCanceledEvent", "{\"orderItemId\":2,\"buyerUserId\":3,\"lectureTitle\":\"강의\",\"buyerAmountHp\":1000,\"canceledAt\":" + at + "}",
+                "LectureOrderItemConfirmedEvent", "{\"orderItemId\":2,\"buyerUserId\":3,\"lectureTitle\":\"강의\",\"confirmedAt\":" + at + "}",
+                "LectureOrderPaidEvent", "{\"orderId\":4,\"buyerUserId\":3,\"items\":[],\"paidAt\":" + at + "}");
+        events.keySet().forEach(type -> assertThat(ClassUtils.isPresent(EVENT_PACKAGE + type, null)).isTrue());
+
+        events.forEach((type, json) -> send("notification:" + type, type, json));
+        send("lecture:932", "LectureChangedEvent", lecture(932, true, 0));
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions()
+                .untilAsserted(() -> assertThat(source(932)).containsEntry("hidden", false));
+        assertThat(deadLetterKeys(Duration.ofSeconds(3))).noneMatch(key -> key.startsWith("notification:"));
+    }
+
+    @Test
     @DisplayName("강의 이벤트 패키지 밖의 타입(java.util 등 역직렬화기 기본 신뢰 타입)은 건너뛰지 않고 다시 시도 없이 DLT로 보낸다")
     void untrustedTypeToDeadLetter() {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, "lecture:916",
