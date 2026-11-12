@@ -63,4 +63,26 @@ public record RecommendRows(JdbcTemplate jdbc) {
                     dto_hash, synced_at)
                 VALUES (?, ?, ?, ?, TRUE, FALSE, 1, ?, ?)""", id, lectureId, reviewerId, rating, HASH, AT);
     }
+
+    /** 보이는 인플루언서(정상 INFLUENCER, #867) */
+    public void influencer(long id, List<String> categories, String bio) {
+        jdbc.update("""
+                INSERT INTO chatbot.member_copy (id, role, status, categories, bio, version, dto_hash, synced_at)
+                VALUES (?, 'INFLUENCER', 'ACTIVE', ?::jsonb, ?, 1, ?, ?)""", id, JSON.writeValueAsString(categories), bio, HASH,
+                AT);
+    }
+
+    /** 두 회원이 함께 마친 출연(#867) */
+    public void completedAppearance(long id, long hostId, long guestId) {
+        jdbc.update("""
+                INSERT INTO chatbot.appearance_copy (id, host_id, guest_id, result, scheduled_at, version, dto_hash, synced_at)
+                VALUES (?, ?, ?, 'COMPLETED', ?, 1, ?, ?)""", id, hostId, guestId, AT, HASH, AT);
+    }
+
+    /** 받은 출연 리뷰(#867) */
+    public void appearanceReview(long reviewId, long appearanceId, long revieweeId, int rating) {
+        jdbc.update("""
+                INSERT INTO chatbot.appearance_review_copy (review_id, appearance_id, reviewee_user_id, rating, dto_hash, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?)""", reviewId, appearanceId, revieweeId, rating, HASH, AT);
+    }
 }
