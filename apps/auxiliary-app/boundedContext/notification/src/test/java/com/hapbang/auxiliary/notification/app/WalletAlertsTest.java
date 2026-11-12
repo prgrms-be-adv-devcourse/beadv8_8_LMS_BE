@@ -35,6 +35,8 @@ class WalletAlertsTest {
         assertThat(draft.targetId()).isEqualTo("11");
         assertThat(draft.occurredAt()).isEqualTo(AT);
         assertThat(draft.payload()).containsEntry(NotificationPayload.VERSION, 1);
+        // 문구에 쓰는 값만 남긴다(결제 금액 등 쓰지 않는 값은 저장하지 않는다)
+        assertThat(draft.payload()).containsOnlyKeys(NotificationPayload.VERSION, "amountHp");
         assertThat(NotificationPayload.nicknames(draft.payload())).isEmpty();
         assertThat(render(draft)).isEqualTo("12,000 HP 충전에 실패했습니다.");
     }
@@ -50,6 +52,7 @@ class WalletAlertsTest {
         assertThat(draft.targetType()).isEqualTo("REFUND_REQUEST");
         assertThat(draft.targetId()).isEqualTo("21");
         assertThat(draft.occurredAt()).isEqualTo(AT);
+        assertThat(draft.payload()).containsOnlyKeys(NotificationPayload.VERSION, "requestedAmountHp");
         assertThat(render(draft)).isEqualTo("3,500 HP 환불에 실패했습니다. 신청한 HP는 지갑으로 돌아왔습니다.");
     }
 
@@ -67,6 +70,7 @@ class WalletAlertsTest {
         assertThat(review.targetType()).isEqualTo("REFUND_REQUEST");
         assertThat(review.targetId()).isEqualTo("21");
         assertThat(review.occurredAt()).isEqualTo(AT);
+        assertThat(review.payload()).containsOnlyKeys(NotificationPayload.VERSION, "requestedAmountHp");
         assertThat(render(review)).isEqualTo("3,500 HP 환불은 운영자 확인이 필요해 처리가 늦어지고 있습니다.");
     }
 
@@ -82,6 +86,8 @@ class WalletAlertsTest {
         assertThat(draft.targetType()).isEqualTo("EXCHANGE");
         assertThat(draft.targetId()).isEqualTo("31");
         assertThat(draft.occurredAt()).isEqualTo(AT);
+        assertThat(draft.payload()).containsOnlyKeys(NotificationPayload.VERSION, "requestedAmountHp",
+                "payoutScheduledAt");
         assertThat(render(draft)).isEqualTo("1,234,567 HP 환전 신청이 승인되었습니다. 12월 10일에 송금됩니다.");
     }
 

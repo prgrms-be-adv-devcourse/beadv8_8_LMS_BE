@@ -35,7 +35,6 @@ public final class WalletAlerts {
     public static NotificationDraft chargeFailed(ChargeFailedEvent event) {
         Map<String, Object> payload = payload();
         payload.put(Keys.AMOUNT_HP, event.amountHp());
-        payload.put(Keys.PAYMENT_AMOUNT_KRW, event.paymentAmountKrw());
         return draft(event.userId(), WalletAlertTemplates.CHARGE_FAILED, event, event.chargeId(), TARGET_CHARGE,
                 payload, event.failedAt());
     }

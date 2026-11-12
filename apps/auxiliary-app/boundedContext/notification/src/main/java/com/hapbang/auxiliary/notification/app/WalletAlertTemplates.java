@@ -60,10 +60,9 @@ public enum WalletAlertTemplates implements NotificationTemplate {
         return String.format(Locale.KOREA, "%,d", ((Number) payload.get(key)).longValue());
     }
 
-    /** 값의 키 */
+    /** 값의 키. 문구에 쓰는 값만 둔다 */
     static final class Keys {
         static final String AMOUNT_HP = "amountHp";
-        static final String PAYMENT_AMOUNT_KRW = "paymentAmountKrw";
         static final String REQUESTED_AMOUNT_HP = "requestedAmountHp";
         /** 송금 예정 시각. ISO-8601 UTC 문자열({@link Instant#toString()}) */
         static final String PAYOUT_SCHEDULED_AT = "payoutScheduledAt";
