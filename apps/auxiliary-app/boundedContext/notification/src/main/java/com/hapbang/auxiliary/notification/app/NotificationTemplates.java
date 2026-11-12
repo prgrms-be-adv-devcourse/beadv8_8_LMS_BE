@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 종류 코드별 문구 템플릿 모음. N5 11종({@link AlertTemplate}, ND-075), N6 7종({@link AppearanceCancelRequestTemplates}·
- * {@link LectureObjectionTemplates}, ND-085), 하루 묶음({@link PayoutDailyTemplate}, ND-100)과 빈으로 더한 템플릿을 함께 둔다. 같은 종류가 둘이면 기동에
+ * {@link LectureObjectionTemplates}, ND-085), N7 출연 10종({@link AppearanceProgressTemplates}, ND-112), 하루 묶음({@link PayoutDailyTemplate}, ND-100)과 빈으로 더한 템플릿을 함께 둔다. 같은 종류가 둘이면 기동에
  * 실패한다
  */
 @Component
@@ -21,7 +21,7 @@ public class NotificationTemplates {
 
     public NotificationTemplates(ObjectProvider<NotificationTemplate> templates) {
         Stream<NotificationTemplate> builtIn = Stream.<NotificationTemplate[]>of(AlertTemplate.values(),
-                AppearanceCancelRequestTemplates.values(),
+                AppearanceCancelRequestTemplates.values(), AppearanceProgressTemplates.values(),
                 LectureObjectionTemplates.values(), PayoutDailyTemplate.values()).flatMap(Arrays::stream);
         this.byKind = Stream.concat(builtIn, templates.orderedStream())
                 .collect(Collectors.toUnmodifiableMap(NotificationTemplate::kind, t -> t));
