@@ -106,8 +106,8 @@ class LectureSyncEventKafkaTest {
     void 동기화_이벤트는_종류별_key와_eventType_헤더로_강의_토픽에_나간다() {
         long id = 9_000_000L + (System.nanoTime() % 1_000_000L);
         transactionTemplate.executeWithoutResult(status -> {
-            eventPublisher.publishEvent(new LectureChangedEvent(new LectureSyncDto(id, 1L, "강의", null, true, false,
-                    List.of(new LectureContentSyncDto(id, "1강", 1)), 3L)));
+            eventPublisher.publishEvent(new LectureChangedEvent(new LectureSyncDto(id, 1L, "강의", null, 10_000L, true,
+                    false, List.of(new LectureContentSyncDto(id, "1강", 1)), 3L)));
             eventPublisher.publishEvent(new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(id, 2L, id,
                     LecturePurchaseResult.OWNED, AT, AT, 1L)));
             eventPublisher.publishEvent(new CartItemChangedEvent(new CartItemSyncDto(id, 2L, id, false, AT, 0L)));

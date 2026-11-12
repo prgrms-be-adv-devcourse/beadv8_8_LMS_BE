@@ -151,7 +151,7 @@ public class Lecture {
      * 추천해도 되는지({@code onSale})는 강의가 판단한다. 콘텐츠는 삭제되지 않은 것만 순서대로 싣는다
      */
     public LectureSyncDto toSyncDto() {
-        return new LectureSyncDto(id, sellerUserId, title, description, isOnSale(), isDeleted(),
+        return new LectureSyncDto(id, sellerUserId, title, description, priceHp, isOnSale(), isDeleted(),
                 contents.stream()
                         .map(content -> new LectureContentSyncDto(content.getId(), content.getTitle(),
                                 content.getSequence()))
