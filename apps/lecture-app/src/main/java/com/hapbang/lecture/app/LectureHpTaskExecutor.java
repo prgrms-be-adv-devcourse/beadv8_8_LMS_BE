@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,10 +29,12 @@ import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskRetryPolicy;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureHpTaskType;
+import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.lecture.out.OrderItemWithOrderId;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
@@ -183,8 +186,11 @@ public class LectureHpTaskExecutor {
                 LectureHpTaskAttempt.start(taskId, task.getTotalAttemptCount(), token, now));
         var coupons = orderItemCouponRepository.findByOrderItemIdInOrderByOrderItemIdAscApplyOrderAsc(
                 List.of(task.getOrderItemId()));
-        var expected = lectureOrderRepository.findItemsWithOrderId(List.of(task.getOrderItemId())).stream()
-                .findFirst().map(row -> row.item().getPlatformDiscountHp());
+        Optional<OrderItem> item = lectureOrderRepository.findItemsWithOrderId(List.of(task.getOrderItemId())).stream()
+                .findFirst().map(OrderItemWithOrderId::item);
+        var expected = item.map(OrderItem::getPlatformDiscountHp);
+        // 지급 요청의 출처 제목(#872, D85 (6)): 작업에 저장하지 않고 구매 때 저장한 제목을 여기서 읽는다. 항목이 없으면 제목 없이 보낸다
+        String sourceTitle = item.map(OrderItem::getLectureTitleSnapshot).orElse(null);
         try {
             List<HoldPromotionDto> promotions = LectureHpPromotions.of(coupons);
             long amount = LectureHpPromotions.total(promotions);
@@ -194,9 +200,9 @@ public class LectureHpTaskExecutor {
             if (expected.isPresent() && expected.get() != amount) {
                 throw new IllegalStateException("항목의 플랫폼 부담과 쿠폰 스냅샷 합이 다릅니다.");
             }
-            return new Claim(task, token, promotions, null);
+            return new Claim(task, token, promotions, null, sourceTitle);
         } catch (IllegalArgumentException | IllegalStateException | ArithmeticException invalid) {
-            return new Claim(task, token, List.of(), invalid.getMessage());
+            return new Claim(task, token, List.of(), invalid.getMessage(), sourceTitle);
         }
     }
 
@@ -211,7 +217,8 @@ public class LectureHpTaskExecutor {
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getRequestId()));
                 case PAYOUT -> billingApiClient.payout(PayoutCommand.full(task.getPayerUserId(),
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getRequestId(),
-                        task.getReceiverUserId(), SettlementSourceType.LECTURE_ORDER_ITEM, task.getOrderItemId()));
+                        task.getReceiverUserId(), SettlementSourceType.LECTURE_ORDER_ITEM, task.getOrderItemId(),
+                        claim.sourceTitle()));
                 // 지갑 멱등 키는 참조 대상이라 요청 ID를 보내지 않는다 (D73)
                 case VOID -> billingApiClient.voidHold(new HoldVoidCommand(task.getPayerUserId(),
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId()));
@@ -420,8 +427,9 @@ public class LectureHpTaskExecutor {
         return map;
     }
 
-    /** 선점한 작업과 선점 표식 */
-    private record Claim(LectureHpTask task, UUID token, List<HoldPromotionDto> promotions, String payloadError) {
+    /** 선점한 작업과 선점 표식. 출처 제목은 지급 요청에만 싣는 구매 때 강의 제목이다 */
+    private record Claim(LectureHpTask task, UUID token, List<HoldPromotionDto> promotions, String payloadError,
+                         String sourceTitle) {
     }
 
     /** 시도 한 번의 결과 */

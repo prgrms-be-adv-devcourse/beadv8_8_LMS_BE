@@ -12,14 +12,21 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 
 import com.hapbang.lecture.app.LectureExternalEvents;
 import com.hapbang.shared.lecture.event.CartItemChangedEvent;
+import com.hapbang.shared.lecture.event.LectureApprovedEvent;
 import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionRequestRefusedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
+import com.hapbang.shared.lecture.event.LectureOrderHoldFailedEvent;
+import com.hapbang.shared.lecture.event.LectureOrderItemCanceledEvent;
+import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
+import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
 import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
+import com.hapbang.shared.lecture.event.LectureRejectedEvent;
 import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
@@ -58,6 +65,14 @@ public class LectureEventExternalizationConfig {
     /** 쿠폰 사용 완료·복원용 결제·취소 완료 이벤트. 값은 쿠폰 소비자도 보도록 shared 레코드에 둔다 */
     public static final String ORDER_ITEM_PAID = OrderItemPaidEvent.EVENT_TYPE;
     public static final String ORDER_ITEM_CANCEL_COMPLETED = OrderItemCancelCompletedEvent.EVENT_TYPE;
+    /** 알림용 검수·주문·구매 확정·이의 제기 접수 이벤트 (#872, D85) */
+    public static final String LECTURE_APPROVED = "LectureApprovedEvent";
+    public static final String LECTURE_REJECTED = "LectureRejectedEvent";
+    public static final String ORDER_PAID = "LectureOrderPaidEvent";
+    public static final String ORDER_HOLD_FAILED = "LectureOrderHoldFailedEvent";
+    public static final String ORDER_ITEM_CANCELED = "LectureOrderItemCanceledEvent";
+    public static final String ORDER_ITEM_CONFIRMED = "LectureOrderItemConfirmedEvent";
+    public static final String OBJECTION_FILED = "LectureObjectionFiledEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -81,6 +96,13 @@ public class LectureEventExternalizationConfig {
                 .headers(LectureReviewChangedEvent.class, event -> headers(REVIEW_CHANGED))
                 .headers(OrderItemPaidEvent.class, event -> headers(ORDER_ITEM_PAID))
                 .headers(OrderItemCancelCompletedEvent.class, event -> headers(ORDER_ITEM_CANCEL_COMPLETED))
+                .headers(LectureApprovedEvent.class, event -> headers(LECTURE_APPROVED))
+                .headers(LectureRejectedEvent.class, event -> headers(LECTURE_REJECTED))
+                .headers(LectureOrderPaidEvent.class, event -> headers(ORDER_PAID))
+                .headers(LectureOrderHoldFailedEvent.class, event -> headers(ORDER_HOLD_FAILED))
+                .headers(LectureOrderItemCanceledEvent.class, event -> headers(ORDER_ITEM_CANCELED))
+                .headers(LectureOrderItemConfirmedEvent.class, event -> headers(ORDER_ITEM_CONFIRMED))
+                .headers(LectureObjectionFiledEvent.class, event -> headers(OBJECTION_FILED))
                 .build();
     }
 

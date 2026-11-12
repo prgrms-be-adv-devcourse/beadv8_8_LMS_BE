@@ -107,6 +107,25 @@ class LectureTest {
     }
 
     @Test
+    void 등록한_강의는_검수_회차_1이다() {
+        assertThat(pendingLecture().getInspectionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void 재검수를_신청할_때마다_검수_회차가_1씩_늘고_승인_반려는_회차를_바꾸지_않는다() {
+        Lecture lecture = pendingLecture();
+
+        lecture.reject(ADMIN_ID, "사유", NOW);
+        lecture.requestInspection(SELLER_ID, NOW.plusDays(1));
+        assertThat(lecture.getInspectionCount()).isEqualTo(2);
+
+        lecture.reject(ADMIN_ID, "사유", NOW.plusDays(2));
+        lecture.requestInspection(SELLER_ID, NOW.plusDays(3));
+        lecture.approve(ADMIN_ID, NOW.plusDays(4));
+        assertThat(lecture.getInspectionCount()).isEqualTo(3);
+    }
+
+    @Test
     void 반려되지_않은_강의는_재검수를_신청할_수_없다() {
         assertThatThrownBy(() -> pendingLecture().requestInspection(SELLER_ID, NOW))
                 .isInstanceOf(LectureException.class)

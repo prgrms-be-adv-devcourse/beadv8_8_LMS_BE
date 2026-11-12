@@ -24,6 +24,7 @@ public class CancelResultHandler implements LectureHpTaskResultHandler {
     private final OrderSettlementRecorder orderSettlementRecorder;
     private final LectureSyncEvents lectureSyncEvents;
     private final OrderCouponEvents orderCouponEvents;
+    private final LectureOrderEvents lectureOrderEvents;
 
     @Override
     public LectureHpTaskPurpose purpose() {
@@ -56,5 +57,6 @@ public class CancelResultHandler implements LectureHpTaskResultHandler {
         OrderItem item = order.completeCancelItem(orderItemId, now);
         lectureSyncEvents.purchaseChanged(item);
         orderCouponEvents.itemCancelCompleted(order, item, releaseRequestId, restorations, now);
+        lectureOrderEvents.itemCanceled(item);
     }
 }
