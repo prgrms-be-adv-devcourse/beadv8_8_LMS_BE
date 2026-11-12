@@ -157,6 +157,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 |---|---|---|
 | 한 문서는 한 실행만 처리한다 | 처리 시간이 임대(5분)보다 짧을 때 | `IndexTaskRunnerTest.claimsWholeDocuments`, `runOnceTakesClaimLock` |
 | LLM 동시 호출 상한은 챗봇 기능 전체가 나눠 쓴다. 넘으면 모델을 부르지 않고 정해진 답 | | `FaqChatServiceTest.busyWhenConcurrentLimitReached`, `concurrentLimitSharedAcrossFeatures` |
+| 검색 장애(ES·임베딩 실패)만 인기순으로 답한다. 검색 구간 안의 DB 오류는 삼키지 않고 그대로 올라간다 | | `InfluencerRecommendSearchErrorTest`, `InfluencerRecommendUseCaseTest.embeddingFailureFallsBackToPopular` |
 | 세 Tool은 같은 `ToolContext`(`ChatToolContext.of`)로 부른다. 회원 ID는 Tool 인자가 아니라 여기서만 꺼낸다 | | `LectureRecommendToolsTest.usesToolContextMemberId`, `rejectsWithoutMemberId`, `InfluencerRecommendApiTest.tool`, `FaqIndexingIntegrationTest.searchFaqTool` |
 
 ## 챗봇 강의 추천 (#718)
@@ -175,7 +176,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 |---|---|---|
 | 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·숨김 판매자(탈퇴·마스킹·사본 없음)의 강의는 추천하지 않는다 | 인기순으로 채울 때도. 사본 상태가 `ACTIVE`인 채 마스킹만 반영된 판매자도 | `LectureRecommendUseCaseTest.exclusions` |
 | 요청 회원이 숨김(탈퇴·마스킹)이면 빈 결과(인기순도 주지 않는다) | | `hiddenRequesterGetsNothing`, `maskedRequesterGetsNothing` |
-| 판매자당 2개, 모두 5개. 모자라면 인기순 | 색인 전 강의도 사본으로 채운다 | `LectureRankerTest.capsPerSellerAndSize`, `sellerCapAndPopularFill` |
+| 판매자당 2개, 모두 5개. 모자라면 인기순 | 색인 전 강의도 사본으로 채운다 | `LectureRankerTest.capsPerSellerAndSize`, `LectureRecommendUseCaseTest.sellerCapAndPopularFill` |
 | 가중이 0 이하인 강의는 신호가 아니다 | | `LectureSignalsTest.dropsNonPositive` |
 | 대화 Tool 결과에 회원이 산·담은 강의 제목이 없다 | | `toolHidesBasisTitle` |
 | 버튼 경로 프롬프트에 회원 ID·회원이 산 강의가 없다 | | `LectureRecommendToolsTest.explainPromptHasNoMemberInfo` |

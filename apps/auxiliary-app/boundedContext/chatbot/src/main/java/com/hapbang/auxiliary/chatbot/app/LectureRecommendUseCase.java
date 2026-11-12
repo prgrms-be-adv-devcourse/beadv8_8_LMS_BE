@@ -228,5 +228,4 @@ public class LectureRecommendUseCase {
         ChatbotLectureRecommendProperties.Weights weights = properties.weights();
         return new LectureSignals.Weights(weights.owned(), weights.cart(), weights::rating);
     }
-
-    /** 벡터 호출(ES·임베딩) 실패. DB 오류와 구분한다 */}
+}
