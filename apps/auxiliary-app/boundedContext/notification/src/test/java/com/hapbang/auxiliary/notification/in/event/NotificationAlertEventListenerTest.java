@@ -153,21 +153,46 @@ class NotificationAlertEventListenerTest {
     }
 
     @Test
-    void 출연_원천_지급은_만들고_강의_원천_지급은_DLT_없이_건너뛴다() {
+    void 출연_원천_지급은_한_건씩_만들고_강의_원천_지급은_하루_묶음으로_만든다() {
         long guest = member(Role.INFLUENCER, UserStatus.ACTIVE);
         long appearanceId = nextId();
+        long lectureSettlement = nextId();
 
         kafka.send(BILLING_TOPIC, "settlement:1", new PayoutCompletedEvent(nextId(), guest, PayoutType.NORMAL,
                 SettlementSourceType.APPEARANCE_REQUEST, appearanceId, 50_000L, AFTER_START));
-        kafka.send(BILLING_TOPIC, "settlement:2", new PayoutCompletedEvent(nextId(), guest, PayoutType.NORMAL,
-                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 9_000L, AFTER_START));
+        kafka.send(BILLING_TOPIC, "settlement:2", new PayoutCompletedEvent(lectureSettlement, guest,
+                PayoutType.NORMAL, SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 9_000L, AFTER_START));
+        // 같은 지급의 재전달은 다시 더하지 않는다(ND-032)
+        kafka.send(BILLING_TOPIC, "settlement:2", new PayoutCompletedEvent(lectureSettlement, guest,
+                PayoutType.NORMAL, SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 9_000L, AFTER_START));
+        // 강의 원천도 제목을 싣지만(#872) 묶음 문구에는 넣지 않는다(ND-104)
+        kafka.send(BILLING_TOPIC, "settlement:3", new PayoutCompletedEvent(nextId(), guest, PayoutType.NORMAL,
+                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 1_000L, AFTER_START.plusSeconds(60), "강의 제목"));
         awaitBillingProcessed();
 
-        assertThat(rows(guest)).singleElement().satisfies(row -> assertThat(row)
-                .containsEntry("kind", "PAYOUT_COMPLETED")
+        assertThat(rows(guest)).hasSize(2);
+        assertThat(rows(guest).getFirst()).containsEntry("kind", "PAYOUT_COMPLETED")
                 .containsEntry("target_type", "APPEARANCE")
-                .containsEntry("target_id", String.valueOf(appearanceId)));
-        assertThat(deadLetterKeys(BILLING_DLT)).doesNotContain("settlement:2");
+                .containsEntry("target_id", String.valueOf(appearanceId));
+        // AFTER_START는 KST 2026-11-11 10:00
+        assertThat(rows(guest).get(1)).containsEntry("kind", "PAYOUT_COMPLETED_DAILY")
+                .containsEntry("bundle_key", "2026-11-11")
+                .containsEntry("target_type", null)
+                .containsEntry("message", "11월 11일 강의 판매 수익 10,000 HP가 지급되었습니다. (2건)");
+        assertThat(deadLetterKeys(BILLING_DLT)).doesNotContain("settlement:2", "settlement:3");
+    }
+
+    @Test
+    void 알림_시작_시각보다_이른_강의_원천_지급은_묶음을_만들지_않는다() {
+        long seller = member(Role.INFLUENCER, UserStatus.ACTIVE);
+
+        kafka.send(BILLING_TOPIC, "settlement:early", new PayoutCompletedEvent(nextId(), seller, PayoutType.NORMAL,
+                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 9_000L, START_AT.minusSeconds(1)));
+        awaitBillingProcessed();
+
+        assertThat(rows(seller)).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from notification.notification_payout_item "
+                + "where receiver_user_id = ?", Integer.class, seller)).isZero();
     }
 
     @Test

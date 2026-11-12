@@ -33,7 +33,7 @@
 | Flyway `V202611091500__create_notification_schema.sql`: schema `notification`, 테이블 `notification.notification_user` 하나(ND-046). 나머지 테이블 셋은 없다 | `boundedContext/notification/src/main/resources/db/migration/` |
 | 회원 복제본: `NotificationUser`(shared `ReplicaUser` 상속), `NotificationUserSyncService`(가입은 없으면 생성·있으면 건너뜀, 변경은 없으면 그 정보로 생성(ND-049)·있으면 더 큰 버전만, 복제할 수 없는 정보는 `INVALID_MEMBER_EVENT`로 재시도 없이 DLT) | `.../domain/NotificationUser.java`, `.../app/NotificationUserSyncService.java` |
 | 회원 이벤트 소비자 `NotificationMemberEventListener`: 토픽 `member.events.v1`, 그룹 `auxiliary-app.notification-member-replica`(ND-047), `UserJoinedEvent`·`UserModifiedEvent`(복제본 + 가입 환영·승급 승인, 아래 N5 행)와 `UserMaskedEvent`(파기 닉네임, ND-051)를 처리하고 그 밖 종류·tombstone은 건너뛴다. Backfill을 기다리지 않는다(ND-080). `hapbang.notification.member-events.enabled`(기본 켜짐)로 켜고 끈다 | `.../in/event/NotificationMemberEventListener.java` |
-| 알림 생성(N5, #859): 초안 `AlertDrafts`(11종의 받는 사람·원본 대상 ID·이동 대상·값, 발생 시각은 이벤트 사건 시각이고 출연 요청 도착·회원 이벤트는 Kafka 레코드 timestamp, ND-073·ND-074·ND-081), 문구 `AlertTemplate`(enum 11개, 카탈로그 0.5, `NotificationTemplates`가 빈 템플릿과 함께 등록, ND-075), 저장 전 `AlertStartPolicy`(`hapbang.notification.alert.start-at` 필수, 이른 사건은 커밋만, ND-076). `NotificationAlertService`가 출연 2종은 받는 사람이 받을 수 있는 회원인지 먼저 보고, 언급 회원 닉네임을 복제본에서 읽어(없으면 재시도 가능한 `MENTIONED_NOT_REPLICATED`, 재시도 뒤 DLT, ND-091) 저장 서비스에 넘긴다. 강의 원천 지급은 건너뛴다(ND-013), 지급 제목은 없다(ND-070) | `.../app/AlertDrafts.java`, `AlertTemplate.java`, `AlertStartPolicy.java`, `NotificationAlertService.java` |
+| 알림 생성(N5, #859): 초안 `AlertDrafts`(11종의 받는 사람·원본 대상 ID·이동 대상·값, 발생 시각은 이벤트 사건 시각이고 출연 요청 도착·회원 이벤트는 Kafka 레코드 timestamp, ND-073·ND-074·ND-081), 문구 `AlertTemplate`(enum 11개, 카탈로그 0.5, `NotificationTemplates`가 빈 템플릿과 함께 등록, ND-075), 저장 전 `AlertStartPolicy`(`hapbang.notification.alert.start-at` 필수, 이른 사건은 커밋만, ND-076). `NotificationAlertService`가 출연 2종은 받는 사람이 받을 수 있는 회원인지 먼저 보고, 언급 회원 닉네임을 복제본에서 읽어(없으면 재시도 가능한 `MENTIONED_NOT_REPLICATED`, 재시도 뒤 DLT, ND-091) 저장 서비스에 넘긴다. 강의 원천 지급은 하루 묶음(N8)으로 넘긴다(ND-013), 지급 제목은 없다(ND-070) | `.../app/AlertDrafts.java`, `AlertTemplate.java`, `AlertStartPolicy.java`, `NotificationAlertService.java` |
 | 출연·지갑 소비자(N5): `NotificationAppearanceEventListener`(`appearance.events.v1`, 그룹 `auxiliary-app.notification-appearance-alert`, 출연 요청 도착·모집 지원 도착), `NotificationBillingEventListener`(`billing.events.v1`, `auxiliary-app.notification-billing-alert`, 지갑 7종). 그 밖 종류는 건너뛴다. DLT·재시도는 위 공통 설정, 컨테이너는 `autoStartup=false`. `hapbang.notification.{appearance,billing}-events.enabled`(기본 켜짐) | `.../in/event/Notification{Appearance,Billing}EventListener.java`, `.../in/event/kafka/NotificationKafkaConfig.java` |
 | 회원 알림(N5): `NotificationMemberAlertService`가 한 트랜잭션에서 반영 전 역할을 읽고 → 복제본 반영 → 가입 환영(항상, 받는 사람 정책·시작 시각으로 거름)·승급 승인(반영됨 + 이전 인플루언서 + 새 인증된 인플루언서, 원본 대상 `<회원 ID>:<버전>`)을 저장한다(ND-071·ND-080) | `.../app/NotificationMemberAlertService.java` |
 | 회원 복제본 Backfill(N5): `NotificationUserBackfillService`가 `NotificationMemberSource`(운영 `MemberApiNotificationMemberSource` → `MemberApiClient.getMembers`, 회원 API 주소가 있을 때만)를 키셋으로 마지막 페이지까지 읽고 회원마다 `upsertFromBackfill`(native `INSERT … ON CONFLICT DO UPDATE … WHERE masked_at IS NULL AND 버전 규칙`, 낙관적 락 버전 +1)로 반영한다. 복제할 수 없는 회원은 건너뜀(ID 기록), 장애는 예외(완료 아님). global `JobLock`(`NotificationJob.USER_BACKFILL` 859001)으로 하나만 돈다(못 잡으면 `BACKFILL_RUNNING` 409). 페이지 크기 `hapbang.notification.user-backfill.page-size`(기본 500). 지표 `hapbang.notification.user.backfill.runs{outcome}`·`.members{result}` (ND-077~ND-079) | `.../app/NotificationUserBackfillService.java`, `.../out/NotificationUserRepository.java`, `.../out/MemberApiNotificationMemberSource.java` |
@@ -41,7 +41,9 @@
 | 관리자 API(N5): `POST /api/v1/notifications/admin/user-replica/backfill`(202 `BackfillRun`), `GET …/backfill/{runId}`, `NotificationAdminFacade` `@PreAuthorize("hasRole('ADMIN')")` + global `SecurityConfig` `/api/v1/*/admin/**` ADMIN. 비동기(ND-092): 요청 스레드에서 `JobLock` 잡기(409) → `RedisBackfillRunStore`에 RUNNING(실패하면 잠금 풀고 503 `BACKFILL_STATUS_UNAVAILABLE`) → 가상 스레드에서 `runLocked`(페이지마다 갱신 시각) → COMPLETED(결과)·FAILED(`BACKFILL_FAILED`) 저장 → 잠금 해제. 조회는 RUNNING인데 5분 넘게 갱신이 없으면 UNKNOWN, 없으면 404 `BACKFILL_RUN_NOT_FOUND`. Redis 키 `<접두어>:backfill:run:<id>`, TTL 7일 | `.../in/ApiV1NotificationAdminController.java` |
 | 알림 시작 시각(ND-095): `AlertStartPolicy`가 빈을 만들 때(Kafka 소비자 시작 전) 정한다. 설정 `hapbang.notification.alert.start-at`이 있으면 그 값(`OffsetDateTime`으로 직접 읽고, 잘못되면 기동 실패), 없으면 `JdbcAlertStartStore`가 `notification.notification_runtime_setting`(Flyway `V202611111530`)에 키 `alert.start-at`으로 지금 시각을 `ON CONFLICT DO NOTHING` 기록한 뒤 다시 읽은 값. 운영 `application-prod.yaml`에는 값이 없고, `application-local.yaml`·모듈 테스트는 2000-01-01 | `.../app/AlertStartPolicy.java`, `.../out/JdbcAlertStartStore.java` | `apps/auxiliary-app/src/main/resources/application-{prod,local}.yaml` |
 | Kafka 소비·DLT 공통 설정(채팅 복사, ND-028): 블로킹 재시도 3회(1·2·4초, 상한 10초) 뒤 `<토픽>.<그룹>.DLT`, 역직렬화·검증 실패는 재시도 없이 DLT, DLT는 원본과 같은 partition 번호·3개·7일 보존으로 모듈이 선언, AckMode.RECORD, 동시성 1(U13 제안), `auto-offset-reset=earliest` | `.../in/event/kafka/NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}.java` |
-| Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID). 묶음 키 인덱스는 없다(N8) | `boundedContext/notification/src/main/resources/db/migration/` |
+| Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID) | `boundedContext/notification/src/main/resources/db/migration/` |
+| Flyway `V202611120950__create_notification_payout_item.sql`(N8, ND-103): `notification.notification_payout_item`(PK 지급 건 ID, 묶음 알림 ID FK, 받는 사람, 지급 HP CHECK >= 0, 지급 시각)과 `notification`의 묶음 유일 인덱스 `uk_notification_bundle`(종류, 받는 사람, 묶음 키; `bundle_key IS NOT NULL`만 조건이라 삭제된 행 포함) | `boundedContext/notification/src/main/resources/db/migration/` |
+| 하루 묶음(N8 #890, ND-032·ND-097·ND-101~ND-103): 지갑 리스너가 강의 원천 `PayoutCompletedEvent`를 `DailyPayout`(묶음 키 = `paidAt`의 KST 날짜 `yyyy-MM-dd`)으로 바꿔 `NotificationAlertService.dailyPayout`에 넘긴다(시작 시각 전이면 커밋만, ND-076). `NotificationWriter.addDailyPayout`이 한 트랜잭션에서 받는 사람 행 잠금(ND-053) → 받는 사람 확인 → 같은 지급이면 `DUPLICATE`(묶음 불변) → 그 날짜 묶음(삭제된 행 포함)이 없으면 만들고(`Notification.createBundle`, 원본 대상 ID·이동 대상 없음) 있으면 받는 사람의 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근 뒤(밀려날 행이 이 안에 있어 전체 읽음과 잠금 순서가 같다) 칸만 바꾸는 UPDATE로 합계·건수·문구·발생 시각(늦은 값)·안 읽음·되살림(`UPDATED`) → 지급 기록(`JdbcPayoutItemStore`) → 21번째부터 Soft Delete → commit 뒤 실시간 전달. 문구는 `PayoutDailyTemplate`(값 `v`·`date`·`totalPaidAmountHp`·`count`, ND-100) | `.../app/DailyPayout.java`, `.../app/PayoutDailyTemplate.java`, `.../app/NotificationWriter.java`, `.../app/PayoutItemStore.java`, `.../out/JdbcPayoutItemStore.java`, `.../out/NotificationRepository.java`, `.../in/event/NotificationBillingEventListener.java` |
 | 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴·정지·관리자 제외, ND-018·ND-072·ND-003. 결과 `SKIPPED_RECEIVER`) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate`)은 운영 코드에 아직 없다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
 | N6 변환·문구(#862): `AppearanceCancelRequestAlerts`·`LectureObjectionAlerts`가 출연 취소 요청 3종·이의 제기 결과 4종을 알림 초안으로 바꾼다(받는 사람, 원본 대상 ID ND-083, 이동 대상 ND-084, 발생 시각은 사건 시각, 필수 값이 비면 `IllegalArgumentException`). `AppearanceCancelRequestTemplates`·`LectureObjectionTemplates`(enum)가 값만으로 문구를 만들고(ND-085, 값 `v` 1, 취소 요청 도착은 게스트 `nicknames`) `NotificationTemplates`가 N5 템플릿과 함께 등록한다. `ObjectionLegacyFormat`이 원본 JSON의 #818 추가 필드 키로 이전 형식·판별 불가·지금 형식을 나눈다(ND-086) | `.../app/{AppearanceCancelRequest,LectureObjection}{Alerts,Templates}.java`, `.../app/NotificationTemplates.java`, `.../in/event/kafka/ObjectionLegacyFormat.java` |
 | N6 소비자(#862, ND-087·ND-096): 출연 취소 요청 3종은 `NotificationAppearanceEventListener`(N5 그룹 `auxiliary-app.notification-appearance-alert`)의 처리기다. 취소 요청 도착은 `NotificationAlertService.cancelRequested`가 시작 시각·받는 사람을 먼저 본 뒤 게스트 닉네임을 읽고, 수락·거절은 `create(draft)`다. 초안으로 바꿀 때 필수 값이 비면 `RejectedEventException`(재시도 없이 DLT, 저장 단계 오류는 그대로 재시도). 이의 제기 결과 4종은 `NotificationLectureEventListener`(`lecture.events.v1`, 그룹 `auxiliary-app.notification-lecture-alert`, DLT `<토픽>.<그룹>.DLT`)가 값을 바이트로 받아 `__TypeId__`가 없거나 신뢰 패키지(`com.hapbang.shared.lecture.event`) 밖이면 DLT, 패키지 안 다른 종류는 건너뛰고, 4종은 `ObjectionLegacyFormat`으로 이전 형식(로그는 종류마다 1·2·4…번째만 INFO, 지표 `hapbang.notification.alert.legacy.skipped` 뒤 커밋)·판별 불가(값 `null`, 일부 키 없음, JSON 객체가 아닌 본문 → DLT)·지금 형식(Jackson으로 레코드로 바꿔 `create`)을 나눈다. 강의 컨테이너도 `NotificationAlertListenerStarter`가 첫 Backfill 뒤에 시작한다 | `.../in/event/NotificationAppearanceEventListener.java`, `.../in/event/NotificationLectureEventListener.java`, `.../in/event/NotificationAlertListenerStarter.java`, `.../in/event/kafka/NotificationKafka{Config,ErrorHandlerConfig,TopicConfig,Constants}.java`, `.../app/NotificationAlertService.java` |
@@ -92,7 +94,7 @@
 | 파기된 회원의 닉네임(언급 회원 ID 칸 `bigint[]`·GIN, 값 속 닉네임 교체 뒤 문구 재생성, 멱등) | ND-036, ND-051 |
 | 파기 뒤 새로 저장되는 알림(복제본 파기 표시, 저장 때 파기된 언급 회원 닉네임 교체, 회원 단위 advisory lock으로 순서) | ND-054 |
 | 발생 시각 정렬 | ND-021 |
-| 최신 20개 보존, Soft Delete | ND-022 (묶음과 겹침 U9) |
+| 최신 20개 보존, Soft Delete | ND-022 (밀려난 묶음 되살림 ND-097) |
 | 보존 동시성(받는 사람 `notification_user` 행 비관적 락으로 받는 사람별 저장 직렬화) | ND-053 |
 | 같은 알림 행의 동시 쓰기(아래 "동시성 설계") | ND-022, ND-051, ND-053, ND-054, #801 PR 리뷰 |
 | N6 이의 제기 결과에서 #818 추가 필드가 빠진 이벤트(키가 모두 없으면 건너뜀·커밋, 값이 `null`이거나 일부만 없으면 DLT) | ND-086 |
@@ -109,8 +111,9 @@
 | 읽음 | `read_at` | `id·받는 사람·deleted_at is null·read_at is null` 조건 UPDATE, 바뀐 건수 반환. 0건이면 새로 조회해 이미 읽음(200)과 남의·없는·밀려난 알림(404)을 가른다 |
 | 전체 읽음 | `read_at` | 보이고 안 읽은 행을 ID 오름차순 `FOR UPDATE` → 같은 조건 UPDATE, 바뀐 건수 반환 |
 | 파기 | `payload`·`message` | 그 회원이 언급된 행을 ID 오름차순 `FOR UPDATE`로 가져와 잠금 뒤의 최신 값에서 바꾼다. 이 트랜잭션은 알림 엔티티를 미리 불러오지 않아 영속성 컨텍스트에 오래된 엔티티가 없다. `@DynamicUpdate`로 바뀐 칸만 쓴다 |
+| 하루 묶음 갱신·되살림(N8, ND-103) | `payload`·`message`·`occurred_at`·`read_at`·`deleted_at` | 받는 사람 행 잠금 뒤, 받는 사람의 보이는 알림과 묶음 행을 한 번에 ID 오름차순 `FOR UPDATE` → 잠금 뒤 값으로 새 값을 만들어 조건 없는 UPDATE. 이어지는 보존 정리가 밀어낼 행은 이 잠금 집합 안에 있어 다시 기다리지 않는다 |
 
-- 잠금 획득 순서(모든 경로 공통): 회원 advisory lock(ND-054, 저장은 언급 회원 공유·ID 순, 파기는 배타) → 회원 복제본 행(저장은 받는 사람, 파기는 그 회원) → 알림 행(ID 오름차순). 알림 행을 잡은 뒤에는 회원 잠금·복제본 행을 잡지 않는다. 그래서 교착 상태가 생기지 않는다.
+- 잠금 획득 순서(모든 경로 공통): 회원 advisory lock(ND-054, 저장은 언급 회원 공유·ID 순, 파기는 배타) → 회원 복제본 행(저장은 받는 사람, 파기는 그 회원) → 알림 행(ID 오름차순). 알림 행을 잡은 뒤에는 회원 잠금·복제본 행을 잡지 않는다. 그래서 교착 상태가 생기지 않는다. 하루 묶음은 묶음 행만 먼저 잡고 보존 정리에서 더 작은 ID를 잡으면 이 순서가 깨지므로, 보이는 알림과 묶음 행을 함께 잡는다(#890 리뷰. 그 전 코드도 밀어냄이 일어나는 경우에는 묶음 행이 전체 읽음의 잠금 대상이 아니어서 교착에 이르지 않았다).
 - `@DynamicUpdate`만으로는 같은 칸을 쓰는 파기끼리(한 알림에 B·C가 함께 언급)의 덮어쓰기를 막지 못한다. 행 잠금을 빼면 그 경합 테스트가 실패하는 것을 확인했다(regression-log NR-015).
 | REST 권한·오류(회원용 알림 API는 세 역할만, 관리자 403. 남의·없는·밀려난 알림 읽음 404 `NOTIFICATION_NOT_FOUND`, 다시 읽음 200) | ND-052, ND-079 |
 | Backfill 관리자 재실행 API(`ADMIN`만) | ND-079 |
@@ -121,7 +124,7 @@
 | 채팅 코드 복사(연결 티켓, Pub/Sub, Kafka·DLT, 유일 인덱스) | ND-028 |
 | 예약 알림·예약 배치 | ND-029~031 (운영 시간 U6) |
 | 예약보다 먼저 온 취소(취소 상태 행을 먼저 남김) | ND-034 (짝 키는 [이벤트 계약 요청](event-contracts.md) 0.3, 발행 구현 뒤 확인은 U16) |
-| 하루 묶음 | ND-032 |
+| 하루 묶음 | ND-032, ND-097(되살림), ND-098(종류 코드), ND-100·ND-104(문구, 제목 없음), ND-101(발생 시각), ND-102(이동 대상 없음) |
 
 ### 3.3 처리 흐름 (설계, 미구현)
 
@@ -280,13 +283,12 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | --- | --- | --- |
 | U5 | N5 밖의 이미 발행 중인 이벤트의 원본 대상 ID 필드(원칙은 ND-033·ND-045, N5는 ND-073) | 각 이벤트 소비 작업(N6 이후)의 유일 인덱스 값 |
 | U6 / T5 | EC2 운영 시간과 예약 배치 | 예약 배치 |
-| U9 | 하루 묶음과 20개 보존 겹침 | 하루 묶음 |
 | U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유). N1은 지금 값 유지·소비자 동시성 1(2026-11-09 인프라 담당 확인). N3는 예산 유지·연결 수 상한 없음·연결 수 단계별 측정(알림 담당 제안, 확정 전). N4는 상한 없이 운영에 열고 관측(ND-066) | N3·N10 자원 산정 |
 | U14 | WebSocket 경로 Gateway 시간 제한. 알림 쪽은 ND-062·ND-063, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
 | U15 | Gateway `claimToHeaders`에 `exp` 추가. 알림 쪽은 ND-055·ND-056·ND-064, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
 | U3 | N5 밖 종류별 실제 문구(원칙은 ND-039·ND-050, N5는 ND-075) | 각 종류를 소비하는 작업(N6 이후) |
 | U2 / T3 | P0 완료 기준 | 작업 계획 |
-| U11, U12 | 규칙 밖 종류 코드(승급 승인은 ND-071), 채팅과 동시 표시(화면, FE 안건) | 해당 알림 생성(하루 묶음·예약), FE |
+| U11, U12 | 규칙 밖 종류 코드(승급 승인은 ND-071, 하루 묶음은 ND-098, 남은 것은 예약 5종), 채팅과 동시 표시(화면, FE 안건) | 예약 알림 생성, FE |
 | T8 | chat-app 불변식과 ND-004의 방향 차이 | 채팅 소유, 이 모듈 구조에는 영향 없음 |
 | U16 | 발행 구현 뒤 생성·취소 이벤트가 짝 키(event-contracts 0.3)를 주는지 예약 알림별 확인(처리 방향은 ND-034, `NT-SCH-06`) | 예약 알림별 소비 작업 |
 | U19 | 구조는 ND-051로 정했다. 남은 것은 구현 가능성 검증(`NT-USR-07`) | 알림 저장(N2, #801) 구현 |
@@ -296,6 +298,8 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 날짜 | 내용 |
 | --- | --- |
 | 2026-11-06 | 처음 작성(e054d6f6 기준). As-Is는 코드·설정 파일로 확인 |
+| 2026-11-12 | ND-097~ND-102 반영(N8 사전 결정, #890): 3.2 보존·하루 묶음 행을 결정 참조로, 6장에서 U9를 지우고 U11 행을 예약 5종으로 고쳤다 |
+| 2026-11-12 | N8 구현(#890, ND-103): 2장에 지급 항목 Flyway·하루 묶음 행을 더하고, 알림 생성 행의 강의 원천 서술과 N2 Flyway 행의 "묶음 키 인덱스 없음"을 고쳤다 |
 | 2026-11-11 | ND-069~ND-081 반영(N5 사전 결정, #859): 3.1 첫 배포 순서, 3.2 받는 사람·복제본·중복·문구·이동 대상·알림 시작 시각·REST 권한 행, 3.5 회원 정보, 5.4를 확정 To-Be로 고쳤다. 6장에서 U7·U8·U17을 지우고 U3·U5·U11·U12에 결정 범위를 적었다 |
 | 2026-11-11 | N6 A단계 구현(#862): 2장에 변환·문구·이전 형식 판별 코드(소비 연결 전) 행을 더했다 |
 | 2026-11-11 | ND-086·ND-087 반영(N6 사전 결정, #862): 3.2에 #818 추가 필드 판별과 N5 리스너 재사용 행을 더하고, 5.2 M1 행을 #817 발행으로 고쳤다 |

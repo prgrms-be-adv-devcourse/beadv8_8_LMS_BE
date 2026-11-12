@@ -36,13 +36,14 @@ class NotificationModuleIntegrationTest {
     }
 
     @Test
-    @DisplayName("테이블은 처음 쓰는 작업에서 만든다: N5까지 알림, 운영 설정(ND-095), 회원 복제본 셋이다(ND-046)")
+    @DisplayName("테이블은 처음 쓰는 작업에서 만든다: N8까지 알림, 지급 항목(ND-103), 운영 설정(ND-095), 회원 복제본 넷이다(ND-046)")
     void tablesSoFar() {
         List<String> tables = jdbcTemplate.queryForList(
                 "select table_name from information_schema.tables where table_schema = 'notification' order by table_name",
                 String.class);
 
-        assertThat(tables).containsExactly("notification", "notification_runtime_setting", "notification_user");
+        assertThat(tables).containsExactly("notification", "notification_payout_item", "notification_runtime_setting",
+                "notification_user");
     }
 
     /**
