@@ -184,7 +184,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | 환전 승인 | 정산일 필드는 없고 `Exchange.approve`가 `payoutScheduledAt`(`Instant`)을 정한다 | `payoutScheduledAt` |
 | 채널 인증 2종 | 같은 채널로 반려 → `InfluencerChannel.requestApproval` 재요청이 반복되고 심사 이력이 없다. 자동 승인은 `verifiedBy`가 없다 | 심사 회차(ND-045) |
 | 승급 반려 | `InfluencerUpgradeRequest`는 신청 1건이 1행이다 | 승급 신청 ID |
-| 답변 2종 | 문의(`Inquiry`) 하나에 답변이 여러 개 달린다. `InquiryReply.edit`는 횟수 제한·이력이 없다 | 답변 ID, 수정 회차(ND-045) |
+| 답변 2종 | 문의(`Inquiry`) 하나에 답변이 여러 개 달린다. `InquiryReply.edit`는 횟수 제한·이력이 없다 | 답변 ID. 답변 수정은 발행하지 않아 수정 회차를 두지 않는다(#875, 5장) |
 | 접수 불가 | 문의마다 한 번이다 | 문의 ID |
 | 채팅 3종 | 단체방은 `ChatRoom`(Long id). 초대 요청 기록은 방별 `requestId`가 유일하나 보존 기간 뒤 재사용 가능. 강퇴 기록 ID는 없고 재초대 뒤 다시 강퇴될 수 있다(`participationVersion`). 폐쇄는 한 번이고 안내 대상에 호스트가 포함된다. Kafka 발행 코드가 없다 | 위 6장 |
 
