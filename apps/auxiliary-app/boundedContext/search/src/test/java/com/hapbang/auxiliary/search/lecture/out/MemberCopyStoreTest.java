@@ -57,18 +57,27 @@ class MemberCopyStoreTest {
 
         assertThat(store.apply(new UserDto(7L, "강사", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L,
                 List.of("GAME"), "자기소개"), NOW)).isEmpty();
-        // version이 2로 올랐으므로 version 2의 다른 값은 옛 이벤트로 버린다
-        assertThat(store.apply(user(7L, "다른", UserStatus.ACTIVE, 2L), NOW)).isEmpty();
         assertThat(store.findSeller(7L)).contains(new Seller(7L, "강사", true));
     }
 
     @Test
-    @DisplayName("순서가 뒤바뀌어 늦게 온 옛 version과 같은 이벤트 두 번은 아무것도 바꾸지 않는다")
-    void staleOrDuplicate() {
+    @DisplayName("순서가 뒤바뀌어 늦게 온 옛 version은 아무것도 바꾸지 않고 비어 있다")
+    void stale() {
         store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW);
 
         assertThat(store.apply(user(7L, "옛닉네임", UserStatus.ACTIVE, 4L), NOW)).isEmpty();
-        assertThat(store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW)).isEmpty();
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false));
+    }
+
+    @Test
+    @DisplayName("같은 version을 다시 받으면(재시도·중복) 사본은 그대로 두고 사본의 판매자 정보를 다시 돌려준다(강의 문서를 다시 맞추게)")
+    void sameVersionAgain() {
+        store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW);
+
+        assertThat(store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW))
+                .contains(new Seller(7L, "정지된", false));
+        assertThat(store.apply(user(7L, "같은버전다른값", UserStatus.ACTIVE, 5L), NOW))
+                .contains(new Seller(7L, "정지된", false));
         assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false));
     }
 

@@ -58,9 +58,12 @@ public class MemberCopyStore {
 
     /**
      * 회원 정보를 사본에 반영한다.
+     * <p>
+     * 사본은 이 메서드가 끝나면 커밋된다. 그 뒤 강의 문서 쓰기가 실패해 같은 이벤트를 다시 받으면 사본은 이미 그 version이다. 그래서 <b>같은 version이
+     * 다시 오면 사본의 판매자 정보를 다시 돌려준다</b>. 부르는 쪽이 강의 문서를 다시 맞추게 한다(값이 같으면 문서 쓰기는 noop이다).
      *
-     * @return 강의 문서에 넣는 판매자 정보(닉네임·상태)가 바뀌었으면(처음 넣은 회원 포함) 바뀐 뒤의 판매자 정보. 옛 version이거나 닉네임·상태가 같으면
-     * 비어 있다(강의 문서를 고칠 일이 없다)
+     * @return 강의 문서에 반영할 판매자 정보. 닉네임·상태가 바뀌었거나(처음 넣은 회원 포함) 같은 version을 다시 받았으면 사본의 판매자 정보. 옛
+     * version이거나, 더 새 version인데 닉네임·상태가 같으면 비어 있다(강의 문서를 고칠 일이 없다)
      * @throws NullPointerException 회원 ID·상태가 없는 경우
      */
     @Transactional
@@ -81,6 +84,9 @@ public class MemberCopyStore {
                 rs.getString("nickname"),
                 rs.getString("status"),
                 rs.getObject("version", Long.class)));
+        if (user.version() != null && user.version().equals(stored.version())) {
+            return Optional.of(new Seller(user.id(), stored.nickname(), isActive(stored.status())));
+        }
         if (!isNewer(user.version(), stored.version())) {
             return Optional.empty();
         }
