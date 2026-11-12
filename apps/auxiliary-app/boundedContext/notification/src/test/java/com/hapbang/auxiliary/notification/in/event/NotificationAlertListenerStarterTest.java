@@ -67,7 +67,7 @@ class NotificationAlertListenerStarterTest {
 
     @Test
     void 회원_API_장애_동안_알림_소비자만_멈추고_회복하면_Backfill을_마친_뒤_시작한다(CapturedOutput output) {
-        // 기동 직후부터 계속 실패하는 중: 다시 시도하는 동안 출연·지갑·강의 소비자는 멈춰 있다
+        // 기동 직후부터 계속 실패하는 중: 다시 시도하는 동안 출연·지갑·강의·고객센터 소비자는 멈춰 있다
         await().atMost(Duration.ofSeconds(30)).until(() -> source.calls() >= 3);
         // 실패가 기준 시간을 넘으면 사람이 봐야 하므로 alert 표식을 붙인 ERROR를 남긴다(docs/dev/logging.md)
         await().atMost(Duration.ofSeconds(30))

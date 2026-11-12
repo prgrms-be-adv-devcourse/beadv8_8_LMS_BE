@@ -78,7 +78,7 @@ public final class NotificationKafkaConstants {
 
     // DLT
 
-    /** 원본과 같은 partition 수(회원·출연·지갑·강의 토픽 모두 3개). 원본과 같은 partition 번호로 보낸다 */
+    /** 원본과 같은 partition 수(회원·출연·지갑·강의·고객센터 토픽 모두 3개). 원본과 같은 partition 번호로 보낸다 */
     public static final int DEAD_LETTER_PARTITIONS = 3;
     /** 브로커가 1대라 1이다 */
     public static final short DEAD_LETTER_REPLICAS = 1;
