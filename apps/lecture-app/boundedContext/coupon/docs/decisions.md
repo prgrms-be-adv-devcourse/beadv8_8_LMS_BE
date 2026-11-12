@@ -87,6 +87,17 @@
 - 초기 충전/수익 데이터는 billing 소유 테스트 fixture로 준비하며 외부 PG 승인·회원 가입 검증은 포함하지 않는다. 업무 응답과 금융 결과는 가공하지 않는다. 실제 잔액/지갑/멱등 상태, 연결 단절·응답 유실, 호출 순서 제어로 거절·불명·경쟁을 검증한다.
 - 기존 도메인·어댑터 응답 분류 단위 테스트는 유지한다. 운영 jar에 fixture를 넣거나 강의 테스트에 billing Java 의존을 추가하지 않는다. 자세한 실행·정리 경계는 operations.md와 레포 docs/dev/testing.md를 따른다.
 
+## 운영 선착순 접수 경로 개선 (2026-11-12, #896)
+
+운영 Q41 측정(2026-11-11)이 불합격했다(접수 p95 2.98·2.39·1.45 s, 2·3회차 503 1% 초과, 정합성은 통과). 진단은 CPU 용량 대비 건당 CPU 비용이다(lecture-app 노드 vCPU 2개, 건당 약 8~10 ms, 요청 스레드가 Redis 응답·Kafka ACK를 오래 기다림). 근거는 `reports/q41-prod-race-20261111.md`.
+
+- **운영 인프라·측정 방식은 바꾸지 않는다(사용자 결정).** 노드·자원·Envoy·Redis 배치, `issue-race.js`(1,000명 동시·재고 100, 접수 p95 ≤ 500 ms, 5xx < 1%)는 그대로다. lecture-app 코드·앱 설정만 고친다. Tomcat 스레드 수, Redis 명령 제한 시간, invariant(I1~I10)는 바꾸지 않았다.
+- **Tomcat `server.tomcat.accept-count` 1024.** 기본 100이면 연결 1,000개가 몰릴 때 대기열이 넘쳐 SYN 재전송으로 약 1초가 더해졌다. 커널 `somaxconn`보다 크면 커널 값으로 줄어든다.
+- **접수 직후 Kafka 전송의 ACK를 기다리지 않는다.** 응답은 전과 같이 전송 결과와 무관하게 ACCEPTED이고 재고를 되돌리지 않는다. 결과는 완료 콜백이 실패 지표·로그로만 남긴다. 요청 스레드는 전송 준비(`max.block.ms` = `publish-ack-timeout`)만 기다릴 수 있다. 접수 직후 전송 하나도 `max.block.ms` + `delivery.timeout.ms` 안에 끝나므로 복구 경계 대기(`publish-ack-timeout` + max(`producer-delivery-timeout`, `republish.ack-timeout`) + 여유)는 그대로 성립한다.
+- **접수 직후 PUBLISHED 표식 쓰기를 지운다**(`markPublished`, `mark-published.lua`). 재발행·보상·재응답 어느 판정도 이 표식을 읽지 않았고, 접수 1건의 Redis 왕복을 하나 줄인다. 복구 재구축은 DB 결과가 있는 요청에 계속 붙이고 그 전 기록에도 남아 있으므로 requests 값 형식은 그대로 읽는다.
+- **매진 빠른 경로 필터를 Spring Security 앞에 둔다.** HTTP 서버 관측 필터(`HIGHEST_PRECEDENCE + 1`) 뒤, Security(-100) 앞(`HIGHEST_PRECEDENCE + 10`)의 서블릿 필터가 발급 접수이고 Gateway 사용자 헤더가 발급 가능한 회원이면 매진 캐시를 보고, 매진이면 예외 처리기와 같은 409 `COUPON_SOLD_OUT`을 바로 쓴다. 최종 판정은 지금처럼 Lua다. 바뀌는 점: 매진 쿠폰에 형식이 틀린 요청 ID를 보내도 400이 아니라 409이고, 이 응답에는 MDC `userId`가 없다(필터는 로그를 남기지 않고 건수는 `coupon.issue.sold_out`이 센다). `http_server_requests`의 uri 태그는 정상 경로와 같다.
+- 로컬 측정(lecture-app CPU 2개 제한, trace 100%, n=2~3, 정합성 13회 모두 통과): 클라이언트 접수 p95 1,025 ms → accept-count만 559 ms(ListenOverflows 64~791 → 0) → accept-count + 매진 필터 138 ms → 셋 모두 146 ms. 매진 409 한 건 CPU 1.05~1.35 → 0.53~0.59 ms, 요청당 CPU 1.95 → 1.25 ms. ACK 대기 제거는 로컬 클라이언트 p95를 더 줄이지 않았지만(차이는 측정 편차 안) 서버 접수(202) 평균을 40 → 22 ms, p95를 97 → 69 ms로 줄였고, 운영처럼 broker 응답이 느릴 때 요청 스레드가 묶이지 않게 한다. 로컬 값이라 운영 통과를 보장하지 않는다. 판정은 배포 뒤 운영 재측정(같은 방식)이다.
+
 ## 구현 순서와 담당 경계
 
 1. 정책·API 계약: 위 업무 결정을 확정하고 billing 계약을 연결한다. 공통 AGENTS·용어·정책·DB 문서에 스키마 예외와 공개 API 호출 경계를 반영한다.
