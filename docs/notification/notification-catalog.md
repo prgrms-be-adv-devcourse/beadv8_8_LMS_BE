@@ -21,6 +21,7 @@
 > - 2026-11-10 #818(강의 담당): 이의 제기 4종 행의 이벤트 계약 상태 칸에 값 추가 사실을 덧붙였다. 2026-11-06 판정은 그대로 두었다.
 > - 2026-11-11 decisions.md ND-082~ND-087 반영(#862): N6 7종 행의 이동 대상(ND-084)·원본 대상 ID(ND-083)를 채우고, 0.6에 N6 문구(ND-085)를 더했다. 출연 취소 요청 3종 행에 #817 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.5(N5 11종 문구)는 N5(#859)가 더한다.
 > - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): 1.1 종류 코드 칸, `PAYOUT_COMPLETED_DAILY` 행의 이동 대상(ND-102)·관련 ND·미결 칸, 8장(발생 시각·밀려난 묶음·문구·종류 코드 행), 9장 U11 행을 고쳤다. 2026-11-06 판정은 그대로 둔다. 같은 날 N8 구현 때 8장에 확정 문구와 저장 행(ND-103)을 더했다.
+> - 2026-11-12 decisions.md ND-105~ND-108 반영(N7 지갑 묶음, #907): 지갑 4종 행의 이동 대상(ND-107)·원본 대상 ID(ND-106)·관련 ND를 채우고 #873 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.7에 지갑 4종 문구(ND-108)를 더했다.
 
 ## 0. 읽는 법
 
@@ -70,7 +71,7 @@
 - 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본은 회원 목록 내부 API Backfill로 채우고, 알림을 만드는 소비자는 첫 Backfill 뒤 시작한다(ND-077·ND-078, `NT-USR-06`).
 - 업무 시각이 알림 시작 시각보다 이른 사건은 알림을 만들지 않는다(ND-076, `NT-KAF-04`). 운영의 알림 시작 시각은 앱이 처음 뜬 시각이다(ND-095).
 - 같은 이벤트를 다시 받아도 한 번만 만든다(ND-019).
-- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), 나머지는 미정(U3).
+- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
 - 다른 회원의 닉네임이 들어간 문구·값은 그 회원이 파기되면 바꾼다(ND-036, `NT-USR-07`). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구를 다시 만든다(ND-051).
 - 목록은 이벤트의 업무 시각으로 정렬한다(ND-021). 사건 시각 필드가 없는 `AppearanceRequestSentEvent`·`UserJoinedEvent`·`UserModifiedEvent`는 Kafka 레코드 timestamp를 대체 시각으로 쓰며, 원래 사건 시각과 같다고 보장하지 않는다(ND-081).
 - 관리자는 알림센터 알림을 받지 않는다(ND-003).
@@ -121,6 +122,17 @@
 | `LECTURE_OBJECTION_RETURN_COMPLETED` | 구매자 | '{강의 제목}' 이의 제기 HP 반환이 완료되었습니다. |
 | `LECTURE_OBJECTION_WITHDRAWN` | 판매자 | '{강의 제목}' 이의 제기가 철회되었습니다. |
 | `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 구매자 | '{강의 제목}' HP 반환이 늦어지고 있습니다. 완료되면 다시 알려 드립니다. |
+
+### 0.7 문구 (N7 지갑 4종, ND-108)
+
+시각은 KST, 금액은 천 단위 쉼표다(0.5와 같다). 다른 회원의 닉네임은 넣지 않는다.
+
+| 종류 코드 | 문구 |
+| --- | --- |
+| `CHARGE_FAILED` | {충전 HP} HP 충전에 실패했습니다. (`amountHp`) |
+| `REFUND_FAILED` | {요청 HP} HP 환불에 실패했습니다. 신청한 HP는 지갑으로 돌아왔습니다. (`requestedAmountHp`) |
+| `REFUND_MANUAL_REVIEW_REQUIRED` | {요청 HP} HP 환불은 운영자 확인이 필요해 처리가 늦어지고 있습니다. (`requestedAmountHp`) |
+| `EXCHANGE_APPROVED` | {신청 HP} HP 환전 신청이 승인되었습니다. {M월 d일}에 송금됩니다. (`requestedAmountHp`, 날짜는 `payoutScheduledAt`의 KST 날짜) |
 
 ## 1. 출연 (15종)
 
@@ -196,13 +208,13 @@
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CHARGE_COMPLETED` | 충전 완료 | 충전한 회원 | `ChargeCompletedEvent` | 충전 완료 | — | `CHARGE` / `chargeId`(ND-074) | `chargeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-charge:<충전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
-| `CHARGE_FAILED` | 충전 실패 | 충전한 회원 | `ChargeFailedEvent` | 충전 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ChargeProcessing` 70행 근처). 본보기는 기존 7종(`BillingEventPublisher` 39~81행) | — | 요청 값 3.1 |
+| `CHARGE_FAILED` | 충전 실패 | 충전한 회원 | `ChargeFailedEvent` | 충전 실패 | — | `CHARGE` / `chargeId`(ND-107) | `chargeId`(ND-106) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ChargeProcessing` 70행 근처). 본보기는 기존 7종(`BillingEventPublisher` 39~81행) / 2026-11-12 #873(M5)으로 발행(`@Externalized`, key `point-charge:<충전 ID>`, `userId`·`amountHp`·`failedAt`) | ND-105 | 요청 값 3.1 |
 | `REFUND_COMPLETED` | 환불 완료 (전부·일부) | 신청한 회원 | `RefundCompletedEvent` | 환불 완료(전부 또는 일부) | — | `REFUND_REQUEST` / `refundRequestId`(ND-074) | `refundRequestId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `point-refund-request:<환불 요청 ID>`), `userId`·`fullyRefunded()` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | — | |
-| `REFUND_FAILED` | 환불 실패 | 신청한 회원 | `RefundFailedEvent` | 환불 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) | — | 요청 값 3.1 |
-| `REFUND_MANUAL_REVIEW_REQUIRED` | 환불 운영자 확인 필요 | 신청한 회원 | `RefundManualReviewRequiredEvent` | 환불이 운영자 확인 필요 상태가 됨 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) | — | 요청 값 3.1 |
+| `REFUND_FAILED` | 환불 실패 | 신청한 회원 | `RefundFailedEvent` | 환불 실패(환불한 금액 없이 끝남. 일부 환불은 `REFUND_COMPLETED`) | — | `REFUND_REQUEST` / `refundRequestId`(ND-107) | `refundRequestId`(ND-106) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) / 2026-11-12 #873(M5)으로 발행(`@Externalized`, key `point-refund-request:<환불 요청 ID>`, `userId`·`requestedAmountHp`·`failedAt`) | ND-105 | 요청 값 3.1 |
+| `REFUND_MANUAL_REVIEW_REQUIRED` | 환불 운영자 확인 필요 | 신청한 회원 | `RefundManualReviewRequiredEvent` | 환불이 운영자 확인 필요 상태가 됨 | — | `REFUND_REQUEST` / `refundRequestId`(ND-107) | `refundRequestId`(ND-106) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`RefundProcessing` 192·231·277행 근처) / 2026-11-12 #873(M5)으로 발행(`@Externalized`, key `point-refund-request:<환불 요청 ID>`, `userId`·`requestedAmountHp`·`manualReviewRequiredAt`) | ND-105 | 요청 값 3.1 |
 | `PAYOUT_COMPLETED` | 지급 완료 (출연료, 위약금) | 게스트 | `PayoutCompletedEvent` | `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE` 지급 완료(`payoutType` `NORMAL`·`PENALTY`). 한 건씩 보낸다 | `sourceType`이 `LECTURE_ORDER_ITEM`일 때(`PAYOUT_COMPLETED_DAILY`로 보낸다) | `APPEARANCE` / `sourceId`(출연 ID, 원천이 요청·모집 모두, ND-074) | `settlementId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `settlement:<지급 건 ID>`), `receiverUserId`·`payoutType`·`sourceType`·`sourceId` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-040 | — |
 | `EXCHANGE_REJECTED` | 환전 거절 | 신청한 회원 | `ExchangeRejectedEvent` | 환전 거절 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
-| `EXCHANGE_APPROVED` | 환전 승인 (정산일) | 신청한 회원 | `ExchangeApprovedEvent` | 환전 승인 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ExchangeReviewUseCase` 54~71행 근처) | ND-021 | 요청 값 3.1 |
+| `EXCHANGE_APPROVED` | 환전 승인 (정산일) | 신청한 회원 | `ExchangeApprovedEvent` | 환전 승인 | — | `EXCHANGE` / `exchangeId`(ND-107) | `exchangeId`(ND-106) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ExchangeReviewUseCase` 54~71행 근처) / 2026-11-12 #873(M5)으로 발행(`@Externalized`, key `exchange:<환전 ID>`, `userId`·`requestedAmountHp`·`payoutScheduledAt`·`approvedAt`) | ND-021, ND-105 | 요청 값 3.1 |
 | `EXCHANGE_COMPLETED` | 환전 송금 완료 | 신청한 회원 | `ExchangeCompletedEvent` | 환전 송금 완료 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
 | `EXCHANGE_PAYOUT_FAILED` | 환전 송금 실패 (지연) | 신청한 회원 | `ExchangePayoutFailedEvent` | 환전 송금 실패(지연) | — | `EXCHANGE` / `exchangeId`(ND-074) | `payoutAttemptId`(ND-073, ND-033) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId`·`payoutAttemptId`·`attemptNo` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음. 원본 대상 ID는 U5 | ND-021 | 한 환전에서 여러 번 난다. 환전 ID를 원본 대상 ID로 쓰면 두 번째 실패가 막힌다(U5) |
 | `EXCHANGE_FINAL_FAILED` | 환전 최종 실패 (보류 HP 반환) | 신청한 회원 | `ExchangeFinalFailedEvent` | 환전 최종 실패, 보류 HP 반환 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
@@ -314,8 +326,8 @@
 
 | ID | 질문 |
 | --- | --- |
-| U3 | N5 11종 밖의 종류별 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075) |
-| U5 | N5 밖의 이미 발행 중인 이벤트의 원본 대상 ID 필드(N5는 ND-073. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
+| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108) |
+| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
 | U11 | 규칙 밖 종류 코드 중 예약 5종(승급 승인은 ND-071, 하루 묶음은 ND-098, 단체방 3종 이름은 ND-043) |
 | U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |
 | U16 | 예약 알림별로 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 계약 검증(처리 방향은 ND-034) |

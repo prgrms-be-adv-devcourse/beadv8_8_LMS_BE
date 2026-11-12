@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-055 · 2026-11-12 · 통과 (N7 지갑 4종 #907)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-055 |
+| 실행 날짜 | 1차 2026-11-12 12시 30분대(약 9분), 2차 12:45~12:48, 3차 13:43~13:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | origin/dev `973ccbe5`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts`·`WalletAlertTemplates` 추가, `NotificationTemplates` 등록, `NotificationBillingEventListener` 처리기 4개. 시험 `WalletAlertsTest`(6)·`NotificationWalletAlertTest`(4). 2차는 1차 뒤 찾은 결함(변환 검증 실패가 재시도됨)을 `RejectedEventException`으로 바꾸고 `NotificationBillingEventListenerTest`(1)와 Kafka 필수 값 DLT 시험(1)을 더한 뒤. 3차는 S6 리뷰 반영으로 Kafka 건너뜀 시험에 탈퇴 회원을 더한 뒤 |
+| 대상 기능 | N7 지갑 4종 알림(충전 실패·환불 실패·환불 운영자 확인 필요·환전 승인) |
+| 관련 NT ID | NT-GEN-19, NT-GEN-10·15(지갑 4종) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차·3차 모두 통과(종료 코드 0). 1차는 모든 시험 태스크 새로 실행. 2차는 `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`만 새로 실행했고 `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(1차 결과). 3차는 `:notification:test`·`verifyModuleStructure`만 새로 실행(나머지 `UP-TO-DATE`) |
+| 건수 | 1차 `:notification` 241, 2차·3차 `:notification` 243. `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174(1차). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음. TDD RED 확인(단위: 클래스 없음 컴파일 오류, Kafka: 알림 0건 3건 실패, 리스너: `IllegalArgumentException`)은 이 기록 밖 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 |
+
 #### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
 
 | 항목 | 값 |
