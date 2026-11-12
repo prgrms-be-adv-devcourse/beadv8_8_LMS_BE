@@ -246,8 +246,7 @@ class NotificationChatAlertTest {
 
         kafka.send(CHAT_TOPIC, String.valueOf(room), event);
 
-        ConsumerRecord<String, byte[]> deadLetter = new MemberEventKafka(bootstrapServers, CHAT_TOPIC)
-                .awaitDeadLetter(CHAT_DLT, String.valueOf(room));
+        ConsumerRecord<String, byte[]> deadLetter = awaitDeadLetter(String.valueOf(room));
         // 일시적일 수 있는 오류라 처음 처리 + 재시도 3회를 거친 뒤에 DLT로 갔다(검증 실패와 다르다)
         assertThat(exceptionClasses(deadLetter)).contains("NotificationException")
                 .doesNotContain("RejectedEventException");
@@ -274,12 +273,9 @@ class NotificationChatAlertTest {
                 nextId(), user, 1, AFTER_START));
         kafka.send(CHAT_TOPIC, String.valueOf(emptyRoom), closed(emptyRoom, nextId(), List.of()));
 
-        MemberEventKafka dlt = new MemberEventKafka(bootstrapServers, CHAT_TOPIC);
         // 다시 해도 같은 결과라 바로 DLT로 간다(재시도하지 않는 예외)
-        assertThat(exceptionClasses(dlt.awaitDeadLetter(CHAT_DLT, String.valueOf(noTitleRoom))))
-                .contains("RejectedEventException");
-        assertThat(exceptionClasses(dlt.awaitDeadLetter(CHAT_DLT, String.valueOf(emptyRoom))))
-                .contains("RejectedEventException");
+        assertThat(exceptionClasses(awaitDeadLetter(String.valueOf(noTitleRoom)))).contains("RejectedEventException");
+        assertThat(exceptionClasses(awaitDeadLetter(String.valueOf(emptyRoom)))).contains("RejectedEventException");
         assertThat(rows(user)).isEmpty();
     }
 
@@ -293,9 +289,8 @@ class NotificationChatAlertTest {
                         + "\"hostUserId\":1,\"invitedUserIds\":null,\"invitedAt\":\"2026-11-12T01:00:00Z\"}");
         kafka.send(CHAT_TOPIC, "outside", new ChargeCompletedEvent(nextId(), nextId(), 1L, 1L, AFTER_START));
 
-        MemberEventKafka dlt = new MemberEventKafka(bootstrapServers, CHAT_TOPIC);
-        assertThat(exceptionClasses(dlt.awaitDeadLetter(CHAT_DLT, "null-list"))).contains("DeserializationException");
-        assertThat(dlt.awaitDeadLetter(CHAT_DLT, "outside")).isNotNull();
+        assertThat(exceptionClasses(awaitDeadLetter("null-list"))).contains("DeserializationException");
+        assertThat(awaitDeadLetter("outside")).isNotNull();
     }
 
     private static GroupMembersInvitedEvent invited(long room, long inviteRequestId, List<Long> invitees) {
@@ -321,8 +316,17 @@ class NotificationChatAlertTest {
                 receiver);
     }
 
+    /** DLT 조회 헬퍼는 생성할 때 producer도 만들므로 조회가 끝나면 닫는다 */
+    private ConsumerRecord<String, byte[]> awaitDeadLetter(String key) {
+        try (MemberEventKafka dlt = new MemberEventKafka(bootstrapServers, CHAT_TOPIC)) {
+            return dlt.awaitDeadLetter(CHAT_DLT, key);
+        }
+    }
+
     private List<String> deadLetterKeysNow() {
-        return new MemberEventKafka(bootstrapServers, CHAT_DLT).deadLetterKeysNow(CHAT_DLT);
+        try (MemberEventKafka dlt = new MemberEventKafka(bootstrapServers, CHAT_DLT)) {
+            return dlt.deadLetterKeysNow(CHAT_DLT);
+        }
     }
 
     private static Instant occurredAt(Map<String, Object> row) {
