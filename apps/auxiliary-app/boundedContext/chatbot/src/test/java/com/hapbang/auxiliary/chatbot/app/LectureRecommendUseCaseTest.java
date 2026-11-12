@@ -82,7 +82,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
 
     @Test
     @DisplayName("제외: 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·탈퇴 판매자·사본 없는 판매자·"
-            + "마스킹 판매자(상태는 ACTIVE)는 가까워도 빠진다")
+            + "마스킹 판매자(상태는 ACTIVE)는 가까워도 빠지고, 5개를 채우는 인기순에서도 빠진다")
     void exclusions() {
         data.member(1);
         data.member(600, "WITHDRAWN");
@@ -314,10 +314,11 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("요청 회원이 탈퇴(숨김)면 빈 결과")
+    @DisplayName("요청 회원이 탈퇴(숨김)면 빈 결과(인기순도 주지 않는다)")
     void hiddenRequesterGetsNothing() {
         data.member(9, "WITHDRAWN");
         data.lecture(90, 100, "강의 90");
+        owned(90, 3);
 
         LectureRecommendation result = useCase.recommend(9, null);
 

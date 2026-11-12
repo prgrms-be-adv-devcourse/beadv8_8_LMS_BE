@@ -183,6 +183,10 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         InfluencerRecommendation result = useCase.recommend(1L, null);
 
         assertThat(result.items()).extracting(Candidate::memberId).containsExactly(4L, 3L, 7L);
+        // 4·3은 맞춤 후보(2가 빠진 자리), 7은 인기순 채우기(8이 빠진 자리)
+        assertThat(result.items().subList(0, 2))
+                .allSatisfy(item -> assertThat(item.reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY));
+        assertThat(result.items().get(2).reasons()).containsExactly(InfluencerReason.POPULAR);
     }
 
     @Test
