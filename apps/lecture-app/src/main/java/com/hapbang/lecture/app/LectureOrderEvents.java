@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.lecture.domain.ConfirmationType;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.shared.lecture.domain.LectureConfirmationType;
@@ -63,8 +64,20 @@ public class LectureOrderEvents {
     @Transactional(propagation = Propagation.MANDATORY)
     public void itemConfirmed(OrderItem item) {
         eventPublisher.publishEvent(new LectureOrderItemConfirmedEvent(item.getId(), item.getBuyerUserId(),
-                item.getLectureTitleSnapshot(), LectureConfirmationType.valueOf(item.getConfirmationType().name()),
+                item.getLectureTitleSnapshot(), confirmationType(item.getConfirmationType()),
                 KstTimes.offset(item.getConfirmedAt())));
+    }
+
+    /**
+     * 도메인 확정 방식을 이벤트 값으로 바꾼다. 이름으로 바꾸지 않고 하나씩 짝지어, 도메인에 확정 방식이 늘면 확정 트랜잭션이 실행 중에 깨지는 대신
+     * 여기서 컴파일이 실패하게 한다(#891 리뷰)
+     */
+    private static LectureConfirmationType confirmationType(ConfirmationType type) {
+        return switch (type) {
+            case DIRECT -> LectureConfirmationType.DIRECT;
+            case FIRST_PLAY -> LectureConfirmationType.FIRST_PLAY;
+            case AUTO -> LectureConfirmationType.AUTO;
+        };
     }
 
     private static List<LectureOrderItemDto> items(LectureOrder order) {
