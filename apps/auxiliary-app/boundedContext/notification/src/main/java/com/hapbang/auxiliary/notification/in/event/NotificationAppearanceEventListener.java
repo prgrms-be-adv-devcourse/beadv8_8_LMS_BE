@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.notification.in.event;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,6 +14,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.notification.app.AppearanceCancelRequestAlerts;
+import com.hapbang.auxiliary.notification.app.AppearanceProgressAlerts;
 import com.hapbang.auxiliary.notification.app.NotificationAlertService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
@@ -21,24 +23,37 @@ import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsum
 import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
+import com.hapbang.shared.appearance.event.AppearanceAbsentEvent;
+import com.hapbang.shared.appearance.event.AppearanceApplicationNotSelectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceApplicationSelectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCanceledByHostEvent;
+import com.hapbang.shared.appearance.event.AppearanceConfirmedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitClosedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 이벤트({@code appearance.events.v1}, 그룹 {@code auxiliary-app.notification-appearance-alert})로 알림을 만드는 진입
- * 어댑터(N5: 출연 요청 도착·모집 지원 도착, ND-069. N6: 출연 취소 요청 도착·수락·거절, ND-082·ND-087).
+ * 어댑터(N5: 출연 요청 도착·모집 지원 도착, ND-069. N6: 출연 취소 요청 도착·수락·거절, ND-082·ND-087. N7 출연: 요청·지원·모집 마감·
+ * 출연 진행 10종, ND-110).
  * <ul>
  *     <li>컨테이너는 앱 기동 때 시작하지 않고 첫 회원 복제본 Backfill이 끝나면 시작한다(ND-078).</li>
  *     <li>출연 요청 도착에는 사건 시각이 없어 레코드 timestamp를 대체 시각으로 넘긴다(ND-081).</li>
  *     <li>처리 실패(복제본 없음, DB 장애)는 블로킹 재시도 뒤 DLT로 간다(ND-010·ND-035).</li>
  *     <li>출연 취소 요청 3종은 필수 값이 비면 다시 처리해도 같으므로 재시도 없이 DLT로 보낸다. #817 전에는 Kafka로 나간 적이 없어
  *     이전 형식이 없다(ND-086).</li>
- *     <li>알림 대상이 아닌 출연 이벤트(리뷰 공개, 출연 변경 등)는 로그만 남기고 넘긴다.</li>
+ *     <li>N7 출연 10종도 필수 값이 비면 재시도 없이 DLT로 보낸다. M3(#871)는 처음부터 이 형식으로 나가 이전 형식이 없다.</li>
+ *     <li>알림 대상이 아닌 출연 이벤트(리뷰 공개, 출연 변경, 예약 입력 전용인 모집 시작·모집 전체 취소(ND-041) 등)는 로그만 남기고
+ *     넘긴다.</li>
  * </ul>
  */
 @Slf4j
@@ -86,6 +101,75 @@ public class NotificationAppearanceEventListener {
         alerts.create(valid(() -> AppearanceCancelRequestAlerts.rejected(event)));
     }
 
+    // N7 출연 10종(ND-110). 행동한 상대가 있으면 닉네임 없이 먼저 바꿔 필수 값을 본 뒤 서비스가 닉네임을 읽는다(ND-113)
+
+    @KafkaHandler
+    public void on(AppearanceRequestAcceptedEvent event) {
+        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestAccepted(event, null)),
+                event.request().guestId(), nickname -> AppearanceProgressAlerts.requestAccepted(event, nickname));
+    }
+
+    @KafkaHandler
+    public void on(AppearanceRequestRejectedEvent event) {
+        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestRejected(event, null)),
+                event.request().guestId(), nickname -> AppearanceProgressAlerts.requestRejected(event, nickname));
+    }
+
+    @KafkaHandler
+    public void on(AppearanceRequestCanceledEvent event) {
+        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestCanceled(event, null)),
+                event.request().hostId(), nickname -> AppearanceProgressAlerts.requestCanceled(event, nickname));
+    }
+
+    /** 요청 만료는 호스트·게스트에게 한 건씩. 두 초안을 먼저 모두 바꿔 필수 값을 본다 */
+    @KafkaHandler
+    public void on(AppearanceRequestExpiredEvent event) {
+        NotificationDraft host = valid(() -> AppearanceProgressAlerts.requestExpiredForHost(event, null));
+        NotificationDraft guest = valid(() -> AppearanceProgressAlerts.requestExpiredForGuest(event));
+        alerts.createMentioning(host, event.request().guestId(),
+                nickname -> AppearanceProgressAlerts.requestExpiredForHost(event, nickname));
+        alerts.create(guest);
+    }
+
+    @KafkaHandler
+    public void on(AppearanceApplicationSelectedEvent event) {
+        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.applicationSelected(event, null)),
+                event.application().hostId(),
+                nickname -> AppearanceProgressAlerts.applicationSelected(event, nickname));
+    }
+
+    @KafkaHandler
+    public void on(AppearanceApplicationNotSelectedEvent event) {
+        alerts.create(valid(() -> AppearanceProgressAlerts.applicationNotSelected(event)));
+    }
+
+    /** 모집 마감은 마감 일시 마감({@code DEADLINE})만 알린다. 조기 마감은 호스트 본인 행동이다 */
+    @KafkaHandler
+    public void on(AppearanceRecruitClosedEvent event) {
+        validOptional(() -> AppearanceProgressAlerts.recruitClosed(event)).ifPresentOrElse(alerts::create,
+                () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 recruitId={}, closeType={}",
+                        event.recruit().recruitId(), event.closeType()));
+    }
+
+    @KafkaHandler
+    public void on(AppearanceCanceledByHostEvent event) {
+        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.canceledByHost(event, null)),
+                event.appearance().hostId(), nickname -> AppearanceProgressAlerts.canceledByHost(event, nickname));
+    }
+
+    /** 출연 확인은 자동 확인({@code AUTO})만 알린다. 호스트 확인은 호스트 본인 행동이다 */
+    @KafkaHandler
+    public void on(AppearanceConfirmedEvent event) {
+        validOptional(() -> AppearanceProgressAlerts.confirmed(event)).ifPresentOrElse(alerts::create,
+                () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 appearanceId={}, confirmType={}",
+                        event.appearance().appearanceId(), event.confirmType()));
+    }
+
+    @KafkaHandler
+    public void on(AppearanceAbsentEvent event) {
+        alerts.create(valid(() -> AppearanceProgressAlerts.absent(event)));
+    }
+
     /** 처리기가 없는 레코드를 건너뛴다. 신뢰 패키지 밖 타입은 재시도 없이 DLT로 보낸다({@link SkippablePayloads}) */
     @KafkaHandler(isDefault = true)
     public void onUnsupported(@Payload(required = false) Object payload,
@@ -98,6 +182,15 @@ public class NotificationAppearanceEventListener {
 
     /** 초안으로 바꾼다. 필수 값이 빈 이벤트(검증 실패)는 재시도 없이 DLT로 보낸다(ND-086). 저장 단계의 오류는 바꾸지 않는다 */
     private static NotificationDraft valid(Supplier<NotificationDraft> convert) {
+        try {
+            return convert.get();
+        } catch (IllegalArgumentException e) {
+            throw new RejectedEventException("알림을 만들 수 없는 출연 이벤트입니다.", e);
+        }
+    }
+
+    /** 보내지 않는 경우가 있는 종류(모집 마감, 출연 확인)의 {@link #valid} */
+    private static Optional<NotificationDraft> validOptional(Supplier<Optional<NotificationDraft>> convert) {
         try {
             return convert.get();
         } catch (IllegalArgumentException e) {
