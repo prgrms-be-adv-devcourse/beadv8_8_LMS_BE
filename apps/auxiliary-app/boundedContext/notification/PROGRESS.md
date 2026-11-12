@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1~N6·N8 완료, N7 진행 중(모듈별, 지갑 #907 완료, 출연 #908) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-060 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-061 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
@@ -61,7 +61,7 @@
 | M5 | P1 | 지갑 새 이벤트 4종, 지급 이벤트 제목(ND-040) | 지갑 | N0 | 완료 | #873(PR #886, dev `69240da8`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 3장 |
 | M6 | P1 | 회원 새 이벤트 3종(반려 2종, 채널 인증 승인) | 회원 | N0 | 미착수 | 2026-11-06 조사: 반려 2종은 발행하지 않는다(미충족). 채널 인증 승인은 새 이벤트(ND-042), 승급 승인은 `UserModifiedEvent` 역할 비교(ND-016) |
 | M7 | P1 | 고객센터 새 이벤트 3종 | 고객센터 | N0 | 미착수 | 2026-11-06 조사: 3종 모두 발행하지 않는다(미충족) |
-| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908(정책 ND-110~ND-113, 구현·테스트 완료 NR-060, PR 전) |
+| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908(정책 ND-110~ND-113, 구현·테스트 완료, dev 병합 뒤 NR-061, PR 전) |
 | N8 | P1 | 강의 지급 하루 묶음 | 알림 | N2 | 완료 | #890(PR #903, dev `81a7347e`). 정책 ND-097~ND-104 |
 | M8 | P2 | 채팅: 단체방 이벤트 3종, `chat.events.v1` 토픽 | 채팅 | N0 | 미착수 | shared에 `Group*Event` 없음, 코드·설정에 `chat.events.v1` 없음. ND-043·ND-044 |
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 미착수 | 코드 없음 |

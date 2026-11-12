@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-061 · 2026-11-12 · 통과 (N7 출연 #908 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-061 |
+| 실행 날짜 | 2026-11-12 14:35~14:44 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `d8d7d47e`(origin/dev `ac27dfeb` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(지갑 #907 PR #912, 강의 #913) 병합. 충돌 8파일(`NotificationTemplates`와 알림 문서 7개)은 지갑 내용을 두고 출연 변경을 더해 풀었다. 지갑이 먼저 병합돼 출연 결정을 ND-110~ND-113, 실행 기록을 NR-058~NR-060으로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 지갑 4종 + N7 출연 10종), #913 shared `LectureSyncDto` 변경 |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-19, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058과 같다. 실행 전 `./gradlew --status`로 바쁜 데몬이 없음을 확인 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 262(출연 250 + 지갑 시험 12), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(CI에서 확인) |
+| 관련 변경 | #908 |
+
 #### NR-060 · 2026-11-12 · 통과 (N7 출연 #908 자체 리뷰 반영 뒤 재검증)
 
 | 항목 | 값 |
