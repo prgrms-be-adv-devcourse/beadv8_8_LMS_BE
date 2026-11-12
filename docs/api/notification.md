@@ -42,9 +42,9 @@
 | 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
 
-### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107)
+### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-120)
 
-목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)에서 쓰는 값은 아래와 같다.
+목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)·N7 회원(ND-120)에서 쓰는 값은 아래와 같다.
 
 | `targetType` | `targetId` | 쓰는 종류 |
 | --- | --- | --- |
@@ -55,7 +55,7 @@
 | `EXCHANGE` | 환전 ID | 환전 승인·거절·송금 완료·송금 실패·최종 실패 |
 | `APPEARANCE` | 출연 ID(지급 완료는 `sourceId`, 원천이 요청이든 모집이든. 출연 취소 요청 3종은 `cancelRequest.appearanceId`) | 지급 완료, 출연 취소 요청 도착·수락·거절 |
 | `LECTURE_ORDER_ITEM` | 주문 항목 ID(`orderItemId`) | 이의 제기 판단·반환 완료·철회·반환 지연(구매자·판매자 같은 값) |
-| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102) |
+| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102), 채널 인증 승인·반려, 승급 반려(ND-120) |
 
 ## 3. 실시간 연결
 
@@ -83,4 +83,5 @@
 | 2026-11-11 | ND-074·ND-075·ND-079 반영(N5 사전 결정, #859): 역할 규칙 범위, Backfill 재실행 API, 문구 형식, 2.2 이동 대상. 머리말·Gateway 행의 N4 병합 상태를 고쳤다 |
 | 2026-11-11 | ND-089 반영(#859 구현): Backfill 재실행 API의 동기 응답 필드, 409 `BACKFILL_RUNNING`, 503 `BACKFILL_FAILED` |
 | 2026-11-11 | ND-092 반영(#859 PR 리뷰): Backfill 재실행을 비동기(202·실행 ID)로 바꾸고 실행 조회 API를 더했다 |
+| 2026-11-12 | ND-120 반영(N7 회원 사전 결정, #915): 2.2 `null` 행에 채널 인증 승인·반려, 승급 반려를 더했다 |
 | 2026-11-11 | ND-084 반영(N6 사전 결정, #862): 2.2 이동 대상에 N6 값(`APPEARANCE`, `LECTURE_ORDER_ITEM`)을 적었다 |

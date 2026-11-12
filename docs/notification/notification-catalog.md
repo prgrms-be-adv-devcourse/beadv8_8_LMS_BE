@@ -22,6 +22,7 @@
 > - 2026-11-11 decisions.md ND-082~ND-087 반영(#862): N6 7종 행의 이동 대상(ND-084)·원본 대상 ID(ND-083)를 채우고, 0.6에 N6 문구(ND-085)를 더했다. 출연 취소 요청 3종 행에 #817 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.5(N5 11종 문구)는 N5(#859)가 더한다.
 > - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): 1.1 종류 코드 칸, `PAYOUT_COMPLETED_DAILY` 행의 이동 대상(ND-102)·관련 ND·미결 칸, 8장(발생 시각·밀려난 묶음·문구·종류 코드 행), 9장 U11 행을 고쳤다. 2026-11-06 판정은 그대로 둔다. 같은 날 N8 구현 때 8장에 확정 문구와 저장 행(ND-103)을 더했다.
 > - 2026-11-12 decisions.md ND-105~ND-108 반영(N7 지갑 묶음, #907): 지갑 4종 행의 이동 대상(ND-107)·원본 대상 ID(ND-106)·관련 ND를 채우고 #873 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.7에 지갑 4종 문구(ND-108)를 더했다.
+> - 2026-11-12 decisions.md ND-118~ND-121 반영(N7 회원 묶음, #915): 회원 반려 2종과 채널 인증 승인 행의 이동 대상(ND-120)·원본 대상 ID(ND-119)·관련 ND를 채우고 #874 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.10에 회원 3종 문구(ND-121)를 더했다. ND 번호와 0.10은 병렬 브랜치(출연·강의)와의 병합 순서에 따라 고친다.
 
 ## 0. 읽는 법
 
@@ -71,7 +72,7 @@
 - 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본은 회원 목록 내부 API Backfill로 채우고, 알림을 만드는 소비자는 첫 Backfill 뒤 시작한다(ND-077·ND-078, `NT-USR-06`).
 - 업무 시각이 알림 시작 시각보다 이른 사건은 알림을 만들지 않는다(ND-076, `NT-KAF-04`). 운영의 알림 시작 시각은 앱이 처음 뜬 시각이다(ND-095).
 - 같은 이벤트를 다시 받아도 한 번만 만든다(ND-019).
-- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
+- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 회원 3종은 0.10(ND-121), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
 - 다른 회원의 닉네임이 들어간 문구·값은 그 회원이 파기되면 바꾼다(ND-036, `NT-USR-07`). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구를 다시 만든다(ND-051).
 - 목록은 이벤트의 업무 시각으로 정렬한다(ND-021). 사건 시각 필드가 없는 `AppearanceRequestSentEvent`·`UserJoinedEvent`·`UserModifiedEvent`는 Kafka 레코드 timestamp를 대체 시각으로 쓰며, 원래 사건 시각과 같다고 보장하지 않는다(ND-081).
 - 관리자는 알림센터 알림을 받지 않는다(ND-003).
@@ -133,6 +134,16 @@
 | `REFUND_FAILED` | {요청 HP} HP 환불에 실패했습니다. 신청한 HP는 지갑으로 돌아왔습니다. (`requestedAmountHp`) |
 | `REFUND_MANUAL_REVIEW_REQUIRED` | {요청 HP} HP 환불은 운영자 확인이 필요해 처리가 늦어지고 있습니다. (`requestedAmountHp`) |
 | `EXCHANGE_APPROVED` | {신청 HP} HP 환전 신청이 승인되었습니다. {M월 d일}에 송금됩니다. (`requestedAmountHp`, 날짜는 `payoutScheduledAt`의 KST 날짜) |
+
+### 0.10 문구 (N7 회원 3종, ND-121)
+
+다른 회원의 닉네임과 채널 이름은 넣지 않는다(이벤트에 채널 이름이 없다). 자동·관리자 승인은 같은 문구다. 이미 인플루언서인 회원의 채널 승인에도 쓰므로 역할이 바뀌었다고 쓰지 않는다.
+
+| 종류 코드 | 문구 |
+| --- | --- |
+| `INFLUENCER_CHANNEL_APPROVED` | 채널 인증이 승인되었습니다. |
+| `INFLUENCER_CHANNEL_REJECTED` | 채널 인증이 반려되었습니다. 사유: {반려 사유} (`rejectionReason`) |
+| `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 인증된 인플루언서 승급 신청이 반려되었습니다. 사유: {반려 사유} (`rejectionReason`) |
 
 ## 1. 출연 (15종)
 
@@ -234,10 +245,10 @@
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `USER_JOINED` | 가입 환영 | 새 회원 | `UserJoinedEvent` | 회원 가입 | — | 없음(ND-074) | `user.id`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key 회원 ID), `UserDto.id` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`UserDto.id` 있음. 첫 배포 이전 가입 회원은 U7·U17 | — | 첫 배포 때 과거 가입 이벤트는 ND-076, 이전 가입 회원 복제본은 ND-077 |
-| `INFLUENCER_CHANNEL_APPROVED` | 채널 인증 승인 (자동·관리자) | 회원 | 🆕 `InfluencerChannelApprovedEvent` (ND-042. 원본 표기: `UserModifiedEvent` "✅ 추정") | 회원의 채널 인증 승인(자동·관리자) | 역할 변경(`UserModifiedEvent`)만으로는 만들지 않는다(관리자 인플루언서 지정 #724 포함) | 미정 | 미정(U5) | 원본 ✅ 추정 / 재확인: 레코드 있음, `@Externalized`, `UserDto.role` 있음(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`) / **2026-11-06 판정: 부분 충족(U18)** — `UserModifiedEvent`(`UserDto`: id, nickname, role, status, version)에 이전 역할이 없어 복제본 비교가 필요하다(복제본 없음은 U17). 관리자 인플루언서 지정(#724)과 구분되지 않고, 이미 인플루언서인 회원의 채널 승인은 역할이 바뀌지 않아 이벤트가 없다. 2026-11-09 ND-042로 새 이벤트를 요청했다(계약 요청 4장) | ND-042(ND-016 일부 대체) | 자동·관리자 승인을 같은 종류로 보낸다. 요청 값 4.1 |
-| `INFLUENCER_CHANNEL_REJECTED` | 채널 인증 반려 (사유) | 회원 | `InfluencerChannelRejectedEvent` | 채널 인증 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberChannelReviewUseCase` 28~29행 근처) | — | 요청 값 4.1 |
+| `INFLUENCER_CHANNEL_APPROVED` | 채널 인증 승인 (자동·관리자) | 회원 | 🆕 `InfluencerChannelApprovedEvent` (ND-042. 원본 표기: `UserModifiedEvent` "✅ 추정") | 회원의 채널 인증 승인(자동·관리자) | 역할 변경(`UserModifiedEvent`)만으로는 만들지 않는다(관리자 인플루언서 지정 #724 포함) | 없음(ND-120) | `<channelId>:<reviewSequence>`(ND-119) | 원본 ✅ 추정 / 재확인: 레코드 있음, `@Externalized`, `UserDto.role` 있음(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`) / **2026-11-06 판정: 부분 충족(U18)** — `UserModifiedEvent`(`UserDto`: id, nickname, role, status, version)에 이전 역할이 없어 복제본 비교가 필요하다(복제본 없음은 U17). 관리자 인플루언서 지정(#724)과 구분되지 않고, 이미 인플루언서인 회원의 채널 승인은 역할이 바뀌지 않아 이벤트가 없다. 2026-11-09 ND-042로 새 이벤트를 요청했다(계약 요청 4장) / 2026-11-11 #874(M6)으로 발행(`@Externalized`, key 회원 ID, `userId`·`channelId`·`reviewSequence`·`autoApproved`·`approvedAt`) | ND-042(ND-016 일부 대체), ND-118 | 자동·관리자 승인을 같은 종류로 보낸다. 이미 인플루언서인 회원의 채널 승인에도 온다. 요청 값 4.1 |
+| `INFLUENCER_CHANNEL_REJECTED` | 채널 인증 반려 (사유) | 회원 | `InfluencerChannelRejectedEvent` | 채널 인증 반려 | — | 없음(ND-120) | `<channelId>:<reviewSequence>`(ND-119) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberChannelReviewUseCase` 28~29행 근처) / 2026-11-11 #874(M6)으로 발행(`@Externalized`, key 회원 ID, `userId`·`channelId`·`reviewSequence`·`rejectionReason`·`rejectedAt`) | ND-118 | 다시 승인 요청해 다시 반려되면 회차가 달라 따로 만든다. 요청 값 4.1 |
 | `INFLUENCER_UPGRADE_REQUEST_APPROVED` | 승급 승인 | 회원 | `UserModifiedEvent` (원본 표기: "✅ 추정") | 복제본의 이전 역할과 새 역할을 비교해 인플루언서 → 인증된 인플루언서로 바뀜 | 역할이 인플루언서 → 인증된 인플루언서로 바뀌지 않은 `UserModifiedEvent` | 없음(ND-074) | `<user.id>:<user.version>`(ND-073) | 원본 ✅ 추정 / 재확인: 위와 같음 / **2026-11-06 판정: 충족(복제본 비교 전제)** — 인플루언서 → 인증된 인플루언서는 승급 승인 경로에서만 바뀌어 판별 가능. 이전 역할은 이벤트에 없어 복제본에 의존(U17) | ND-016 | 자동·관리자 승인을 구분하지 않는다. 이벤트 이름 규칙 밖 코드라 ND-071로 정했다 |
-| `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 승급 반려 (사유) | 회원 | `InfluencerUpgradeRequestRejectedEvent` | 승급 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberUpgradeReviewUseCase` 60~61행 근처) | — | 요청 값 4.1 |
+| `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 승급 반려 (사유) | 회원 | `InfluencerUpgradeRequestRejectedEvent` | 승급 반려 | — | 없음(ND-120) | `upgradeRequestId`(ND-119) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`MemberUpgradeReviewUseCase` 60~61행 근처) / 2026-11-11 #874(M6)으로 발행(`@Externalized`, key 회원 ID, `userId`·`upgradeRequestId`·`rejectionReason`·`rejectedAt`) | ND-118 | 요청 값 4.1 |
 
 **보내지 않는 것**: 비밀번호 변경, 로그인 잠금, 정지, 탈퇴(알림센터를 볼 수 없다), 승인 요청·승급 신청 도착(관리자). 로그인하지 못한 회원에게 가야 하는 알림은 범위 밖이다(ND-002).
 
@@ -326,8 +337,8 @@
 
 | ID | 질문 |
 | --- | --- |
-| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108) |
-| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
+| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108, N7 회원은 ND-121) |
+| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106, N7 회원은 ND-119. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
 | U11 | 규칙 밖 종류 코드 중 예약 5종(승급 승인은 ND-071, 하루 묶음은 ND-098, 단체방 3종 이름은 ND-043) |
 | U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |
 | U16 | 예약 알림별로 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 계약 검증(처리 방향은 ND-034) |
