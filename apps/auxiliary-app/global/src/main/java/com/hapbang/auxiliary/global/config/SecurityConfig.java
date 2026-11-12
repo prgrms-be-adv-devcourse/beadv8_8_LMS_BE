@@ -46,6 +46,8 @@ public class SecurityConfig {
                         // 알림 웹소켓 연결(핸드셰이크)만 연다. 브라우저는 업그레이드 요청에 Authorization을 싣지 못해 사용자 헤더가 없다.
                         // 인증은 알림 모듈이 일회용 연결 티켓으로 한다(docs/notification/decisions.md ND-060). 다른 알림 경로는 로그인이 필요하다
                         .requestMatchers(HttpMethod.GET, "/api/v1/notifications/ws").permitAll()
+                        // 강의 검색은 비회원도 쓴다(policy.md 강의 목록 비회원 O, #883). 회원이면 헤더로 인증되어 회원 한도로 센다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/search/lectures").permitAll()
                         // 업무 API는 비회원에게 열지 않는다. 역할 검사는 각 모듈 Facade의 @PreAuthorize로 한다(챗봇은 로그인 회원 전체)
                         .anyRequest().authenticated()
                 )

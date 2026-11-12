@@ -10,7 +10,7 @@ import com.hapbang.auxiliary.search.influencer.app.InfluencerReindexer;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerStatsSync;
 import com.hapbang.auxiliary.search.influencer.app.MemberChangeReconciler;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerTombstoneCleanup;
-import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
+import com.hapbang.auxiliary.search.influencer.app.InfluencerZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.SearchConfig;
 
 
@@ -24,12 +24,12 @@ class SearchBatch {
     private final InfluencerTombstoneCleanup tombstoneCleanup;
     private final InfluencerStatsSync statsSync;
     private final MemberChangeReconciler memberChangeReconciler;
-    private final ZeroResultKeywords zeroResultKeywords;
+    private final InfluencerZeroResultKeywords zeroResultKeywords;
     private final InfluencerReindexer reindexer;
     private final TaskExecutor reindexExecutor;
 
     SearchBatch(InfluencerTombstoneCleanup tombstoneCleanup, InfluencerStatsSync statsSync,
-            MemberChangeReconciler memberChangeReconciler, ZeroResultKeywords zeroResultKeywords,
+            MemberChangeReconciler memberChangeReconciler, InfluencerZeroResultKeywords zeroResultKeywords,
             InfluencerReindexer reindexer, @Qualifier(SearchConfig.REINDEX_EXECUTOR) TaskExecutor reindexExecutor) {
         this.tombstoneCleanup = tombstoneCleanup;
         this.statsSync = statsSync;
