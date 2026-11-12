@@ -82,10 +82,13 @@ class SearchMemberCopyStoreTest {
     }
 
     @Test
-    @DisplayName("version이 없는 정보는 사본에도 version이 없을 때만 반영한다(UserDto 규칙)")
+    @DisplayName("version이 없는 정보는 사본에도 version이 없을 때만 반영하고, 그때는 재시도와 가릴 수 없어 늘 판매자 정보를 돌려준다(UserDto 규칙)")
     void nullVersion() {
         assertThat(store.apply(user(7L, "버전없음", UserStatus.ACTIVE, null), NOW))
                 .contains(new Seller(7L, "버전없음", true));
+        assertThat(store.apply(user(7L, "또버전없음", UserStatus.ACTIVE, null), NOW))
+                .contains(new Seller(7L, "또버전없음", true));
+        // 같은 정보를 다시 받아도(재시도) 강의 문서를 다시 맞추게 판매자 정보를 돌려준다
         assertThat(store.apply(user(7L, "또버전없음", UserStatus.ACTIVE, null), NOW))
                 .contains(new Seller(7L, "또버전없음", true));
 

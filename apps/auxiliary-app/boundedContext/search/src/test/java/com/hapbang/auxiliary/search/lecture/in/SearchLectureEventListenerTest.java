@@ -139,6 +139,18 @@ class SearchLectureEventListenerTest {
     }
 
     @Test
+    @DisplayName("강의 이벤트 패키지 밖의 타입(java.util 등 역직렬화기 기본 신뢰 타입)은 건너뛰지 않고 다시 시도 없이 DLT로 보낸다")
+    void untrustedTypeToDeadLetter() {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, "lecture:916",
+                "{\"title\":\"강의 아님\"}".getBytes(StandardCharsets.UTF_8));
+        record.headers().add("__TypeId__", "java.util.LinkedHashMap".getBytes(StandardCharsets.UTF_8));
+        send(record);
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(deadLetterKeys(Duration.ofMillis(500))).contains("lecture:916"));
+    }
+
+    @Test
     @DisplayName("본문이 깨진 강의 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
     void brokenToDeadLetter() {
         send("lecture:915", "LectureChangedEvent", "{\"lecture\":");
@@ -180,14 +192,18 @@ class SearchLectureEventListenerTest {
     }
 
     private void send(String key, String type, String json) {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, key, json.getBytes(StandardCharsets.UTF_8));
+        record.headers().add("__TypeId__", (EVENT_PACKAGE + type).getBytes(StandardCharsets.UTF_8));
+        send(record);
+    }
+
+    private void send(ProducerRecord<String, byte[]> record) {
         if (producer == null) {
             producer = new KafkaProducer<>(Map.of(
                     ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                     ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
                     ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class));
         }
-        ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, key, json.getBytes(StandardCharsets.UTF_8));
-        record.headers().add("__TypeId__", (EVENT_PACKAGE + type).getBytes(StandardCharsets.UTF_8));
         producer.send(record);
         producer.flush();
     }

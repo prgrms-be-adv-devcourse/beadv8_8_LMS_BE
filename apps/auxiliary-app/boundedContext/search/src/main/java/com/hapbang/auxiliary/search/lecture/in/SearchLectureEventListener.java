@@ -4,7 +4,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.KafkaNull;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ClassUtils;
 
 import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.in.kafka.MissingTypeEvent;
@@ -74,8 +76,21 @@ public class SearchLectureEventListener {
         log.debug("클래스가 없는 강의 이벤트를 건너뛴다 type={}", event.typeId());
     }
 
+    /**
+     * 쓰지 않는 강의 이벤트를 건너뛴다. 강의 이벤트 패키지 밖의 타입(역직렬화기가 지울 수 없는 기본 신뢰 패키지 {@code java.util}·{@code java.lang}
+     * 등)은 강의 앱이 보낸 이벤트가 아니므로 다시 시도하지 않고 DLT로 보낸다(알림 {@code SkippablePayloads}와 같다).
+     *
+     * @throws IllegalArgumentException 강의 이벤트 패키지 밖의 타입
+     */
     @KafkaHandler(isDefault = true)
     public void skip(Object event) {
+        if (event instanceof KafkaNull) {
+            log.debug("값이 없는 강의 이벤트(tombstone)를 건너뛴다");
+            return;
+        }
+        if (!SearchKafkaSettings.LECTURE_TRUSTED_PACKAGE.equals(ClassUtils.getPackageName(event.getClass()))) {
+            throw new IllegalArgumentException("강의 이벤트 패키지 밖의 타입입니다: " + event.getClass().getName());
+        }
         log.debug("검색이 쓰지 않는 강의 이벤트를 건너뛴다 type={}", event.getClass().getSimpleName());
     }
 
