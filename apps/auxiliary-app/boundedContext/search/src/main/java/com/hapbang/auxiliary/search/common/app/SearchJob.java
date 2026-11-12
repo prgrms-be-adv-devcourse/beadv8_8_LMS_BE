@@ -17,7 +17,9 @@ public enum SearchJob implements JobLockKey {
     /** 회원 변경분 증분 보정(10분마다, #772) */
     MEMBER_RECONCILE(772_001L, "search-member-reconcile"),
     /** 처음 적재·재색인(시작 때와 10분마다 확인, #773) */
-    REINDEX(773_001L, "search-reindex");
+    REINDEX(773_001L, "search-reindex"),
+    /** 동의어 묶음 확인(10분마다, 모든 대상 공통 한 곳, #895) */
+    SYNONYMS_CHECK(895_001L, "search-synonyms-check");
 
     private final long lockKey;
     private final String tag;
