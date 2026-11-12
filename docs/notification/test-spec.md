@@ -27,7 +27,7 @@
 | 명세 상태 | 아래 1.3. 실행 결과가 아니다 |
 
 - 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-050). N5 11종은 [알림 종류](notification-catalog.md) 0.5(ND-075)이고 나머지는 미결(U3)이다. 생성 항목은 "문구가 비어 있지 않다"까지만 보고, 문구 내용은 NT-GEN-10이 본다.
-- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름(`PAYOUT_COMPLETED_DAILY`, 예약 5종)은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). 역할 비교 승급 승인은 ND-071로 정해졌다. `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
+- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름 중 예약 5종은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). 역할 비교 승급 승인은 ND-071, 하루 묶음 `PAYOUT_COMPLETED_DAILY`는 ND-098로 정해졌다. `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
 - consumer group 이름은 ND-047(`auxiliary-app.notification-<목적>`)이다. 그룹 이름을 단언하는 항목은 NT-KAF-06, NT-ERR-03이고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
 
 ### 1.2 테스트 종류 (제안)
@@ -73,7 +73,7 @@
 | NT-GEN-09 | 이의 제기 접수 한 번만 | M4, M7 | 바로 접수된 `LectureObjectionFiledEvent` / 재시도 배치 접수의 `LectureObjectionFiledEvent` / `LectureObjectionFileRejectedEvent` | 접수는 경로와 무관하게 이벤트 하나로 구매자·판매자 각 1건. 접수 불가는 재시도 배치가 끝낼 때만 구매자 1건 | 바로 거절된 접수는 알림 0(이벤트가 없다) | ND-015 | 카탈로그 `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_FILE_REJECTED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-10 | 종류별 문구 | 그 종류를 소비하는 작업에서 문구 확정(ND-050). N5 11종은 카탈로그 0.5(ND-075) | 종류마다 대표 이벤트(전부 환불·일부 환불, `NORMAL`·`PENALTY`처럼 문구가 갈리는 값은 각각) | 저장된 문구가 확정된 문구와 같다(금액 쉼표, 시각 KST) | 문구가 아직 없는 종류(U3)는 그 소비 작업에서 더한다 | ND-020, ND-039, ND-050, ND-075 | 카탈로그 0.5, 각 소비 작업의 문구 코드 | Unit | 유효 |
 | NT-GEN-11 | 지급 알림의 출연·강의 제목 | M5(`PayoutCompletedEvent.sourceTitle`, ND-040) | `PayoutCompletedEvent` | 지급 알림(`PAYOUT_COMPLETED`, 하루 묶음)에 이벤트의 `sourceTitle`이 제목으로 들어 있다 | 지금 이벤트에 `sourceTitle`이 없다(M5 전에는 실행할 수 없다) | ND-014, ND-040 | Kafka `billing.events.v1` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(승급 승인 `INFLUENCER_UPGRADE_REQUEST_APPROVED`(ND-071), `PAYOUT_COMPLETED_DAILY`, 예약 5종) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08). 승급 승인 밖의 이름은 U11 | ND-012, ND-071, **U11** | 카탈로그 | Unit | 미결 (U11) |
+| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(승급 승인 `INFLUENCER_UPGRADE_REQUEST_APPROVED`(ND-071), `PAYOUT_COMPLETED_DAILY`(ND-098), 예약 5종) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08). 예약 5종 이름은 U11 | ND-012, ND-071, ND-098, **U11** | 카탈로그 | Unit | 미결 (U11) |
 | NT-GEN-13 | 값 저장과 문구 재생성 | 아무 알림 | 알림 생성 | 값(`jsonb`)에 형식 버전 `v`가 있고, 저장된 값만으로 같은 문구를 다시 만들 수 있다 | — | ND-020, ND-025 | 테이블 `notification` | Unit, Integration(PG) | 유효 |
 | NT-GEN-14 | 채널 인증 승인 알림의 회원 코드 불일치 경우 | M6(`InfluencerChannelApprovedEvent`, ND-042). 복제본 역할 유저 또는 인플루언서 | (1) 관리자 인플루언서 지정(#724)으로 나는 `UserModifiedEvent`(유저 → 인플루언서) (2) 이미 인플루언서인 회원의 `InfluencerChannelApprovedEvent` | (1) 채널 인증 승인 알림을 만들지 않는다 (2) 채널 인증 승인 알림 1건 | (1) 역할 비교(ND-016)로는 채널 인증 승인과 구분되지 않았다 (2) 역할이 바뀌지 않아 `UserModifiedEvent`가 나가지 않았다. 승급 승인(인플루언서 → 인증된 인플루언서)은 해당 없음(NT-GEN-06) | ND-016, ND-042 | Kafka `member.events.v1`(`InfluencerChannelApprovedEvent`), 카탈로그 채널 인증 승인 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-15 | 이동 대상 | N5 11종 | 종류마다 대표 이벤트 | 저장된 `targetType`·`targetId`가 카탈로그 행의 이동 대상과 같다(가입 환영·승급 승인은 둘 다 비어 있다) | 지급 완료의 원천별 값 | ND-074 | 카탈로그 이동 대상 칸, [API 문서](../api/notification.md) | Unit, Integration(PG+Kafka) | 유효 |
@@ -143,8 +143,11 @@
 | NT-BUN-01 | 판매자·날짜별 묶음 | 판매자 S·T | 같은 KST 날짜의 `PayoutCompletedEvent`(`LECTURE_ORDER_ITEM`) S 3건, T 1건 | S에 묶음 알림 1건(금액 합, 건수 3), T에 1건(건수 1) | 묶음 유일 키 (종류, 받는 사람, 묶음 키) | ND-013, ND-032 | Kafka `billing.events.v1`, 카탈로그 강의 지급 하루 묶음 | Integration(PG+Kafka) | 유효 |
 | NT-BUN-02 | 같은 `settlementId` 중복 합산 방지 | S의 묶음 | 같은 `settlementId` 지급을 두 번(순차·동시) | 금액·건수는 한 번만 더해지고 `notification_payout_item`에 그 지급 ID가 1행 | 동시 소비도 합산 1번 | ND-032 | 테이블 `notification_payout_item`(지급 ID 유일) | Integration(PG) | 유효 |
 | NT-BUN-03 | KST 날짜 경계(`paidAt`) | 판매자 S | `paidAt` 2026-11-06T14:59:59Z(KST 23:59:59)와 2026-11-06T15:00:00Z(KST 11-07 00:00) | 묶음 2개, 묶음 키는 각각 KST 11-06·11-07. JVM 시간대(UTC·KST)와 무관하게 같은 결과 | — | ND-032 | `PayoutCompletedEvent.paidAt` | Unit, Integration(PG) | 유효 |
-| NT-BUN-04 | 묶음 갱신 | S의 같은 날짜 묶음(이미 읽음), 다른 알림들 | 같은 날짜 새 지급 1건 | 금액·건수 증가, 다시 안 읽음(안 읽은 수 +1), 발생 시각을 새로 고쳐 목록 맨 위, 갱신된 알림 한 건과 안 읽은 수를 실시간으로 보낸다 | 새 발생 시각이 새 지급의 `paidAt`인지 처리 시각인지 원문에 없다(맨 위로 오는지만 기준) | ND-021, ND-032, ND-027 | `/user/queue/notifications` | Integration(PG+Redis) | 유효 |
-| NT-BUN-05 | Soft Delete된 묶음에 같은 날 지급 | S의 날짜 묶음이 20개 보존에서 밀려남 | 같은 날짜 새 지급 | 되살리거나 무시하는 결정대로 동작한다 | 유일 키 (종류, 받는 사람, 묶음 키)에 걸린다 | ND-022, ND-032, **U9** | — | Integration(PG) | 미결 (U9) |
+| NT-BUN-04 | 묶음 갱신 | S의 같은 날짜 묶음(이미 읽음), 다른 알림들 | 같은 날짜 새 지급 1건 | 금액·건수 증가, 다시 안 읽음(안 읽은 수 +1), 발생 시각은 기존 값과 새 `paidAt` 중 늦은 값, 갱신된 알림 한 건과 안 읽은 수를 실시간으로 보낸다 | 새 지급의 `paidAt`이 기존 발생 시각보다 이르면 발생 시각은 그대로다(ND-101) | ND-021, ND-032, ND-027, ND-101 | `/user/queue/notifications` | Integration(PG+Redis) | 유효 |
+| NT-BUN-05 | Soft Delete된 묶음에 같은 날 지급 | S의 날짜 묶음이 20개 보존에서 밀려남 | 같은 날짜 새 지급(처음 보는 `settlementId`), 그다음 같은 지급 재전달 | 새 지급: 삭제 시각이 비고 금액·건수가 더해지고 안 읽음·발생 시각(ND-101)이 갱신되며, 같은 트랜잭션에서 최신 20개 보존을 적용한다(되살린 묶음이 21번째보다 오래되면 다시 숨는다). 재전달: 되살리지 않고 금액·건수도 그대로 | 유일 키 (종류, 받는 사람, 묶음 키)는 삭제된 행도 포함한다 | ND-022, ND-032, ND-097 | — | Integration(PG) | 유효 |
+| NT-BUN-06 | 서로 다른 `settlementId` 동시 지급 | 판매자 S, 같은 날짜 | 서로 다른 지급 N건을 동시에 | 묶음 1건, 금액·건수가 지급마다 정확히 한 번 반영되고 `notification_payout_item`이 N행 | 갱신 유실이 없어야 한다 | ND-032, ND-053, ND-097 | 테이블 `notification_payout_item` | Integration(PG) | 유효 |
+| NT-BUN-07 | 되살림과 새 알림 동시 저장 | S의 날짜 묶음이 밀려남, S의 알림 20개 | 그 날짜 새 지급과 S의 다른 새 알림을 동시에 | 끝난 뒤 S의 보이는 알림이 20개를 넘지 않고, 두 처리의 결과가 모두 반영된다 | — | ND-022, ND-053, ND-097 | — | Integration(PG) | 유효 |
+| NT-BUN-08 | 되살림과 재전달 경합 | S의 날짜 묶음이 밀려남 | 그 날짜 새 지급과 이미 반영된 지급의 재전달을 동시에 | 새 지급만 한 번 반영되어 되살아나고, 재전달은 금액·건수를 바꾸지 않는다 | — | ND-032, ND-097 | 테이블 `notification_payout_item` | Integration(PG) | 유효 |
 
 ### 2.8 SCH — 예약 알림
 
@@ -235,7 +238,7 @@
 | 1 | 일반 유저 계정이 충전 완료·구매 완료 알림을 받는다. | NT-GEN-01(충전 완료), NT-GEN-02(구매 완료) | 충전 완료는 ✅ `ChargeCompletedEvent`로 지금 가능하다. **구매 완료는 P1 이벤트 `LectureOrderPaidEvent`(M4)가 필요하다.** N 8장 "P0만으로 11장 완료 증거를 시연할 수 있다"와 맞지 않아 미결(U2) |
 | 2 | 같은 integration event를 두 번 소비해도 알림은 한 번만 생긴다. | NT-IDEM-01, NT-IDEM-02 | 받는 사람이 여럿이면 NT-IDEM-03 |
 | 3 | 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다. | NT-RT-01, NT-RT-04 | 연결 티켓 NT-RT-05. 운영 Gateway에서 연결이 유지되는지는 NT-RT-07, Gateway 경로·`exp` claim은 NT-RT-09 |
-| 4 | 알림이 21개가 되면 가장 오래된 알림이 목록에서 빠지고, 그 알림의 이벤트를 다시 소비해도 되살아나지 않는다. | NT-RET-01, NT-RET-02 | 묶음 알림이 밀려난 경우는 NT-BUN-05(U9) |
+| 4 | 알림이 21개가 되면 가장 오래된 알림이 목록에서 빠지고, 그 알림의 이벤트를 다시 소비해도 되살아나지 않는다. | NT-RET-01, NT-RET-02 | 묶음 알림이 밀려난 뒤 새 지급이 오면 되살린다(NT-BUN-05, ND-097) |
 | 5 | auxiliary-app을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다. | NT-KAF-03 | Kafka 보존 72시간 안에서만 성립한다. 첫 배포의 과거 이벤트는 NT-KAF-04(ND-076) |
 | 6 | 채팅의 출연 알림 메시지도 그대로 남는다. | NT-CHAT-01 | 소비 그룹 독립 NT-CHAT-02 |
 
@@ -251,7 +254,7 @@
 | QRY 조회·접근 | 4 | 4 | 0 | 0 | 0 |
 | READ 읽음 | 6 | 6 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 5 | 5 | 0 | 0 | 0 |
-| BUN 하루 묶음 | 5 | 4 | 1 (U9) | 0 | 0 |
+| BUN 하루 묶음 | 8 | 8 | 0 | 0 | 0 |
 | SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
 | RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
@@ -259,7 +262,7 @@
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **98** | **90** | **8** | **0** | **0** |
+| **합계** | **101** | **94** | **7** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -279,7 +282,8 @@
 | NT-ERR-04 | `in.event.kafka.NotificationKafkaDeadLetterTest`(DLT 발행 실패 시 예외) | 일부: 복구기 단위 |
 | NT-BND-01 | `apps/auxiliary-app` `AuxiliaryModularityTest#verify`(notification 모듈을 찾고 경계 검사) | 전부 |
 | NT-BND-02 | `./gradlew verifyModuleStructure` | 전부 |
-| NT-BND-03 | `NotificationModuleIntegrationTest`, `apps/auxiliary-app` `AuxiliaryApplicationTest#flywaySchemas` | N2까지(schema, `notification`·`notification_user`, 모듈 SQL 적용, 이력 위치) |
+| NT-BND-03 | `NotificationModuleIntegrationTest`, `apps/auxiliary-app` `AuxiliaryApplicationTest#flywaySchemas` | N8까지(schema, `notification`·`notification_payout_item`·`notification_runtime_setting`·`notification_user`, 모듈 SQL 적용, 이력 위치) |
+| NT-BUN-01~08 (N8) | `app.NotificationDailyPayoutTest`(판매자·날짜별 합산, 같은 지급 순차·동시, KST 경계, 갱신 때 안 읽음·늦은 발생 시각, 되살림·다시 숨김·재전달 불변, 지급 기록 실패 시 전체 롤백, 서로 다른 지급 동시, 되살림과 새 알림 동시, 되살림과 재전달 경합), `app.DailyPayoutTest`(강의 원천만, KST 날짜·JVM 시간대 무관, 문구), `in.event.NotificationAlertEventListenerTest`(Kafka로 묶음·재전달·시작 시각 전), `in.NotificationRealtimeIntegrationTest`(만들 때·갱신 때 프레임, 재전달 프레임 없음) | 전부 |
 | NT-QRY-01~04 | `in.ApiV1NotificationControllerTest`(최신 20개·발생 시각 정렬, 다른 회원 차단·비로그인 401·관리자 403, 대상 삭제 무관) | 전부 |
 | NT-READ-01~06 | `in.ApiV1NotificationControllerTest`(누를 때 읽음, 목록으로 안 읽음, 남의·없는·밀려난 알림 404 통일, 전체 읽음, 최대 20, 다시 읽음 200), `domain.NotificationTest` | 전부. 실시간 프레임의 안 읽은 수(READ-05)는 아래 N3 행 |
 | NT-RET-01~05 | `app.NotificationWriterTest`(21번째 Soft Delete, 밀려난 알림 재저장 안 됨, 늦게 온 오래된 알림, Hard Delete 없음, 같은 회원 동시 저장 20개 유지), `app.NotificationConcurrencyTest`(읽음·전체 읽음과 보존 정리의 겹침) | 저장 서비스 수준. RET-02의 Kafka 재수신은 N5 이후 |
@@ -315,6 +319,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): NT-BUN-04에 발생 시각(ND-101)을, NT-BUN-05를 되살림(ND-097)으로 고쳐 유효로 바꿨고, ND-097의 경합 테스트 NT-BUN-06~08을 더했다. NT-GEN-12에 ND-098을 반영했다(예약 5종 U11 남음). 집계 98 → 101, 유효 94, 미결 7. 구현 뒤 4장 연결 테스트 표에 NT-BUN-01~08을 더하고 NT-BND-03 범위를 N8까지로 고쳤다(상태·집계 그대로).
 - 2026-11-11 decisions.md ND-069~ND-079 반영(N5 사전 결정, #859): NT-GEN-10(ND-075)·NT-KAF-04(ND-076)·NT-IDEM-05(ND-073)·NT-USR-05(ND-072)·NT-USR-06(ND-077·ND-078)을 유효로, NT-GEN-12에 ND-071을 반영했다(U11 남음). NT-GEN-15(이동 대상, ND-074), NT-USR-08~10(Backfill 버전·파기·동시성, 실패·건너뜀·잠금, 재실행 API), ④ 계획 검토 뒤 NT-KAF-07(대체 시각, ND-081)·NT-GEN-16(회원 알림은 복제본 리스너 안, ND-080)을 더했다. 집계 87 → 93, 유효 85, 미결 8. 구현 뒤 NT-KAF-04에 잘못된 값 기동 실패(ND-088)를, NT-USR-10에 503(ND-089)을 더했다. ND-095 뒤 NT-KAF-04를 설정이 없을 때의 첫 기동 기록으로 고쳤다. PR 리뷰 뒤 NT-USR-10을 비동기 시작·조회·Redis 상태 일치(ND-092)로, NT-USR-09에 대기 게이지(ND-093)를 더했다.
 - 2026-11-11 decisions.md ND-082~ND-087 반영(N6 사전 결정, #862): NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06을 더하고 4장 집계를 고쳤다. NT-GEN-15·16, NT-KAF-07은 N5(#859)가 쓰는 번호라 비워 두었다.
 - 2026-11-11 N6 B단계(#862, ND-096): 4장 연결 테스트 표에 N6 통합 테스트를 연결했다. 상태·집계는 바꾸지 않았다.
