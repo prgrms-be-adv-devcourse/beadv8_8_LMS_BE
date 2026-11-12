@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-072 · 2026-11-12 · 통과 (N7 고객센터 #918 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-072 |
+| 실행 날짜 | 2026-11-12 17:10~17:26 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `6f070e43`(origin/dev `71e413c6` 병합 커밋)과 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(강의 #910 PR #920, 회원 #915 PR #922, 검색 #919·#923) 병합. 충돌 9파일(`NotificationTemplates`, PROGRESS, 알림 문서 7개)은 dev 내용을 두고 고객센터 변경을 더해 풀었다. 결정·명세 번호는 dev 다음 번호라 그대로, 실행 기록만 NR-065·NR-066 → NR-070·NR-071로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 강의 7종·회원 3종 + 고객센터 2종, 템플릿 등록 합침) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-21, NT-GEN-22, NT-GEN-23, NT-KAF-09, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-070과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test` 모두 새로 실행(`UP-TO-DATE` 없음) |
+| 건수 | `:notification` 310, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 329. 실패 0·오류 0·건너뜀 0(XML 기준) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(사용자 결정, CI에서 확인) |
+| 관련 변경 | #918 |
+
 #### NR-071 · 2026-11-12 · 통과 (N7 고객센터 #918 S6 리뷰 반영: 빈 제목 DLT)
 
 | 항목 | 값 |
