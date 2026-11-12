@@ -27,7 +27,9 @@ public enum SearchJob implements JobLockKey {
     /** 리뷰 보정: 리뷰 동기화 API 전체 읽기와 판매자·평점 칸 맞추기(1시간마다, #884) */
     LECTURE_REVIEW_RECONCILE(884_002L, "search-lecture-review-reconcile"),
     /** 강의 판매자 사본의 회원 변경분 증분 보정(10분마다, #884) */
-    SELLER_RECONCILE(884_003L, "search-seller-reconcile");
+    SELLER_RECONCILE(884_003L, "search-seller-reconcile"),
+    /** 강의 index 처음 적재·재색인(시작 때와 10분마다 확인, #884). 인플루언서 {@link #REINDEX}와 따로 잡는다 */
+    LECTURE_REINDEX(884_004L, "search-lecture-reindex");
 
     private final long lockKey;
     private final String tag;
