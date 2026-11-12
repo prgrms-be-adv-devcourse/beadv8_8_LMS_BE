@@ -165,8 +165,9 @@ class NotificationAlertEventListenerTest {
         // 같은 지급의 재전달은 다시 더하지 않는다(ND-032)
         kafka.send(BILLING_TOPIC, "settlement:2", new PayoutCompletedEvent(lectureSettlement, guest,
                 PayoutType.NORMAL, SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 9_000L, AFTER_START));
+        // 강의 원천도 제목을 싣지만(#872) 묶음 문구에는 넣지 않는다(ND-104)
         kafka.send(BILLING_TOPIC, "settlement:3", new PayoutCompletedEvent(nextId(), guest, PayoutType.NORMAL,
-                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 1_000L, AFTER_START.plusSeconds(60)));
+                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 1_000L, AFTER_START.plusSeconds(60), "강의 제목"));
         awaitBillingProcessed();
 
         assertThat(rows(guest)).hasSize(2);

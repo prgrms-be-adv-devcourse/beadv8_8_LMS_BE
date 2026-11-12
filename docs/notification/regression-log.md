@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-054 |
+| 실행 날짜 | 2026-11-12 11:16~11:24 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `8c3e6148` + origin/dev `f17b91f0` 병합(커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(#872·#893·#894·#895) 병합. 충돌은 `notification-catalog.md` 강의 표 하나(강의 7종 행은 dev의 #872 구현 표시, `PAYOUT_COMPLETED_DAILY` 행은 이 브랜치). ND-104(묶음 문구는 제목 없이 유지)와 관련 서술, Kafka 시험의 강의 원천 지급 하나에 제목을 실어 문구가 바뀌지 않는지 확인 |
+| 대상 기능 | 병합 결과 회귀, ND-104 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 231, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
 #### NR-053 · 2026-11-12 · 통과 (N8 #890 PR 리뷰 반영: 묶음 잠금 순서)
 
 | 항목 | 값 |

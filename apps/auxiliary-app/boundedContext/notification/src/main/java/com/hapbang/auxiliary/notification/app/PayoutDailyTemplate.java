@@ -9,8 +9,8 @@ import java.util.Map;
 import com.hapbang.auxiliary.notification.domain.NotificationPayload;
 
 /**
- * 강의 지급 하루 묶음의 문구(ND-098·ND-100). 강의 제목은 넣지 않는다(강의 원천 {@code sourceTitle}이 지금 비어 있다). 나중에 제목을
- * 넣으면 형식 버전 {@code v}를 올린다. 값은 jsonb로 저장했다 읽으면 숫자 타입이 바뀌므로 숫자는 {@link Number}로 읽는다(ND-020).
+ * 강의 지급 하루 묶음의 문구(ND-098·ND-100·ND-104). 강의 제목은 넣지 않는다: 묶음은 여러 강의의 지급을 합쳐 제목 하나로 나타낼 수
+ * 없다(지급 이벤트의 {@code sourceTitle}은 읽지 않는다). 나중에 제목을 넣으면 형식 버전 {@code v}를 올린다. 값은 jsonb로 저장했다 읽으면 숫자 타입이 바뀌므로 숫자는 {@link Number}로 읽는다(ND-020).
  */
 public enum PayoutDailyTemplate implements NotificationTemplate {
 

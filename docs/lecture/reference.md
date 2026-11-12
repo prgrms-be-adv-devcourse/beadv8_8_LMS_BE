@@ -25,6 +25,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | inspection_requested_at | timestamp | **추가** |
 | inspected_at | timestamp | **추가** |
 | inspected_by | bigint | **추가**, 관리자 회원 ID |
+| inspection_count | integer | **추가** (#872, D85). 기본 1. 검수 회차. 등록이 1회차이고 재검수를 신청할 때마다 1 오른다. 검수 승인·반려 이벤트의 회차 |
 | version | bigint | **추가**. 낙관적 락 (같은 강의를 동시에 바꾸는 요청 직렬화) |
 | deleted_at | timestamp | Soft Delete |
 
