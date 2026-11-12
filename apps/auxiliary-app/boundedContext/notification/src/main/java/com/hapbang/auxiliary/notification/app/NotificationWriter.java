@@ -1,8 +1,10 @@
 package com.hapbang.auxiliary.notification.app;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
@@ -49,12 +51,16 @@ public class NotificationWriter {
     /** 회원마다 보이는 알림 수(ND-022) */
     public static final int KEEP = 20;
 
+    /** 하루 묶음 행의 원본 이벤트 종류. 원본 대상 ID는 비운다(ND-103) */
+    static final String BUNDLE_SOURCE_EVENT_TYPE = "PayoutCompletedEvent";
+
     private final NotificationRepository notifications;
     private final NotificationUserRepository users;
     private final NotificationTemplates templates;
     private final ReceiverPolicy receiverPolicy;
     private final MemberMaskLocks maskLocks;
     private final NotificationRealtimeRelay realtime;
+    private final PayoutItemStore payoutItems;
 
     /**
      * @throws NotificationException 받는 사람 복제본이 없으면 {@code RECEIVER_NOT_REPLICATED}
@@ -92,6 +98,70 @@ public class NotificationWriter {
         // commit 뒤에만, 저장 스레드 밖에서 실시간으로 넘긴다. 밀려난 알림이면 넘기지 않는다(ND-027·ND-059)
         realtime.publishAfterCommit(saved.getId(), draft.receiverUserId());
         return NotificationWriteResult.created(saved.getId());
+    }
+
+    /**
+     * 강의 원천 지급을 판매자·날짜의 하루 묶음에 더한다(ND-032·ND-097·ND-101·ND-103). 아래가 모두 한 트랜잭션이고, 어느 하나가
+     * 실패하면(예: 지급 기록) 묶음 갱신까지 전부 되돌아간다.
+     * <ol>
+     *     <li>받는 사람 복제본 행을 잠근다(ND-053). 같은 판매자의 지급·알림 저장은 모두 이 잠금으로 줄을 선다. 복제본이 없으면 실패해
+     *     재시도 뒤 DLT로 간다(ND-035). 받을 수 없는 회원이면 아무것도 쓰지 않는다(ND-018·ND-072).</li>
+     *     <li>이미 더한 지급이면 묶음을 되살리거나 읽음·발생 시각을 바꾸지 않고 중복으로 끝낸다.</li>
+     *     <li>그 날짜 묶음(삭제된 행 포함)이 없으면 만들고, 있으면 행을 잠근 뒤 금액·건수를 더하고 발생 시각을 늦은 값으로, 다시 안
+     *     읽음으로 바꾸며 밀려났으면 되살린다.</li>
+     *     <li>지급을 기록하고, 21번째부터 숨긴다(ND-022). 되살린 묶음이 21번째보다 오래되면 다시 숨는다.</li>
+     *     <li>commit 뒤 실시간으로 넘긴다(ND-059). 숨겨진 묶음이면 넘기지 않는다.</li>
+     * </ol>
+     *
+     * @throws NotificationException 받는 사람 복제본이 없으면 {@code RECEIVER_NOT_REPLICATED}
+     */
+    @Transactional
+    public NotificationWriteResult addDailyPayout(DailyPayout payout) {
+        Assert.notNull(payout, "지급이 필요합니다.");
+        Assert.notNull(payout.settlementId(), "지급 건 ID가 필요합니다.");
+        Assert.notNull(payout.paidAt(), "지급 시각이 필요합니다.");
+        String kind = PayoutDailyTemplate.PAYOUT_COMPLETED_DAILY.kind();
+        NotificationUser receiver = users.findForUpdate(payout.receiverUserId())
+                .orElseThrow(() -> new NotificationException(NotificationErrorCode.RECEIVER_NOT_REPLICATED));
+        if (!receiverPolicy.canReceive(receiver)) {
+            log.info("받을 수 없는 회원(탈퇴·정지·관리자)이라 하루 묶음에 더하지 않았다 receiverUserId={}, kind={}",
+                    receiver.getId(), kind);
+            return NotificationWriteResult.of(Outcome.SKIPPED_RECEIVER);
+        }
+        if (payoutItems.exists(payout.settlementId())) {
+            log.debug("이미 하루 묶음에 더한 지급이라 건너뛰었다 receiverUserId={}, settlementId={}",
+                    payout.receiverUserId(), payout.settlementId());
+            return NotificationWriteResult.of(Outcome.DUPLICATE);
+        }
+        Function<Map<String, Object>, String> renderer = templates.renderer(kind);
+        Optional<Long> existing = notifications.findBundleId(kind, payout.receiverUserId(), payout.bundleKey());
+        long bundleId;
+        Outcome outcome;
+        if (existing.isEmpty()) {
+            Map<String, Object> payload = PayoutDailyTemplate.payload(payout.bundleDate(), payout.paidAmountHp(), 1);
+            NotificationDraft draft = new NotificationDraft(payout.receiverUserId(), kind, BUNDLE_SOURCE_EVENT_TYPE,
+                    null, null, null, payload, payout.paidAt());
+            bundleId = notifications.save(Notification.createBundle(draft, payout.bundleKey(), renderer)).getId();
+            outcome = Outcome.CREATED;
+        } else {
+            bundleId = existing.get();
+            addTo(bundleId, payout, renderer);
+            outcome = Outcome.UPDATED;
+        }
+        payoutItems.record(payout, bundleId);
+        keepLatest(payout.receiverUserId(), Instant.now());
+        realtime.publishAfterCommit(bundleId, payout.receiverUserId());
+        return new NotificationWriteResult(outcome, bundleId);
+    }
+
+    /** 묶음 행을 잠그고 잠근 뒤의 값에 지급을 더한다 */
+    private void addTo(long bundleId, DailyPayout payout, Function<Map<String, Object>, String> renderer) {
+        notifications.lockInIdOrder(List.of(bundleId));
+        Notification current = notifications.findById(bundleId).orElseThrow();
+        Map<String, Object> payload = PayoutDailyTemplate.added(current.getPayload(), payout);
+        Instant occurredAt = current.getOccurredAt().isAfter(payout.paidAt()) ? current.getOccurredAt()
+                : payout.paidAt();
+        notifications.addToBundle(bundleId, payload, renderer.apply(payload), occurredAt, LocalDateTime.now());
     }
 
     /**
