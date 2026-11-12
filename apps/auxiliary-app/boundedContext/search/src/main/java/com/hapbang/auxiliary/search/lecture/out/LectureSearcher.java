@@ -45,7 +45,8 @@ import co.elastic.clients.util.NamedValue;
  *     검색어가 있으면 걸린 칸이 없어도 {@code highlights} 객체를 준다(검색어 없음과 구분)</li>
  * </ul>
  * 순서: 기본은 검색어가 있으면 점수, 없으면 최신. {@code latest}는 강의 ID 내림차순. {@code rating}은 베이지안 평균 (n×R + m×C)/(n+m) →
- * 리뷰 수. 모든 순서의 마지막은 강의 ID 내림차순이다(동점이 많아 없으면 문서를 다시 쓸 때 페이지 사이에서 같은 강의가 또 나오거나 빠진다).
+ * 리뷰 수. {@code price}는 가격 오름·내림이고 가격 없는 강의(옛 메시지로 만든 문서)는 어느 쪽이든 맨 뒤다(#909, 무료 강의가 없어 null은 0원이 아니라
+ * 모르는 값이다). 모든 순서의 마지막은 강의 ID 내림차순이다(동점이 많아 없으면 문서를 다시 쓸 때 페이지 사이에서 같은 강의가 또 나오거나 빠진다).
  */
 @Component
 public class LectureSearcher {
@@ -150,6 +151,9 @@ public class LectureSearcher {
                             .params("m", JsonData.of(ranking.ratingPriorReviews()))
                             .params("c", JsonData.of(ratingBaseline))))));
             sort.add(SortOptions.of(o -> o.field(f -> f.field("reviewCount").order(SortOrder.Desc))));
+        } else if (condition.sort() == LectureSort.PRICE_ASC || condition.sort() == LectureSort.PRICE_DESC) {
+            SortOrder order = condition.sort() == LectureSort.PRICE_ASC ? SortOrder.Asc : SortOrder.Desc;
+            sort.add(SortOptions.of(o -> o.field(f -> f.field("priceHp").order(order).missing("_last"))));
         } else if (condition.sort() == LectureSort.DEFAULT && condition.keyword() != null) {
             sort.add(SortOptions.of(o -> o.score(s -> s.order(SortOrder.Desc))));
         }
@@ -170,8 +174,9 @@ public class LectureSearcher {
     static LectureSearchItem item(Hit<Map> hit, boolean keyword) {
         Map<String, Object> source = hit.source();
         Object average = source.get("averageRating");
+        Object price = source.get("priceHp");
         return new LectureSearchItem(number(source.get("lectureId")), (String) source.get("title"),
-                number(source.get("sellerUserId")), (String) source.get("sellerNickname"),
+                price == null ? null : ((Number) price).longValue(), number(source.get("sellerUserId")), (String) source.get("sellerNickname"),
                 average == null ? null : round(((Number) average).doubleValue()), number(source.get("reviewCount")),
                 keyword ? highlights(hit.highlight()) : null);
     }

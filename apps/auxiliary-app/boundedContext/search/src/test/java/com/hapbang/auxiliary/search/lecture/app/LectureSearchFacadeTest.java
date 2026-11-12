@@ -36,17 +36,22 @@ class LectureSearchFacadeTest {
             baseline, new SearchMetrics(registry), zeroResultKeywords);
 
     @Test
-    @DisplayName("정렬은 없음·latest,desc·rating,desc만 받고, 그 밖은 강의 정렬을 알리는 400 UNSUPPORTED_SORT다")
+    @DisplayName("정렬은 없음·latest,desc·rating,desc·price,asc·price,desc만 받고, 그 밖은 강의 정렬을 알리는 400 UNSUPPORTED_SORT다")
     void sorts() {
         assertThat(LectureSearchFacade.sort(Sort.unsorted())).isEqualTo(LectureSort.DEFAULT);
         assertThat(LectureSearchFacade.sort(Sort.by(Sort.Order.desc("latest")))).isEqualTo(LectureSort.LATEST);
         assertThat(LectureSearchFacade.sort(Sort.by(Sort.Order.desc("rating")))).isEqualTo(LectureSort.RATING);
+        assertThat(LectureSearchFacade.sort(Sort.by(Sort.Order.asc("price")))).isEqualTo(LectureSort.PRICE_ASC);
+        assertThat(LectureSearchFacade.sort(Sort.by(Sort.Order.desc("price")))).isEqualTo(LectureSort.PRICE_DESC);
 
         for (Sort sort : List.of(Sort.by(Sort.Order.asc("latest")), Sort.by(Sort.Order.desc("createdAt")),
-                Sort.by(Sort.Order.desc("followers")), Sort.by(Sort.Order.desc("latest"), Sort.Order.desc("rating")))) {
+                Sort.by(Sort.Order.desc("followers")), Sort.by(Sort.Order.desc("latest"), Sort.Order.desc("rating")),
+                Sort.by(Sort.Order.asc("rating")), Sort.by(Sort.Order.asc("priceHp")),
+                Sort.by(Sort.Order.asc("price"), Sort.Order.desc("latest")))) {
             assertThatThrownBy(() -> LectureSearchFacade.sort(sort)).isInstanceOfSatisfying(SearchException.class, e -> {
                 assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.UNSUPPORTED_SORT);
-                assertThat(e.getMessage()).contains("latest,desc").contains("rating,desc");
+                assertThat(e.getMessage()).contains("latest,desc").contains("rating,desc").contains("price,asc")
+                        .contains("price,desc");
             });
         }
     }

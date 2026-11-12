@@ -80,10 +80,10 @@ class ApiV1LectureSearchControllerTest {
         SearchElasticsearch.reset(client);
         SearchElasticsearch.createLectureIndex(client);
         zeroResultKeywords.flush();
-        // 평점순(1 → 2 → 3, 리뷰 없는 2는 전체 평균)이 최신순(3 → 2 → 1)과 반대가 되게 둔다
-        lecture(1L, "프리미어 컷편집 입문", "처음 쓰는 분을 위한 강의", List.of("1강 설치"), new LectureRating(4.85, 20));
-        lecture(2L, "포토샵 보정", "사진 보정", List.of("3강 프리미어 연동"), LectureRating.NONE);
-        lecture(3L, "OBS 방송 세팅", "방송 장비", List.of(), new LectureRating(4.0, 30));
+        // 평점순(1 → 2 → 3, 리뷰 없는 2는 전체 평균)이 최신순(3 → 2 → 1)과 반대가 되게 둔다. 가격 낮은 순은 2 → 3 → 1이다
+        lecture(1L, "프리미어 컷편집 입문", "처음 쓰는 분을 위한 강의", List.of("1강 설치"), new LectureRating(4.85, 20), 30_000L);
+        lecture(2L, "포토샵 보정", "사진 보정", List.of("3강 프리미어 연동"), LectureRating.NONE, 10_000L);
+        lecture(3L, "OBS 방송 세팅", "방송 장비", List.of(), new LectureRating(4.0, 30), 20_000L);
         client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
     }
 
@@ -94,6 +94,7 @@ class ApiV1LectureSearchControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[*].lectureId", contains(1, 2)))
                 .andExpect(jsonPath("$.data.content[0].title").value("프리미어 컷편집 입문"))
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(30000))
                 .andExpect(jsonPath("$.data.content[0].sellerUserId").value(7))
                 .andExpect(jsonPath("$.data.content[0].sellerNickname").value("편집장"))
                 .andExpect(jsonPath("$.data.content[0].averageRating").value(4.9))
@@ -105,7 +106,7 @@ class ApiV1LectureSearchControllerTest {
     }
 
     @Test
-    @DisplayName("회원도 검색한다. 검색어가 없으면 최신순이고 highlights가 없다. latest·rating 정렬")
+    @DisplayName("회원도 검색한다. 검색어가 없으면 최신순이고 highlights가 없다. latest·rating·price 정렬")
     void memberSearchAndSorts() throws Exception {
         mockMvc.perform(member(get(URL), 201L)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[*].lectureId", contains(3, 2, 1)))
@@ -114,13 +115,19 @@ class ApiV1LectureSearchControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[*].lectureId", contains(2, 1)));
         mockMvc.perform(member(get(URL).param("sort", "rating,desc"), 201L))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[*].lectureId", contains(1, 2, 3)));
+        // 회원 한도(이 테스트 3회)를 넘지 않게 다른 회원으로 부른다
+        mockMvc.perform(member(get(URL).param("sort", "price,asc"), 202L))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[*].lectureId", contains(2, 3, 1)))
+                .andExpect(jsonPath("$.data.content[*].priceHp", contains(10000, 20000, 30000)));
+        mockMvc.perform(member(get(URL).param("keyword", "프리미어").param("sort", "price,desc"), 202L))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.content[*].lectureId", contains(1, 2)));
     }
 
     @Test
     @DisplayName("허용 밖 정렬은 400 UNSUPPORTED_SORT, 1,000건 밖은 400 PAGE_TOO_DEEP, 50자 넘는 검색어는 400 INVALID_REQUEST다")
     void badRequests() throws Exception {
         // 한도는 검증보다 먼저 세므로(잘못된 요청 남용도 막음) 요청마다 다른 IP를 쓴다
-        List<String> sorts = List.of("createdAt,desc", "latest,asc", "followers,desc", "price,asc");
+        List<String> sorts = List.of("createdAt,desc", "latest,asc", "followers,desc", "priceHp,asc");
         for (int i = 0; i < sorts.size(); i++) {
             mockMvc.perform(guest(get(URL).param("sort", sorts.get(i)), "203.0.113." + (11 + i)))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("UNSUPPORTED_SORT"))
@@ -208,12 +215,13 @@ class ApiV1LectureSearchControllerTest {
         Assertions.assertThat(zeroResultKeywords.flush()).containsOnlyKeys("다빈치리졸브");
     }
 
-    private void lecture(long id, String title, String description, List<String> contentTitles, LectureRating rating) {
+    private void lecture(long id, String title, String description, List<String> contentTitles, LectureRating rating,
+            long priceHp) {
         List<LectureContentSyncDto> contents = new java.util.ArrayList<>();
         for (int i = 0; i < contentTitles.size(); i++) {
             contents.add(new LectureContentSyncDto((long) i + 1, contentTitles.get(i), i + 1));
         }
-        store.writeLecture(new LectureSyncDto(id, 7L, title, description, 10_000L, true, false, contents, 1L),
+        store.writeLecture(new LectureSyncDto(id, 7L, title, description, priceHp, true, false, contents, 1L),
                 new Seller(7L, "편집장", true), rating, NOW);
     }
 

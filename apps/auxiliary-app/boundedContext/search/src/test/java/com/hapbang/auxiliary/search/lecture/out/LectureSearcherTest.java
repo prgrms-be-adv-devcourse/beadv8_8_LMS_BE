@@ -94,6 +94,23 @@ class LectureSearcherTest {
     }
 
     @Test
+    @DisplayName("가격순은 오름·내림이고 같은 가격은 강의 ID 내림차순, 가격 없는 강의는 어느 쪽이든 맨 뒤다. 응답에 가격을 싣는다(#909)")
+    void priceSort() throws Exception {
+        writePriced(1L, 30_000L);
+        writePriced(2L, 10_000L);
+        writePriced(3L, null);
+        writePriced(4L, 10_000L);
+        writePriced(5L, 50_000L);
+        refresh();
+
+        List<LectureSearchItem> ascending = search(null, LectureSort.PRICE_ASC);
+        assertThat(ids(ascending)).containsExactly(4L, 2L, 1L, 5L, 3L);
+        assertThat(ascending).extracting(LectureSearchItem::priceHp)
+                .containsExactly(10_000L, 10_000L, 30_000L, 50_000L, null);
+        assertThat(ids(search("강의", LectureSort.PRICE_DESC))).containsExactly(5L, 1L, 4L, 2L, 3L);
+    }
+
+    @Test
     @DisplayName("highlights는 원문의 HTML을 escape하고 걸린 말만 <em>으로 감싼다. 콘텐츠 제목은 걸린 것만, 소개는 주변 조각이다")
     void highlightsEscapeHtml() throws Exception {
         String filler = "영상 편집을 처음 배우는 분을 위한 강의 소개 문장입니다. ";
@@ -208,6 +225,11 @@ class LectureSearcherTest {
         long sellerUserId = seller == null ? 99L : seller.userId();
         store.writeLecture(new LectureSyncDto(id, sellerUserId, title, description, 10_000L, onSale, false, contents, 1L), seller,
                 rating == null ? LectureRating.NONE : rating, NOW);
+    }
+
+    private void writePriced(long id, Long priceHp) {
+        store.writeLecture(new LectureSyncDto(id, 7L, "강의 " + id, "소개", priceHp, true, false, List.of(), 1L),
+                seller(7L, "편집장", true), LectureRating.NONE, NOW);
     }
 
     private static Seller seller(long userId, String nickname, boolean active) {
