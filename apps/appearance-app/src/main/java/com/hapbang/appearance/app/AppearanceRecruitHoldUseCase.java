@@ -1,15 +1,22 @@
 package com.hapbang.appearance.app;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
+import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.shared.appearance.event.AppearanceRecruitOpenedEvent;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
@@ -43,6 +50,9 @@ public class AppearanceRecruitHoldUseCase {
     private final BillingClient billingClient;
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
+    @Qualifier(AppearanceConfig.CLOCK)
+    private final Clock clock;
 
     /**
      * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE}·{@code WALLET_CLOSED} 또는 500 {@code HP_HOLD_FAILED}).
@@ -74,12 +84,19 @@ public class AppearanceRecruitHoldUseCase {
 
     /**
      * 보류 성공 → {@code RECRUITING}. 응답에 담는 버전·수정 시각이 DB와 같도록 바로 반영(flush)한 뒤 응답을 만든다.
+     * 이번에 모집 중이 됐을 때만 모집 시작을 알린다 (#871).
      */
     @Transactional
     public AppearanceRecruitResDto markRecruiting(Long recruitId) {
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
-        recruit.markRecruiting();
+        boolean changed = recruit.markRecruiting();
         appearanceRecruitSupport.flush();
+        if (changed) {
+            // 올리기 요청과 보류 재확인 배치가 같은 결과를 함께 반영해도 모집 시작은 한 번만 알린다.
+            // 알림센터가 모집 마감 임박 예약을 만든다
+            eventPublisher.publishEvent(new AppearanceRecruitOpenedEvent(AppearanceContractMapper.toRecruitDto(recruit),
+                    LocalDateTime.now(clock)));
+        }
         // 방금 올린 모집글이라 지원이 없다
         return AppearanceRecruitResDto.from(recruit, 0);
     }
