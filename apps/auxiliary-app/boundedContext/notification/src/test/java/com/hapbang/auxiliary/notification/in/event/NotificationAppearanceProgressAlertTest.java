@@ -58,7 +58,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
 /**
- * 출연 진행 알림 10종(N7 출연)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-109~ND-112). test-spec NT-GEN-20, NT-KAF-09
+ * 출연 진행 알림 10종(N7 출연)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-110~ND-113). test-spec NT-GEN-20, NT-KAF-09
  * <p>
  * 토픽·그룹은 이 클래스 전용(UUID), partition 하나라 마지막에 보낸 표식 이벤트가 처리되면 앞선 레코드도 끝난 것이다.
  */

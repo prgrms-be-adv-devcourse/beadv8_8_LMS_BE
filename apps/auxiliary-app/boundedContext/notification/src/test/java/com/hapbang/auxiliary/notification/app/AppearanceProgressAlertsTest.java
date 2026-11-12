@@ -30,8 +30,8 @@ import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 
 /**
- * 출연 진행 알림 10종의 초안과 문구(N7 출연, NT-GEN-10·15·20). 받는 사람, 원본 대상 ID(ND-110), 이동 대상(ND-111),
- * 문구(ND-112, 알림 종류 0.8), 보내지 않는 경우, 필수 값 검증(ND-086과 같은 방식).
+ * 출연 진행 알림 10종의 초안과 문구(N7 출연, NT-GEN-10·15·20). 받는 사람, 원본 대상 ID(ND-111), 이동 대상(ND-112),
+ * 문구(ND-113, 알림 종류 0.8), 보내지 않는 경우, 필수 값 검증(ND-086과 같은 방식).
  */
 class AppearanceProgressAlertsTest {
 

@@ -110,8 +110,9 @@ class LectureSyncInternalApiTest {
                 .andExpect(jsonPath("$.data.items[0].contents[*].title").value(contains("1강 장비 고르기", "장비 목록")))
                 .andExpect(jsonPath("$.data.items[0].contents[*].sequence").value(contains(1, 2)))
                 .andExpect(jsonPath("$.data.items[0].version").value(0))
-                // 가격·썸네일·검수 정보는 싣지 않는다
-                .andExpect(jsonPath("$.data.items[0].priceHp").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].priceHp").value(PRICE_HP))
+                // 썸네일·검수 정보는 싣지 않는다
+                .andExpect(jsonPath("$.data.items[0].thumbnailFileId").doesNotExist())
                 .andExpect(jsonPath("$.data.items[1].id").value(rejected.getId()))
                 .andExpect(jsonPath("$.data.items[1].contents[*].title").value(contains("다시 찍은 1강")))
                 .andExpect(jsonPath("$.data.items[1].version").value(1))

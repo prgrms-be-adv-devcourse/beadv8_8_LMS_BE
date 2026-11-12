@@ -28,19 +28,19 @@ import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 
 /**
- * 출연 진행 알림 10종(N7 출연, ND-109)의 이벤트를 알림 초안으로 바꾼다.
+ * 출연 진행 알림 10종(N7 출연, ND-110)의 이벤트를 알림 초안으로 바꾼다.
  * <ul>
  *     <li>받는 사람은 알림 종류 문서 1장이다. 요청 만료는 호스트용·게스트용 초안을 따로 만든다.</li>
- *     <li>원본 대상 ID(중복 방지 키)는 이벤트 key의 사건 ID다(ND-110): 요청 4종은 요청서 ID, 지원 2종은 지원 ID, 모집 마감은 모집글 ID,
+ *     <li>원본 대상 ID(중복 방지 키)는 이벤트 key의 사건 ID다(ND-111): 요청 4종은 요청서 ID, 지원 2종은 지원 ID, 모집 마감은 모집글 ID,
  *     출연 3종은 출연 ID.</li>
- *     <li>이동 대상은 알림 시점에 남는 업무 자원이다(ND-111). 원본 대상 ID와 따로 정한다. 요청 수락·지원 선정은 원본 대상이 요청서·지원이지만
+ *     <li>이동 대상은 알림 시점에 남는 업무 자원이다(ND-112). 원본 대상 ID와 따로 정한다. 요청 수락·지원 선정은 원본 대상이 요청서·지원이지만
  *     이동 대상은 이벤트에 실린 성립한 출연 ID다.</li>
  *     <li>모집 마감은 {@code DEADLINE}, 출연 확인은 {@code AUTO}일 때만 만든다. 아니면 빈 값이다(본인 행동).</li>
  *     <li>발생 시각은 이벤트의 사건 시각이다. 출연의 {@code LocalDateTime}은 KST다.</li>
  *     <li>필수 값이 비면 {@link IllegalArgumentException}을 던진다. 소비자가 검증 실패(재시도 없이 DLT)로 바꾼다(ND-086과 같은 방식).
  *     M3(#871)는 처음부터 이 형식으로 나가 이전 형식이 없다.</li>
  * </ul>
- * 행동한 상대의 닉네임은 호출하는 쪽이 복제본에서 읽어 넘긴다(ND-051, ND-112). 닉네임 없이({@code null}) 바꾸면 받는 사람·발생 시각
+ * 행동한 상대의 닉네임은 호출하는 쪽이 복제본에서 읽어 넘긴다(ND-051, ND-113). 닉네임 없이({@code null}) 바꾸면 받는 사람·발생 시각
  * 확인용 초안이 된다.
  */
 public final class AppearanceProgressAlerts {
@@ -132,7 +132,7 @@ public final class AppearanceProgressAlerts {
                 event.closedAt()));
     }
 
-    /** 호스트 일방 취소: 게스트에게. 호스트가 언급 회원. 위약금은 값·문구에 넣지 않는다(ND-112) */
+    /** 호스트 일방 취소: 게스트에게. 호스트가 언급 회원. 위약금은 값·문구에 넣지 않는다(ND-113) */
     public static NotificationDraft canceledByHost(AppearanceCanceledByHostEvent event, String hostNickname) {
         AppearanceDto appearance = valid(event.appearance());
         Map<String, Object> payload = payload(appearance.title());

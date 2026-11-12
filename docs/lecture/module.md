@@ -201,7 +201,7 @@ sequenceDiagram
 - object key 규칙: `lecture/{fileType}/{uuid}` — 원본 파일명은 key에 넣지 않는다. 환경 prefix(`dev/` 등)는 `global/storage`가 붙인다.
 - 용도별 허용 형식·최대 크기는 D19를 따른다.
 - 강의 등록·정보 수정·콘텐츠 교체에서는 `UPLOADED`이고 판매자 본인이 올렸고 용도(썸네일/영상/자료)가 맞는 파일만 연결한다. 한 파일을 여러 강의에 연결할 수 있다 (D21).
-- 썸네일은 목록에서 비회원도 보므로 Presigned GET URL을 응답 때마다 발급한다. 조회 URL 만료는 D23을 따른다. 강의 응답의 썸네일 URL 규칙은 D28을 따른다.
+- 썸네일은 목록에서 비회원도 보므로 Presigned GET URL을 응답 때마다 발급한다. 조회 URL 만료는 D23을 따른다. 강의 응답의 썸네일 URL 규칙은 D28을 따른다. 강의 ID만 아는 화면(강의 검색 결과)은 썸네일 일괄 조회 `GET /thumbnails?ids=`로 판매 중인 강의의 URL만 받는다(D86).
 - 오래된 `PENDING` 파일 정리는 MVP에서 하지 않는다.
 
 ### 4.5 Cart

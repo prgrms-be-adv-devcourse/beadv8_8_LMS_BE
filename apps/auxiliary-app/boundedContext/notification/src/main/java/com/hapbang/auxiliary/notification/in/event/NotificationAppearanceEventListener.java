@@ -44,7 +44,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 출연 이벤트({@code appearance.events.v1}, 그룹 {@code auxiliary-app.notification-appearance-alert})로 알림을 만드는 진입
  * 어댑터(N5: 출연 요청 도착·모집 지원 도착, ND-069. N6: 출연 취소 요청 도착·수락·거절, ND-082·ND-087. N7 출연: 요청·지원·모집 마감·
- * 출연 진행 10종, ND-109).
+ * 출연 진행 10종, ND-110).
  * <ul>
  *     <li>컨테이너는 앱 기동 때 시작하지 않고 첫 회원 복제본 Backfill이 끝나면 시작한다(ND-078).</li>
  *     <li>출연 요청 도착에는 사건 시각이 없어 레코드 timestamp를 대체 시각으로 넘긴다(ND-081).</li>
@@ -101,7 +101,7 @@ public class NotificationAppearanceEventListener {
         alerts.create(valid(() -> AppearanceCancelRequestAlerts.rejected(event)));
     }
 
-    // N7 출연 10종(ND-109). 행동한 상대가 있으면 닉네임 없이 먼저 바꿔 필수 값을 본 뒤 서비스가 닉네임을 읽는다(ND-112)
+    // N7 출연 10종(ND-110). 행동한 상대가 있으면 닉네임 없이 먼저 바꿔 필수 값을 본 뒤 서비스가 닉네임을 읽는다(ND-113)
 
     @KafkaHandler
     public void on(AppearanceRequestAcceptedEvent event) {

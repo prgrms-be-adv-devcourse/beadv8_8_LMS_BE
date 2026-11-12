@@ -86,63 +86,63 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
-#### NR-057 · 2026-11-12 · 통과 (N7 출연 #908 자체 리뷰 반영 뒤 재검증)
+#### NR-060 · 2026-11-12 · 통과 (N7 출연 #908 자체 리뷰 반영 뒤 재검증)
 
 | 항목 | 값 |
 | --- | --- |
-| 실행 ID | NR-057 |
+| 실행 ID | NR-060 |
 | 실행 날짜 | 2026-11-12 14:02~14:07 (KST) |
 | 실행자 | Claude Code |
 | 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
 | 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
-| 작업 트리 변경 | NR-055 + 자체 리뷰 반영: `NotificationAppearanceEventListener`의 알리지 않는 경우 로그를 DEBUG로 바꾸고 메시지의 `eventType`을 뺐다. `NotificationAppearanceProgressAlertTest`에 조기 마감·호스트 확인의 DLT 없음과 불참 이동 대상 확인을 더했다. module.md N7 행을 줄였다 |
-| 대상 기능 | N7 출연 10종 알림(ND-109~ND-112) |
+| 작업 트리 변경 | NR-058 + 자체 리뷰 반영: `NotificationAppearanceEventListener`의 알리지 않는 경우 로그를 DEBUG로 바꾸고 메시지의 `eventType`을 뺐다. `NotificationAppearanceProgressAlertTest`에 조기 마감·호스트 확인의 DLT 없음과 불참 이동 대상 확인을 더했다. module.md N7 행을 줄였다 |
+| 대상 기능 | N7 출연 10종 알림(ND-110~ND-113) |
 | 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
 | 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
-| 실행 환경 | NR-055와 같다. 다른 빌드가 돌지 않는 상태에서 혼자 실행 |
-| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-055) |
+| 실행 환경 | NR-058와 같다. 다른 빌드가 돌지 않는 상태에서 혼자 실행 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-058) |
 | 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
 | 실패 원인 분류 | 실패 없음 |
 | 수정 내용 | — |
-| 재실행 결과 | NR-056의 재실행이다 |
+| 재실행 결과 | NR-059의 재실행이다 |
 | 미검증 항목 | 전체 `./gradlew check` 미실행 |
 | 관련 변경 | #908 |
 
-#### NR-056 · 2026-11-12 · 실패 (N7 출연 #908 자체 리뷰 반영 뒤 재검증, 빌드 겹침)
+#### NR-059 · 2026-11-12 · 실패 (N7 출연 #908 자체 리뷰 반영 뒤 재검증, 빌드 겹침)
 
 | 항목 | 값 |
 | --- | --- |
-| 실행 ID | NR-056 |
+| 실행 ID | NR-059 |
 | 실행 날짜 | 2026-11-12 13:5x~14:01 (KST) |
 | 실행자 | Claude Code |
 | 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
-| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리(NR-057과 같다) |
-| 작업 트리 변경 | NR-057과 같다 |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리(NR-060과 같다) |
+| 작업 트리 변경 | NR-060과 같다 |
 | 대상 기능 | N7 출연 10종 알림 |
-| 관련 NT ID | NR-057과 같다 |
+| 관련 NT ID | NR-060과 같다 |
 | 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
-| 실행 환경 | NR-055와 같다. 바로 전에 같은 명령을 셸에서 중단했는데 Gradle 데몬이 그 빌드를 계속 돌리고 있었다(로그 첫 줄 "3 busy Daemons could not be reused") |
+| 실행 환경 | NR-058와 같다. 바로 전에 같은 명령을 셸에서 중단했는데 Gradle 데몬이 그 빌드를 계속 돌리고 있었다(로그 첫 줄 "3 busy Daemons could not be reused") |
 | 결과 | 실패(종료 코드 1). `:notification:test FAILED` — `NoSuchFileException: .../notification/build/test-results/test/binary/in-progress-results-generic.bin` |
 | 건수 | 결과 XML이 새로 쓰이지 않았다(실패한 시험 보고 없음) |
 | 실패 원인 분류 | F-ENV(같은 worktree에서 두 빌드가 같은 시험 결과 폴더를 함께 썼다) |
 | 수정 내용 | 없음(코드 결함 아님) |
-| 재실행 결과 | 겹친 빌드가 끝난 뒤 같은 명령을 혼자 다시 돌려 통과(NR-057) |
+| 재실행 결과 | 겹친 빌드가 끝난 뒤 같은 명령을 혼자 다시 돌려 통과(NR-060) |
 | 미검증 항목 | — |
 | 관련 변경 | #908 |
 
-**메모**: 로그의 `java.net.ConnectException` 스택은 통과한 NR-055 로그에도 있던 잡음이라 실패 원인이 아니다. 시험 실행을 셸에서 중단하면 데몬이 빌드를 이어 갈 수 있으니, 다시 돌리기 전에 `./gradlew --status`로 바쁜 데몬이 없는지 본다.
+**메모**: 로그의 `java.net.ConnectException` 스택은 통과한 NR-058 로그에도 있던 잡음이라 실패 원인이 아니다. 시험 실행을 셸에서 중단하면 데몬이 빌드를 이어 갈 수 있으니, 다시 돌리기 전에 `./gradlew --status`로 바쁜 데몬이 없는지 본다.
 
-#### NR-055 · 2026-11-12 · 통과 (N7 출연 10종 #908 구현)
+#### NR-058 · 2026-11-12 · 통과 (N7 출연 10종 #908 구현)
 
 | 항목 | 값 |
 | --- | --- |
-| 실행 ID | NR-055 |
+| 실행 ID | NR-058 |
 | 실행 날짜 | 2026-11-12 12:41~12:51 (KST) |
 | 실행자 | Claude Code |
 | 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
 | 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
 | 작업 트리 변경 | 새 파일 `app/AppearanceProgressAlerts.java`, `app/AppearanceProgressTemplates.java`, 시험 `app/AppearanceProgressAlertsTest.java`, `in/event/NotificationAppearanceProgressAlertTest.java`. 수정 `app/NotificationAlertService.java`, `app/NotificationTemplates.java`, `in/event/NotificationAppearanceEventListener.java`. 문서 decisions·catalog·test-spec·module·event-contracts·api 2.2·PROGRESS |
-| 대상 기능 | N7 출연 10종 알림(ND-109~ND-112) |
+| 대상 기능 | N7 출연 10종 알림(ND-110~ND-113) |
 | 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
 | 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
 | 실행 환경 | NR-050과 같다(Windows 10, JDK 25, Gradle 9.7.1, Docker, Testcontainers postgres·kafka·redis) |
@@ -154,7 +154,73 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 | 미검증 항목 | 전체 `./gradlew check` 미실행. 예약 입력(N10)은 범위 밖 |
 | 관련 변경 | #908 |
 
-**메모**: TDD red는 같은 날 단독 실행으로 확인했다(`AppearanceProgressAlertsTest`는 변환 클래스가 없어 컴파일 실패, `NotificationAppearanceProgressAlertTest`는 처리기가 없어 8개 모두 대기 시간 초과). NR 번호는 N7 지갑(#907)과 병합 순서에 따라 늦게 병합하는 쪽이 고친다(ND-109).
+**메모**: TDD red는 같은 날 단독 실행으로 확인했다(`AppearanceProgressAlertsTest`는 변환 클래스가 없어 컴파일 실패, `NotificationAppearanceProgressAlertTest`는 처리기가 없어 8개 모두 대기 시간 초과). NR 번호는 N7 지갑(#907)과 병합 순서에 따라 늦게 병합하는 쪽이 고친다(ND-110).
+
+#### NR-057 · 2026-11-12 · 통과 (N7 지갑 #907 PR 리뷰 반영: 충전 실패 값의 결제 금액 제거)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-057 |
+| 실행 날짜 | 2026-11-12 14:09~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `55d43c60`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts.chargeFailed`가 값에 `paymentAmountKrw`를 넣지 않고 키 상수도 지웠다. `WalletAlertsTest` 4건에 값 키 단언(`containsOnlyKeys`)을 더했다(먼저 `paymentAmountKrw`가 있어 실패하는 것을 확인) |
+| 대상 기능 | N7 지갑 4종 값 형식 |
+| 관련 NT ID | NT-GEN-19, NT-GEN-13 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`. `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(결과는 NR-055·NR-056) |
+| 건수 | `:notification` 243, `:auxiliary-app` 13(새 실행). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 PR 리뷰 |
+
+#### NR-056 · 2026-11-12 · 통과 (N7 지갑 #907 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-056 |
+| 실행 날짜 | 2026-11-12 13:55~14:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `9c2f0a7d`(`aa54fe41` + origin/dev `26b44b5b` 병합, 충돌 없음) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀(#906 검색 사본·색인과 `AuxiliaryApplicationTest`) |
+| 관련 NT ID | NR-055와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `verifyModuleStructure`, `:auxiliary-app:test`, `:search:test`. `:notification:test`·`:auxiliary-global:test`·`:chatbot:test`는 `UP-TO-DATE`(병합이 입력을 바꾸지 않음, 결과는 NR-055) |
+| 건수 | `:auxiliary-app` 13, `:search` 222(새 실행). `:notification` 243, `:auxiliary-global` 110, `:chatbot` 245(이전 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ 승인 Q2 a) |
+| 관련 변경 | #907 |
+
+#### NR-055 · 2026-11-12 · 통과 (N7 지갑 4종 #907)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-055 |
+| 실행 날짜 | 1차 2026-11-12 12시 30분대(약 9분), 2차 12:45~12:48, 3차 13:43~13:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | origin/dev `973ccbe5`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts`·`WalletAlertTemplates` 추가, `NotificationTemplates` 등록, `NotificationBillingEventListener` 처리기 4개. 시험 `WalletAlertsTest`(6)·`NotificationWalletAlertTest`(4). 2차는 1차 뒤 찾은 결함(변환 검증 실패가 재시도됨)을 `RejectedEventException`으로 바꾸고 `NotificationBillingEventListenerTest`(1)와 Kafka 필수 값 DLT 시험(1)을 더한 뒤. 3차는 S6 리뷰 반영으로 Kafka 건너뜀 시험에 탈퇴 회원을 더한 뒤 |
+| 대상 기능 | N7 지갑 4종 알림(충전 실패·환불 실패·환불 운영자 확인 필요·환전 승인) |
+| 관련 NT ID | NT-GEN-19, NT-GEN-10·15(지갑 4종) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차·3차 모두 통과(종료 코드 0). 1차는 모든 시험 태스크 새로 실행. 2차는 `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`만 새로 실행했고 `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(1차 결과). 3차는 `:notification:test`·`verifyModuleStructure`만 새로 실행(나머지 `UP-TO-DATE`) |
+| 건수 | 1차 `:notification` 241, 2차·3차 `:notification` 243. `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174(1차). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음. TDD RED 확인(단위: 클래스 없음 컴파일 오류, Kafka: 알림 0건 3건 실패, 리스너: `IllegalArgumentException`)은 이 기록 밖 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 |
 
 #### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
 

@@ -8,7 +8,7 @@ import java.util.Map;
 import com.hapbang.auxiliary.notification.domain.NotificationPayload;
 
 /**
- * 출연 진행 알림 10종의 문구(N7 출연, ND-112, 알림 종류 문서 0.8). 값({@link AppearanceProgressAlerts}가 만든다)만으로 문구를
+ * 출연 진행 알림 10종의 문구(N7 출연, ND-113, 알림 종류 문서 0.8). 값({@link AppearanceProgressAlerts}가 만든다)만으로 문구를
  * 만든다. 행동한 상대의 닉네임은 값의 {@code nicknames}에서 읽어 파기 뒤 바뀐 닉네임으로 다시 만들 수 있다(ND-051). 형식 버전
  * {@code v}는 1이다.
  * <p>
@@ -70,7 +70,7 @@ public enum AppearanceProgressTemplates implements NotificationTemplate {
             return "'" + title(payload) + "' 모집이 마감 일시가 되어 마감되었습니다.";
         }
     },
-    /** {호스트 닉네임}님이 '{제목}' 출연을 취소했습니다. 위약금은 넣지 않는다(ND-112) */
+    /** {호스트 닉네임}님이 '{제목}' 출연을 취소했습니다. 위약금은 넣지 않는다(ND-113) */
     APPEARANCE_CANCELED_BY_HOST {
         @Override
         public String render(Map<String, Object> payload) {
