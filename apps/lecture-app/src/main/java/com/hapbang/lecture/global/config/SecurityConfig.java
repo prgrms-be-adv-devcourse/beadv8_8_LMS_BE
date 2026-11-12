@@ -42,8 +42,8 @@ public class SecurityConfig {
                         // NetworkPolicy가 그 포트에 Prometheus만 들인다. 외부 API 포트는 Gateway 전용이다 (D72). 로컬은 앱 포트에서 열린다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
-                        // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
-                        .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
+                        // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장). 썸네일 일괄 조회는 검색 결과 카드용이다 (#885)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/lectures", "/api/v1/lectures/thumbnails").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
