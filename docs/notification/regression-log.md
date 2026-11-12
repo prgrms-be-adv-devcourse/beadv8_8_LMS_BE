@@ -86,6 +86,130 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-054 |
+| 실행 날짜 | 2026-11-12 11:16~11:24 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `8c3e6148` + origin/dev `f17b91f0` 병합(커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(#872·#893·#894·#895) 병합. 충돌은 `notification-catalog.md` 강의 표 하나(강의 7종 행은 dev의 #872 구현 표시, `PAYOUT_COMPLETED_DAILY` 행은 이 브랜치). ND-104(묶음 문구는 제목 없이 유지)와 관련 서술, Kafka 시험의 강의 원천 지급 하나에 제목을 실어 문구가 바뀌지 않는지 확인 |
+| 대상 기능 | 병합 결과 회귀, ND-104 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 231, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+#### NR-053 · 2026-11-12 · 통과 (N8 #890 PR 리뷰 반영: 묶음 잠금 순서)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-053 |
+| 실행 날짜 | 1차 2026-11-12 10:50~10:53, 2차 10:57~11:00 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `d2cdf456`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `NotificationWriter.addTo`가 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근다. NT-BUN-09 시험 2개(전체 읽음과 겹침). 2차는 S6 뒤 시험 단언(묶음 밖 알림 모두 읽음)·주석과 문서 보강 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) 잠금 순서 |
+| 관련 NT ID | NT-BUN-09, NT-BUN-01~08, NT-RET, NT-READ |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차 모두 통과(종료 코드 0) |
+| 건수 | 1차 새로 실행: `:notification` 231, `:auxiliary-app` 13. 2차 새로 실행: `:notification` 231(`:auxiliary-app` test는 UP-TO-DATE, 1차 결과). 실패 0·건너뜀 0. `:auxiliary-global`·`:chatbot`·`:search` test는 UP-TO-DATE(마지막 실행 NR-052) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+**메모**: NT-BUN-09 시험 2개는 고치기 전 코드에서도 통과했다(10:4x `:notification:test --tests "*NotificationDailyPayoutTest"` 15/15). 이전 코드도 밀어냄이 일어나는 경우(되살림)에는 묶음 행이 전체 읽음의 잠금 대상이 아니고, 묶음 행이 대상인 경우(보이는 묶음 갱신)에는 밀어낼 행이 없어 교착에 이르지 않기 때문이다. 이번 수정은 잠금 순서 규칙을 코드가 직접 지키게 한 방어적 수정이고, 시험은 회귀 방지용이다.
+
+#### NR-052 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-052 |
+| 실행 날짜 | 2026-11-12 10:30~10:38 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `5c6ca07c`(`5be856f4` Feat, `2ab396cf` Docs + origin/dev `b02e727c` 병합) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 세 태스크 모두 새로 실행) |
+| 건수 | 모두 새로 실행: `:notification` 229, `:auxiliary-app` 13, `:auxiliary-global` 109, `:chatbot` 245, `:search` 168. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(사용자 결정, CI에 맡김) |
+| 관련 변경 | #890 |
+
+#### NR-051 · 2026-11-12 · 통과 (N8 #890 자체 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-051 |
+| 실행 날짜 | 2026-11-12 10:16~10:19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `69240da8`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-050 + S6 리뷰 반영: 로그 문장, 저장소 주석, 합산을 `PayoutDailyTemplate.added`로, `Outcome.UPDATED` 설명, 지급 항목 CHECK `> 0` → `>= 0`(0 HP 지급 허용, 롤백 시험은 음수), NT-BUN-08을 처음 보는 같은 지급 둘 + 재전달 셋의 경합으로 강화, NT-BUN-05에 되살린 뒤 재전달 확인 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0) |
+| 건수 | 새로 실행: `:notification` 229, `:auxiliary-app` 13, `verifyModuleStructure`. 실패 0·건너뜀 0. `:auxiliary-global`·`:chatbot`·`:search` test는 UP-TO-DATE(입력 변경 없음, 새 실행 아님. 마지막 실행은 NR-050) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+**메모**: 실행 전 잠금 검증 실험. `addDailyPayout`의 받는 사람 행 잠금(`findForUpdate`)을 잠금 없는 조회로 잠깐 바꾸면 `NotificationDailyPayoutTest` 13개 중 경합 4개(같은 지급 동시, 서로 다른 지급 동시, 되살림과 새 알림, 되살림과 재전달)가 실패했다. 되돌린 뒤 위 명령을 실행했다.
+
+#### NR-050 · 2026-11-12 · 통과 (N8 #890 하루 묶음, 1차 실패 → 시험 격리 수정 뒤 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-050 |
+| 실행 날짜 | 1차 2026-11-12 09:50~09:53, 재실행 10:01~10:10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `69240da8`(커밋 전 작업 트리) |
+| 작업 트리 변경 | N8 구현(Flyway `V202611120950`, `DailyPayout`, `PayoutDailyTemplate`, `PayoutItemStore`·`JdbcPayoutItemStore`, `NotificationWriter`·`NotificationAlertService`·지갑 리스너·`Notification`·`NotificationRepository`), 새 시험 `DailyPayoutTest`·`NotificationDailyPayoutTest`, 시험 수정, 알림 문서 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) |
+| 관련 NT ID | NT-BUN-01~08, NT-GEN-12(`PAYOUT_COMPLETED_DAILY`), NT-BND-03, NT-RT(묶음 프레임) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25.0.4.1, Gradle 9.7.1, Docker 29.8.0(Testcontainers postgres·kafka·redis) |
+| 결과 | 1차 실패(`:notification:test` 229 중 9 실패, 나머지 두 태스크 미실행) → 재실행 통과(종료 코드 0, 세 태스크 모두 새로 실행) |
+| 건수 | 재실행: `:notification` 229, `:auxiliary-app` 13, `:auxiliary-global` 109, `:chatbot` 244, `:search` 168. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 1차 9건 모두 F-TEST |
+| 수정 내용 | 시험 ID 범위가 겹치던 것을 나눴다: `NotificationMemberAlertTest` 700_000 → 750_000(`NotificationCancelRequestAndObjectionAlertTest`와 겹침), `NotificationRealtimeIntegrationTest` 40_000 → 45_000(`NotificationConcurrencyTest`와 겹침), 새 `NotificationDailyPayoutTest` 70_000 → 80_000(`NotificationHeartbeatTest`와 겹침). `NotificationUserSyncServiceTest`의 전체 행 수 단정(`count()==1`)을 그 회원 행만 보도록 바꿨다. 운영 코드는 바꾸지 않았다 |
+| 재실행 결과 | 위 명령 재실행 통과 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 운영 배포 뒤 실제 강의 지급 배치로 묶음이 생기는지 미확인 |
+| 관련 변경 | #890 |
+
+**실패 목록 (1차)**
+
+| 테스트 (클래스#메서드) | NT | 오류 요약 (첫 줄) | 원인 분류 | 근거 | 조치·Issue |
+| --- | --- | --- | --- | --- | --- |
+| `NotificationMemberAlertTest` 5건 | NT-GEN-06·16 | 다른 클래스 알림 행이 섞임(`Expected size: 1 but was: 2`), 복제본이 이미 있음 | F-TEST | `NotificationCancelRequestAndObjectionAlertTest`와 시작 ID가 같다. 같은 두 클래스를 `origin/dev`(`b02e727c`) 워크트리에서 돌리면 실행 순서가 반대라 통과하고, 이 브랜치에서는 `MemberAlert`가 먼저 돌아 `CancelRequest…`가 `pk_notification_user` 중복으로 실패한다 | 시작 ID 750_000 |
+| `NotificationUserSyncServiceTest` 2건 | NT-USR-01·02 | `expected: 1L but was: 60L` | F-TEST | 전체 복제본 수를 단정해 다른 클래스보다 먼저 돌 때만 통과 | 그 회원 행만 확인 |
+| `NotificationRealtimeIntegrationTest` 2건 | NT-RT-05, 묶음 프레임 | `Expecting actual not to be null`(프레임 없음) | F-TEST | `NotificationConcurrencyTest`와 시작 ID가 같다 | 시작 ID 45_000 |
+
+**메모**: 새 시험 클래스가 늘어 Gradle의 클래스 실행 순서가 바뀌면서 기존 범위 충돌이 드러났다. 새 시험 클래스를 만들 때 다른 클래스의 `NEXT_ID` 시작값과 겹치지 않는지 확인한다.
+
 #### NR-049 · 2026-11-11 · 통과 (N6 #862 origin/dev 병합 뒤)
 
 | 항목 | 값 |

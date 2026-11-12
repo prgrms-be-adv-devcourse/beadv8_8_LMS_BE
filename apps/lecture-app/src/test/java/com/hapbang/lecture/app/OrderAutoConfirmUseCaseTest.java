@@ -3,6 +3,7 @@ package com.hapbang.lecture.app;
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
@@ -26,6 +29,8 @@ import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.lecture.domain.LectureConfirmationType;
+import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -33,6 +38,7 @@ import com.hapbang.testsupport.IntegrationTest;
  * 실제 강의 Clock을 쓰므로 기한이 지난 주문은 9일 전 구매로 만든다. 기한 경계는 {@code LectureOrderTest}에서 확인한다.
  */
 @IntegrationTest
+@RecordApplicationEvents
 class OrderAutoConfirmUseCaseTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -56,6 +62,9 @@ class OrderAutoConfirmUseCaseTest {
     @Autowired
     @Qualifier(LectureConfig.CLOCK)
     private Clock clock;
+
+    @Autowired
+    private ApplicationEvents events;
 
     @Test
     void 기한이_지난_구매_항목만_자동_구매_확정한다() {
@@ -104,6 +113,26 @@ class OrderAutoConfirmUseCaseTest {
 
         assertThat(items(failing)).extracting(OrderItem::getStatus, OrderItem::getConfirmationType)
                 .containsExactly(tuple(OrderItemStatus.CONFIRMED, ConfirmationType.AUTO));
+    }
+
+    @Test
+    void 이번에_자동_확정한_항목만_확정_이벤트를_내고_조회_뒤_먼저_직접_확정된_항목은_내지_않는다() {
+        LocalDateTime overdue = now().minusDays(9);
+        LectureOrder due = save(List.of(saveOnSale()), overdue);
+        LectureOrder confirmedFirst = save(List.of(saveOnSale()), overdue);
+        // 배치가 대상을 조회한 뒤, 이 항목을 처리하기 직전에 구매자가 직접 확정한 경우
+        doAnswer(invocation -> {
+            inTransaction(confirmedFirst, order -> order.confirmItem(itemId(confirmedFirst, 0), now()));
+            return invocation.callRealMethod();
+        }).when(lectureOrderSupport).findOrderByItemId(eq(itemId(confirmedFirst, 0)));
+
+        orderAutoConfirmUseCase.confirmDueItems();
+
+        assertThat(items(confirmedFirst)).extracting(OrderItem::getConfirmationType)
+                .containsExactly(ConfirmationType.AUTO);
+        assertThat(events.stream(LectureOrderItemConfirmedEvent.class)).extracting(
+                        LectureOrderItemConfirmedEvent::orderItemId, LectureOrderItemConfirmedEvent::confirmationType)
+                .containsExactly(tuple(itemId(due, 0), LectureConfirmationType.AUTO));
     }
 
     private LocalDateTime now() {

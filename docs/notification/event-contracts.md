@@ -16,6 +16,7 @@
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
 > - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
 > - 2026-11-12 M7 구현(#875, 고객센터 담당): `InquiryAnsweredEvent`·`LectureObjectionFileRejectedEvent`의 계약 상태를 "구현됨"으로 바꾸고 5장에 구현된 필드 이름을 적었다. `InquiryReplyEditedEvent`는 고객센터 담당 결정으로 "발행하지 않음"으로 바꿨다. 답변 이벤트는 이의 제기 판단 안내 답변에서 내지 않는다고 적었다. 8장 M7 행에 Issue를 적었다.
+> - 2026-11-11 M4 구현(#872, 강의 담당): 강의 새 이벤트 7종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 강의가 지급 요청에 구매 때 강의 제목을 넘기는 것(ND-040)을 3장에 적었다. 8장 M4 행에 Issue를 적었다.
 
 ## 0. 읽는 법
 
@@ -92,16 +93,24 @@
 | `LectureObjectionReturnCompletedEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 완료 시각 | 문의 ID | 완료 시각(추가) | 구매자 | `LECTURE_OBJECTION_RETURN_COMPLETED` | 구현됨(#818) |
 | `LectureObjectionWithdrawnEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 철회 시각 | 문의 ID | 철회 시각(추가) | 판매자 | `LECTURE_OBJECTION_WITHDRAWN` | 구현됨(#818) |
 | `LectureObjectionReturnActionRequiredEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 반환 지연 회차, 발생 시각 | `<문의 ID>:<반환 지연 회차>`(ND-045) | 발생 시각(추가) | 구매자 | `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 구현됨(#818) |
-| `LectureApprovedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 검수 회차, 승인 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 승인 시각 | 판매자 | `LECTURE_APPROVED` | 확정 |
-| `LectureRejectedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 반려 사유, 검수 회차, 반려 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 반려 시각 | 판매자 | `LECTURE_REJECTED` | 확정 |
-| `LectureOrderPaidEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 구매 시각 | 주문 ID | 구매 시각 | 구매자 | `LECTURE_ORDER_PAID`, 예약 생성 입력(주문 항목마다) | 확정 |
-| `LectureOrderHoldFailedEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 실패 시각 | 주문 ID | 실패 시각 | 구매자 | `LECTURE_ORDER_HOLD_FAILED` | 확정 |
-| `LectureOrderItemCanceledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, 반환 금액, 취소 시각 | 주문 항목 ID | 취소 시각 | 구매자 | `LECTURE_ORDER_ITEM_CANCELED`, 예약 취소 입력 | 확정 |
-| `LectureOrderItemConfirmedEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, `confirmationType`, 확정 시각 | 주문 항목 ID | 확정 시각 | 구매자 | `LECTURE_ORDER_ITEM_CONFIRMED`, 예약 취소 입력 | 확정 |
-| `LectureObjectionFiledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 문의 ID, 주문 항목 ID, 구매자·판매자 ID, 제목, 접수 시각 | 문의 ID | 접수 시각 | 구매자, 판매자 | `LECTURE_OBJECTION_FILED`(ND-015) | 확정 |
+| `LectureApprovedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 검수 회차, 승인 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 승인 시각 | 판매자 | `LECTURE_APPROVED` | 구현됨(#872) |
+| `LectureRejectedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 반려 사유, 검수 회차, 반려 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 반려 시각 | 판매자 | `LECTURE_REJECTED` | 구현됨(#872) |
+| `LectureOrderPaidEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 구매 시각 | 주문 ID | 구매 시각 | 구매자 | `LECTURE_ORDER_PAID`, 예약 생성 입력(주문 항목마다) | 구현됨(#872) |
+| `LectureOrderHoldFailedEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 실패 시각 | 주문 ID | 실패 시각 | 구매자 | `LECTURE_ORDER_HOLD_FAILED` | 구현됨(#872) |
+| `LectureOrderItemCanceledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, 반환 금액, 취소 시각 | 주문 항목 ID | 취소 시각 | 구매자 | `LECTURE_ORDER_ITEM_CANCELED`, 예약 취소 입력 | 구현됨(#872) |
+| `LectureOrderItemConfirmedEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, `confirmationType`, 확정 시각 | 주문 항목 ID | 확정 시각 | 구매자 | `LECTURE_ORDER_ITEM_CONFIRMED`, 예약 취소 입력 | 구현됨(#872) |
+| `LectureObjectionFiledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 문의 ID, 주문 항목 ID, 구매자·판매자 ID, 제목, 접수 시각 | 문의 ID | 접수 시각 | 구매자, 판매자 | `LECTURE_OBJECTION_FILED`(ND-015) | 구현됨(#872) |
 
 - M2 구현(#818, 강의 D83): 4종 모두 기존 필드 뒤에 `buyerUserId`·`sellerUserId`(`Long`), `lectureTitle`(`String`, 구매할 때의 강의 제목), 사건 시각(`OffsetDateTime`, `+09:00`)을 붙였다. 사건 시각 필드는 판단 `resolvedAt`, 반환 완료 `returnedAt`, 철회 `withdrawnAt`, 반환 지연 `occurredAt`이다. 반환 지연 회차는 `returnDelaySequence`(`Integer`)이고 강의가 주문 항목(`return_delay_count`)에 저장한다. #818 배포 전에 저장된 발행 기록을 강의가 다시 보내면 새 필드가 없어 `null`로 읽힌다.
-- 검수 회차는 강의가 검수 신청(`requestInspection`)될 때마다 1씩 늘어나는 값이다. 반환 지연 회차는 같은 문의에서 반환 지연 이벤트가 날 때마다 1씩 늘어나는 값이다.
+- M4 구현(#872, 강의 D85): 7종 모두 `@Externalized`로 위 key에 나가고 `eventType` 헤더는 레코드 이름과 같다. 필드는 wrapper 타입이고 사건 시각은 `OffsetDateTime`(`+09:00`)이다.
+  - 검수 승인 `lectureId`, `sellerUserId`, `lectureTitle`(그때 강의 제목), `inspectionSequence`(`Integer`), `approvedAt`. 검수 반려는 `approvedAt` 대신 `rejectionReason`, `rejectedAt`이다.
+  - 결제 완료 `orderId`, `buyerUserId`, `items`, `paidAt`. 결제 실패는 `paidAt` 대신 `failedAt`이다. `items`의 항목은 `orderItemId`, `lectureId`, `lectureTitle`, `buyerAmountHp`(구매자가 내는 HP = 가격 − 쿠폰 할인, 0일 수 있음)다.
+  - 구매 취소 `orderItemId`, `buyerUserId`, `lectureTitle`, `buyerAmountHp`(돌려준 HP), `canceledAt`.
+  - 구매 확정 `orderItemId`, `buyerUserId`, `lectureTitle`, `confirmationType`(`DIRECT`·`FIRST_PLAY`·`AUTO`), `confirmedAt`. 자동 구매 확정 시각이 지난 뒤의 직접 확정·재생 동의도 `AUTO`이고(강의 D34), `AUTO`의 `confirmedAt`은 자동 구매 확정 시각(구매일 + 8일 00:00)이다.
+  - 이의 제기 접수 `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `filedAt`.
+  - 주문·구매의 `lectureTitle`은 구매 때 저장한 제목이다. 사건 시각은 강의에 저장한 시각이고, 결제 실패만 저장 칸이 없어 결제 실패를 기록한 시각이다.
+  - 결제 실패는 보류 거절·보류 무효화·쿠폰 예약 거절·관리자 실패 확정 모두에서 주문마다 한 번 나간다. 구매 확정은 직접 확정·재생 동의·자동 확정 모두에서 항목마다 한 번, 이의 제기 접수는 처음 처리한 접수 명령에서만 나간다.
+- 검수 회차는 강의가 검수 신청(`requestInspection`)될 때마다 1씩 늘어나는 값이다. 반환 지연 회차는 같은 문의에서 반환 지연 이벤트가 날 때마다 1씩 늘어나는 값이다. 강의는 등록을 1회차로 센다(`lecture.inspection_count`, 기존 강의는 1).
 - `LectureObjectionReturnActionRequiredEvent`는 강의 토픽 이벤트지만 알림은 알림 종류 5장(고객센터)에 있다.
 
 ## 3. 지갑 (`billing.events.v1`, M5·ND-040)
@@ -117,6 +126,7 @@
 | `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목, `String`. 길이 상한은 지갑 BD-163. 제목 없는 요청은 null이고 JSON에 쓰지 않는다) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 구현됨 (#873) |
 
 - ND-040 변경 범위: 지급 요청 `PayoutCommand`(정상 지급)와 `PenaltyCommand`(위약금 지급)에 출처 제목을 더하고, 출연·강의가 지급을 요청할 때 넘긴다. 출연·강의는 저장해 둔 HP 작업으로 나중에 요청하므로, 작업에 제목을 어떻게 보관할지는 출연·강의 담당이 정한다. 지갑은 그 값을 `PayoutCompletedEvent.sourceTitle`로 담는다. 이벤트는 지급 건(`Settlement`)에서 만들므로 값을 어떻게 보관할지(저장 칸 추가 등)는 지갑 담당이 정한다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
+- 강의 구현(#872, 강의 D85 (6)): 강의 지급 요청(`PayoutCommand`)의 `sourceTitle`은 구매 때 저장한 강의 제목(`lectureTitleSnapshot`)이다. HP 작업에 저장하지 않고 지급 요청을 보낼 때 주문 항목에서 읽으므로, 배포 전에 만든 지급 작업도 제목이 실리고 구매 뒤 강의 제목이 바뀌어도 그대로다. 강의는 `PenaltyCommand`를 쓰지 않는다.
 - 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`).
 
 ## 4. 회원 (`member.events.v1`, M6·ND-042)
@@ -195,7 +205,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | M1 | 출연 | 취소 요청 3종 Kafka 발행 | #817 | 구현됨 |
 | M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | #818 | 구현됨 |
 | M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | #871 | 12종 구현됨. 출처 제목은 출연 HP 작업에 보관하고, 지갑 요청에 싣는 것은 #873(shared 필드) 뒤 |
-| M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
+| M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | #872 | 구현됨 |
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(미병합, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨 |
 | M7 | 고객센터 | 고객센터 🆕 2종(답변 도착·이의 제기 접수 불가). 답변 수정은 발행하지 않음(5장) | #875 | 구현됨 |

@@ -20,6 +20,7 @@
 > - 2026-11-11 decisions.md ND-069~ND-079 반영(#859): N5 11종 행의 이동 대상(ND-074)·원본 대상 ID(ND-073)를 채우고, 0.3에 정지 회원(ND-072)·알림 시작 시각(ND-076)·Backfill(ND-077)·대체 시각(ND-081)을, 0.5 N5 문구(ND-075)를 더했다. 승급 승인 종류 코드(ND-071)와 9장 미결 목록을 맞췄다.
 > - 2026-11-10 #818(강의 담당): 이의 제기 4종 행의 이벤트 계약 상태 칸에 값 추가 사실을 덧붙였다. 2026-11-06 판정은 그대로 두었다.
 > - 2026-11-11 decisions.md ND-082~ND-087 반영(#862): N6 7종 행의 이동 대상(ND-084)·원본 대상 ID(ND-083)를 채우고, 0.6에 N6 문구(ND-085)를 더했다. 출연 취소 요청 3종 행에 #817 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.5(N5 11종 문구)는 N5(#859)가 더한다.
+> - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): 1.1 종류 코드 칸, `PAYOUT_COMPLETED_DAILY` 행의 이동 대상(ND-102)·관련 ND·미결 칸, 8장(발생 시각·밀려난 묶음·문구·종류 코드 행), 9장 U11 행을 고쳤다. 2026-11-06 판정은 그대로 둔다. 같은 날 N8 구현 때 8장에 확정 문구와 저장 행(ND-103)을 더했다.
 
 ## 0. 읽는 법
 
@@ -51,7 +52,7 @@
 
 | 칸 | 뜻 |
 | --- | --- |
-| 종류 코드 | 알림 `kind`. 규칙은 ND-012(원본 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE). 규칙 밖의 코드는 U11 |
+| 종류 코드 | 알림 `kind`. 규칙은 ND-012(원본 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE). 규칙 밖의 코드는 승급 승인 ND-071, 하루 묶음 ND-098, 나머지(예약 5종)는 U11 |
 | 알림 | N 3장의 알림 이름 |
 | 받는 사람 | N 3장의 받는 사람 |
 | 원본 이벤트 | 알림을 만드는 shared integration event |
@@ -168,14 +169,14 @@
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `LECTURE_APPROVED` | 강의 검수 승인 | 판매자 | `LectureApprovedEvent` | 강의 검수 승인 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LectureChangedEvent`(#712, `LectureSyncDto`: 제목·`sellerUserId` 있음). 검수 상태·발생 시각이 없고 `onSale`만 있어 검수 승인 사건으로 보려면 해석이 필요하다 | — | 요청 값 2.1 |
-| `LECTURE_REJECTED` | 강의 검수 반려 (사유) | 판매자 | `LectureRejectedEvent` | 강의 검수 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — `LectureChangedEvent`에 검수 상태·반려 사유가 없어 반려를 식별할 수 없다 | — | 요청 값 2.1 |
-| `LECTURE_ORDER_PAID` | 구매 완료 | 구매자 | `LectureOrderPaidEvent` | 주문 결제(구매) 완료 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(#712, `LecturePurchaseSyncDto`: `buyerUserId`·`purchasedAt`, 결과 `OWNED`). 주문 항목 단위이고 제목·금액·주문 ID 없음 | — | 예약 `LECTURE_ORDER_ITEM_CONFIRMING`도 이 이벤트로 만든다(주문 항목마다). U2(P0 완료 증거). 요청 값 2.1 |
-| `LECTURE_ORDER_HOLD_FAILED` | 결제 실패 (보류 거절) | 구매자 | `LectureOrderHoldFailedEvent` | 주문 보류 거절로 결제 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `FAILED`). 제목·금액 없음, 항목 단위 | — | 요청 값 2.1 |
-| `LECTURE_ORDER_ITEM_CANCELED` | 구매 취소 완료 (반환 끝) | 구매자 | `LectureOrderItemCanceledEvent` | 구매 취소의 반환이 끝남 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `CANCELED`). 제목·반환 금액 없음 | — | 요청 값 2.1 |
-| `LECTURE_ORDER_ITEM_CONFIRMED` | 자동 구매 확정 | 구매자 | `LectureOrderItemConfirmedEvent` | 자동 구매 확정 | `confirmationType`이 `AUTO`가 아닐 때. `AUTO`일 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 구매 확정·지급 전이는 동기화 이벤트도 보내지 않는다(`LectureSyncEvents.java` 59행 근처). 예약 `LECTURE_ORDER_ITEM_CONFIRMING` 취소에도 필요 | — | 요청 값 2.1 |
-| `PAYOUT_COMPLETED_DAILY` | 강의 지급 (하루 묶음) | 판매자 | `PayoutCompletedEvent` | `sourceType` `LECTURE_ORDER_ITEM` 지급 완료. 판매자·날짜마다 하나로 묶는다(8장) | `sourceType`이 `LECTURE_ORDER_ITEM`이 아닐 때(출연 원천은 `PAYOUT_COMPLETED`) | 미정 | 해당 없음: 묶음 키(종류, 받는 사람, 날짜)로 중복을 막는다(ND-019, ND-032) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(`billing.events.v1`, key `settlement:<지급 건 ID>`), `receiverUserId`·`sourceType`·`paidAt` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId`·`sourceType`·`paidAt` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-032, ND-040 | 규칙 밖 코드(U11). 묶음과 20개 보존 U9 |
-| `LECTURE_OBJECTION_FILED` | 이의 제기 접수 (구매자: 접수됨, 판매자: 지급 중단) | 구매자, 판매자 | `LectureObjectionFiledEvent` | 강의 모듈이 이의 제기를 접수할 때(바로 접수와 고객센터 재시도 배치 접수 모두) | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`OrderObjectionFileUseCase.java` 31행 근처) | ND-015 | 구매자에게 같은 사실을 두 번 보내지 않는다. 요청 값 2.1 |
+| `LECTURE_APPROVED` | 강의 검수 승인 | 판매자 | `LectureApprovedEvent` | 강의 검수 승인 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LectureChangedEvent`(#712, `LectureSyncDto`: 제목·`sellerUserId` 있음). 검수 상태·발생 시각이 없고 `onSale`만 있어 검수 승인 사건으로 보려면 해석이 필요하다 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 요청 값 2.1 |
+| `LECTURE_REJECTED` | 강의 검수 반려 (사유) | 판매자 | `LectureRejectedEvent` | 강의 검수 반려 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — `LectureChangedEvent`에 검수 상태·반려 사유가 없어 반려를 식별할 수 없다 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 요청 값 2.1 |
+| `LECTURE_ORDER_PAID` | 구매 완료 | 구매자 | `LectureOrderPaidEvent` | 주문 결제(구매) 완료 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(#712, `LecturePurchaseSyncDto`: `buyerUserId`·`purchasedAt`, 결과 `OWNED`). 주문 항목 단위이고 제목·금액·주문 ID 없음 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 예약 `LECTURE_ORDER_ITEM_CONFIRMING`도 이 이벤트로 만든다(주문 항목마다). U2(P0 완료 증거). 요청 값 2.1 |
+| `LECTURE_ORDER_HOLD_FAILED` | 결제 실패 (보류 거절) | 구매자 | `LectureOrderHoldFailedEvent` | 주문 보류 거절로 결제 실패 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `FAILED`). 제목·금액 없음, 항목 단위 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장). 강의는 주문이 결제 실패가 되는 모든 경로(보류 거절, 보류 무효화, 쿠폰 예약 거절·응답 불일치, 관리자 실패 확정)에서 이 이벤트를 내고 실패 원인은 담지 않는다(강의 D85 (5)). 보류 거절만 알릴지는 알림 담당이 정한다 | — | 요청 값 2.1 |
+| `LECTURE_ORDER_ITEM_CANCELED` | 구매 취소 완료 (반환 끝) | 구매자 | `LectureOrderItemCanceledEvent` | 구매 취소의 반환이 끝남 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `CANCELED`). 제목·반환 금액 없음 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 요청 값 2.1 |
+| `LECTURE_ORDER_ITEM_CONFIRMED` | 자동 구매 확정 | 구매자 | `LectureOrderItemConfirmedEvent` | 자동 구매 확정 | `confirmationType`이 `AUTO`가 아닐 때. `AUTO`일 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 구매 확정·지급 전이는 동기화 이벤트도 보내지 않는다(`LectureSyncEvents.java` 59행 근처). 예약 `LECTURE_ORDER_ITEM_CONFIRMING` 취소에도 필요 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 요청 값 2.1 |
+| `PAYOUT_COMPLETED_DAILY` | 강의 지급 (하루 묶음) | 판매자 | `PayoutCompletedEvent` | `sourceType` `LECTURE_ORDER_ITEM` 지급 완료. 판매자·날짜마다 하나로 묶는다(8장) | `sourceType`이 `LECTURE_ORDER_ITEM`이 아닐 때(출연 원천은 `PAYOUT_COMPLETED`) | 없음(비운다, ND-102) | 해당 없음: 묶음 키(종류, 받는 사람, 날짜)로 중복을 막는다(ND-019, ND-032) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(`billing.events.v1`, key `settlement:<지급 건 ID>`), `receiverUserId`·`sourceType`·`paidAt` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId`·`sourceType`·`paidAt` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-032, ND-040, ND-097~ND-102, ND-104 | 종류 코드 ND-098. 강의 원천도 #872부터 `sourceTitle`을 싣지만 묶음 문구에는 넣지 않는다(ND-100·ND-104) |
+| `LECTURE_OBJECTION_FILED` | 이의 제기 접수 (구매자: 접수됨, 판매자: 지급 중단) | 구매자, 판매자 | `LectureObjectionFiledEvent` | 강의 모듈이 이의 제기를 접수할 때(바로 접수와 고객센터 재시도 배치 접수 모두) | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`OrderObjectionFileUseCase.java` 31행 근처) / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-015 | 구매자에게 같은 사실을 두 번 보내지 않는다. 요청 값 2.1 |
 | `LECTURE_OBJECTION_RESOLVED` | 이의 제기 기각·인정 | 구매자, 판매자 | `LectureObjectionResolvedEvent` | 이의 제기 기각 또는 인정. `accepted`로 문구를 나눈다 | — | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-084) | `inquiryId`(ND-083) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(key `order-item:<주문 항목 ID>`), 필드 `commandId`·`inquiryId`·`orderItemId`·`accepted`, 구매자·판매자 ID 없음(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·`sellerUserId`·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`resolvedAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-082~ND-086 | 값 추가 요청(M2). 요청 값 2.1 |
 | `LECTURE_OBJECTION_RETURN_COMPLETED` | 이의 제기 반환 완료 | 구매자 | `LectureObjectionReturnCompletedEvent` | 이의 제기 인정 뒤 반환 완료 | — | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-084) | `inquiryId`(ND-083) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 구매자 ID·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`returnedAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-082~ND-086 | 값 추가 요청(M2). 요청 값 2.1 |
 | `LECTURE_OBJECTION_WITHDRAWN` | 이의 제기 철회 | 판매자 | `LectureObjectionWithdrawnEvent` | 이의 제기 철회 | — | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-084) | `inquiryId`(ND-083) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `commandId`·`inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 판매자 ID·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`withdrawnAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-082~ND-086 | 값 추가 요청(M2). 요청 값 2.1 |
@@ -293,15 +294,19 @@
 
 ## 8. 하루 묶음 알림
 
-강의 지급 `PAYOUT_COMPLETED_DAILY`(2장)는 판매자·날짜마다 알림 하나로 묶는다. 예: "오늘 강의 지급 12,000 HP가 지급되었습니다(50건)". 정책은 ND-013·ND-032가 원본이다.
+강의 지급 `PAYOUT_COMPLETED_DAILY`(2장)는 판매자·날짜마다 알림 하나로 묶는다. 문구(2026-11-12 알림 담당, #890): "{M월 d일} 강의 판매 수익 {합계 HP} HP가 지급되었습니다. ({건수}건)". 예: "11월 6일 강의 판매 수익 12,000 HP가 지급되었습니다. (50건)". 날짜는 묶음 날짜(KST), 금액·건수는 천 단위 쉼표다. 정책은 ND-013·ND-032가 원본이다.
 
 | 항목 | 규칙 |
 | --- | --- |
 | 원천 | `PayoutCompletedEvent` 중 `sourceType` `LECTURE_ORDER_ITEM`(ND-013) |
 | 묶음 단위 | 판매자(`receiverUserId`) × `paidAt`의 KST 날짜. 강의 지급 배치가 매일 01:00에 돌아 하루치가 대부분 한 번에 온다 |
 | 지급이 올 때 | 금액·건수를 더하고, 다시 안 읽음으로 만들고, 발생 시각을 새로 고쳐 목록 맨 위로 올린 뒤 실시간으로 보낸다 |
+| 발생 시각 | 처음은 그 지급의 `paidAt`, 더할 때는 기존 값과 새 `paidAt` 중 늦은 값(ND-101) |
 | 중복 | 같은 지급(`settlementId`)은 `notification_payout_item`에 기록해 한 번만 더한다. 알림 유일 키는 (종류, 받는 사람, 묶음 키)(ND-019) |
-| 미결 | 이미 밀려난 날짜 묶음에 지급이 또 올 때 U9, 규칙 밖 종류 코드 U11. 제목은 ND-040(M5 전에는 ND-070) |
+| 밀려난 묶음 | 20개 보존에서 밀려난 날짜 묶음에 새 지급이 오면 되살린다. 같은 지급의 재전달이면 되살리지 않는다(ND-097) |
+| 문구·이동 대상 | 강의 제목 없이 건수·합계 HP(ND-100·ND-104, 문구는 이 장 머리), 이동 대상 없음(ND-102) |
+| 저장 | 지급 확인·묶음 생성·갱신·지급 기록·20개 보존은 한 트랜잭션(ND-103) |
+| 종류 코드 | ND-098 |
 
 ## 9. 관련 미결
 
@@ -311,7 +316,7 @@
 | --- | --- |
 | U3 | N5 11종 밖의 종류별 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075) |
 | U5 | N5 밖의 이미 발행 중인 이벤트의 원본 대상 ID 필드(N5는 ND-073. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
-| U11 | 규칙 밖 종류 코드(`PAYOUT_COMPLETED_DAILY`, 예약 5종. 승급 승인은 ND-071, 단체방 3종 이름은 ND-043) |
+| U11 | 규칙 밖 종류 코드 중 예약 5종(승급 승인은 ND-071, 하루 묶음은 ND-098, 단체방 3종 이름은 ND-043) |
 | U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |
 | U16 | 예약 알림별로 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 계약 검증(처리 방향은 ND-034) |
 | U19 | 구조는 ND-051로 정했다. 구현 가능성 검증만 남았다(N2, #801) |
