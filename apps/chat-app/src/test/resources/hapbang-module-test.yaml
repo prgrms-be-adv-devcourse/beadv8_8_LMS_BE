@@ -13,6 +13,15 @@ spring:
     redis:
       # 모듈 테스트는 application.yaml을 읽지 않으므로 운영과 같은 명령 시간 제한을 여기에도 둔다
       timeout: 10s
+  modulith:
+    events:
+      # 단체방 이벤트의 Kafka 외부화는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않고 토픽도 선언하지 않는다.
+      # Kafka 발행은 AppearanceNotificationEventListenerTest가 Testcontainers Kafka와 함께 켜서 확인한다
+      externalization:
+        enabled: false
+      # 운영 application.yaml과 같은 값이다(모듈 테스트는 application.yaml을 읽지 않는다)
+      kafka:
+        enable-json: false
 hapbang:
   chat:
     # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,

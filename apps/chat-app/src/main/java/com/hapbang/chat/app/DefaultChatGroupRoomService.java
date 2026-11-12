@@ -1,6 +1,8 @@
 package com.hapbang.chat.app;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -14,6 +16,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,9 @@ import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.chat.out.ChatUserRepository;
+import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
+import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
+import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,6 +68,9 @@ import lombok.extern.slf4j.Slf4j;
  *     보고, 강퇴 안내는 내보낸 뒤 저장해 남은 참여자만 본다. 폐쇄 안내는 읽기 전용으로 바꾸기 전에 저장한다(읽기 전용 방의 마지막
  *     메시지).</li>
  *     <li>호스트 권한은 방에 저장한 호스트 ID로 확인한다. 클라이언트가 보낸 호스트·지원 여부는 쓰지 않는다.</li>
+ *     <li>초대(참여한 회원이 있을 때)·강퇴·폐쇄는 방 안 안내와 별도로 알림센터용 shared 이벤트를 같은 트랜잭션에서 발행한다. Modulith
+ *     발행 기록에 남아 커밋 뒤 Kafka({@code chat.events.v1})로 가고, 롤백되면 나가지 않는다. 방 안 안내·전달 작업은 바꾸지 않는다.
+ *     호스트 자격 상실 전환은 알림센터로 보내지 않으므로 내지 않는다.</li>
  * </ul>
  */
 @Slf4j
@@ -82,6 +91,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatGroupProperties properties;
     private final ChatReadCountSignals chatReadCountSignals;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional(readOnly = true)
@@ -220,7 +230,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         ChatRoom chatRoom = lockViewableGroup(chatRoomId);
         requireOwner(chatRoom, requesterId);
         LocalDateTime now = LocalDateTime.now();
-        // 결과 기록을 잠가 읽는다. 보존 기간이 지난 행을 새 결과로 바꾸기 전에 정리 배치가 지우지 못하게 한다
+        // 결과 기록을 잠가 읽는다. 보존 기간이 지난 행을 이 트랜잭션이 지우기 전에 정리 배치가 먼저 지우지 못하게 한다
+        // (정리 배치는 잠긴 행을 건너뛴다. 정리 배치가 먼저 잠갔으면 지워질 때까지 기다린 뒤 빈 값을 받는다)
         Optional<ChatGroupInviteRequest> stored = chatGroupInviteRequestRepository.findForUpdate(chatRoomId, requestId);
         if (stored.isPresent() && stored.get().isRetained(now, properties.inviteRequestRetention())) {
             // 같은 요청의 재시도(동시에 온 재시도 포함): 저장한 결과를 그대로 돌려주고 다시 초대하지 않는다
@@ -268,13 +279,19 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             chatReadCountSignals.membershipChanged(chatRoomId, recipientSet.getSetVersion());
         }
         if (stored.isPresent()) {
-            stored.get().replace(requesterId, outcomes, now);
-        } else {
-            chatGroupInviteRequestRepository.save(
-                    ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId, outcomes, now));
+            // 보존 기간이 지난 같은 요청 ID는 새 요청이다. 행을 덮어쓰지 않고 지운 뒤 새 행을 만들어 새 초대 요청 ID를 받는다(초대
+            // 이벤트의 사건 ID가 같은 방에서 다시 쓰이지 않게). (방, 요청 ID) 유일 제약 때문에 삭제를 먼저 DB에 보낸다
+            chatGroupInviteRequestRepository.delete(stored.get());
+            chatGroupInviteRequestRepository.flush();
         }
-        log.info("단체방 초대 chatRoomId={}, requestId={}, requested={}, joined={}", chatRoomId, requestId,
-                userIds.size(), joined.size());
+        ChatGroupInviteRequest inviteRequest = chatGroupInviteRequestRepository.save(
+                ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId, outcomes, now));
+        if (!joined.isEmpty()) {
+            eventPublisher.publishEvent(new GroupMembersInvitedEvent(chatRoomId, inviteRequest.getId(),
+                    chatRoom.getRecruitId(), chatRoom.getTitle(), requesterId, joined, instantOf(now)));
+        }
+        log.info("단체방 초대 chatRoomId={}, requestId={}, inviteRequestId={}, requested={}, joined={}", chatRoomId,
+                requestId, inviteRequest.getId(), userIds.size(), joined.size());
         return outcomes;
     }
 
@@ -306,6 +323,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
                 GroupMemberKickedData.of(requesterId, targetUserId), now));
         chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
         chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
+        eventPublisher.publishEvent(new GroupMemberKickedEvent(chatRoomId, chatRoom.getRecruitId(), chatRoom.getTitle(),
+                requesterId, targetUserId, member.getParticipationVersion(), instantOf(now)));
         log.info("단체방 강퇴 chatRoomId={}, targetUserId={}, participationVersion={}", chatRoomId, targetUserId,
                 participationVersion);
         return Optional.of(member.getParticipationVersion());
@@ -326,6 +345,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             throw new ChatException(ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
         }
         LocalDateTime now = LocalDateTime.now();
+        // 폐쇄해도 참여는 그대로라 지금 참여자가 폐쇄 시점 참여자다(호스트 포함). 회원 ID 열만 읽는다
+        List<Long> memberUserIds = chatRoomMemberRepository.findActiveUserIds(chatRoomId).stream().sorted().toList();
         ChatMessage notice = chatMessageRepository.save(
                 ChatMessage.groupRoomClosed(chatRoom, requesterId, GroupRoomClosedData.of(requesterId), now));
         if (chatRoom.getActiveMemberCount() > 0) {
@@ -335,6 +356,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, requesterId, ChatRoomEventType.ROOM_CLOSED, now));
         // 참여자는 그대로라 값은 바뀌지 않지만 방 상태 변경도 알린다(읽기 전용 방도 계속 갱신한다, Q33)
         chatReadCountSignals.membershipChanged(chatRoomId, 0);
+        eventPublisher.publishEvent(new GroupRoomClosedEvent(chatRoomId, chatRoom.getRecruitId(), chatRoom.getTitle(),
+                requesterId, memberUserIds, instantOf(now)));
         log.info("단체방 폐쇄 chatRoomId={}, historyExpiresAt={}", chatRoomId, chatRoom.getHistoryExpiresAt());
         return ChatGroupCloseResponse.from(chatRoom);
     }
@@ -452,6 +475,11 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         boolean invitable = user.canChat();
         return new ChatInviteCandidateResponse(userId, user.getDisplayNickname(), invitable,
                 invitable ? null : ChatGroupInviteFailure.CHAT_NOT_ALLOWED);
+    }
+
+    /** 방·참여 시각은 서버 시간대의 {@link LocalDateTime}으로 저장한다. 이벤트에는 같은 시각을 {@link Instant}로 싣는다 */
+    private static Instant instantOf(LocalDateTime time) {
+        return time.atZone(ZoneId.systemDefault()).toInstant();
     }
 
     private static ChatException groupNotFound() {

@@ -15,6 +15,7 @@
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
 > - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
+> - 2026-11-12 M8 구현(#897, 채팅 담당): 채팅 3종의 계약 상태를 "구현됨"으로 바꾸고 6장에 구현된 필드 이름과 초대 요청 ID의 발번 방식을 적었다. 8장 M8 행에 Issue를 적었다.
 > - 2026-11-12 M7 구현(#875, 고객센터 담당): `InquiryAnsweredEvent`·`LectureObjectionFileRejectedEvent`의 계약 상태를 "구현됨"으로 바꾸고 5장에 구현된 필드 이름을 적었다. `InquiryReplyEditedEvent`는 고객센터 담당 결정으로 "발행하지 않음"으로 바꿨다. 답변 이벤트는 이의 제기 판단 안내 답변에서 내지 않는다고 적었다. 8장 M7 행에 Issue를 적었다.
 > - 2026-11-11 M4 구현(#872, 강의 담당): 강의 새 이벤트 7종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 강의가 지급 요청에 구매 때 강의 제목을 넘기는 것(ND-040)을 3장에 적었다. 8장 M4 행에 Issue를 적었다.
 
@@ -170,13 +171,18 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `GroupMembersInvitedEvent` | 🆕 (M8) | 방 ID | 방 ID, 초대 요청 ID, 모집글 ID·제목, 호스트 ID, 이번 초대로 실제 참여한 회원 ID 목록(`JOINED`만), 초대 시각 | `<방 ID>:<초대 요청 ID>` | 초대 시각 | 참여한 회원 | `GROUP_MEMBERS_INVITED` | 확정 |
-| `GroupMemberKickedEvent` | 🆕 (M8) | 방 ID | 방 ID, 모집글 ID·제목, 호스트 ID, 강퇴된 회원 ID, `participationVersion`, 강퇴 시각 | `<방 ID>:<강퇴된 회원 ID>:<participationVersion>` | 강퇴 시각 | 강퇴된 회원 | `GROUP_MEMBER_KICKED` | 확정 |
-| `GroupRoomClosedEvent` | 🆕 (M8) | 방 ID | 방 ID, 모집글 ID·제목, 호스트 ID, 폐쇄 시점 참여자 ID 목록(호스트 포함), 폐쇄 시각 | 방 ID | 폐쇄 시각 | 남은 참여자(알림이 호스트를 뺀다) | `GROUP_ROOM_CLOSED` | 확정 |
+| `GroupMembersInvitedEvent` | 🆕 (M8) | 방 ID | 방 ID, 초대 요청 ID, 모집글 ID·제목, 호스트 ID, 이번 초대로 실제 참여한 회원 ID 목록(`JOINED`만), 초대 시각 (구현: `chatRoomId`, `inviteRequestId`, `recruitId`, `title`, `hostUserId`, `invitedUserIds`, `invitedAt`) | `<chatRoomId>:<inviteRequestId>` | `invitedAt` | 참여한 회원(`invitedUserIds`) | `GROUP_MEMBERS_INVITED` | 구현됨(#897) |
+| `GroupMemberKickedEvent` | 🆕 (M8) | 방 ID | 방 ID, 모집글 ID·제목, 호스트 ID, 강퇴된 회원 ID, `participationVersion`, 강퇴 시각 (구현: `chatRoomId`, `recruitId`, `title`, `hostUserId`, `kickedUserId`, `participationVersion`, `kickedAt`) | `<chatRoomId>:<kickedUserId>:<participationVersion>` | `kickedAt` | 강퇴된 회원(`kickedUserId`) | `GROUP_MEMBER_KICKED` | 구현됨(#897) |
+| `GroupRoomClosedEvent` | 🆕 (M8) | 방 ID | 방 ID, 모집글 ID·제목, 호스트 ID, 폐쇄 시점 참여자 ID 목록(호스트 포함), 폐쇄 시각 (구현: `chatRoomId`, `recruitId`, `title`, `hostUserId`, `memberUserIds`, `closedAt`) | `chatRoomId` | `closedAt` | 남은 참여자(`memberUserIds`, 알림이 호스트를 뺀다) | `GROUP_ROOM_CLOSED` | 구현됨(#897) |
 
-- 초대 요청 ID는 같은 방에서 다시 쓰지 않는다(지금은 보존 기간이 지나면 같은 키를 다시 쓸 수 있다). 이 조건을 발행 Issue에 적는다.
+- 초대 요청 ID는 같은 방에서 다시 쓰지 않는다. 채팅이 초대 결과 기록 행 ID를 발번해 해결했다(아래 M8 구현).
 - 실제로 참여한 회원이 없는 초대는 이벤트를 내지 않는다.
 - 폐쇄 이벤트는 폐쇄 시점 참여자 전원을 담고, 폐쇄한 호스트를 빼는 일은 알림이 한다(알림 종류 6장).
+- M8 구현(#897, 채팅): 3종 모두 `@Externalized`로 key 방 ID(접두어 없음)에 나간다. `eventType` 헤더는 레코드 이름과 같다. 시각은 `Instant`이고 상태를 바꾼 처리의 시각이다. ID는 `Long`, `participationVersion`은 `int`다. 필드 이름은 채팅의 기존 이름을 따랐다(방 ID `chatRoomId`, 호스트 `hostUserId`, 모집글 제목 `title`, 초대 안내의 `invitedUserIds`, 강퇴 안내의 `kickedUserId`).
+  - `GroupMembersInvitedEvent(chatRoomId, inviteRequestId, recruitId, title, hostUserId, invitedUserIds, invitedAt)`: `inviteRequestId`는 채팅이 초대 결과 기록(`chat_group_invite_request`)마다 새로 발번하는 행 ID다. 클라이언트의 멱등 키 `requestId`(UUID)가 아니다. 보존 기간이 지난 같은 `requestId`를 새 요청으로 처리할 때도 기존 행을 지우고 새 행을 만들어 새 ID를 받으므로, 같은 방에서 초대 요청 ID가 다시 쓰이지 않는다. 보존 기간 안의 같은 `requestId` 재시도는 저장한 결과만 돌려주고 이벤트를 내지 않는다. `invitedUserIds`는 요청 순서다.
+  - `GroupMemberKickedEvent(chatRoomId, recruitId, title, hostUserId, kickedUserId, participationVersion, kickedAt)`: `participationVersion`은 끝난 참여 세대다(1부터, 재초대마다 1씩 는다). 같은 세대의 강퇴 재시도는 이벤트를 내지 않는다.
+  - `GroupRoomClosedEvent(chatRoomId, recruitId, title, hostUserId, memberUserIds, closedAt)`: 처음 폐쇄할 때만 낸다. `memberUserIds`는 폐쇄 시점 참여자(호스트 포함, 나간·강퇴된 회원 제외)이고 회원 ID 오름차순이다. 호스트 자격 상실로 읽기 전용이 된 방은 내지 않는다(ND-004).
+  - `title`은 방이 가진 모집글 제목 사본이다(방을 만들 때 복사하고 초대 후보 검색 때 출연 앱 값으로 갱신한다). 출연 앱의 지금 제목과 다를 수 있다.
 
 ## 7. 확정 근거 (2026-11-09 발행 앱 코드 조사)
 
@@ -209,4 +215,4 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(미병합, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨 |
 | M7 | 고객센터 | 고객센터 🆕 2종(답변 도착·이의 제기 접수 불가). 답변 수정은 발행하지 않음(5장) | #875 | 구현됨 |
-| M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |
+| M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | #897 | 구현됨 |
