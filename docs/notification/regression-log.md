@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-077 · 2026-11-12 · 통과 (N9 채팅 #921 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-077 |
+| 실행 날짜 | 2026-11-12 19:45~19:48 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 `164f9574`) |
+| 작업 트리 변경 | PR 리뷰 반영: `NotificationChatAlertTest`가 DLT 조회 헬퍼(`MemberEventKafka`, 생성할 때 producer를 만든다)를 조회 뒤 닫는다. 알림 모듈 `AGENTS.md` 현재 상태 줄과 3.2장(채팅 소비자도 Backfill 뒤 시작) |
+| 대상 기능 | NR-076과 같다 |
+| 관련 NT ID | NT-GEN-24, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:check`는 새로 실행, `:auxiliary-app:test`·`:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(NR-076 결과) |
+| 건수 | `:notification` 326(`NotificationChatAlertTest` 8 포함). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 같은 헬퍼를 닫지 않는 기존 시험 클래스(N5~N7)는 이번 범위 밖이라 그대로 |
+| 관련 변경 | #921 |
+
 #### NR-076 · 2026-11-12 · 통과 (N9 채팅 #921 origin/dev 병합 뒤)
 
 | 항목 | 값 |
