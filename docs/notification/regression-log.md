@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-057 · 2026-11-12 · 통과 (N7 지갑 #907 PR 리뷰 반영: 충전 실패 값의 결제 금액 제거)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-057 |
+| 실행 날짜 | 2026-11-12 14:09~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `55d43c60`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts.chargeFailed`가 값에 `paymentAmountKrw`를 넣지 않고 키 상수도 지웠다. `WalletAlertsTest` 4건에 값 키 단언(`containsOnlyKeys`)을 더했다(먼저 `paymentAmountKrw`가 있어 실패하는 것을 확인) |
+| 대상 기능 | N7 지갑 4종 값 형식 |
+| 관련 NT ID | NT-GEN-19, NT-GEN-13 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`. `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(결과는 NR-055·NR-056) |
+| 건수 | `:notification` 243, `:auxiliary-app` 13(새 실행). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 PR 리뷰 |
+
 #### NR-056 · 2026-11-12 · 통과 (N7 지갑 #907 origin/dev 병합 뒤)
 
 | 항목 | 값 |
