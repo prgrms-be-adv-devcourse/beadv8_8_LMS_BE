@@ -100,7 +100,8 @@ public class CouponSoldOutCache {
             soldOut = couponIssueStore.isSoldOut(couponId);
         } catch (CouponIssueStoreUnavailableException e) {
             log.debug("매진 표시를 읽지 못해 발급 Lua에 판정을 맡긴다 couponId={}", couponId, e);
-            return false;
+            // 실패도 TTL 동안 매진 아님으로 담는다. 담지 않으면 매진 필터와 접수 유스케이스가 한 요청에서 Redis 제한 시간을 두 번 기다린다
+            soldOut = false;
         }
         signals.put(couponId, new SoldOutSignal(soldOut, now));
         return soldOut;

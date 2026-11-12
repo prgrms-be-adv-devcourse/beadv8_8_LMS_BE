@@ -56,7 +56,8 @@ class NotificationMemberAlertTest {
     private static final String DLT = TOPIC + "." + GROUP + ".DLT";
     private static final Instant START_AT = Instant.parse("2026-01-01T00:00:00Z");
     private static final Instant RECORD_TIME = Instant.parse("2026-11-11T03:00:00Z");
-    private static final AtomicLong NEXT_ID = new AtomicLong(700_000);
+    /** NotificationCancelRequestAndObjectionAlertTest(700_000)와 겹치지 않는 범위(같은 DB를 함께 쓴다) */
+    private static final AtomicLong NEXT_ID = new AtomicLong(750_000);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
