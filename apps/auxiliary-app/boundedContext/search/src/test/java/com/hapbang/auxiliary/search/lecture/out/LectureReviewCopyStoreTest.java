@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,6 +73,39 @@ class LectureReviewCopyStoreTest {
         assertThat(store.apply(review(1L, LECTURE, 5, true, false, 1L), NOW)).isFalse();
         assertThat(store.apply(review(1L, LECTURE, 4, false, true, 2L), NOW)).isFalse();
         assertThat(store.ratingOf(LECTURE)).isEqualTo(LectureRating.NONE);
+    }
+
+    @Test
+    @DisplayName("강의 여러 개의 평점을 한 번에 세고, 반영되는 리뷰가 없는 강의는 평점 없음이다(#884)")
+    void ratingsOf() {
+        store.apply(review(1L, LECTURE, 5, true, false, 0L), NOW);
+        store.apply(review(2L, LECTURE, 4, true, false, 0L), NOW);
+        store.apply(review(3L, 12L, 1, false, true, 1L), NOW);
+
+        Map<Long, LectureRating> ratings = store.ratingsOf(List.of(LECTURE, 12L, 13L));
+
+        assertThat(ratings).containsOnlyKeys(LECTURE, 12L, 13L);
+        assertThat(ratings.get(LECTURE).count()).isEqualTo(2);
+        assertThat(ratings.get(LECTURE).average()).isCloseTo(4.5, within(1e-9));
+        assertThat(ratings.get(12L)).isEqualTo(LectureRating.NONE);
+        assertThat(ratings.get(13L)).isEqualTo(LectureRating.NONE);
+        assertThat(store.ratingsOf(List.of())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("원본에서 읽지 못한 리뷰는 지우되, 마지막으로 읽은 ID보다 큰 리뷰(읽는 동안 생김)는 남긴다(#884)")
+    void deleteMissing() {
+        store.apply(review(1L, LECTURE, 5, true, false, 0L), NOW);
+        store.apply(review(2L, LECTURE, 1, true, false, 0L), NOW);
+        store.apply(review(3L, LECTURE, 3, true, false, 0L), NOW);
+        store.apply(review(9L, LECTURE, 2, true, false, 0L), NOW);
+
+        assertThat(store.deleteMissing(Set.of(1L, 3L), 3L)).containsExactly(2L);
+
+        LectureRating rating = store.ratingOf(LECTURE);
+        assertThat(rating.count()).isEqualTo(3);
+        assertThat(rating.average()).isCloseTo((5 + 3 + 2) / 3.0, within(1e-9));
+        assertThat(store.deleteMissing(Set.of(1L, 3L), 3L)).isEmpty();
     }
 
     private static LectureReviewSyncDto review(long id, long lectureId, int rating, boolean counted, boolean deleted,

@@ -2,7 +2,10 @@ package com.hapbang.auxiliary.search.lecture.out;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,11 +21,20 @@ import com.hapbang.shared.lecture.dto.LectureSyncDto;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Conflicts;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.MgetResponse;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.UpdateByQueryResponse;
+import co.elastic.clients.elasticsearch.core.get.GetResult;
+import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.json.JsonData;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 강의 검색 문서 쓰기(#882). 문서 ID는 강의 ID이고, 모든 쓰기는 alias({@link LectureIndexDefinition#ALIAS})로만 한다({@code require_alias}).
+ * 처음 적재·재색인이 alias를 붙이기 전의 새 index를 채우는 {@link #loadLectures}만 index 이름으로 쓴다(#884).
  * <p>
  * 칸마다 출처가 하나다(Q2). 쓰는 곳도 출처마다 나뉜다.
  * <ul>
@@ -40,6 +52,7 @@ import co.elastic.clients.json.JsonData;
  * {@code hiddenAt}을 다시 찍는다(인플루언서와 같음). 정리 기준이 마지막 숨김 이벤트에서 7일이 되어 그 사이 늦게 온 옛 이벤트를 막는다(PR #906 리뷰). 판매자 정지는 숨김이 아니라
  * {@code sellerActive}로 나타낸다(Q2, 정지가 길어도 정리가 지우지 않는다).
  */
+@Slf4j
 @Component
 public class LectureDocumentStore {
 
@@ -101,6 +114,20 @@ public class LectureDocumentStore {
             if (ctx._source.reviewCount != params.reviewCount) { ctx._source.reviewCount = params.reviewCount; changed = true; }
             if (!changed) { ctx.op = 'noop'; }
             """;
+
+    /**
+     * 원본에 없는 강의의 문서를 숨기는 script(#884 보정). 이미 숨겼으면 noop이다. 강의 version은 그대로 둔다(원본에 다시 나타나면 더 큰 version의 강의
+     * 쓰기가 보이게 한다).
+     */
+    static final String HIDE_SCRIPT = """
+            if (ctx._source.hidden == true) { ctx.op = 'noop'; return; }
+            ctx._source.hidden = true;
+            ctx._source.hiddenAt = params.now;
+            """;
+
+    /** 보정·따라잡기가 원본·사본과 비교하려고 읽는 칸({@link IndexedLecture}) */
+    static final List<String> INDEXED_FIELDS = List.of("lectureVersion", "hidden", "sellerUserId", "sellerNickname",
+            "sellerActive", "sellerVersion", "averageRating", "reviewCount");
 
     private final ElasticsearchClient client;
     private final DocumentWrites writes;
@@ -197,6 +224,143 @@ public class LectureDocumentStore {
         } catch (IOException e) {
             throw new IllegalStateException("판매자의 강의 검색 문서를 바꾸지 못했습니다 sellerUserId=" + seller.userId(), e);
         }
+    }
+
+    /**
+     * 처음 적재·재색인의 새 index(alias 없음)에 강의를 bulk로 넣는다(#884). 강의 이벤트와 같은 script·값({@link #lectureParams})이라 판매 중이 아닌
+     * 강의는 숨김 문서가 되고, 새 문서라 판매자·평점 칸을 넘긴 사본 값으로 채운다.
+     *
+     * @param index 채울 새 index 이름
+     * @param now   숨긴 시각(7일 뒤 정리 기준)
+     * @return 강의 ID별 결과. ES가 그 강의 값 때문에 거절했으면 {@link WriteOutcome#REJECTED}, 그 밖에 넣지 못했으면 {@link WriteOutcome#FAILED}
+     * @throws IllegalStateException bulk 요청 자체가 실패한 경우
+     */
+    public Map<Long, WriteOutcome> loadLectures(String index, List<LectureLoad> lectures, Instant now) {
+        if (lectures.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            BulkResponse response = client.bulk(b -> {
+                b.index(index);
+                lectures.forEach(l -> b.operations(op -> op.update(u -> u.id(String.valueOf(l.lecture().id()))
+                        .action(a -> a.scriptedUpsert(true).upsert(Map.of())
+                                .script(s -> s.source(src -> src.scriptString(LECTURE_SCRIPT))
+                                        .params(lectureParams(l.lecture(), l.seller(), l.rating(), now)))))));
+                return b;
+            });
+            List<String> failures = DocumentWrites.failures(response);
+            if (!failures.isEmpty()) {
+                log.warn("강의 검색 index에 강의 일부를 넣지 못했다 index={}, failures={}", index, failures);
+            }
+            return DocumentWrites.bulkOutcomes(response);
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("강의 검색 index에 강의를 넣지 못했습니다 index=" + index, e);
+        }
+    }
+
+    /**
+     * 강의 문서들의 지금 값을 한 번에 읽는다(#884 보정: 원본 version과 비교). 문서가 없는 강의는 결과에 없다.
+     *
+     * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
+     * @throws IllegalStateException 읽지 못한 경우
+     */
+    public Map<Long, IndexedLecture> findLectures(Collection<Long> lectureIds) {
+        if (lectureIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            MgetResponse<Map> response = client.mget(m -> m.index(LectureIndexDefinition.ALIAS)
+                    .ids(lectureIds.stream().map(String::valueOf).toList())
+                    .sourceIncludes(INDEXED_FIELDS), Map.class);
+            Map<Long, IndexedLecture> found = new HashMap<>();
+            for (MultiGetResponseItem<Map> item : response.docs()) {
+                if (item.isFailure()) {
+                    if (DocumentWrites.INDEX_NOT_FOUND.equals(item.failure().error().type())) {
+                        throw writes.aliasMissing();
+                    }
+                    throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다 lectureId=" + item.failure().id()
+                            + ", error=" + item.failure().error().type());
+                }
+                GetResult<Map> result = item.result();
+                if (result.found() && result.source() != null) {
+                    long id = Long.parseLong(result.id());
+                    found.put(id, indexedLecture(id, result.source()));
+                }
+            }
+            return found;
+        } catch (ElasticsearchException e) {
+            writes.throwIfAliasMissing(e);
+            throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 강의 문서를 강의 ID 오름차순으로 한 페이지 읽는다(숨긴 문서 포함, #884). 보정이 원본에 없는 문서를 찾고, 판매자·평점 칸을 사본과 맞출 때 끝까지
+     * 넘기며 읽는다. 읽는 사이 바뀐 문서는 다음 회차가 다시 본다.
+     *
+     * @param afterLectureId 이 강의 ID보다 큰 문서부터. null이면 처음부터
+     * @return 한 페이지. 비어 있으면 끝이다
+     * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
+     * @throws IllegalStateException 읽지 못한 경우
+     */
+    public List<IndexedLecture> page(Long afterLectureId, int size) {
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(LectureIndexDefinition.ALIAS)
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .query(q -> afterLectureId == null
+                            ? q.matchAll(m -> m)
+                            : q.range(r -> r.number(n -> n.field("lectureId").gt(afterLectureId.doubleValue()))))
+                    .sort(o -> o.field(f -> f.field("lectureId").order(SortOrder.Asc)))
+                    .source(src -> src.filter(f -> f.includes(INDEXED_FIELDS))), Map.class);
+            List<IndexedLecture> lectures = new ArrayList<>();
+            for (Hit<Map> hit : response.hits().hits()) {
+                long id = Long.parseLong(hit.id());
+                lectures.add(indexedLecture(id, hit.source() == null ? Map.of() : hit.source()));
+            }
+            return lectures;
+        } catch (ElasticsearchException e) {
+            writes.throwIfAliasMissing(e);
+            throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다 afterLectureId=" + afterLectureId, e);
+        } catch (IOException e) {
+            throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다 afterLectureId=" + afterLectureId, e);
+        }
+    }
+
+    /**
+     * 원본에 없는 강의의 문서를 숨긴다(#884 보정). 강의 version은 그대로 두고 숨긴 시각을 찍어 7일 뒤 정리된다.
+     *
+     * @return 숨겼으면 {@link WriteOutcome#UPDATED}, 이미 숨겼으면 {@link WriteOutcome#NOOP}, 문서가 없으면 {@link WriteOutcome#MISSING}
+     */
+    public WriteOutcome hideLecture(long lectureId, Instant now) {
+        return partialUpdate(lectureId, HIDE_SCRIPT, Map.of("now", JsonData.of(now.toEpochMilli())));
+    }
+
+    @SuppressWarnings("rawtypes")
+    private static IndexedLecture indexedLecture(long lectureId, Map source) {
+        Long sellerUserId = longOf(source.get("sellerUserId"));
+        Seller seller = new Seller(sellerUserId == null ? 0L : sellerUserId, (String) source.get("sellerNickname"),
+                !Boolean.FALSE.equals(source.get("sellerActive")), longOf(source.get("sellerVersion")));
+        Object average = source.get("averageRating");
+        Long count = longOf(source.get("reviewCount"));
+        LectureRating rating = new LectureRating(average == null ? null : ((Number) average).doubleValue(),
+                count == null ? 0L : count);
+        return new IndexedLecture(lectureId, longOf(source.get("lectureVersion")),
+                Boolean.TRUE.equals(source.get("hidden")), seller, rating);
+    }
+
+    private static Long longOf(Object value) {
+        return value == null ? null : ((Number) value).longValue();
+    }
+
+    /**
+     * 처음 적재·재색인에 넣을 강의 하나와 그 판매자·평점 사본 값(#884)
+     *
+     * @param seller 회원 사본의 판매자. 사본에 없으면 {@code null}(닉네임 없이 정상 판매자로 넣는다, 강의 이벤트와 같다)
+     */
+    public record LectureLoad(LectureSyncDto lecture, Seller seller, LectureRating rating) {
     }
 
     private WriteOutcome partialUpdate(long lectureId, String script, Map<String, JsonData> params) {
