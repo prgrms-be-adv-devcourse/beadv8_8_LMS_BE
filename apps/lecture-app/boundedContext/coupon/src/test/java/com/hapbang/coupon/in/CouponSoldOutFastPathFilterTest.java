@@ -84,6 +84,18 @@ class CouponSoldOutFastPathFilterTest {
         assertThat(meterRegistry.get(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter().count()).isZero();
     }
 
+    @Test
+    void 매진_캐시에서_예외가_나면_정상_경로로_넘긴다() throws Exception {
+        when(soldOutCache.isSoldOut(COUPON_ID)).thenThrow(new IllegalStateException("redis"));
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(issueRequest("7", "USER"), response, chain);
+
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(response.getContentAsString()).isEmpty();
+    }
+
     @ParameterizedTest(name = "{0} {1} userId={2} role={3}")
     @CsvSource(nullValues = "null", value = {
             "POST, /api/v1/coupons/42/issue-requests, null, USER",

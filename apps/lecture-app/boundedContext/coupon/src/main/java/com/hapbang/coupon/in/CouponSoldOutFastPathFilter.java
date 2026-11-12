@@ -86,13 +86,23 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         Long couponId = issueRequestCouponId(request);
-        if (couponId == null || !soldOutCache.isSoldOut(couponId)) {
+        if (couponId == null || !isSoldOut(couponId)) {
             chain.doFilter(request, response);
             return;
         }
         soldOut.increment();
         ServerHttpObservationFilter.findObservationContext(request).ifPresent(context -> context.setPathPattern(URI_PATTERN));
         writeSoldOut(request, response);
+    }
+
+    /** 매진 캐시를 보다 예외가 나면 매진이 아닌 것으로 보고 정상 경로(최종 판정은 Lua)에 맡긴다. 이 필터는 보안 앞이라 예외가 새면 공통 오류 응답을 거치지 못한다 */
+    private boolean isSoldOut(long couponId) {
+        try {
+            return soldOutCache.isSoldOut(couponId);
+        } catch (RuntimeException e) {
+            logger.debug("매진 캐시를 보지 못해 정상 경로로 넘긴다 couponId=" + couponId, e);
+            return false;
+        }
     }
 
     /** 발급 가능한 회원의 발급 접수면 쿠폰 ID, 아니면 {@code null} */
