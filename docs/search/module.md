@@ -55,10 +55,10 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
 | app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
 | app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
+| in | `SynonymsCheckBatch` | 동의어 묶음 확인 시각(기동 1분 뒤, 그 뒤 10분마다, `hapbang.search.synonyms-check-interval`). ES를 부르므로 재색인 실행기로 넘긴다(앱 공용 스케줄러 스레드를 붙잡지 않음). 모든 대상이 함께 쓰는 묶음이라 대상 배치가 아니라 공통에 둔다 |
 | out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
 | out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체. 이 대상 index는 이름이 정확히 `search-<대상>-` + 해시 12자인 것만 본다(`IndexDefinition.ownsIndex`). 이름이 대상 + "-…"인 다른 대상의 index를 남은 index로 지우지 않게 한다 |
 | out | `SynonymsSetup` | 동의어 묶음 하나를 공통 `synonyms.txt`와 맞춘다(모든 대상이 함께 씀) |
-| in | `SynonymsCheckBatch` | 동의어 묶음 확인 시각(기동 1분 뒤, 끝난 뒤 10분, `hapbang.search.synonyms-check-interval`). 모든 대상이 함께 쓰는 묶음이라 대상 배치가 아니라 공통에 둔다 |
 | out | `DocumentWrites` | 문서 쓰기의 대상 무관 부분: alias 없음 404 → 건너뜀, 그 문서 값 때문의 거절 판별(`DocumentRejectedException`), bulk 결과(`WriteOutcome`), 보이는 문서 세기, 숨김 문서 지우기 |
 | out | `ConsistencyCheckStore` | 문서 수 정합성 점검 결과(`search.consistency_check`, 대상별 한 행). JDBC |
 
@@ -113,7 +113,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 - 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치, 캡컷 → 컷) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배, 트위치 → 트/위치, 썸네일 → 썸/일) 단어다. 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
 - 뜻 있는 두 낱말이 붙은 합성어(컷편집 → 컷/편집, 영상편집, 색보정)는 넣지 않는다. 넣으면 한 토큰이 되어 "편집"이나 띄어 쓴 "컷 편집"으로 찾지 못한다. 프리미어·OBS처럼 이미 쪼개지지 않는 말도 넣지 않는다(#895, `_analyze` 근거는 PR 본문).
-- 동의어를 바꾸면 파일을 고쳐 배포한다. ES가 검색 분석기를 스스로 다시 읽는다. 쓰는 index가 있으면 묶음을 지울 수 없으므로 묶음을 지우는 일은 하지 않는다.
+- 동의어를 바꾸면 파일을 고쳐 배포한다. ES가 검색 분석기를 스스로 다시 읽는다. 쓰는 index가 있으면 묶음을 지울 수 없으므로 코드는 묶음을 지우지 않는다. 묶음 이름을 바꿔 아무 index도 쓰지 않게 된 옛 묶음만 사람이 지운다(위 묶음 이름 항목). 그 뒤 옛 코드로 되돌리면(롤백) 옛 코드가 옛 묶음을 다시 만들고 옛 설정으로 재색인하므로 따로 할 일은 없다.
 
 ### 필드
 

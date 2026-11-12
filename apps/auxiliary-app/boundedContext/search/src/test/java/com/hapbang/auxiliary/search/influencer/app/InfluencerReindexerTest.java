@@ -385,8 +385,8 @@ class InfluencerReindexerTest {
                 .isInstanceOf(com.hapbang.auxiliary.search.common.out.IndexNotReadyException.class);
         ReindexResult result = pod.reindexer.reindexIfNeeded();
         assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
-        assertThat(client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet())
-                .hasSize(10);
+        assertThat(client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet())
+                .hasSize(11);
         assertThat(source(1)).containsEntry("hidden", false);
     }
 

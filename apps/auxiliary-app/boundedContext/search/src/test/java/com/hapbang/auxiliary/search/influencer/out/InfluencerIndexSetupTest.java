@@ -45,7 +45,7 @@ class InfluencerIndexSetupTest {
     void notReadyWithoutAlias() throws Exception {
         assertThatThrownBy(setup::ensureReady).isInstanceOf(IndexNotReadyException.class);
 
-        assertThat(synonyms()).hasSize(10).contains("먹방, mukbang");
+        assertThat(synonyms()).hasSize(11).contains("먹방, mukbang");
         assertThat(setup.state().indices()).isEmpty();
 
         setup.switchAlias(List.of(), setup.createIndex());
@@ -70,7 +70,7 @@ class InfluencerIndexSetupTest {
 
         setup.syncSynonyms();
 
-        assertThat(synonyms()).hasSize(10).doesNotContain("스타, 스타크래프트");
+        assertThat(synonyms()).hasSize(11).doesNotContain("스타, 스타크래프트");
     }
 
     @Test
@@ -83,7 +83,7 @@ class InfluencerIndexSetupTest {
         assertThatThrownBy(this::synonyms).isInstanceOf(co.elastic.clients.elasticsearch._types.ElasticsearchException.class);
 
         setup.resyncSynonyms();
-        assertThat(synonyms()).hasSize(10);
+        assertThat(synonyms()).hasSize(11);
     }
 
     @Test
@@ -100,7 +100,7 @@ class InfluencerIndexSetupTest {
 
         assertThatThrownBy(brokenSetup::resyncSynonyms).isInstanceOf(SynonymsRejectedException.class);
         brokenSetup.ensureReady();
-        assertThat(synonyms()).hasSize(10);
+        assertThat(synonyms()).hasSize(11);
     }
 
     @Test
@@ -178,7 +178,7 @@ class InfluencerIndexSetupTest {
     }
 
     private List<String> synonyms() throws Exception {
-        return client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet().stream()
+        return client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet().stream()
                 .map(SynonymRuleRead::synonyms).toList();
     }
 

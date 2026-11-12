@@ -25,7 +25,7 @@ class InfluencerIndexDefinitionTest {
         assertThat(definition.indexBody())
                 .contains("\"치지직\"", "\"배그\"", "\"" + IndexDefinition.SYNONYMS_SET + "\"")
                 .doesNotContain("__USER_DICTIONARY__", "__SYNONYMS_SET__");
-        assertThat(definition.synonymRules()).hasSize(10).contains("롤, 리그 오브 레전드, 리그오브레전드, LoL");
+        assertThat(definition.synonymRules()).hasSize(11).contains("롤, 리그 오브 레전드, 리그오브레전드, LoL");
     }
 
     @Test
