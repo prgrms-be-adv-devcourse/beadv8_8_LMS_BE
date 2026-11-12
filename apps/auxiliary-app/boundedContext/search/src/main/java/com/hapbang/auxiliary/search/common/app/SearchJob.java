@@ -18,6 +18,8 @@ public enum SearchJob implements JobLockKey {
     MEMBER_RECONCILE(772_001L, "search-member-reconcile"),
     /** 처음 적재·재색인(시작 때와 10분마다 확인, #773) */
     REINDEX(773_001L, "search-reindex"),
+    /** 동의어 묶음 확인(10분마다, 모든 대상 공통 한 곳, #895) */
+    SYNONYMS_CHECK(895_001L, "search-synonyms-check"),
     /** 강의 index의 7일 지난 tombstone 정리(하루 1번, #882). 대상마다 키를 따로 둔다(같은 키면 한 대상이 건너뛴다) */
     LECTURE_TOMBSTONE_CLEANUP(882_001L, "search-lecture-tombstone-cleanup");
 

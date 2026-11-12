@@ -385,8 +385,8 @@ class InfluencerReindexerTest {
                 .isInstanceOf(com.hapbang.auxiliary.search.common.out.IndexNotReadyException.class);
         ReindexResult result = pod.reindexer.reindexIfNeeded();
         assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
-        assertThat(client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet())
-                .hasSize(10);
+        assertThat(client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet())
+                .hasSize(11);
         assertThat(source(1)).containsEntry("hidden", false);
     }
 
@@ -424,7 +424,7 @@ class InfluencerReindexerTest {
     }
 
     @Test
-    @DisplayName("ES가 동의어 묶음을 거절하면 재색인하지 않고 ERROR와 거절 지표를 남긴다(PR #845 재리뷰)")
+    @DisplayName("ES가 동의어 묶음을 거절하면 재색인하지 않는다(PR #845 재리뷰). 거절 지표는 대상마다 남기지 않는다(SynonymsCheck가 한 번, #895)")
     void synonymsRejectedStopsReindex() throws Exception {
         InfluencerIndexSetup rejecting = new InfluencerIndexSetup(client) {
             @Override
@@ -438,7 +438,7 @@ class InfluencerReindexerTest {
         assertThat(rejectingPod.reindexer.reindexIfNeeded().failed()).isTrue();
         assertThat(aliasTargets()).isEmpty();
         assertThat(members.calls()).isZero();
-        assertThat(registry.get("hapbang.search.synonyms.rejected").counter().count()).isEqualTo(1);
+        assertThat(registry.find("hapbang.search.synonyms.rejected").counter()).isNull();
     }
 
     /** 검색 모듈 빈 묶음 하나(pod 하나) */

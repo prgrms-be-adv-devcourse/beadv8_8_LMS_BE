@@ -54,10 +54,12 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | 계층 | 클래스 | 하는 일 |
 | --- | --- | --- |
 | app | `Reindexer` | 처음 적재·무중단 재색인 흐름(7장). 대상은 `IndexLoader`(새 index 채우기)·`IndexCatchUp`(교체 뒤 따라잡기)만 구현한다. 재색인 지표(`target` 태그)와 ERROR 표식을 남긴다 |
+| app | `SynonymsCheck` | 동의어 묶음 확인 한 곳(#895, #868 R9). 10분마다 한 pod(`JobLock` 895_001)에서 묶음을 맞추고, 거절이면 `[SEARCH_SYNONYMS_REJECTED]` ERROR와 지표를 대상 수와 상관없이 한 번 남긴다 |
 | app | `TombstoneCleanup` | 7일 지난 숨김 문서 정리(대상마다 얇은 하위 클래스) |
 | app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
 | app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
 | app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
+| in | `SynonymsCheckBatch` | 동의어 묶음 확인 시각(기동 1분 뒤, 그 뒤 10분마다, `hapbang.search.synonyms-check-interval`). ES를 부르므로 재색인 실행기로 넘긴다(앱 공용 스케줄러 스레드를 붙잡지 않음). 모든 대상이 함께 쓰는 묶음이라 대상 배치가 아니라 공통에 둔다 |
 | out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
 | out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체. 이 대상 index는 이름이 정확히 `search-<대상>-` + 해시 12자인 것만 본다(`IndexDefinition.ownsIndex`). 이름이 대상 + "-…"인 다른 대상의 index를 남은 index로 지우지 않게 한다 |
 | out | `SynonymsSetup` | 동의어 묶음 하나를 공통 `synonyms.txt`와 맞춘다(모든 대상이 함께 씀) |
@@ -99,7 +101,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 ### 새 대상(강의·모집)을 붙이는 법
 
-1. `search/<대상>/index.json`을 만든다. 사용자 사전·동의어 묶음 자리표시자(`"__USER_DICTIONARY__"`, `__SYNONYMS_SET__`)를 넣고, 숨김 표시 필드 `hidden`(boolean)·`hiddenAt`(date)을 둔다(공통 세기·정리가 쓴다). 사용자 사전·동의어 파일은 `search/common/`의 것을 함께 쓴다. 새 용어를 더하면 모든 대상이 재색인한다.
+1. `search/<대상>/index.json`을 만든다. 사용자 사전·동의어 묶음 자리표시자(`"__USER_DICTIONARY__"`, `__SYNONYMS_SET__`)를 넣고, 숨김 표시 필드 `hidden`(boolean)·`hiddenAt`(date)을 둔다(공통 세기·정리가 쓴다). 사용자 사전·동의어 파일은 `search/common/`의 것을 함께 쓴다. 새 용어를 더하면 모든 대상이 재색인한다. 동의어 묶음 확인·거절 알림은 공통 `SynonymsCheck`가 하므로 대상이 더할 것은 없다(#895).
 2. `search.<대상>.out`에 `<대상>IndexDefinition`(대상 이름·alias·지표 대상 값)과 `<대상>IndexSetup extends IndexSetup`(생성자만)을 둔다.
 3. 문서 저장소는 `DocumentWrites`를 써서 오류 처리·bulk 결과를 맞춘다. 원본 version 조건부 쓰기 script와 문서 모양은 대상이 정한다.
 4. `IndexLoader`(원본 전체로 새 index 채우기: 보이는 문서 + 숨김 문서, 거절 문서는 건너뛰고 셈)와 `IndexCatchUp`(교체 뒤 따라잡기)을 구현하고, `<대상>Reindexer`에서 공통 `Reindexer`에 넘긴다. 따라잡기 부품은 겹쳐 읽기 값(`overlap()`)도 알려 준다(정기 보정과 같은 값). 락은 `SearchJob`에 **대상 이름을 붙인 새 키**(예: `LECTURE_REINDEX`, 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번)를 더한다. 인플루언서 키(`REINDEX` 등)를 같이 쓰면 두 대상이 같은 락을 잡아 한쪽이 건너뛴다. 키를 한 enum에 모으는 것은 auxiliary database 하나를 모듈이 나눠 쓰므로 `SearchJobTest`가 번호 겹침을 한 번에 보게 하려는 것이다.
@@ -111,9 +113,10 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 - 이름 `search-influencers-<설정 해시 12자>`, 검색·쓰기는 alias `search-influencers`로만 한다(쓰기는 `require_alias`라 alias가 없으면 실패하고, ES가 같은 이름의 index를 멋대로 만들지 않는다).
 - 원본은 레포 파일 `boundedContext/search/src/main/resources/search/`의 `influencers/index.json`(설정·mapping)과, 모든 대상이 함께 쓰는 `common/user-dictionary.txt`(사용자 사전)·`common/synonyms.txt`(동의어)다(#868, L17).
-- 동의어 묶음 이름은 아직 `search-influencers-synonyms`다. 이름이 index 본문에 들어가 바꾸면 설정 해시가 바뀌므로, 공통 이름으로 바꾸는 일은 사용자 사전에 강의 용어를 더해 어차피 재색인하는 강의 검색 PR에서 함께 한다(#868 R4). 지금 운영 index는 `search-influencers-d656dfa35eee`이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
+- 동의어 묶음 이름은 모든 대상이 함께 쓰는 `search-synonyms`다(#895, #868 R4). 옛 이름 `search-influencers-synonyms`에서 사용자 사전 강의 용어 추가와 함께 바꿔 재색인을 한 번으로 합쳤다. 이름이 index 본문에 들어가 바꾸면 모든 대상의 설정 해시가 바뀐다. 코드는 묶음을 지우지 않으므로 옛 묶음은 재색인이 옛 index를 지운 뒤 손으로 지운다(`DELETE _synonyms/search-influencers-synonyms`, #895 PR 본문).
+- 운영 index는 #895 배포 뒤 `search-influencers-df33405ee9ab`(그 전 `d656dfa35eee`)이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping·묶음 이름을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
 - 설정 해시는 mapping·분석기·사용자 사전으로만 만든다. **동의어는 넣지 않는다**(검색할 때만 쓰여 재색인이 필요 없다).
-- 기동하면(다른 스레드): 동의어 묶음(`search-influencers-synonyms`)이 파일과 다르면 묶음 전체를 PUT → alias가 없거나 다른 해시의 index를 가리키면 처음 적재·재색인을 한다(7장). 10분마다 다시 확인한다.
+- 기동하면(다른 스레드): 동의어 묶음(`search-synonyms`)이 파일과 다르면 묶음 전체를 PUT → alias가 없거나 다른 해시의 index를 가리키면 처음 적재·재색인을 한다(7장). 10분마다 다시 확인한다. 묶음 확인은 대상마다의 재색인과 별도로 `SynonymsCheck`도 10분마다 한다(거절 알림은 여기서만, 7장).
 - **alias는 처음 적재가 index를 다 채우고 확인한 뒤에만 붙인다.** 이벤트 소비·보정이 alias가 없다고 빈 index에 alias를 붙이지 않는다(붙이면 "alias 있음, 해시 같음"으로 보여 처음 적재가 돌지 않는다).
 - shard 1, replica 0(운영 ES가 1대), `dynamic: strict`.
 
@@ -124,8 +127,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `ko_index` | `nori_tokenizer`(`decompound_mode: discard`, 사용자 사전) + `nori_part_of_speech` + `lowercase` | 색인 |
 | `ko_search` | `ko_index` + `synonym_graph`(Synonyms API 묶음, `updateable`) | 검색 |
 
-- 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배) 단어다. 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
-- 동의어를 바꾸면 파일을 고쳐 배포한다. ES가 검색 분석기를 스스로 다시 읽는다. 쓰는 index가 있으면 묶음을 지울 수 없으므로 묶음을 지우는 일은 하지 않는다.
+- 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치, 캡컷 → 컷) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배, 트위치 → 트/위치, 썸네일 → 썸/일) 단어다. 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
+- 뜻 있는 두 낱말이 붙은 합성어(컷편집 → 컷/편집, 영상편집, 색보정)는 넣지 않는다. 넣으면 한 토큰이 되어 "편집"이나 띄어 쓴 "컷 편집"으로 찾지 못한다. 프리미어·OBS처럼 이미 쪼개지지 않는 말도 넣지 않는다(#895, `_analyze` 근거는 PR 본문).
+- 동의어를 바꾸면 파일을 고쳐 배포한다. ES가 검색 분석기를 스스로 다시 읽는다. 쓰는 index가 있으면 묶음을 지울 수 없으므로 코드는 묶음을 지우지 않는다. 묶음 이름을 바꿔 아무 index도 쓰지 않게 된 옛 묶음만 사람이 지운다(위 묶음 이름 항목). 그 뒤 옛 코드로 되돌리면(롤백) 옛 코드가 옛 묶음을 다시 만들고 옛 설정으로 재색인하므로 따로 할 일은 없다.
 
 ### 필드
 
@@ -231,7 +235,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 1~5에서 실패하면 alias는 옛 그대로 두고 만들던 새 index를 지운다. `[SEARCH_REINDEX_FAILED]` ERROR 한 줄(예외 포함)과 지표(`outcome=failure`)를 남긴다. 사용자 사전·mapping 오류로 ES가 새 index를 거절하는 경우(2)도 같다(10분마다 같은 이유로 실패하므로 사람이 봐야 한다, PR #845 리뷰). 상태를 읽지 못하는 ES 일시 장애는 WARN이다. 처음 적재면 alias가 없는 채로 남아 검색은 503, 이벤트는 계속 건너뛴다.
 - alias 교체 응답만 실패하고(시간 초과) ES에는 적용됐을 수 있으므로, 지우기 전에 alias를 다시 읽는다. 새 index를 가리키면 교체한 것으로 보고 6으로 이어 가고, 읽지 못하면 새 index를 지우지 않고 다음 확인에 맡긴다(지우면 alias도 사라진다. 교체되지 않았다면 다음 확인이 1에서 지운다).
 - 6이 끝내 `BUSY`이거나 `FAILED`면 `[SEARCH_REINDEX_CATCH_UP_FAILED]` ERROR와 `outcome=catch_up_failed`를 남긴다. `FAILED`는 커서가 이미 T − 1분 뒤에 있어 다음 정기 보정이 이어 간다. `BUSY`는 커서를 옮기지 못했으므로 재색인 중 바뀐 회원이 빠졌을 수 있다(5분 넘게 끝나지 않는 보정은 그 자체로 장애다).
-- ES가 동의어 묶음을 내용 때문에 거절하면(400 `action_request_validation_exception`, 예: `롤 => 리그 => LoL`처럼 `=>`가 둘) 재색인하지 않고 `[SEARCH_SYNONYMS_REJECTED]` ERROR와 `hapbang.search.synonyms.rejected`를 남긴다. `synonyms.txt`를 고쳐 배포해야 풀린다. 문서 쓰기는 동의어와 상관없어 지난 묶음으로 계속한다. 거절되는 규칙은 대개 CI의 `InfluencerIndexSetupTest`(실제 ES에 레포 파일을 올림)가 병합 전에 잡는다. `=> 롤`처럼 ES가 받고 무시하는 규칙도 있어 동의어를 고친 PR은 `_analyze`로 결과를 확인한다(PR #845 재리뷰).
+- ES가 동의어 묶음을 내용 때문에 거절하면(400 `action_request_validation_exception`, 예: `롤 => 리그 => LoL`처럼 `=>`가 둘) 모든 대상이 재색인하지 않는다. `[SEARCH_SYNONYMS_REJECTED]` ERROR와 `hapbang.search.synonyms.rejected`는 `SynonymsCheck`가 10분마다 한 번만 남기고, 대상마다의 재색인은 `target=`이 붙은 WARN만 남기고 건너뛴다(#895, #868 R9). 재색인도 index를 만들기 전에 묶음을 맞춘다. pod가 떠 있는 동안 ES를 새로 만들면 묶음이 없기 때문이다. 재색인은 묶음이 있는지만 보장하고, 거절을 알리는 일은 `SynonymsCheck` 한 곳만 한다. `synonyms.txt`를 고쳐 배포해야 풀린다. 문서 쓰기는 동의어와 상관없어 지난 묶음으로 계속한다. 거절되는 규칙은 대개 CI의 `InfluencerIndexSetupTest`(실제 ES에 레포 파일을 올림)가 병합 전에 잡는다. `=> 롤`처럼 ES가 받고 무시하는 규칙도 있어 동의어를 고친 PR은 `_analyze`로 결과를 확인한다(PR #845 재리뷰).
 - alias가 지금 설정 index와 다른 index를 함께 가리키면(사람이 손으로 바꾼 경우뿐) 지울 수 없어 `[SEARCH_REINDEX_FAILED]`로 멈춘다. alias를 한 index만 가리키게 고친다.
 - 사람이 봐야 하는 실패라 ERROR에 alert 표식을 붙였지만 alert 규칙은 아직 두지 않았다(#772 Q2와 같이 지표·로그로 본다).
 
@@ -276,7 +280,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
 | `hapbang.search.reindex.duration{target, reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). `target` 태그는 #868에서 더했다. reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
 | `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수) |
-| `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(10분 확인마다). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
+| `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(`SynonymsCheck` 10분 확인마다 한 번, 대상 수와 상관없음, #895). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
 | `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
 
@@ -303,10 +307,12 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | 테스트 | 보는 것 |
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
-| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
+| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애, 분석기(사전·동의어, #895 강의 용어·합성어 기준·버튜버 동의어) |
 | `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 부품의 겹쳐 읽기부터 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림, 이름이 겹치는 다른 대상 index를 지우지 않음(#868) |
-| `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
+| `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함(지표는 남기지 않음) |
+| `SynonymsCheckTest` | 동의어 묶음 확인(#895): 맞추면 지표 없음, 거절이면 지표 한 번, **대상이 둘이어도 거절 지표 한 번이고 두 재색인 모두 건너뜀**(R9), 확인 락으로 실행 |
 | `SearchReindexWiringTest` | 기동·10분 확인이 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링·기동 재색인을 켠 컨텍스트, 재색인은 가짜) |
+| `SynonymsCheckWiringTest` | 동의어 확인 배치가 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링을 켠 컨텍스트, 확인은 가짜, #895) |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀, 같은 이벤트로 강의 판매자 반영(#882) |
 | `SearchLectureEventListenerTest` | 실제 Kafka로 강의·리뷰 반영, 쓰지 않는 타입 건너뜀, **이 앱에 클래스가 없는 타입은 DLT로 가지 않고 건너뜀**, 깨진 본문은 DLT, 처음 적재 전엔 사본만(#882) |
 | `LectureIndexerTest` | 강의 등록·수정·판매 중지·삭제, 리뷰 작성·수정·삭제, 판매자 닉네임 변경·정지, 순서 역전, 문서 쓰기 실패 뒤 재시도, 문서를 만드는 사이 바뀐 사본 따라잡기, 처음 적재 전(PostgreSQL + ES) |
@@ -325,7 +331,6 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ## 12. 알려진 한계
 
-- 동의어 묶음은 하나인데 재색인 확인(`Reindexer`)이 대상마다 묶음을 다시 맞춘다. 대상이 둘이 되면 묶음이 거절될 때 `[SEARCH_SYNONYMS_REJECTED]` ERROR와 `synonyms.rejected` 지표가 대상 수만큼 나온다. 강의 검색 PR에서 한 곳으로 모은다(#868 리뷰).
 - 사전에 없는 지어낸 닉네임은 잘게 쪼개져 다른 검색어에 걸릴 수 있다(예: "롤러스케이터"가 "롤" 검색에 걸림, G01b). 0건 검색어처럼 근거가 쌓이면 사전을 보강하거나 하위 필드를 더한다.
 - 동의어 일치와 원문 일치의 가중치가 같다(G05). 원문 일치를 위로 올리려면 동의어 없는 하위 필드를 작은 가중치로 더한다.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.

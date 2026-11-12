@@ -47,9 +47,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>{@code hapbang.search.reindex.duration{target, reason, outcome}}: 1회 소요 시간. reason = first_load·settings_changed,
  *     outcome = success·failure(alias 그대로)·catch_up_failed(alias는 옮겼지만 따라잡기를 못 함)</li>
  *     <li>{@code hapbang.search.reindex.documents{target, reason}}: 새 index에 넣은 보이는 문서 수</li>
- *     <li>{@code hapbang.search.synonyms.rejected}: ES가 동의어 묶음을 내용 때문에 거절한 횟수(10분 확인마다). 묶음이 하나라 대상 태그가 없다.
- *     0이 아니면 synonyms.txt를 고쳐야 한다</li>
  * </ul>
+ * 동의어 묶음 거절의 ERROR·지표는 여기가 아니라 {@link SynonymsCheck}가 대상 수와 상관없이 한 번 남긴다(#895, R9). 여기는 index를 만들기 전에 묶음이
+ * 있는지만 보장하고, 거절되면 WARN만 남기고 건너뛴다.
  */
 @Slf4j
 public class Reindexer {
@@ -60,7 +60,6 @@ public class Reindexer {
 
     /** 사람이 봐야 하는 실패의 로그 표식({@code docs/dev/logging.md} alert 표식) */
     static final String FAILED_MARKER = "[SEARCH_REINDEX_FAILED]";
-    static final String SYNONYMS_REJECTED_MARKER = "[SEARCH_SYNONYMS_REJECTED]";
 
     /**
      * 더 새 배포의 index로 볼 때 두는 여유. index를 만든 시각(ES 서버 시계)과 pod가 뜬 시각(pod 시계)은 서로 다른 시계라 몇 초 어긋날 수 있다
@@ -129,10 +128,8 @@ public class Reindexer {
         try {
             indexSetup.resyncSynonyms();
         } catch (SynonymsRejectedException e) {
-            // 파일이 틀렸다. 10분마다 같은 이유로 실패하므로 사람이 봐야 한다. 처음 적재 전이면 검색이 계속 503이다(PR #845 재리뷰)
-            registry.counter("hapbang.search.synonyms.rejected").increment();
-            log.error("{} ES가 검색 동의어 묶음을 거절해 처음 적재·재색인을 하지 않는다. synonyms.txt를 고쳐 배포한다 target={}",
-                    SYNONYMS_REJECTED_MARKER, target, e);
+            // 파일이 틀렸다. 사람에게 알리는 ERROR·지표는 SynonymsCheck가 한 번 남기므로 여기는 대상마다 WARN만 남긴다(#895, R9)
+            log.warn("ES가 검색 동의어 묶음을 거절해 처음 적재·재색인을 하지 않는다 target={}, reason={}", target, e.getMessage());
             return ReindexResult.failed(null, null);
         }
         IndexState state = indexSetup.state();
