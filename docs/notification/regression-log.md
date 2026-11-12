@@ -86,6 +86,94 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-069 · 2026-11-12 · 통과 (N7 회원 #915 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-069 |
+| 실행 날짜 | 2026-11-12 16:04~16:15 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | `8ee9f33c`(`4b5bccca` + origin/dev `84b349c3` 병합. 실행은 병합 커밋 직전의 같은 작업 트리) |
+| 작업 트리 변경 | origin/dev(출연 #908 PR #916, 검색 #914, 강의 #910 PR #920) 병합. 충돌 8파일(`NotificationTemplates`와 알림 문서 7개)은 dev 내용을 두고 회원 변경을 더해 풀었다. 겹친 실행 기록 번호만 NR-062~NR-064 → NR-066~NR-068로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 출연·강의·회원 알림이 함께 등록된 `NotificationTemplates`, 검색 #914) |
+| 관련 NT ID | NT-GEN-20·21·22, NT-GEN-10·15, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test` |
+| 건수 | `:notification` 300, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음(R-01의 JobLock 시험도 이번에는 통과) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ Q2 a) |
+| 관련 변경 | #915 |
+
+#### NR-068 · 2026-11-12 · 통과 (N7 회원 3종 #915 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-068 |
+| 실행 날짜 | 2026-11-12 15:24~15:28 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-066에 더해 `MemberReviewAlerts` import 순서(같은 패키지 선례), `NotificationMemberReviewAlertTest`에 같은 회차 채널 반려 재전송을 더했다 |
+| 대상 기능 | N7 회원 3종 알림 |
+| 관련 NT ID | NR-066와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`. `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(결과는 NR-067) |
+| 건수 | `:notification` 256, `:auxiliary-app` 13(새 실행). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
+#### NR-067 · 2026-11-12 · 통과 (N7 회원 3종 #915 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-067 |
+| 실행 날짜 | 2026-11-12 15:11~15:17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-066와 같다(바뀐 것 없음) |
+| 대상 기능 | NR-066에서 실패한 `:auxiliary-global:test` 재실행 |
+| 관련 NT ID | NR-066와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다. 다른 터미널의 출연·강의 worktree 빌드와 같은 시간대 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `verifyModuleStructure`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test`. `:notification:test`·`:auxiliary-app:test`는 `UP-TO-DATE`(결과는 NR-066) |
+| 건수 | `:auxiliary-global` 110, `:chatbot` 245, `:search` 222(새 실행). `:notification` 256, `:auxiliary-app` 13(NR-066). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
+#### NR-066 · 2026-11-12 · 실패 (N7 회원 3종 #915)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-066 |
+| 실행 날짜 | 2026-11-12 15:05~15:09 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `MemberReviewAlerts`·`MemberReviewTemplates` 추가, `NotificationTemplates` 등록, `NotificationMemberEventListener` 처리기 3개. 시험 `MemberReviewAlertsTest`(7)·`NotificationMemberReviewAlertTest`(6) |
+| 대상 기능 | N7 회원 3종 알림(채널 인증 승인·반려, 승급 반려) |
+| 관련 NT ID | NT-GEN-22, NT-GEN-10·15(회원 3종), NT-GEN-14 (2) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다. 다른 터미널의 출연·강의 worktree 빌드와 같은 시간대 |
+| 결과 | 실패(종료 코드 1). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행해 통과. `:auxiliary-global:test` 110건 중 1건 실패로 `:chatbot`·`:search` 시험은 돌지 않음 |
+| 건수 | `:notification` 256, `:auxiliary-app` 13 통과(새 실행). `:auxiliary-global` 110 중 실패 1 |
+| 실패 원인 분류 | F-TEST(추정). `JobLockPostgresIntegrationTest.connectionLost`의 92행 `podB.tryAcquire(FIRST).orElseThrow()`가 `NoSuchElementException`. 시험이 `pg_terminate_backend(pid)`를 종료를 기다리지 않고 부른 뒤 곧바로 같은 advisory lock을 잡으므로, 백엔드 종료가 늦으면 락이 아직 남아 있을 수 있다. 이번 변경은 `:auxiliary-global`을 바꾸지 않았다 |
+| 수정 내용 | 없음. 시험은 auxiliary global(#798) 코드라 이 Issue 범위 밖 |
+| 재실행 결과 | 그 시험 클래스만 3회 단독 실행(`:auxiliary-global:test --tests "*JobLockPostgresIntegrationTest" --rerun-tasks`) 모두 5/5 통과. 전체 재실행은 NR-067 통과 |
+| 미검증 항목 | 추정 원인을 재현으로 확인하지 않았다(4장 R-01). 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
 #### NR-065 · 2026-11-12 · 통과 (N7 강의 #910 origin/dev 병합 뒤, 1차 실패 → 시험 격리 수정 뒤 재실행)
 
 | 항목 | 값 |
@@ -1671,8 +1759,7 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 
 | 번호 | 처음 발견 | 테스트 / NT | 내용 | 원인 분류 | 관련 Issue | 상태 | 해결 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-
-아직 없음.
+| R-01 | NR-066 | `:auxiliary-global` `JobLockPostgresIntegrationTest.connectionLost`(알림 NT 밖) | 전체 검증 중 한 번 실패, 단독 3회·전체 재실행 통과. 추정 원인: 끊은 락 연결의 백엔드 종료를 기다리지 않고 다른 pod가 같은 락을 잡는다 | F-TEST(추정) | 없음(auxiliary global #798 담당에게 테스트 수정 Issue 제안) | 미해결 | — |
 
 변경 이력
 - 2026-11-06 처음 작성: 실행 기록 없음. 형식은 [지갑 회귀 실행 기록](../billing/regression-log.md)을 알림 모듈에 맞게 줄였다.
@@ -1683,3 +1770,4 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-10 NR-010·NR-011(N2 알림 저장·REST, #801)을 더했다.
 - 2026-11-10 NR-012·NR-013(ND-054 파기 표시, #801)을 더했다.
 - 2026-11-10 NR-014·NR-015(#801 PR 리뷰: 같은 알림 행의 동시 쓰기)를 더했다.
+- 2026-11-12 NR-066(실패, global JobLock 시험)·NR-067(N7 회원 3종, #915)과 4장 R-01을 더했다. 자체 리뷰 반영 뒤 NR-068을 더했다(작업 중 NR-062~NR-064였고 출연·강의 병합 뒤 고쳤다). origin/dev 병합 뒤 NR-069를 더했다.
