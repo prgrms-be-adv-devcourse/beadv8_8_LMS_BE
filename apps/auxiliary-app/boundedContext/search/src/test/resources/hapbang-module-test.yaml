@@ -12,6 +12,9 @@ hapbang:
     # 대부분의 테스트에는 Kafka가 없다. 회원 이벤트 소비자는 Kafka 시험 클래스만 켠다
     member-events:
       enabled: false
+    # 강의 이벤트 소비자도 Kafka 시험 클래스만 켠다(#882)
+    lecture-events:
+      enabled: false
     elasticsearch:
       # ES를 쓰는 테스트는 SearchElasticsearchTestcontainersConfig를 @Import 해 이 주소를 컨테이너 주소로 바꾼다.
       # ES가 없는 테스트는 닿지 않는 주소로 둔다(연결 거절을 바로 받는다)

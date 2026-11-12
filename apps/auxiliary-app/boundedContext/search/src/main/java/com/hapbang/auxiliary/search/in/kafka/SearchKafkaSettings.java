@@ -31,8 +31,19 @@ public record SearchKafkaSettings(
     /** 회원 이벤트 신뢰 패키지. 와일드카드 없이 정확히 이 패키지의 타입만 읽는다 */
     public static final String MEMBER_TRUSTED_PACKAGE = "com.hapbang.shared.member.event";
 
+    /** 강의 이벤트 토픽(lecture-app이 partition 3개로 선언) */
+    public static final String LECTURE_EVENTS_TOPIC = "lecture.events.v1";
+    /** 강의·리뷰 이벤트로 강의 검색 문서를 만드는 그룹(#882) */
+    public static final String LECTURE_GROUP = "auxiliary-app.search-lecture";
+    /** 강의 이벤트 신뢰 패키지. 이 패키지 바로 안인데 클래스가 없는 타입은 건너뛴다({@link TrustedEventDeserializer}) */
+    public static final String LECTURE_TRUSTED_PACKAGE = "com.hapbang.shared.lecture.event";
+
     public static SearchKafkaSettings memberDefaults() {
         return of(MEMBER_EVENTS_TOPIC, MEMBER_GROUP, 3, Duration.ofSeconds(1), Duration.ofSeconds(10));
+    }
+
+    public static SearchKafkaSettings lectureDefaults() {
+        return of(LECTURE_EVENTS_TOPIC, LECTURE_GROUP, 3, Duration.ofSeconds(1), Duration.ofSeconds(10));
     }
 
     public static SearchKafkaSettings of(String topic, String groupId, int maxRetries, Duration retryInitialInterval,
