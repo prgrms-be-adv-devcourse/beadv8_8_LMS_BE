@@ -45,6 +45,13 @@ public class NotificationKafkaTopicConfig {
         return deadLetterTopic(settings);
     }
 
+    @Bean
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    NewTopic notificationCustomerSupportEventDeadLetterTopic(
+            @Qualifier(NotificationKafkaConfig.CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTopic(settings);
+    }
+
     static NewTopic deadLetterTopic(NotificationKafkaConsumerSettings settings) {
         return TopicBuilder.name(settings.deadLetterTopic())
                 .partitions(settings.deadLetterPartitions())

@@ -72,6 +72,17 @@ public class NotificationKafkaErrorHandlerConfig {
         return errorHandler(deadLetterTemplate, settings);
     }
 
+    public static final String CUSTOMERSUPPORT_EVENT_ERROR_HANDLER = "notificationCustomerSupportEventErrorHandler";
+
+    @Bean(name = CUSTOMERSUPPORT_EVENT_ERROR_HANDLER, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    DefaultErrorHandler notificationCustomerSupportEventErrorHandler(
+            @Qualifier(NotificationKafkaConfig.CUSTOMERSUPPORT_EVENT_DEAD_LETTER_TEMPLATE)
+            KafkaTemplate<String, Object> deadLetterTemplate,
+            @Qualifier(NotificationKafkaConfig.CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return errorHandler(deadLetterTemplate, settings);
+    }
+
     static DefaultErrorHandler errorHandler(KafkaOperations<?, ?> deadLetterTemplate,
             NotificationKafkaConsumerSettings settings) {
         ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(settings.maxRetries());
