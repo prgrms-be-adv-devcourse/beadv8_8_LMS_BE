@@ -86,6 +86,50 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-058 · 2026-11-12 · 통과 (N7 강의 #910 자체 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-058 (NR-057과 같은 임시 번호 규칙) |
+| 실행 날짜 | 2026-11-12 14:18~14:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-057 + S6 리뷰 반영: `NotificationTemplates` 긴 줄 나눔, `module.md` 변경 이력 문장 |
+| 대상 기능 | NR-057과 같다 |
+| 관련 NT ID | NR-057과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0) |
+| 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13, `verifyModuleStructure`. `:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(새 실행 아님, NR-057 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-057 · 2026-11-12 · 통과 (N7 강의 #910, M4 7종 소비)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-057 (지갑 #907 NR-055·출연 #908 다음으로 임시 번호, 병합 순서가 바뀌면 고친다) |
+| 실행 날짜 | 2026-11-12 14:02~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | `LectureProgressAlerts`·`LectureProgressTemplates` 추가, `NotificationTemplates` 등록, `NotificationLectureEventListener`에 M4 7종(이전 형식 판별 없음). 앞선 TDD 실행: RED 1 단위 시험 컴파일 오류(클래스 없음), RED 2 단위 11 통과·Kafka 6 실패(리스너가 7종을 건너뛰어 0행·DLT 없음), GREEN 새 시험 19와 이의 제기 회귀(`NotificationCancelRequestAndObjectionAlertTest` 14, `LectureObjectionAlertsTest` 6) 통과 |
+| 대상 기능 | N7 강의 알림 7종, ND-113~ND-116 |
+| 관련 NT ID | NT-GEN-21, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 1차는 모든 시험 태스크를 새로 실행했으나 출력 파이프가 도구 시간 제한으로 끊겨, 같은 명령을 다시 돌려 종료 코드 0을 확인했다(2차는 모두 UP-TO-DATE, 새 실행 아님) |
+| 건수 | 1차 새로 실행: `:notification` 250, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
 #### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
 
 | 항목 | 값 |
