@@ -13,6 +13,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -41,7 +44,8 @@ import com.jayway.jsonpath.JsonPath;
 
 /**
  * 플랫폼 쿠폰 발행 → 열기 → 발급 접수 → 발급 요청 상태를 HTTP부터 PostgreSQL·Redis까지 관통해 확인한다. 응답 코드별 세부 규칙은
- * 도메인·UseCase·Lua 테스트가 맡고, 여기서는 단계가 이어지는지와 같은 요청 재전송(I4)·회원당 한 장(I2)만 본다.
+ * 도메인·UseCase·Lua 테스트가 맡고, 여기서는 단계가 이어지는지와 같은 요청 재전송(I4)·회원당 한 장(I2), 매진 빠른 경로 필터가 예외 처리기와
+ * 같은 409를 쓰는지만 본다.
  * <p>
  * 이 모듈 테스트에는 강의 앱의 보안 설정(Gateway 사용자 헤더 필터, 메서드 보안)이 없다. 그래서 Spring Security 기본 필터에
  * 테스트 로그인({@code user(...)})과 CSRF 토큰을 넣고, 메서드 보안은 이 테스트 설정으로 켜서 Facade의 역할 검사가 운영처럼 돌게 한다.
@@ -171,6 +175,27 @@ class CouponIssueE2eTest {
         issueStatus(couponId, MEMBER_B, requestId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("NOT_FOUND"));
+
+        // 매진: 재고가 0이면 Lua가 매진을 돌려주고 예외 처리기가 409로 응답하며, 매진 표시 캐시에 남는다
+        redisTemplate.opsForValue().set(CouponRedisKeys.stock(couponId), "0");
+        MockHttpServletResponse handled = requestIssue(couponId, MEMBER_B, "req-b-1")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_SOLD_OUT"))
+                .andReturn().getResponse();
+        // Gateway 사용자 헤더만 있고 테스트 로그인·CSRF 토큰이 없다. Security까지 갔다면 403이다: 매진 필터가 그 앞에서 같은 응답을 쓴다
+        MockHttpServletResponse fastPath = mockMvc.perform(post("/api/v1/coupons/{couponId}/issue-requests", couponId)
+                        .header("X-User-Id", String.valueOf(MEMBER_B)).header("X-User-Role", "USER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"issueRequestId\":\"req-b-2\"}"))
+                .andExpect(status().isConflict())
+                .andReturn().getResponse();
+        assertThat(fastPath.getContentAsString()).isEqualTo(handled.getContentAsString());
+        assertThat(fastPath.getContentType()).isEqualTo(handled.getContentType());
+        assertThat(headers(fastPath)).isEqualTo(headers(handled));
+    }
+
+    private static Map<String, List<String>> headers(MockHttpServletResponse response) {
+        return response.getHeaderNames().stream().collect(Collectors.toMap(name -> name, response::getHeaders));
     }
 
     private long createPlatformCoupon() throws Exception {

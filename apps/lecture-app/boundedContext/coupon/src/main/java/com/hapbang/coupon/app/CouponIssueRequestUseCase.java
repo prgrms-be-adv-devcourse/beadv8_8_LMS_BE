@@ -53,8 +53,11 @@ public class CouponIssueRequestUseCase {
     /** 접수 직후 전송에 실패한 수. {@code result} 태그: failed·timed_out */
     static final String PUBLISH_FAILURE_METRIC = "coupon.issue.publish.failures";
 
-    /** 매진(409 {@code COUPON_SOLD_OUT})으로 거절한 접수 수. 매진 표시 캐시로 막은 것과 Lua가 매진을 돌려준 것을 함께 센다 */
-    static final String SOLD_OUT_METRIC = "coupon.issue.sold_out";
+    /**
+     * 매진(409 {@code COUPON_SOLD_OUT})으로 거절한 접수 수. 매진 표시 캐시로 막은 것(매진 빠른 경로 필터 포함)과 Lua가 매진을 돌려준 것을
+     * 함께 센다
+     */
+    public static final String SOLD_OUT_METRIC = "coupon.issue.sold_out";
 
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
