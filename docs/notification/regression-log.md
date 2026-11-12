@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-056 · 2026-11-12 · 통과 (N7 지갑 #907 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-056 |
+| 실행 날짜 | 2026-11-12 13:55~14:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `9c2f0a7d`(`aa54fe41` + origin/dev `26b44b5b` 병합, 충돌 없음) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀(#906 검색 사본·색인과 `AuxiliaryApplicationTest`) |
+| 관련 NT ID | NR-055와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `verifyModuleStructure`, `:auxiliary-app:test`, `:search:test`. `:notification:test`·`:auxiliary-global:test`·`:chatbot:test`는 `UP-TO-DATE`(병합이 입력을 바꾸지 않음, 결과는 NR-055) |
+| 건수 | `:auxiliary-app` 13, `:search` 222(새 실행). `:notification` 243, `:auxiliary-global` 110, `:chatbot` 245(이전 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ 승인 Q2 a) |
+| 관련 변경 | #907 |
+
 #### NR-055 · 2026-11-12 · 통과 (N7 지갑 4종 #907)
 
 | 항목 | 값 |
