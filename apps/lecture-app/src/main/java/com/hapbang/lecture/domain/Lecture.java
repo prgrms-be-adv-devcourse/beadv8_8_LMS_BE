@@ -64,6 +64,13 @@ public class Lecture {
 
     private Long inspectedBy;
 
+    /**
+     * 검수 회차 (#872, D85). 등록이 1회차이고 재검수를 신청할 때마다 1 오른다. 검수 승인·반려 이벤트에 실려,
+     * 같은 강의의 몇 번째 검수 결과인지 가린다(알림 ND-045). 검수 이력 엔티티가 없어 강의에 저장한다
+     */
+    @Column(nullable = false)
+    private int inspectionCount;
+
     @Version
     private Long version;
 
@@ -92,6 +99,7 @@ public class Lecture {
         this.thumbnailFileId = thumbnailFileId;
         this.status = LectureStatus.PENDING_INSPECTION;
         this.inspectionRequestedAt = now;
+        this.inspectionCount = 1;
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -143,7 +151,7 @@ public class Lecture {
      * 추천해도 되는지({@code onSale})는 강의가 판단한다. 콘텐츠는 삭제되지 않은 것만 순서대로 싣는다
      */
     public LectureSyncDto toSyncDto() {
-        return new LectureSyncDto(id, sellerUserId, title, description, isOnSale(), isDeleted(),
+        return new LectureSyncDto(id, sellerUserId, title, description, priceHp, isOnSale(), isDeleted(),
                 contents.stream()
                         .map(content -> new LectureContentSyncDto(content.getId(), content.getTitle(),
                                 content.getSequence()))
@@ -231,7 +239,7 @@ public class Lecture {
     }
 
     /**
-     * 반려된 강의를 다시 검수 대기로 올린다. 이전 반려 사유는 다음 반려 때 갱신한다.
+     * 반려된 강의를 다시 검수 대기로 올린다. 이전 반려 사유는 다음 반려 때 갱신한다. 검수 회차가 1 오른다.
      */
     public void requestInspection(Long sellerUserId, LocalDateTime now) {
         validateEditableBy(sellerUserId);
@@ -240,6 +248,7 @@ public class Lecture {
         }
         this.status = LectureStatus.PENDING_INSPECTION;
         this.inspectionRequestedAt = now;
+        this.inspectionCount++;
         this.updatedAt = now;
     }
 

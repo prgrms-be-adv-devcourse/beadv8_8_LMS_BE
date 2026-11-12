@@ -20,8 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
-import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
+import com.hapbang.auxiliary.search.influencer.app.InfluencerZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerStats;
@@ -54,7 +54,7 @@ class ApiV1SearchControllerTest {
     private InfluencerDocumentStore store;
 
     @Autowired
-    private ZeroResultKeywords zeroResultKeywords;
+    private InfluencerZeroResultKeywords zeroResultKeywords;
 
     @BeforeEach
     void seed() throws Exception {

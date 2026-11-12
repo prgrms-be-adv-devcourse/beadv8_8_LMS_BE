@@ -65,7 +65,8 @@ public interface ChatGroupRoomService {
 
     /**
      * 초대한다. 회원별로 이미 참여 중·지원 이력·채팅 자격·정원(요청 순서대로 빈자리)을 검사해 결과를 돌려준다(Q34). 같은 요청 ID를
-     * 보존 기간 안에 다시 받으면 저장한 결과를 돌려주고 다시 초대하지 않는다.
+     * 보존 기간 안에 다시 받으면 저장한 결과를 돌려주고 다시 초대하지 않는다. 이번 요청으로 참여한 회원이 있으면 알림센터용
+     * {@code GroupMembersInvitedEvent}를 같은 트랜잭션에서 발행한다(초대 요청 ID는 이번에 저장한 결과 기록의 ID).
      *
      * @param userIds        중복을 뺀 요청 순서의 회원 ID
      * @param appliedUserIds 출연 앱이 확인한, 그중 지원 이력이 있는 회원
@@ -74,13 +75,17 @@ public interface ChatGroupRoomService {
             Set<Long> appliedUserIds);
 
     /**
-     * 내보낸다. 대상의 참여 세대가 요청과 같을 때만 내보낸다. 이미 그 세대에서 나갔으면 바꾸지 않는다(멱등).
+     * 내보낸다. 대상의 참여 세대가 요청과 같을 때만 내보낸다. 이미 그 세대에서 나갔으면 바꾸지 않는다(멱등). 내보냈으면 알림센터용
+     * {@code GroupMemberKickedEvent}를 같은 트랜잭션에서 발행한다.
      *
      * @return 이번 요청으로 내보냈으면 끝난 참여 세대, 아니면 빈 값
      */
     Optional<Integer> kick(Long chatRoomId, Long requesterId, Long targetUserId, int participationVersion);
 
-    /** 폐쇄한다(읽기 전용 전환, 30×24시간 뒤 참여자 조회 만료). 이미 직접 폐쇄한 방이면 그 상태를 돌려준다 */
+    /**
+     * 폐쇄한다(읽기 전용 전환, 30×24시간 뒤 참여자 조회 만료). 이미 직접 폐쇄한 방이면 그 상태를 돌려준다. 처음 폐쇄할 때만 알림센터용
+     * {@code GroupRoomClosedEvent}(폐쇄 시점 참여자 전원, 호스트 포함)를 같은 트랜잭션에서 발행한다.
+     */
     ChatGroupCloseResponse close(Long chatRoomId, Long requesterId);
 
     /**

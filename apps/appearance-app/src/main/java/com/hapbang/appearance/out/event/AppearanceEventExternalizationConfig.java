@@ -10,12 +10,24 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.modulith.events.EventExternalizationConfiguration;
 
 import com.hapbang.appearance.app.AppearanceExternalEvents;
+import com.hapbang.shared.appearance.event.AppearanceAbsentEvent;
+import com.hapbang.shared.appearance.event.AppearanceApplicationNotSelectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceApplicationSelectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCanceledByHostEvent;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
+import com.hapbang.shared.appearance.event.AppearanceConfirmedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
+import com.hapbang.shared.appearance.event.AppearanceRecruitCanceledEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitClosedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitOpenedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
@@ -47,6 +59,18 @@ public class AppearanceEventExternalizationConfig {
     public static final String CANCEL_REQUESTED = "AppearanceCancelRequestedEvent";
     public static final String CANCEL_REQUEST_ACCEPTED = "AppearanceCancelRequestAcceptedEvent";
     public static final String CANCEL_REQUEST_REJECTED = "AppearanceCancelRequestRejectedEvent";
+    public static final String REQUEST_ACCEPTED = "AppearanceRequestAcceptedEvent";
+    public static final String REQUEST_REJECTED = "AppearanceRequestRejectedEvent";
+    public static final String REQUEST_CANCELED = "AppearanceRequestCanceledEvent";
+    public static final String REQUEST_EXPIRED = "AppearanceRequestExpiredEvent";
+    public static final String APPLICATION_SELECTED = "AppearanceApplicationSelectedEvent";
+    public static final String APPLICATION_NOT_SELECTED = "AppearanceApplicationNotSelectedEvent";
+    public static final String RECRUIT_OPENED = "AppearanceRecruitOpenedEvent";
+    public static final String RECRUIT_CLOSED = "AppearanceRecruitClosedEvent";
+    public static final String RECRUIT_CANCELED = "AppearanceRecruitCanceledEvent";
+    public static final String CANCELED_BY_HOST = "AppearanceCanceledByHostEvent";
+    public static final String CONFIRMED = "AppearanceConfirmedEvent";
+    public static final String ABSENT = "AppearanceAbsentEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -65,6 +89,18 @@ public class AppearanceEventExternalizationConfig {
                 .headers(AppearanceCancelRequestedEvent.class, event -> headers(CANCEL_REQUESTED))
                 .headers(AppearanceCancelRequestAcceptedEvent.class, event -> headers(CANCEL_REQUEST_ACCEPTED))
                 .headers(AppearanceCancelRequestRejectedEvent.class, event -> headers(CANCEL_REQUEST_REJECTED))
+                .headers(AppearanceRequestAcceptedEvent.class, event -> headers(REQUEST_ACCEPTED))
+                .headers(AppearanceRequestRejectedEvent.class, event -> headers(REQUEST_REJECTED))
+                .headers(AppearanceRequestCanceledEvent.class, event -> headers(REQUEST_CANCELED))
+                .headers(AppearanceRequestExpiredEvent.class, event -> headers(REQUEST_EXPIRED))
+                .headers(AppearanceApplicationSelectedEvent.class, event -> headers(APPLICATION_SELECTED))
+                .headers(AppearanceApplicationNotSelectedEvent.class, event -> headers(APPLICATION_NOT_SELECTED))
+                .headers(AppearanceRecruitOpenedEvent.class, event -> headers(RECRUIT_OPENED))
+                .headers(AppearanceRecruitClosedEvent.class, event -> headers(RECRUIT_CLOSED))
+                .headers(AppearanceRecruitCanceledEvent.class, event -> headers(RECRUIT_CANCELED))
+                .headers(AppearanceCanceledByHostEvent.class, event -> headers(CANCELED_BY_HOST))
+                .headers(AppearanceConfirmedEvent.class, event -> headers(CONFIRMED))
+                .headers(AppearanceAbsentEvent.class, event -> headers(ABSENT))
                 .build();
     }
 

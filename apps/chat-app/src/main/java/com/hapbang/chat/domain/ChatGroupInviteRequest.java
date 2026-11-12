@@ -29,7 +29,8 @@ import lombok.NoArgsConstructor;
  * <ul>
  *     <li>보존 기간 안에 같은 요청 ID가 다시 오면 저장한 회원별 결과를 그대로 돌려주고 다시 초대하지 않는다. 그래서 옛 요청의 재시도가
  *     그 사이 나가거나 내보내진 회원을 다시 넣지 않는다.</li>
- *     <li>보존 기간이 지난 같은 요청 ID는 새 요청으로 처리하고 이 행의 결과를 새 결과로 바꾼다.</li>
+ *     <li>보존 기간이 지난 같은 요청 ID는 새 요청으로 처리한다. 이 행을 지우고 새 행을 만들어 새 ID를 받는다. 이 ID가 초대 요청 ID로
+ *     알림센터용 초대 이벤트의 사건 ID에 들어가므로, 같은 방에서 같은 요청 ID를 다시 받아도 초대 요청 ID는 겹치지 않는다.</li>
  *     <li>방을 잠근 초대 트랜잭션에서만 읽고 쓴다. 참여 행·안내·전달 작업과 함께 커밋·롤백된다.</li>
  * </ul>
  */
@@ -83,11 +84,6 @@ public class ChatGroupInviteRequest {
     /** 보존 기간 안의 결과인지. 기간이 끝나는 시각부터는 새 요청으로 본다 */
     public boolean isRetained(LocalDateTime now, Duration retention) {
         return now.isBefore(recordedAt.plus(retention));
-    }
-
-    /** 보존 기간이 지난 같은 요청 ID를 새 요청으로 처리한 결과로 바꾼다 */
-    public void replace(Long requesterUserId, List<ChatGroupInviteOutcome> outcomes, LocalDateTime now) {
-        apply(requesterUserId, outcomes, now);
     }
 
     public List<ChatGroupInviteOutcome> outcomes() {

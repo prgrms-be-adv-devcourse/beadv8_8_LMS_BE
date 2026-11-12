@@ -195,10 +195,6 @@ class ChatGroupRoomTest {
         assertThat(request.outcomes()).isEqualTo(outcomes);
         assertThat(request.isRetained(NOW.plusHours(24).minusNanos(1000), retention)).isTrue();
         assertThat(request.isRetained(NOW.plusHours(24), retention)).isFalse();
-
-        request.replace(HOST_ID, List.of(ChatGroupInviteOutcome.joined(USER_ID)), NOW.plusDays(2));
-        assertThat(request.outcomes()).containsExactly(ChatGroupInviteOutcome.joined(USER_ID));
-        assertThat(request.getRecordedAt()).isEqualTo(NOW.plusDays(2));
     }
 
     private static ChatRoom groupRoom() {

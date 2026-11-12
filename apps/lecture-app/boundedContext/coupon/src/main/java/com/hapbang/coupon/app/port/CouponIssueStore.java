@@ -63,12 +63,6 @@ public interface CouponIssueStore {
     /** 요청 ID의 접수 기록. 없으면 빈 값 */
     Optional<IssueReceipt> findRequest(long couponId, String issueRequestId);
 
-    /**
-     * 접수 기록에 Kafka 전송 성공 표식(PUBLISHED)을 붙인다(mark-published.lua). 기록이 없거나 보상(COMPENSATED)을 마친 요청은 바꾸지 않는다.
-     * 표식은 DB 완료가 아니고 재발행 판단에 쓰지 않으므로 실패해도 무해하다.
-     */
-    PublishMark markPublished(long couponId, String issueRequestId);
-
     /** 매진 표시(sold_out)가 있는가. 매진 메모리 캐시가 짧게 재사용한다. 최종 판정은 issue.lua다 */
     boolean isSoldOut(long couponId);
 
@@ -156,16 +150,6 @@ public interface CouponIssueStore {
 
     /** 접수 기록: 접수한 회원과 최초 접수 시각 */
     record IssueReceipt(long memberId, Instant acceptedAt) {
-    }
-
-    /** {@link #markPublished} 결과 */
-    enum PublishMark {
-        /** 표식을 붙였다 */
-        MARKED,
-        /** 이미 표식이 있었다 */
-        ALREADY_MARKED,
-        /** 기록이 없거나 보상을 마친 요청이라 바꾸지 않았다 */
-        SKIPPED
     }
 
     /**

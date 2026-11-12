@@ -39,6 +39,8 @@ import com.hapbang.customersupport.domain.ObjectionResult;
 import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.customersupport.fixture.LectureObjectionResults;
+import com.hapbang.shared.customersupport.event.InquiryAnsweredEvent;
+import com.hapbang.shared.customersupport.event.LectureObjectionFileRejectedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
 import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
@@ -125,6 +127,8 @@ class InquiryObjectionTest {
             assertThat(inquiry.getObjectionFailureCode()).isEqualTo(LectureObjectionFailureCode.OBJECTION_PERIOD_EXPIRED);
             assertThat(inquiry.getDeletedAt()).isNotNull();
         });
+        // 바로 거절은 화면에 바로 보이므로 알리지 않는다
+        assertThat(events.stream(LectureObjectionFileRejectedEvent.class)).isEmpty();
     }
 
     @Test
@@ -171,6 +175,27 @@ class InquiryObjectionTest {
                 .isEqualTo(ObjectionLinkStatus.FILE_REJECTED);
         assertThat(inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)).isEmpty();
         assertThat(events.stream(LectureObjectionWithdrawalRequestedEvent.class)).isEmpty();
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    void 처리_중을_본_뒤의_거절은_접수_불가_이벤트를_문의마다_한_번_낸다() {
+        given(lectureApiClient.fileObjection(any())).willThrow(LectureApiCallExceptions.unavailable());
+        Long inquiryId = createDispute().inquiryId();
+        reset(lectureApiClient);
+        given(lectureApiClient.fileObjection(any()))
+                .willThrow(LectureApiCallExceptions.rejected(409, "OBJECTION_PERIOD_EXPIRED"));
+
+        lectureObjectionFiler.retryDue(LocalDateTime.now().plusMinutes(2));
+        // 이미 접수 불가인 문의에 거절이 다시 기록되어도 다시 내지 않는다
+        results.recordFileRejected(inquiryId, LectureObjectionFailureCode.OBJECTION_PERIOD_EXPIRED, false);
+
+        assertThat(events.stream(LectureObjectionFileRejectedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.inquiryId()).isEqualTo(inquiryId);
+            assertThat(event.orderItemId()).isEqualTo(ORDER_ITEM_ID);
+            assertThat(event.buyerUserId()).isEqualTo(USER_ID);
+            assertThat(event.fileRejectedAt()).isNotNull();
+        });
     }
 
     @Test
@@ -239,6 +264,26 @@ class InquiryObjectionTest {
                 .getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED);
         assertRefused(() -> inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, false, "기각합니다."),
                 CustomerSupportErrorCode.OBJECTION_ALREADY_RESOLVED);
+    }
+
+    @Test
+    void 판단_안내_답변은_답변_도착_이벤트를_내지_않고_판단_뒤_관리자가_단_답변은_낸다() {
+        Long inquiryId = filedDispute();
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+
+        results.apply(LectureObjectionResults.resolved(inquiryId, ORDER_ITEM_ID, true));
+
+        // 판단 알림은 강의의 판단 결과 이벤트로 간다
+        assertThat(inquiry(inquiryId).getReplies()).hasSize(1);
+        assertThat(events.stream(InquiryAnsweredEvent.class)).isEmpty();
+
+        Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 안내드립니다.").getReplies().getLast().getId();
+
+        assertThat(events.stream(InquiryAnsweredEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.replyId()).isEqualTo(replyId);
+            assertThat(event.userId()).isEqualTo(USER_ID);
+            assertThat(event.category()).isEqualTo("LECTURE_CONTENT_DISPUTE");
+        });
     }
 
     @Test

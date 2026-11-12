@@ -26,6 +26,11 @@ spring:
         schema: chat
       republish-outstanding-events-on-restart: true
       completion-mode: archive
+      # Modulith Kafka 모듈의 JSON 기본 세트(spring.kafka.* 직렬화 기본값을 넣는 속성 파일 + 바이트 JSON 변환기 빈)를 끈다.
+      # 단체방 이벤트는 코드로 만든 발행 템플릿(ChatEventKafkaConfig)의 JSON 직렬화기로 보내므로 쓰지 않는 기본값·빈을 두지 않는다.
+      # Modulith 자동 설정을 켜고 끄는 값이라 코드로 옮길 수 없다. 모듈 테스트 설정(hapbang-module-test.yaml)에도 같은 값을 둔다
+      kafka:
+        enable-json: false
   datasource:
     hikari:
       # 미확정 초기값(Q12). 전달 파이프라인이 동시에 쓰는 연결은 최대 11개(주기 작업 8 + 새 작업 worker 3)이고 나머지 9개를 REST·STOMP가 쓴다.

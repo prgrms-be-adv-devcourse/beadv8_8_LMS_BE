@@ -28,7 +28,9 @@ import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
+import com.hapbang.shared.appearance.dto.AppearanceDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.dto.AppearanceRecruitDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
@@ -248,6 +250,62 @@ class AppearanceContractMapperTest {
             assertThat(dto.guestId()).isEqualTo(GUEST);
             assertThat(dto.sequence()).isEqualTo(1);
             assertThat(dto.scheduledAt()).isEqualTo(appearance.getScheduledAt());
+        }
+    }
+
+    @Nested
+    @DisplayName("알림용 출연 이벤트 값 (#871)")
+    class NotificationContract {
+
+        @Test
+        @DisplayName("출연: ID·받은 출처 제목·호스트·게스트·방송 예정 일시")
+        void appearanceDto() {
+            Appearance appearance = confirmed();
+
+            AppearanceDto dto = AppearanceContractMapper.toAppearanceDto(appearance, "같이 방송해요");
+
+            assertThat(dto).isEqualTo(new AppearanceDto(30L, "같이 방송해요", HOST, GUEST, appearance.getScheduledAt()));
+        }
+
+        @Test
+        @DisplayName("모집글: ID·호스트·제목·마감 일시 (모집 내용·채널 주소는 담지 않는다)")
+        void recruitDto() {
+            AppearanceRecruit recruit = recruiting();
+            ReflectionTestUtils.setField(recruit, "id", 5L);
+
+            AppearanceRecruitDto dto = AppearanceContractMapper.toRecruitDto(recruit);
+
+            assertThat(dto).isEqualTo(new AppearanceRecruitDto(5L, HOST, recruit.getTitle(),
+                    recruit.getRecruitDeadline()));
+        }
+
+        @ParameterizedTest
+        @EnumSource(com.hapbang.appearance.domain.AppearanceRecruitCloseType.class)
+        @DisplayName("마감 방식은 같은 이름의 계약 값으로 바꾼다 (모든 방식이 매핑된다)")
+        void closeType(com.hapbang.appearance.domain.AppearanceRecruitCloseType closeType) {
+            AppearanceRecruit recruit = recruiting();
+            ReflectionTestUtils.setField(recruit, "closeType", closeType);
+
+            assertThat(AppearanceContractMapper.toCloseType(recruit).name()).isEqualTo(closeType.name());
+        }
+
+        @ParameterizedTest
+        @EnumSource(com.hapbang.appearance.domain.AppearanceConfirmType.class)
+        @DisplayName("확인 방식은 같은 이름의 계약 값으로 바꾼다 (모든 방식이 매핑된다)")
+        void confirmType(com.hapbang.appearance.domain.AppearanceConfirmType confirmType) {
+            Appearance appearance = confirmed();
+            ReflectionTestUtils.setField(appearance, "confirmType", confirmType);
+
+            assertThat(AppearanceContractMapper.toConfirmType(appearance).name()).isEqualTo(confirmType.name());
+        }
+
+        @Test
+        @DisplayName("마감하지 않은 모집글의 마감 방식, 확인하지 않은 출연의 확인 방식은 만들 수 없다")
+        void notYet() {
+            assertThatThrownBy(() -> AppearanceContractMapper.toCloseType(recruiting()))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> AppearanceContractMapper.toConfirmType(established()))
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 }

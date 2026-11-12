@@ -1,6 +1,7 @@
 package com.hapbang.lecture.app;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -86,6 +87,12 @@ public class LectureFacade {
     @Transactional(readOnly = true)
     public Page<LectureSummaryResponse> getLectures(String keyword, LectureSort sort, Pageable pageable) {
         return lectureSupport.getLectures(keyword, sort, pageable);
+    }
+
+    /** 강의별 썸네일 조회 URL (#885, 비회원 포함). 판매 중인 강의만 URL이고 나머지는 null */
+    @Transactional(readOnly = true)
+    public Map<Long, String> getThumbnailUrls(List<Long> lectureIds) {
+        return lectureSupport.getThumbnailUrls(lectureIds);
     }
 
     /** 내가 등록한 강의 */

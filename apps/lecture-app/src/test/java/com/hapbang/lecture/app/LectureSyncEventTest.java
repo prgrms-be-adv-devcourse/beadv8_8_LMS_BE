@@ -109,6 +109,7 @@ class LectureSyncEventTest {
         assertThat(event.sellerUserId()).isEqualTo(SELLER_ID);
         assertThat(event.title()).isEqualTo(TITLE);
         assertThat(event.description()).isEqualTo(DESCRIPTION);
+        assertThat(event.priceHp()).isEqualTo(PRICE_HP);
         assertThat(event.onSale()).isFalse();
         assertThat(event.deleted()).isFalse();
         assertThat(event.contents()).extracting(LectureContentSyncDto::title, LectureContentSyncDto::sequence)
@@ -126,6 +127,20 @@ class LectureSyncEventTest {
         assertThat(event).isEqualTo(lectureFromApi(lectureId));
         assertThat(event.title()).isEqualTo("새 제목");
         assertThat(event.description()).isNull();
+        assertThat(event.priceHp()).isEqualTo(PRICE_HP * 2);
+        assertThat(event.version()).isEqualTo(1);
+    }
+
+    @Test
+    void 가격만_내려도_새_가격과_오른_version으로_나간다() {
+        Long lectureId = register();
+
+        lectureFacade.updateInfo(SELLER_ID, lectureId, TITLE, DESCRIPTION, PRICE_HP - 1_000L, null);
+
+        LectureSyncDto event = lastLectureEvent();
+        assertThat(event).isEqualTo(lectureFromApi(lectureId));
+        assertThat(event.priceHp()).isEqualTo(PRICE_HP - 1_000L);
+        assertThat(event.title()).isEqualTo(TITLE);
         assertThat(event.version()).isEqualTo(1);
     }
 

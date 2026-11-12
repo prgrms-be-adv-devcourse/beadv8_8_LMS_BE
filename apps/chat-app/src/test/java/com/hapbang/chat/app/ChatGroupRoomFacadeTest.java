@@ -3,6 +3,7 @@ package com.hapbang.chat.app;
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -27,6 +28,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -58,6 +61,9 @@ import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
+import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
+import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 
@@ -66,8 +72,12 @@ import jakarta.persistence.EntityManager;
 /**
  * 모집용 단체방(설계 3장)의 생성·후보 검색·부분 초대·강퇴·나가기·폐쇄·조회 만료를 실제 DB와 출연 앱의 메모리 구현으로 검증한다.
  * 정원 3명·한 요청 4명으로 줄여 시험한다(운영 기본값은 코드에 있다).
+ * <p>
+ * 알림센터용 단체방 이벤트는 발행된 Spring 이벤트로 값을 확인한다(테스트 스레드에서 발행한 것만 모인다). Kafka로 나가는 key·헤더와
+ * 롤백 때 나가지 않는 것은 {@code AppearanceNotificationEventListenerTest}가 실제 Kafka로 확인한다.
  */
 @IntegrationTest
+@RecordApplicationEvents
 @Import(ChatGroupTestConfig.class)
 @TestPropertySource(properties = {
         "hapbang.chat.group.max-guest-members=3",
@@ -121,6 +131,9 @@ class ChatGroupRoomFacadeTest {
 
     @Autowired
     private InMemoryChatRecruitSource recruits;
+
+    @Autowired
+    private ApplicationEvents events;
 
     private ChatNativeSql sql;
 
@@ -620,8 +633,132 @@ class ChatGroupRoomFacadeTest {
                 });
     }
 
+    // ===== 알림센터용 이벤트 =====
+
+    @Test
+    void 초대_이벤트에는_이번_요청으로_실제_참여한_회원만_담긴다() {
+        Long roomId = createRoom();
+        invite(roomId, GUEST_ID);
+        events.clear();
+        UUID requestId = UUID.randomUUID();
+        Instant before = Instant.now();
+
+        chatGroupRoomFacade.invite(roomId, HOST_ID, requestId, List.of(GUEST_ID, USER_ID, NOT_APPLICANT_ID, GUEST_A));
+
+        assertThat(events.stream(GroupMembersInvitedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.chatRoomId()).isEqualTo(roomId);
+            assertThat(event.inviteRequestId()).isEqualTo(inviteRequestIdOf(roomId, requestId));
+            assertThat(event.recruitId()).isEqualTo(RECRUIT_ID);
+            assertThat(event.title()).isEqualTo("주말 합방 모집");
+            assertThat(event.hostUserId()).isEqualTo(HOST_ID);
+            // 이미 참여 중인 회원(GUEST_ID)과 실패한 회원(채팅 자격 없음·지원 이력 없음)은 빠진다
+            assertThat(event.invitedUserIds()).containsExactly(GUEST_A);
+            assertThat(event.invitedAt()).isBetween(before, Instant.now());
+        });
+    }
+
+    @Test
+    void 이번_요청으로_참여한_회원이_없으면_초대_이벤트를_내지_않는다() {
+        Long roomId = createRoom();
+        invite(roomId, GUEST_ID);
+        events.clear();
+
+        assertThat(invite(roomId, GUEST_ID, USER_ID, NOT_APPLICANT_ID)).containsExactly(
+                ChatGroupInviteOutcome.alreadyMember(GUEST_ID),
+                ChatGroupInviteOutcome.failed(USER_ID, ChatGroupInviteFailure.CHAT_NOT_ALLOWED),
+                ChatGroupInviteOutcome.failed(NOT_APPLICANT_ID, ChatGroupInviteFailure.NOT_APPLICANT));
+
+        assertThat(events.stream(GroupMembersInvitedEvent.class)).isEmpty();
+    }
+
+    @Test
+    void 강퇴_이벤트에는_내보낸_회원과_끝난_참여_세대가_담긴다() {
+        Long roomId = createRoom();
+        invite(roomId, GUEST_ID, GUEST_A);
+        Instant before = Instant.now();
+
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1);
+        // 같은 세대의 재시도는 바꾸지 않으므로 이벤트도 내지 않는다
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1);
+
+        assertThat(events.stream(GroupMemberKickedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.chatRoomId()).isEqualTo(roomId);
+            assertThat(event.recruitId()).isEqualTo(RECRUIT_ID);
+            assertThat(event.title()).isEqualTo("주말 합방 모집");
+            assertThat(event.hostUserId()).isEqualTo(HOST_ID);
+            assertThat(event.kickedUserId()).isEqualTo(GUEST_ID);
+            assertThat(event.participationVersion()).isEqualTo(1);
+            assertThat(event.kickedAt()).isBetween(before, Instant.now());
+        });
+    }
+
+    @Test
+    void 재초대_뒤_다시_내보내면_강퇴_이벤트의_참여_세대가_다르다() {
+        Long roomId = createRoom();
+        invite(roomId, GUEST_ID);
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1);
+        invite(roomId, GUEST_ID);
+
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 2);
+
+        assertThat(events.stream(GroupMemberKickedEvent.class).toList())
+                .extracting(GroupMemberKickedEvent::kickedUserId, GroupMemberKickedEvent::participationVersion)
+                .containsExactly(tuple(GUEST_ID, 1), tuple(GUEST_ID, 2));
+    }
+
+    @Test
+    void 폐쇄_이벤트에는_호스트를_포함한_폐쇄_시점_참여자_전원이_담기고_방마다_한_번_나간다() {
+        Long roomId = createRoom();
+        invite(roomId, GUEST_ID, GUEST_A, GUEST_B);
+        // 나간 회원과 내보낸 회원은 폐쇄 시점 참여자가 아니다
+        chatRoomFacade.leave(roomId, GUEST_A, 1);
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_B, 1);
+        Instant before = Instant.now();
+
+        chatGroupRoomFacade.close(roomId, HOST_ID);
+        chatGroupRoomFacade.close(roomId, HOST_ID);
+
+        assertThat(events.stream(GroupRoomClosedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.chatRoomId()).isEqualTo(roomId);
+            assertThat(event.recruitId()).isEqualTo(RECRUIT_ID);
+            assertThat(event.title()).isEqualTo("주말 합방 모집");
+            assertThat(event.hostUserId()).isEqualTo(HOST_ID);
+            assertThat(event.memberUserIds()).containsExactly(HOST_ID, GUEST_ID);
+            assertThat(event.closedAt()).isBetween(before, Instant.now());
+        });
+    }
+
+    @Test
+    void 보존_기간이_지난_같은_요청_ID는_새_초대_요청_ID를_받아_같은_방에서_초대_요청_ID가_다시_쓰이지_않는다() {
+        Long roomId = createRoom();
+        UUID requestId = UUID.randomUUID();
+        chatGroupRoomFacade.invite(roomId, HOST_ID, requestId, List.of(GUEST_ID));
+        Long first = inviteRequestIdOf(roomId, requestId);
+        chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1);
+        // 보존 기간 안의 재시도는 저장한 결과만 돌려주므로 이벤트를 내지 않는다
+        chatGroupRoomFacade.invite(roomId, HOST_ID, requestId, List.of(GUEST_ID));
+
+        sql.update("update chats.chat_group_invite_request set recorded_at = recorded_at - interval '25 hours'");
+        chatGroupRoomFacade.invite(roomId, HOST_ID, requestId, List.of(GUEST_ID));
+
+        // 기존 행을 지우고 새 행을 만들어 새 ID를 받는다. 방·요청 ID마다 한 행인 것은 그대로다
+        Long second = inviteRequestIdOf(roomId, requestId);
+        assertThat(second).isNotEqualTo(first);
+        assertThat(sql.single("select count(*) from chats.chat_group_invite_request where chat_room_id = :id",
+                Long.class, Map.of("id", roomId))).isEqualTo(1L);
+        assertThat(events.stream(GroupMembersInvitedEvent.class).toList())
+                .extracting(GroupMembersInvitedEvent::inviteRequestId, GroupMembersInvitedEvent::invitedUserIds)
+                .containsExactly(tuple(first, List.of(GUEST_ID)), tuple(second, List.of(GUEST_ID)));
+    }
+
     private Long createRoom() {
         return chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID).room().chatRoomId();
+    }
+
+    private Long inviteRequestIdOf(Long roomId, UUID requestId) {
+        return sql.single("""
+                select id from chats.chat_group_invite_request where chat_room_id = :room and request_id = :request
+                """, Long.class, Map.of("room", roomId, "request", requestId));
     }
 
     private List<ChatGroupInviteOutcome> invite(Long roomId, Long... userIds) {

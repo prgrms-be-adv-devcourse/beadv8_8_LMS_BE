@@ -5,12 +5,14 @@ import java.util.Objects;
 
 /**
  * AI 추천용 강의 한 개 (#712, D82). {@code LectureChangedEvent}와 강의 동기화 내부 API가 같은 값을 싣는다.
- * 가격·썸네일·검수 정보는 싣지 않는다.
+ * 썸네일·검수 정보는 싣지 않는다.
  *
  * @param id           강의 ID
  * @param sellerUserId 판매자 회원 ID. 본인 강의를 추천에서 빼는 데 쓴다
  * @param title        제목
  * @param description  소개. 없으면 {@code null}
+ * @param priceHp      가격(HP). 강의는 늘 채운다. 이 필드가 생기기 전(#885)에 발행된 이벤트·응답을 읽으면 {@code null}이고,
+ *                     받는 쪽은 가격을 모르는 것으로 다룬다(같은 eventVersion 안의 선택 필드 추가)
  * @param onSale       추천해도 되는 강의인지. 판단 기준은 강의 모듈이 정한다 (지금은 판매 중이고 삭제되지 않음)
  * @param deleted      삭제(Soft Delete)되었는지
  * @param contents     삭제되지 않은 콘텐츠, 순서대로
@@ -21,6 +23,7 @@ public record LectureSyncDto(
         Long sellerUserId,
         String title,
         String description,
+        Long priceHp,
         boolean onSale,
         boolean deleted,
         List<LectureContentSyncDto> contents,

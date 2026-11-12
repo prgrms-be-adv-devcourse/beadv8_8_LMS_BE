@@ -209,6 +209,47 @@ class NotificationCancelRequestAndObjectionAlertTest {
         assertThat(rows(guest)).isEmpty();
     }
 
+    // 게스트 닉네임을 읽는 순서(ND-085, NotificationAlertService.cancelRequested)
+
+    @Test
+    void 받을_수_없는_호스트에게_온_출연_취소_요청은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
+        long host = member(Role.INFLUENCER, UserStatus.WITHDRAWN);
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "appearance-cancel:withdrawn", new AppearanceCancelRequestedEvent(
+                cancelRequest(host, guestWithoutReplica, "탈퇴 합방"), LocalDateTime.parse("2026-11-11T10:00:00")));
+        awaitAppearanceProcessed();
+
+        assertThat(rows(host)).isEmpty();
+        assertThat(deadLetterKeys(APPEARANCE_DLT)).doesNotContain("appearance-cancel:withdrawn");
+    }
+
+    @Test
+    void 시작_시각보다_이른_출연_취소_요청은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
+        long host = member(Role.INFLUENCER, UserStatus.ACTIVE);
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "appearance-cancel:old", new AppearanceCancelRequestedEvent(
+                cancelRequest(host, guestWithoutReplica, "옛 합방"), LocalDateTime.parse("2025-12-31T10:00:00")));
+        awaitAppearanceProcessed();
+
+        assertThat(rows(host)).isEmpty();
+        assertThat(deadLetterKeys(APPEARANCE_DLT)).doesNotContain("appearance-cancel:old");
+    }
+
+    @Test
+    void 받을_수_있는_호스트에게_온_출연_취소_요청에서_게스트_복제본이_없으면_재시도_뒤_DLT로_보낸다() {
+        long host = member(Role.INFLUENCER, UserStatus.ACTIVE);
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "appearance-cancel:missing", new AppearanceCancelRequestedEvent(
+                cancelRequest(host, guestWithoutReplica, "빈 상대 합방"), LocalDateTime.parse("2026-11-11T10:00:00")));
+
+        new MemberEventKafka(bootstrapServers, APPEARANCE_TOPIC)
+                .awaitDeadLetter(APPEARANCE_DLT, "appearance-cancel:missing");
+        assertThat(rows(host)).isEmpty();
+    }
+
     // 이의 제기 결과 4종 (NT-GEN-18)
 
     @Test

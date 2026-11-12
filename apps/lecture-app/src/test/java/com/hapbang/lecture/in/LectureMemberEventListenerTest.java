@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.LongStream;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.admin.Admin;
@@ -41,7 +43,9 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.MessageListenerContainer;
+import org.springframework.kafka.listener.RetryListener;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -90,10 +94,47 @@ class LectureMemberEventListenerTest {
         NewTopic memberEventsTopic() {
             return TopicBuilder.name(LectureKafkaConfig.MEMBER_EVENTS_TOPIC).partitions(3).replicas(1).build();
         }
+
+        /**
+         * 강의 오류 처리기에 붙여 전달 실패를 기록한다. 리스너 컨테이너가 시작하기 전(빈 생성 때)에 붙으므로 소비 스레드와 겹치지 않는다.
+         * {@code setRetryListeners}는 기존 RetryListener를 바꿔 끼운다. 운영 설정({@link LectureKafkaConfig})은 RetryListener를 두지 않는다.
+         */
+        @Bean
+        DeliveryAttemptRecorder deliveryAttemptRecorder(DefaultErrorHandler kafkaErrorHandler) {
+            DeliveryAttemptRecorder recorder = new DeliveryAttemptRecorder();
+            kafkaErrorHandler.setRetryListeners(recorder);
+            return recorder;
+        }
+    }
+
+    /**
+     * 오류 처리기가 회원 이벤트 전달 실패를 받을 때마다 시도 번호(1부터)를 key(회원 ID)별로 모은다 (#893).
+     * <p>
+     * 재시도하지 않는 예외(역직렬화 실패 등)는 1 하나만 남기고 DLT로 가고, 재시도하는 예외는 1·2·3·4를 남긴 뒤 DLT로 간다.
+     * 역직렬화에 실패한 레코드는 리스너까지 오지 않으므로 리스너가 아니라 오류 처리기에서 센다.
+     */
+    static class DeliveryAttemptRecorder implements RetryListener {
+
+        private final Map<String, List<Integer>> attemptsByKey = new ConcurrentHashMap<>();
+
+        @Override
+        public void failedDelivery(ConsumerRecord<?, ?> record, Exception ex, int deliveryAttempt) {
+            if (LectureKafkaConfig.MEMBER_EVENTS_TOPIC.equals(record.topic())) {
+                attemptsByKey.computeIfAbsent(String.valueOf(record.key()), key -> new CopyOnWriteArrayList<>())
+                        .add(deliveryAttempt);
+            }
+        }
+
+        List<Integer> attemptsOf(long userId) {
+            return List.copyOf(attemptsByKey.getOrDefault(String.valueOf(userId), List.of()));
+        }
     }
 
     @Autowired
     private KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    private DeliveryAttemptRecorder deliveryAttemptRecorder;
 
     @Autowired
     private LectureUserRepository lectureUserRepository;
@@ -195,8 +236,8 @@ class LectureMemberEventListenerTest {
         List<ConsumerRecord<String, byte[]>> deadLetters = awaitDeadLettersOf(userId);
         assertThat(deadLetters).hasSize(1);
         assertThat(deadLetters.getFirst().value()).isEqualTo(broken);
-        // 재시도(최소 1초)를 거치지 않았다
-        assertThat(delayUntilDeadLetter(deadLetters.getFirst())).isLessThan(Duration.ofSeconds(1));
+        // 오류 처리기가 한 번 받고 바로 DLT로 보냈다. 재시도했다면 DLT에 닿기 전에 1·2·3·4가 모두 남는다
+        assertThat(deliveryAttemptRecorder.attemptsOf(userId)).containsExactly(1);
     }
 
     /** DLT 전송도 Kafka producer 지표로 센다 (#339, Grafana Kafka dashboard "DLT 적재") */

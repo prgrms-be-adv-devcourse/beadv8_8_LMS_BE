@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 /** 결과 0건 검색어 모음(#771 Q9, Q18): 서로 다른 회원 2명 이상, 연락처 모양·긴 말 제외 */
 class ZeroResultKeywordsTest {
 
-    private final ZeroResultKeywords keywords = new ZeroResultKeywords();
+    private final ZeroResultKeywords keywords = new ZeroResultKeywords("test");
 
     @Test
     @DisplayName("서로 다른 회원 2명 이상이 찾은 말만 남긴다. 공백·대소문자를 맞춰 세고, 많이 나온 순으로 돌려준 뒤 비운다")
@@ -36,7 +36,7 @@ class ZeroResultKeywordsTest {
     }
 
     @Test
-    @DisplayName("비회원은 IP 해시 문자열로 센다. 같은 해시는 한 명, 회원 ID와 해시는 서로 다른 검색자다(L19, #868)")
+    @DisplayName("비회원은 IP 해시 문자열로 센다. 같은 해시는 한 명, 회원 ID와 해시는 서로 다른 검색자다(회원 1 + 비회원 1이면 남는다, 감수, #883)")
     void guestSearchersByIpHash() {
         keywords.record("프리미어", "ip:ab12");
         keywords.record("프리미어", "ip:ab12");
@@ -45,6 +45,20 @@ class ZeroResultKeywordsTest {
         keywords.record("컷편집", "ip:ab12");
         keywords.record("컷편집", 1L);
         assertThat(keywords.flush()).containsExactly(Map.entry("컷편집", 2L));
+    }
+
+    @Test
+    @DisplayName("비회원 IP 둘만으로는 남기지 않는다(한 사람이 망을 바꿔 넘기지 못하게). 회원이 1명 이상 있어야 한다(#883)")
+    void needsMember() {
+        keywords.record("홍길동", "ip:aaaa");
+        keywords.record("홍길동", "ip:bbbb");
+        keywords.record("홍길동", "ip:cccc");
+        assertThat(keywords.flush()).isEmpty();
+
+        keywords.record("홍길동", "ip:aaaa");
+        keywords.record("홍길동", "ip:bbbb");
+        keywords.record("홍길동", 7L);
+        assertThat(keywords.flush()).containsExactly(Map.entry("홍길동", 3L));
     }
 
     @Test

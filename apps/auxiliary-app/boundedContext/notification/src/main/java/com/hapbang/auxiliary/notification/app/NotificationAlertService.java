@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.notification.app;
 
 import java.time.Instant;
+import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
 
@@ -17,7 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 출연·지갑·강의 이벤트로 만든 알림 초안을 저장한다(N5 ND-069, N6 ND-082).
+ * 출연·지갑·강의 이벤트로 만든 알림 초안을 저장한다(N5 ND-069, N6 ND-082, N7 출연 ND-110).
  * <ul>
  *     <li>업무 시각이 알림 시작 시각보다 이르면 저장하지 않는다(ND-076). 실패가 아니라 커밋한다.</li>
  *     <li>받는 사람 복제본이 없으면 저장 서비스가 실패시킨다(ND-035, 재시도 뒤 DLT). 받는 사람 정책(탈퇴·정지·관리자)도 저장 서비스가
@@ -74,12 +75,40 @@ public class NotificationAlertService {
         save(AppearanceCancelRequestAlerts.requested(event, guest));
     }
 
+    /**
+     * 행동한 상대의 닉네임이 들어가는 알림(N7 출연 6종, ND-113). {@link #cancelRequested}와 같은 순서로 시작 시각·받는 사람을 먼저 본 뒤에
+     * 닉네임을 읽는다
+     *
+     * @param checked         닉네임 없이 바꿔 필수 값을 확인한 초안. 받는 사람·발생 시각을 여기서 읽는다
+     * @param mentionedUserId 행동한 상대(언급 회원, ND-051)
+     * @param withNickname    닉네임을 넣어 저장할 초안을 만든다
+     */
+    public void createMentioning(NotificationDraft checked, Long mentionedUserId,
+            Function<String, NotificationDraft> withNickname) {
+        if (beforeStart(checked.kind(), checked.occurredAt())
+                || cannotReceive(checked.kind(), checked.receiverUserId())) {
+            return;
+        }
+        save(withNickname.apply(nicknameOf(mentionedUserId)));
+    }
+
     /** 다른 회원 닉네임이 없는 초안을 알림 시작 시각을 본 뒤 저장한다 */
     public void create(NotificationDraft draft) {
         if (beforeStart(draft.kind(), draft.occurredAt())) {
             return;
         }
         save(draft);
+    }
+
+    /** 강의 원천 지급을 하루 묶음에 더한다(N8). 지급 시각이 알림 시작 시각보다 이르면 더하지 않는다(ND-076) */
+    public void dailyPayout(DailyPayout payout) {
+        String kind = PayoutDailyTemplate.PAYOUT_COMPLETED_DAILY.kind();
+        if (beforeStart(kind, payout.paidAt())) {
+            return;
+        }
+        NotificationWriteResult result = writer.addDailyPayout(payout);
+        log.info("하루 묶음에 지급을 반영했다 kind={}, receiverUserId={}, settlementId={}, outcome={}", kind,
+                payout.receiverUserId(), payout.settlementId(), result.outcome());
     }
 
     private void save(NotificationDraft draft) {
