@@ -1,6 +1,7 @@
 package com.hapbang.customersupport.app;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -10,8 +11,10 @@ import com.hapbang.customersupport.app.exception.CustomerSupportErrorCode;
 import com.hapbang.customersupport.app.exception.CustomerSupportException;
 import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.domain.InquiryCategory;
+import com.hapbang.customersupport.domain.InquiryReply;
 import com.hapbang.customersupport.domain.ObjectionLinkStatus;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.shared.customersupport.event.InquiryAnsweredEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
 
@@ -144,17 +147,24 @@ public class InquiryUseCase {
     /**
      * 관리자 답변. 답변을 달면 문의가 답변 완료가 된다. 회원이 삭제한 문의는 404.
      * 철회 처리 중인 이의 제기 문의에는 달 수 없다(철회가 끝나면 문의가 삭제되므로).
+     * 답변 도착 이벤트를 같은 트랜잭션에 기록한다. 이 이벤트는 관리자가 직접 다는 답변에서만 낸다.
+     * 이의 제기 판단 안내 답변({@link Inquiry#applyResolved})은 판단 알림이 강의 결과 이벤트로 가므로 내지 않는다.
      */
     public Inquiry reply(Long inquiryId, Long adminUserId, String content) {
         Inquiry inquiry = lockActive(inquiryId);
         if (inquiry.getObjectionLinkStatus() == ObjectionLinkStatus.WITHDRAWAL_PENDING) {
             throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_IN_PROGRESS);
         }
-        inquiry.reply(adminUserId, content);
+        InquiryReply reply = inquiry.reply(adminUserId, content);
+        // 답변 ID와 작성 시각은 INSERT 때 생기므로 이벤트를 만들기 전에 저장한다
+        inquiryRepository.flush();
+        eventPublisher.publishEvent(new InquiryAnsweredEvent(inquiry.getId(), reply.getId(), inquiry.getUserId(),
+                inquiry.getTitle(), inquiry.getCategory().name(),
+                reply.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant()));
         return inquiry;
     }
 
-    /** 답변 수정. 어느 관리자든 고칠 수 있다. 없거나 삭제된 답변은 404 */
+    /** 답변 수정. 어느 관리자든 고칠 수 있다. 없거나 삭제된 답변은 404. 수정은 알리지 않으므로 이벤트를 내지 않는다 */
     public Inquiry editReply(Long inquiryId, Long replyId, String content) {
         Inquiry inquiry = lockActive(inquiryId);
         requireReply(inquiry, replyId);

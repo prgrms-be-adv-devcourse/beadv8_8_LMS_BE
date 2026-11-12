@@ -11,10 +11,12 @@ import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 고객센터 이벤트 Kafka 재발행 (배치, #279, kafka.md "발행"). Kafka로 보내지 못해 발행 기록이 미완료로 남은 판단·철회 요청을 다시 보낸다.
+ * 고객센터 이벤트 Kafka 재발행 (배치, #279, kafka.md "발행"). Kafka로 보내지 못해 발행 기록이 미완료로 남은 고객센터 이벤트
+ * (판단·철회 요청, 알림용 답변 도착·접수 불가)를 다시 보낸다.
  * <ul>
  *     <li>서버 재시작 때만 다시 보내면 브로커 장애 동안의 요청이 다음 배포까지 처리 중에 머무르므로 주기적으로 다시 보낸다.</li>
- *     <li>발행한 지 대기 시간({@code pendingGrace})이 지난 기록만 가져간다. 두 번 가더라도 강의가 명령 ID로 거른다(분산 락 없음).</li>
+ *     <li>발행한 지 대기 시간({@code pendingGrace})이 지난 기록만 가져간다. 두 번 가더라도 강의는 명령 ID로, 알림센터는
+ *     사건 ID(답변 ID·문의 ID)로 거른다(분산 락 없음).</li>
  *     <li>한 번에 최대 {@code batchSize}건, 오래된 기록부터 보낸다.</li>
  * </ul>
  */

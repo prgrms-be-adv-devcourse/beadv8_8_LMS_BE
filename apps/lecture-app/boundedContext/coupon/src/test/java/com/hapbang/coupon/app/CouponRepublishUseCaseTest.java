@@ -219,7 +219,6 @@ class CouponRepublishUseCaseTest {
         assertThat(meterRegistry.get(CouponRepublishUseCase.REPUBLISHED_METRIC).tag("result", "timed_out").counter()
                 .count()).isEqualTo(1);
         assertThat(meterRegistry.get(CouponRepublishUseCase.LAST_REPUBLISHED_METRIC).gauge().value()).isZero();
-        verify(issueStore, never()).markPublished(anyLong(), anyString());
     }
 
     @Test

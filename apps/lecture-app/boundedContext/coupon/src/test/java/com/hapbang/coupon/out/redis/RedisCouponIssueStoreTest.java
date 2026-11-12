@@ -15,7 +15,6 @@ import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueReceipt;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueSnapshot;
-import com.hapbang.coupon.app.port.CouponIssueStore.PublishMark;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 
@@ -166,65 +165,6 @@ class RedisCouponIssueStoreTest extends CouponRedisTestSupport {
         assertThat(store.findRequest(couponId, "req-3")).contains(new IssueReceipt(7, NOW));
         assertThatThrownBy(() -> store.findRequest(couponId, "req-2"))
                 .isInstanceOf(CouponIssueStoreUnavailableException.class);
-    }
-
-    @Test
-    @DisplayName("mark-published: 표식을 한 번만 붙이고 만료를 지키며, 기록이 없거나 보상을 마친 요청은 바꾸지 않는다")
-    void markPublished() {
-        long couponId = newCouponId();
-        open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, 7, "req-1"));
-        String requests = CouponRedisKeys.requests(couponId);
-        Object accepted = redisTemplate.opsForHash().get(requests, "req-1");
-
-        assertThat(store.markPublished(couponId, "req-1")).isEqualTo(PublishMark.MARKED);
-        assertThat(store.markPublished(couponId, "req-1")).isEqualTo(PublishMark.ALREADY_MARKED);
-        assertThat(redisTemplate.opsForHash().get(requests, "req-1")).isEqualTo(accepted + "|PUBLISHED");
-        assertThat(redisTemplate.getExpire(requests)).isPositive();
-
-        redisTemplate.opsForHash().put(requests, "req-2", accepted + "|COMPENSATED");
-        assertThat(store.markPublished(couponId, "req-2")).isEqualTo(PublishMark.SKIPPED);
-        assertThat(redisTemplate.opsForHash().get(requests, "req-2")).isEqualTo(accepted + "|COMPENSATED");
-
-        assertThat(store.markPublished(couponId, "req-unknown")).isEqualTo(PublishMark.SKIPPED);
-        assertThat(redisTemplate.opsForHash().hasKey(requests, "req-unknown")).isFalse();
-        long otherCoupon = newCouponId();
-        assertThat(store.markPublished(otherCoupon, "req-1")).isEqualTo(PublishMark.SKIPPED);
-        assertThat(redisTemplate.hasKey(CouponRedisKeys.requests(otherCoupon))).isFalse();
-    }
-
-    @Test
-    @DisplayName("mark-published: 접수 epoch를 지키고, 접수 epoch가 없는 옛 형식 기록에는 epoch 없이 표식만 붙인다")
-    void markPublishedKeepsEpochField() {
-        long couponId = newCouponId();
-        open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, 7, "req-new"));
-        String requests = CouponRedisKeys.requests(couponId);
-        String accepted = (String) redisTemplate.opsForHash().get(requests, "req-new");
-        String old = "8|" + NOW.toEpochMilli() + "|ACCEPTED|1";
-        redisTemplate.opsForHash().put(requests, "req-old", old);
-        redisTemplate.opsForHash().put(requests, "req-old-compensated", old + "|COMPENSATED");
-
-        assertThat(store.markPublished(couponId, "req-new")).isEqualTo(PublishMark.MARKED);
-        assertThat(store.markPublished(couponId, "req-old")).isEqualTo(PublishMark.MARKED);
-        assertThat(store.markPublished(couponId, "req-old")).isEqualTo(PublishMark.ALREADY_MARKED);
-        assertThat(store.markPublished(couponId, "req-old-compensated")).isEqualTo(PublishMark.SKIPPED);
-
-        assertThat(accepted).endsWith("|e" + EPOCH);
-        assertThat(redisTemplate.opsForHash().get(requests, "req-new")).isEqualTo(accepted + "|PUBLISHED");
-        assertThat(redisTemplate.opsForHash().get(requests, "req-old")).isEqualTo(old + "|PUBLISHED");
-        assertThat(redisTemplate.opsForHash().get(requests, "req-old-compensated")).isEqualTo(old + "|COMPENSATED");
-    }
-
-    @Test
-    @DisplayName("mark-published: 기록 형식이 틀리면 쓰지 않고 저장소 오류다")
-    void markPublishedMalformed() {
-        long couponId = newCouponId();
-        redisTemplate.opsForHash().put(CouponRedisKeys.requests(couponId), "req-1", "broken");
-
-        assertThatThrownBy(() -> store.markPublished(couponId, "req-1"))
-                .isInstanceOf(CouponIssueStoreUnavailableException.class);
-        assertThat(redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), "req-1")).isEqualTo("broken");
     }
 
     @Test

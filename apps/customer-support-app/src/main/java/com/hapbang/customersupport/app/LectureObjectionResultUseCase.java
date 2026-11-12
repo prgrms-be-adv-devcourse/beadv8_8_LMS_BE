@@ -1,16 +1,20 @@
 package com.hapbang.customersupport.app;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.customersupport.domain.HpReturnStatus;
 import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.shared.customersupport.event.LectureObjectionFileRejectedEvent;
 import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
 import com.hapbang.shared.lecture.event.LectureObjectionRequestRefusedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
@@ -37,6 +41,7 @@ import lombok.extern.slf4j.Slf4j;
 public class LectureObjectionResultUseCase {
 
     private final InquiryRepository inquiryRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 강의가 접수했다 */
     public Inquiry recordFiled(Long inquiryId) {
@@ -46,13 +51,20 @@ public class LectureObjectionResultUseCase {
     }
 
     /**
-     * 강의가 접수를 거절했다.
+     * 강의가 접수를 거절했다. 처리 중을 본 뒤의 거절(재시도 배치)이면 접수 불가 이벤트를 같은 트랜잭션에 기록한다.
+     * 접수 불가는 문의마다 한 번이라 이미 접수 불가인 문의에는 다시 내지 않는다.
      *
-     * @param delete 요청 안에서 바로 거절되었는지. 그러면 사용자는 문의가 생기지 않은 것으로 보므로 문의를 삭제한다
+     * @param delete 요청 안에서 바로 거절되었는지. 그러면 사용자는 문의가 생기지 않은 것으로 보므로 문의를 삭제하고,
+     *               화면에 바로 보이므로 이벤트를 내지 않는다
      */
     public Inquiry recordFileRejected(Long inquiryId, LectureObjectionFailureCode failureCode, boolean delete) {
         Inquiry inquiry = lock(inquiryId);
-        inquiry.rejectFiling(failureCode, delete, LocalDateTime.now());
+        Instant now = Instant.now();
+        boolean rejected = inquiry.rejectFiling(failureCode, delete, LocalDateTime.ofInstant(now, ZoneId.systemDefault()));
+        if (rejected && !delete) {
+            eventPublisher.publishEvent(new LectureObjectionFileRejectedEvent(inquiry.getId(), inquiry.getTargetId(),
+                    inquiry.getUserId(), now));
+        }
         return inquiry;
     }
 

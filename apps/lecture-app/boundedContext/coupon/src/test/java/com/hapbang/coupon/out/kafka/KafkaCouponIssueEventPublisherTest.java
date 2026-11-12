@@ -12,7 +12,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -45,7 +47,8 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 발급 요청 이벤트 전송: 실제 Kafka(Testcontainers)로 key·헤더·값과, broker가 멈췄을 때 ACK 대기 안에 시간 초과로 돌아오는지 본다.
+ * 발급 요청 이벤트 전송: 실제 Kafka(Testcontainers)로 key·헤더·값과, broker가 멈췄을 때 ACK 대기 안에 시간 초과로 돌아오는지,
+ * ACK를 기다리지 않는 전송이 호출자를 붙잡지 않고 결과(실패 아님)로 끝나는지 본다.
  * 공유 broker의 운영 토픽에는 다른 테스트의 발급 소비자가 붙어 있을 수 있어 이 테스트만의 토픽으로 보낸다(운영 토픽 이름은 상수라 따로 보지 않는다).
  */
 @SpringJUnitConfig(KafkaCouponIssueEventPublisherTest.Config.class)
@@ -90,6 +93,36 @@ class KafkaCouponIssueEventPublisherTest {
 
         assertThat(result.get()).isEqualTo(PublishResult.TIMED_OUT);
         assertThat(elapsedMillis[0]).isLessThan(3_000);
+    }
+
+    @Test
+    void ACK를_기다리지_않는_전송은_ACK면_ACKED로_끝나고_같은_key로_싣는다() throws Exception {
+        long couponId = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
+        CouponIssueRequested event = new CouponIssueRequested("req-" + UUID.randomUUID(), couponId, 7, 3, ISSUED_AT,
+                ISSUED_AT.plus(Duration.ofDays(30)));
+
+        assertThat(publisher.send(event).get(10, TimeUnit.SECONDS)).isEqualTo(PublishResult.ACKED);
+
+        assertThat(consume(String.valueOf(couponId)).value()).isNotEmpty();
+    }
+
+    @Test
+    void broker가_멈춰도_ACK를_기다리지_않는_전송은_곧바로_돌아오고_전송_수명_뒤에_시간_초과로_끝난다() throws Exception {
+        CouponIssueRequested event = new CouponIssueRequested("req-" + UUID.randomUUID(), 1, 7, 1, ISSUED_AT,
+                ISSUED_AT.plus(Duration.ofDays(30)));
+        AtomicReference<PublishResult> result = new AtomicReference<>();
+        long[] sendMillis = new long[1];
+
+        KafkaTestcontainersConfig.withBrokerPaused(() -> {
+            long start = System.nanoTime();
+            CompletableFuture<PublishResult> sent = publisher.send(event);
+            sendMillis[0] = Duration.ofNanos(System.nanoTime() - start).toMillis();
+            result.set(sent.orTimeout(15, TimeUnit.SECONDS).join());
+        });
+
+        // send가 붙잡을 수 있는 것은 전송 준비(max.block.ms = publish-ack-timeout 1초)뿐이다
+        assertThat(sendMillis[0]).isLessThan(2_000);
+        assertThat(result.get()).isEqualTo(PublishResult.TIMED_OUT);
     }
 
     @Test

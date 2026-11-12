@@ -82,6 +82,17 @@ public class NotificationAlertService {
         save(draft);
     }
 
+    /** 강의 원천 지급을 하루 묶음에 더한다(N8). 지급 시각이 알림 시작 시각보다 이르면 더하지 않는다(ND-076) */
+    public void dailyPayout(DailyPayout payout) {
+        String kind = PayoutDailyTemplate.PAYOUT_COMPLETED_DAILY.kind();
+        if (beforeStart(kind, payout.paidAt())) {
+            return;
+        }
+        NotificationWriteResult result = writer.addDailyPayout(payout);
+        log.info("하루 묶음에 지급을 반영했다 kind={}, receiverUserId={}, settlementId={}, outcome={}", kind,
+                payout.receiverUserId(), payout.settlementId(), result.outcome());
+    }
+
     private void save(NotificationDraft draft) {
         NotificationWriteResult result = writer.save(draft);
         log.info("알림을 만들었다 kind={}, receiverUserId={}, sourceTargetId={}, outcome={}", draft.kind(),
