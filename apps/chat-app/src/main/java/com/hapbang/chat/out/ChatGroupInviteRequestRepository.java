@@ -21,8 +21,9 @@ public interface ChatGroupInviteRequestRepository extends JpaRepository<ChatGrou
     Optional<ChatGroupInviteRequest> findByChatRoomIdAndRequestId(Long chatRoomId, UUID requestId);
 
     /**
-     * 방·요청 ID의 초대 결과 기록을 잠그고 조회한다. 초대 트랜잭션이 보존 기간이 지난 행을 새 결과로 바꾸는 사이 정리 배치가 그 행을
-     * 지우지 못하게 한다. 정리 배치가 먼저 잠갔으면 지워질 때까지 기다린 뒤 빈 값을 받고 새 행을 만든다.
+     * 방·요청 ID의 초대 결과 기록을 잠그고 조회한다. 초대 트랜잭션이 보존 기간이 지난 행을 지우고 새 행을 만드는 사이 정리 배치가 그
+     * 행을 먼저 지우지 못하게 한다(먼저 지우면 초대 트랜잭션의 삭제가 0행이 되어 실패한다). 정리 배치가 먼저 잠갔으면 지워질 때까지
+     * 기다린 뒤 빈 값을 받고 새 행을 만든다.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ChatGroupInviteRequest r where r.chatRoomId = :chatRoomId and r.requestId = :requestId")
