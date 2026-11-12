@@ -328,8 +328,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SynonymsCheckWiringTest` | 동의어 확인 배치가 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링을 켠 컨텍스트, 확인은 가짜, #895) |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀, 같은 이벤트로 강의 판매자 반영(#882) |
 | `SearchLectureEventListenerTest` | 실제 Kafka로 강의·리뷰 반영, 쓰지 않는 타입 건너뜀, **이 앱에 클래스가 없는 타입은 DLT로 가지 않고 건너뜀**, 깨진 본문은 DLT, 처음 적재 전엔 사본만(#882) |
-| `LectureIndexerTest` | 강의 등록·수정·판매 중지·삭제, 리뷰 작성·수정·삭제, 판매자 닉네임 변경·정지, 순서 역전, 문서 쓰기 실패 뒤 재시도, 문서를 만드는 사이 바뀐 사본 따라잡기, 처음 적재 전(PostgreSQL + ES) |
-| `LectureDocumentStoreTest`, `LectureIndexSetupTest` | 강의 version 조건부 쓰기·tombstone·가격 칸(옛 메시지는 안 덮어씀, 같은 version은 가격만)·판매자·평점 칸, 정지된 판매자 강의는 정리에서 남음, 강의 index 정의·mapping·인플루언서 index와 분리 |
+| `LectureIndexerTest` | 강의 등록·수정·판매 중지·삭제, 리뷰 작성·수정·삭제, 판매자 닉네임 변경·정지, 순서 역전, 문서 쓰기 실패 뒤 재시도(가격과 함께 다시 와도 채움, #909), 문서를 만드는 사이 바뀐 사본 따라잡기, 처음 적재 전(PostgreSQL + ES) |
+| `LectureDocumentStoreTest`, `LectureIndexSetupTest` | 강의 version 조건부 쓰기·tombstone·가격 칸(옛 메시지는 안 덮어씀, 같은 version은 결과 NOOP에 가격만)·판매자·평점 칸, 정지된 판매자 강의는 정리에서 남음, 강의 index 정의·mapping·인플루언서 index와 분리 |
 | `SearchMemberCopyStoreTest`, `LectureReviewCopyStoreTest` | 회원 사본 version 규칙(같은 version 재수신 포함), 리뷰 사본과 counted만 평균(PostgreSQL 컨테이너) |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
@@ -341,7 +341,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |
 | `RatingBaselineTest`, `InfluencerDocumentStoreBulkFailureTest` | 평균 C 실패 뒤 1분 대기, bulk 일부 실패 |
 | `GoldenQueryTest` | 대표 검색어 23개 순위, 알려진 한계(G01b), 계수 격자(`build/golden-query.md`) |
-| `LectureSearcherTest` | 강의 검색 쿼리(#883): 보일 강의(판매 중·정상 판매자)만, 네 필드·동의어, 기본·최신·평점·가격순(가격 없는 강의는 맨 뒤), 응답 가격, **highlights HTML escape(`<script>`·`<b>`·따옴표·`&`)와 `<em>`만**, 검색어가 있으면 highlights 객체(닉네임만 걸린 경우), C가 없으면 가산 없음, 반올림, 전체 수 상한, alias 없음 |
+| `LectureSearcherTest` | 강의 검색 쿼리(#883): 보일 강의(판매 중·정상 판매자)만, 네 필드·동의어, 기본·최신·평점·가격순(가격 없는 강의는 맨 뒤, 가격 mapping 없는 옛 index도 거절 안 함), 응답 가격, **highlights HTML escape(`<script>`·`<b>`·따옴표·`&`)와 `<em>`만**, 검색어가 있으면 highlights 객체(닉네임만 걸린 경우), C가 없으면 가산 없음, 반올림, 전체 수 상한, alias 없음 |
 | `LectureSearchFacadeTest` | 정렬 허용 목록(가격 오름·내림, 강의 메시지), 1,000건, 503(평점순은 C 실패도), C를 모르면 가산 없이 검색, C를 구하는 경우, 0건 검색어(회원·IP 키·키 없음) |
 | `CachedRatingBaselineTest` | 다시 구하는 동안 다른 요청은 가진 값을 바로 씀, 처음 값을 구하는 중이면 바로 실패 |
 | `ApiV1LectureSearchControllerTest` | 강의 검색 API: 비회원·회원, 정렬(가격 포함), 응답 가격, 400 세 종류, 처음 적재 전 503, 회원 429·`Retry-After`, **비회원은 X-Forwarded-For·X-Real-IP·X-Envoy-External-Address를 바꿔도 같은 IP라 429**, 회원·비회원 한도 분리, 사설 주소는 건너뜀·지표, 0건 검색어 |
@@ -392,9 +392,9 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 - **칸마다 출처가 하나다.** 강의 칸은 강의 이벤트가, 판매자 칸은 회원 사본이, 평점 칸은 리뷰 사본이 쓴다. 강의를 고쳐도 판매자·평점 칸은 건드리지 않아 그사이 바뀐 닉네임·평점을 옛 값으로 되돌리지 않는다.
 - **강의**: painless scripted upsert로 문서의 `lectureVersion`보다 클 때만 반영한다. ES external versioning은 판매자·평점 부분 갱신이 ES 버전을 올려 다음 강의 이벤트를 거절하게 만들어 쓰지 않는다(인플루언서 5장과 같은 이유). 문서가 없어도 숨김 문서를 만들어 삭제 뒤 늦은 이벤트가 되살리지 못한다.
-- **가격**(#909): 강의 칸이지만 두 가지가 다르다. ① 넘어온 `priceHp`가 null(가격 필드가 생기기 전의 옛 메시지·응답)이면 문서 가격을 그대로 둔다(받는 쪽은 null을 "모름"으로 다룬다, `internal-lecture-sync.md`). ② **같은 version**이면 다른 칸은 noop이고, 넘어온 가격이 있고 문서와 다를 때만 가격 칸 하나를 고친다(결과 `UPDATED`). 같은 강의 ID·version은 이벤트와 동기화 API가 같은 값이라 맞는 값이다. 그래서 롤링 배포 중 가격을 모르는 옛 auxiliary pod가 더 새 version을 써 가격이 낡아도, 같은 version의 재발행·보정(#884)이 고친다. 더 작은 version은 가격도 noop이다.
-- 가격 칸을 더해 강의 index 설정 해시가 바뀌었다(#909). 강의 index가 있으면 배포 때 무중단 재색인이 한 번 돌고, 새 index는 동기화 API 전체로 채워져 기존 강의도 가격을 갖는다.
-- **판매자·평점 칸은 강의 칸을 쓴 뒤 사본에서 읽어 채운다**(Q9·Q10). 강의 쓰기는 강의 칸만 쓴다(새 문서는 닉네임 없이 정상 판매자, 평점 없음). **보통의 수정(`UPDATED`)에서는 사본을 읽지 않고, 그 밖의 결과(`CREATED`·`NOOP`)면 읽어 채운다.** `NOOP`(같은 이벤트 재수신, 옛 이벤트)도 채우는 것은, 새 문서를 만든 뒤 채우기가 실패해 같은 이벤트를 다시 받으면 강의 쓰기가 `NOOP`이라 그때 채워야 복구되기 때문이다(PR #906 리뷰). 이 분기는 `LectureIndexerTest.fillsCopiesOnRedeliveryAfterFailure`가 지킨다. 문서를 만든 뒤에 읽으므로 그 전에 온 회원·리뷰 이벤트(없던 문서를 고치지 못함)의 값도 빠지지 않는다. 채우기 전 잠깐은 빈 값이지만 ES가 새 문서를 검색에 보이는 refresh(1초) 전이다.
+- **가격**(#909): 강의 칸이지만 두 가지가 다르다. ① 넘어온 `priceHp`가 null(가격 필드가 생기기 전의 옛 메시지·응답)이면 문서 가격을 그대로 둔다(받는 쪽은 null을 "모름"으로 다룬다, `internal-lecture-sync.md`). ② **같은 version**이면 강의 쓰기는 지금처럼 `NOOP`이고, 넘어온 가격이 있으면 가격 전용 script(`PRICE_SCRIPT`)를 한 번 더 불러 문서 version이 같고 가격이 다를 때만 가격 칸 하나를 고친다. 결과는 그대로 `NOOP`이다. 강의 script 안에서 고쳐 `UPDATED`가 되면 "같은 이벤트 재수신이면 판매자·평점을 채운다"(아래, PR #906)가 빠지기 때문이다(#909 리뷰). 같은 강의 ID·version은 이벤트와 동기화 API가 같은 값이라 맞는 값이다. 롤링 배포 중 가격을 모르는 옛 auxiliary pod가 더 새 version을 써 가격이 낡으면, 같은 version이 다시 올 때(재전달·발행 기록 재발행, 재색인, #884 보정이 생기면 그것) 고쳐진다. 그 전까지는 다음 강의 수정까지 낡은 가격이다. 더 작은 version은 가격도 그대로다. #884 보정이 bulk로 쓴다면 같은 version 가격 맞추기는 `PRICE_SCRIPT`도 함께 써야 한다.
+- 가격 칸을 더해 강의 index 설정 해시가 바뀌었다(#909). 강의 index를 만들고 옮기는 처음 적재·재색인은 #884다. #884 전에는 운영에 강의 index가 없어 할 일이 없고, #884 처음 적재가 새 해시로 만들어 가격까지 채운다. #884 뒤에 해시가 바뀌면 재색인이 한 번 돌고 새 index는 동기화 API 전체로 채워져 기존 강의도 가격을 갖는다. 재색인이 alias를 옮기기 전 잠깐은 alias가 가격 mapping이 없는 옛 index를 가리킨다. 그동안 가격순은 `unmappedType`으로 거절 대신 최신순이 되고, 가격을 싣는 강의 쓰기는 strict mapping 오류로 재시도 뒤 DLT로 간다(재색인 따라잡기가 동기화 API로 채운다).
+- **판매자·평점 칸은 강의 칸을 쓴 뒤 사본에서 읽어 채운다**(Q9·Q10). 강의 쓰기는 강의 칸만 쓴다(새 문서는 닉네임 없이 정상 판매자, 평점 없음). **보통의 수정(`UPDATED`)에서는 사본을 읽지 않고, 그 밖의 결과(`CREATED`·`NOOP`)면 읽어 채운다.** `NOOP`(같은 이벤트 재수신, 옛 이벤트)도 채우는 것은, 새 문서를 만든 뒤 채우기가 실패해 같은 이벤트를 다시 받으면 강의 쓰기가 `NOOP`이라 그때 채워야 복구되기 때문이다(PR #906 리뷰). 이 분기는 `LectureIndexerTest.fillsCopiesOnRedeliveryAfterFailure`·`fillsCopiesWhenRedeliveryAlignsPrice`(#909)가 지킨다. 문서를 만든 뒤에 읽으므로 그 전에 온 회원·리뷰 이벤트(없던 문서를 고치지 못함)의 값도 빠지지 않는다. 채우기 전 잠깐은 빈 값이지만 ES가 새 문서를 검색에 보이는 refresh(1초) 전이다.
 - **리뷰**: 사본에 적고(version 조건) 그 강의의 `counted` 리뷰로 평균·수를 다시 세어 평점 칸을 고친다. 사본이 이미 같은 version이어도 다시 센다(사본은 커밋했는데 문서 쓰기가 실패해 같은 이벤트를 다시 받은 경우). 강의 문서가 없으면 건너뛴다(강의 이벤트가 문서를 만들 때 사본에서 채운다).
 - **회원**: 사본에 적고, 닉네임·상태가 바뀌었으면(처음 받은 회원 포함) 그 판매자의 모든 강의 문서(숨김 포함)를 `update_by_query`로 고친다. 같은 version을 다시 받으면 사본 값으로 다시 고친다(재시도). 회원 소비자는 인플루언서 반영이 실패해도 판매자 반영은 하고 실패를 그 뒤에 던진다. 고치기 전에 refresh해 방금 만든 문서를 놓치지 않고, 강의 쓰기와 충돌한 문서가 있으면 실패로 보고 다시 시도한다(건너뛰면 옛 판매자 값이 남는다).
 - **판매자 칸은 회원 version으로 옛 값을 막는다**(PR #906 리뷰 Q12). 채우기(강의 소비자)와 `update_by_query`(회원 소비자)는 다른 스레드라 동시에 돈다. 강의 소비자가 사본을 읽은 뒤 쓰기 전에 회원 소비자가 정지를 반영하면, 늦게 쓴 옛 "정상" 값이 정지를 되돌릴 수 있다. 그래서 문서의 `sellerVersion`보다 작은 회원 version이면 판매자 칸을 쓰지 않는다(같은 version은 쓴다. version 없는 정보는 문서에도 version이 없을 때만). #884 보정은 강의 version만 비교하므로 이 보호가 없으면 어긋남이 저절로 풀리지 않는다.
@@ -421,7 +421,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | 파라미터 | 뜻 |
 | --- | --- |
 | `keyword` | 선택, 최대 50자. 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1(`best_fields`, tie_breaker 0.3) |
-| `page`, `size`, `sort` | size 기본 20·최대 100. sort는 `latest,desc`·`rating,desc`·`price,asc`·`price,desc`만(그 밖 400 `UNSUPPORTED_SORT`, 상세 메시지가 강의 정렬을 알린다). 정렬 이름은 문서 필드가 아니라 짧은 뜻 이름이다(인플루언서 `followers`와 같다, #909) |
+| `page`, `size`, `sort` | size 기본 20·최대 100. sort는 `latest,desc`·`rating,desc`·`price,asc`·`price,desc`만(그 밖 400 `UNSUPPORTED_SORT`, 상세 메시지가 강의 정렬을 알린다). 정렬 이름은 문서 필드가 아니라 짧은 뜻 이름이다(인플루언서 `followers`와 같다, #909). Spring이 방향을 빠뜨린 `sort=price`를 오름차순으로 채워 `price,asc`와 같게 처리된다(구분할 수 없음) |
 
 - 보이는 강의: `hidden=false` 그리고 `sellerActive=true`(13장).
 - 순서: 기본은 검색어가 있으면 점수, 없으면 최신. `latest`는 강의 ID 내림차순(등록 시각 칸이 없고 ID가 등록 순서와 같다, #882 Q5, #883). `rating`은 베이지안 평균 (n×R + m×C)/(n+m) → 리뷰 수. `price`는 가격 오름·내림이고, 가격이 없는 강의는 어느 쪽이든 맨 뒤다(#909. 무료 강의가 없어(정책 "강의 가격") null은 0원이 아니라 모르는 값이다). **모든 순서의 마지막은 강의 ID 내림차순**이다.
@@ -454,4 +454,5 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 평균 C를 모르는 동안(pod가 뜬 직후 첫 집계 중이나 집계 실패, 처음 적재 직후 최대 1분)은 검색어 검색의 순서가 평점 가산 없이 나온다. 평점순은 그동안 503이다. 인플루언서 평점순도 pod가 뜬 직후 첫 집계가 도는 동안(보통 수십 ms) 들어온 요청은 503이다(요청 스레드가 ES를 기다리지 않게 한 대가).
 - 0건 검색어의 "회원 1명 이상" 조건은 한 사람이 로그인·로그아웃으로 회원 1 + 비회원 1이 되면 넘을 수 있다(9장).
 - 비회원이 무작위 검색어로 0건 기록 상한(한 주기 서로 다른 검색어 1,000개)을 채우면 그 주기의 다른 후보가 `dropped`로 빠진다. 잃는 것은 그 주기의 진단 로그뿐이다.
+- lecture-app을 가격 필드 이전(#885 전) 코드로 되돌리면 그 사이 수정은 `priceHp` 없이 더 새 version으로 와서 가격이 이전 값으로 남는다. 다음 강의 수정이나 재색인까지 낡은 가격이다(#909 리뷰).
 - 비회원 limiter는 키를 10,000개까지 두고 넘으면 오래 안 쓴 키를 지운다. 그보다 많은 IP를 돌리면 밀려난 키가 새 한도로 시작한다. IP 1만 개 이상을 쓰는 남용은 IP별 한도로 막을 수 없는 규모이고, 지금 운영 도메인에는 IPv6(AAAA)가 없다.

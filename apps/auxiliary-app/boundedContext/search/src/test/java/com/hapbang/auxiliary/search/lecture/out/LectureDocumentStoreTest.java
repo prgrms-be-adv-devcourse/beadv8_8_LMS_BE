@@ -90,13 +90,13 @@ class LectureDocumentStoreTest {
     }
 
     @Test
-    @DisplayName("같은 version이면 다른 칸은 그대로 두고, 넘긴 가격이 있고 다를 때만 가격 칸을 고친다. 옛 version은 가격도 noop이다(#909)")
+    @DisplayName("같은 version이면 결과는 NOOP이고 다른 칸은 그대로다. 넘긴 가격이 있고 다를 때만 가격 칸을 고친다. 옛 version은 가격도 그대로다(#909)")
     void priceWithSameVersion() throws Exception {
         store.writeLecture(lecture(11L, "제목", true, 2L, null), SELLER, RATING, NOW);
         assertThat(source(11L)).doesNotContainKey("priceHp");
 
         assertThat(store.writeLecture(lecture(11L, "다른 제목", false, 2L, 10_000L), SELLER, RATING, NOW))
-                .isEqualTo(WriteOutcome.UPDATED);
+                .isEqualTo(WriteOutcome.NOOP);
         assertThat(source(11L)).containsEntry("priceHp", 10000).containsEntry("title", "제목")
                 .containsEntry("hidden", false).containsEntry("lectureVersion", 2);
 

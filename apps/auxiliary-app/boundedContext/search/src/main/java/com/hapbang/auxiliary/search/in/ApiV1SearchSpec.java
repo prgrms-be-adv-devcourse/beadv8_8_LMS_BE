@@ -54,5 +54,5 @@ public interface ApiV1SearchSpec {
             @Parameter(hidden = true) Principal principal,
             @Parameter(hidden = true) HttpServletRequest request,
             @Parameter(description = "검색어(최대 50자). 없으면 판매 중인 강의 전체", example = "프리미어") @Size(max = 50) String keyword,
-            @Parameter(description = "page(0부터), size(기본 20, 최대 100), sort(latest,desc, rating,desc, price,asc, price,desc 중 하나)") Pageable pageable);
+            @Parameter(description = "page(0부터), size(기본 20, 최대 100), sort(latest,desc, rating,desc, price,asc, price,desc 중 하나. price만 쓰면 오름차순)") Pageable pageable);
 }
