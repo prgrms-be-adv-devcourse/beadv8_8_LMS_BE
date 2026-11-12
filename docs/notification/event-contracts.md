@@ -15,6 +15,7 @@
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
 > - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
+> - 2026-11-12 M7 구현(#875, 고객센터 담당): `InquiryAnsweredEvent`·`LectureObjectionFileRejectedEvent`의 계약 상태를 "구현됨"으로 바꾸고 5장에 구현된 필드 이름을 적었다. `InquiryReplyEditedEvent`는 고객센터 담당 결정으로 "발행하지 않음"으로 바꿨다. 답변 이벤트는 이의 제기 판단 안내 답변에서 내지 않는다고 적었다. 8장 M7 행에 Issue를 적었다.
 
 ## 0. 읽는 법
 
@@ -26,6 +27,7 @@
 | 확정 | 알림 담당이 확정했다. 발행 Issue를 보낼 수 있다 |
 | 계약 확정 전 | 발행 담당이 그대로 구현할 수 없다고 Issue에 남겼다. 알림 담당이 다시 정할 때까지 구현하지 않는다(ND-037) |
 | 구현됨 | `common/shared` 이벤트와 발행, kafka.md 토픽 표가 반영됐다 |
+| 발행하지 않음 | 발행 담당이 이유와 함께 발행하지 않기로 정했다. 알림 담당이 그 알림 종류를 정리한다 |
 
 구분 칸의 표시는 원천 설계와 같다: 🟡 shared에 있으나 Kafka로 나가지 않는다, ⚠️ 이벤트는 있으나 값이 모자란다, 🆕 새 이벤트가 필요하다. "기존 변경"은 이미 Kafka로 나가는 이벤트에 값을 더하는 요청이다.
 
@@ -137,15 +139,19 @@ key는 회원 ID다(토픽 표). 회원 이벤트는 `xxxId`, `Instant xxxAt` �
 
 ## 5. 고객센터 (`customersupport.events.v1`, M7)
 
-key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는 시각 필드가 없어, 새 시각 필드는 `Instant`로 정했다.
+key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 필드는 `Instant`로 정했다(그전 고객센터 이벤트에는 시각 필드가 없었다).
 
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `InquiryAnsweredEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 답변 시각 | 답변 ID | 답변 시각 | 문의한 회원 | `INQUIRY_ANSWERED` | 확정 |
-| `InquiryReplyEditedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 수정 회차, 수정 시각 | `<답변 ID>:<수정 회차>`(ND-045) | 수정 시각 | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 확정 |
-| `LectureObjectionFileRejectedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 구매자 ID, 주문 항목 ID, 접수 불가 시각 | 문의 ID | 접수 불가 시각 | 구매자 | `LECTURE_OBJECTION_FILE_REJECTED`(ND-015) | 확정 |
+| `InquiryAnsweredEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 답변 시각 (구현: `inquiryId`, `replyId`, `userId`, `title`, `category`, `answeredAt`). 관리자가 직접 단 답변에서만 낸다. 이의 제기 판단 안내 답변은 내지 않는다(판단 알림은 `LectureObjectionResolvedEvent`) | `replyId` | `answeredAt` | 문의한 회원(`userId`) | `INQUIRY_ANSWERED` | 구현됨(#875) |
+| `InquiryReplyEditedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 수정 회차, 수정 시각 | `<답변 ID>:<수정 회차>`(ND-045) | 수정 시각 | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 발행하지 않음(#875, 고객센터 담당 결정. 답변 수정은 대부분 오타 고치기라 알릴 일이 아니고, 내용을 바로잡을 때는 새 답변을 달면 답변 도착 알림이 간다. 수정 회차 칸도 두지 않는다) |
+| `LectureObjectionFileRejectedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 구매자 ID, 주문 항목 ID, 접수 불가 시각 (구현: `inquiryId`, `orderItemId`, `buyerUserId`, `fileRejectedAt`) | `inquiryId` | `fileRejectedAt` | 구매자(`buyerUserId`) | `LECTURE_OBJECTION_FILE_REJECTED`(ND-015) | 구현됨(#875) |
 
-문의 하나에 답변이 여러 개 달릴 수 있어 답변 이벤트의 사건 ID는 답변 ID다. 수정 회차는 답변이 수정될 때마다 1씩 늘어나는 값이다.
+문의 하나에 답변이 여러 개 달릴 수 있어 답변 이벤트의 사건 ID는 답변 ID다.
+
+- M7 구현(#875, 고객센터): 2종 모두 `@Externalized`로 key `inquiry:<문의 ID>`에 나간다. `eventType` 헤더는 레코드 이름과 같다. 시각은 `Instant`다.
+  - `InquiryAnsweredEvent(inquiryId, replyId, userId, title, category, answeredAt)`: `userId`는 문의(`Inquiry.userId`)를 쓴 회원이다. `category`는 고객센터 문의 유형 enum의 이름(`String`, 예: `SERVICE_COMPLAINT`)이다. shared에 문의 유형 enum이 없어 문자열로 둔다. `answeredAt`은 답변의 작성 시각(화면의 답변 작성 시각과 같다)이다. 관리자 답변 API(`InquiryUseCase.reply`)에서만 낸다. 이의 제기 판단 안내 답변은 강의가 판단을 반영할 때 고객센터가 다는 답변이라 내지 않는다(판단 알림 `LECTURE_OBJECTION_RESOLVED`는 강의의 `LectureObjectionResolvedEvent`로 간다). 판단을 마친 이의 제기 문의에 관리자가 답변을 더 달면 낸다.
+  - `LectureObjectionFileRejectedEvent(inquiryId, orderItemId, buyerUserId, fileRejectedAt)`: 재시도 배치가 보낸 접수를 강의가 거절해 문의가 접수 불가가 될 때 낸다. 문의가 접수 처리 중에서 접수 불가로 바뀔 때만 내므로 문의마다 한 번이다. 회원 요청 안에서 바로 거절된 접수는 내지 않는다(ND-015).
 
 ## 6. 채팅 (`chat.events.v1` 새 토픽, M8·ND-044)
 
@@ -191,5 +197,5 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(미병합, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨 |
-| M7 | 고객센터 | 고객센터 🆕 3종(수정 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M7 | 고객센터 | 고객센터 🆕 2종(답변 도착·이의 제기 접수 불가). 답변 수정은 발행하지 않음(5장) | #875 | 구현됨 |
 | M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |
