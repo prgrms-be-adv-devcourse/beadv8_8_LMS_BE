@@ -114,6 +114,19 @@ class LectureReconcilerTest {
     }
 
     @Test
+    @DisplayName("판매 중이 아닌 강의는 문서가 없어도(7일 지나 숨김 문서를 정리함) 다시 만들지 않고 보정으로 세지 않는다")
+    void doesNotRecreateCleanedTombstone() throws Exception {
+        source.lecture(lecture(11L, "반려", false, 3L)).lecture(lecture(12L, "판매 중", true, 0L));
+        indexer.apply(lecture(12L, "판매 중", true, 0L));
+
+        LectureReconcileResult result = reconciler.reconcile();
+
+        assertThat(result.fixed()).isZero();
+        assertThat(result.count(LectureReconcileKind.ALREADY_APPLIED)).isEqualTo(2);
+        assertThat(client.exists(e -> e.index(LectureIndexDefinition.ALIAS).id("11")).value()).isFalse();
+    }
+
+    @Test
     @DisplayName("문서가 원본보다 새 version이면(보정이 읽은 뒤 이벤트가 반영) 되돌리지 않는다")
     void newerDocumentWins() throws Exception {
         indexer.apply(lecture(11L, "새 제목", true, 5L));
@@ -183,12 +196,13 @@ class LectureReconcilerTest {
     }
 
     @Test
-    @DisplayName("비교는 문서가 없거나, 강의 version이 원본보다 작거나 없거나, 같은 version에 원본 가격이 있고 문서 가격과 다를 때만 다시 쓴다")
+    @DisplayName("비교는 문서가 없는 판매 중 강의이거나, 강의 version이 원본보다 작거나 없거나, 같은 version에 원본 가격이 있고 문서 가격과 다를 때만 다시 쓴다")
     void needsWrite() {
         LectureSyncDto lecture = lecture(11L, "제목", true, 3L);
         LectureSyncDto noPrice = new LectureSyncDto(11L, SELLER, "제목", "소개", null, true, false, List.of(), 3L);
 
         assertThat(LectureReconciler.needsWrite(lecture, null)).isTrue();
+        assertThat(LectureReconciler.needsWrite(lecture(11L, "판매 중지", false, 3L), null)).isFalse();
         assertThat(LectureReconciler.needsWrite(lecture, indexed(null, 10_000L))).isTrue();
         assertThat(LectureReconciler.needsWrite(lecture, indexed(2L, 10_000L))).isTrue();
         assertThat(LectureReconciler.needsWrite(lecture, indexed(3L, 10_000L))).isFalse();

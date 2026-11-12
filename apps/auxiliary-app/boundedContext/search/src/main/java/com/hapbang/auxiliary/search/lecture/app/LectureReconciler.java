@@ -136,7 +136,10 @@ public class LectureReconciler {
     /**
      * 원본과 문서가 다른지. 비교는 여기 한 곳에만 둔다. 아래 중 하나면 다시 쓴다.
      * <ul>
-     *     <li>문서가 없다.</li>
+     *     <li>문서가 없고 판매 중인 강의다. 판매 중이 아닌 강의는 문서가 없어도 쓰지 않는다. 숨김 문서는 7일(회원·강의 이벤트 DLT 보존 기간) 안에
+     *     늦게 온 옛 "판매 중" 이벤트를 막으려고 두고, 정리({@code LectureTombstoneCleanup})가 그 뒤에 지운다. 보정이 다시 만들면 판매 중이 아닌
+     *     강의마다 매주 정리와 보정이 서로 되돌리고 놓친 이벤트처럼 세게 된다. 문서가 없는 사이 옛 "판매 중" 이벤트가 문서를 만들면 다음 보정이 원본
+     *     version으로 숨긴다.</li>
      *     <li>문서의 강의 version이 원본보다 작거나 없다(원본에 없다고 숨긴 문서).</li>
      *     <li>같은 version인데 원본 가격이 있고 문서 가격과 다르다(#909). 롤링 배포 중 가격을 모르는 옛 pod가 더 새 version을 썼거나, 가격 필드가
      *     생기기 전(#885)의 메시지로 만든 문서다. 강의 쓰기가 같은 version의 가격만 맞춘다({@code LectureDocumentStore.PRICE_SCRIPT}).</li>
@@ -144,7 +147,10 @@ public class LectureReconciler {
      * 원본 가격이 없으면(가격을 모르는 강의 앱 응답) 가격은 비교하지 않는다. 문서가 원본보다 새 version이면 아무것도 쓰지 않는다.
      */
     static boolean needsWrite(LectureSyncDto lecture, IndexedLecture indexed) {
-        if (indexed == null || indexed.lectureVersion() == null || indexed.lectureVersion() < lecture.version()) {
+        if (indexed == null) {
+            return lecture.onSale();
+        }
+        if (indexed.lectureVersion() == null || indexed.lectureVersion() < lecture.version()) {
             return true;
         }
         return indexed.lectureVersion() == lecture.version() && lecture.priceHp() != null
