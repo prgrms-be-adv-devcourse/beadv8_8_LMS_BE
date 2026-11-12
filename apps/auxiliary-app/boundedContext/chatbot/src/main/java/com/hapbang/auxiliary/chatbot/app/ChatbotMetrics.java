@@ -11,10 +11,12 @@ import lombok.RequiredArgsConstructor;
 /**
  * 챗봇 지표(#715). 대화는 저장하지 않으므로 운영은 이 지표로 본다. 회원 ID·질문은 태그에 넣지 않는다.
  * <ul>
- *     <li>{@code hapbang.chatbot.requests{feature}}: 기능별 사용 수</li>
+ *     <li>{@code hapbang.chatbot.requests{feature}}: 기능(진입점)별 사용 수. 대화 Tool 호출은 세지 않는다</li>
+ *     <li>{@code hapbang.chatbot.tool.calls{tool}}: 대화 LLM이 부른 Tool 수(Tool 이름별)</li>
  *     <li>{@code hapbang.chatbot.faq.unmatched{feature}}: 기준값을 넘는 FAQ를 하나도 못 찾은 수(FAQ 매칭 실패)</li>
  *     <li>{@code hapbang.chatbot.faq.search.errors}: ES·임베딩 모델 호출 실패로 검색하지 못한 수</li>
- *     <li>{@code hapbang.chatbot.fallbacks{feature, reason}}: LLM 대신 검색 결과·안내 문구로 답한 수</li>
+ *     <li>{@code hapbang.chatbot.fallbacks{feature, reason}}: LLM 호출이 실패해 검색 결과·안내 문구·정해진 문장으로 답한 수</li>
+ *     <li>{@code hapbang.chatbot.recommend.search.errors{feature}}: 추천 검색(ES·임베딩)이 실패해 인기순으로 대신 답한 수</li>
  *     <li>{@code hapbang.chatbot.rate.limit.rejected{feature}}: 회원별 호출 제한으로 429를 준 수</li>
  * </ul>
  */
@@ -36,8 +38,17 @@ public class ChatbotMetrics {
         counter("hapbang.chatbot.faq.search.errors", "ES·임베딩 모델 호출 실패로 FAQ를 검색하지 못한 수").increment();
     }
 
+    public void toolCall(String tool) {
+        counter("hapbang.chatbot.tool.calls", "대화 LLM이 부른 Tool 수", "tool", tool).increment();
+    }
+
+    public void recommendSearchError(Feature feature) {
+        counter("hapbang.chatbot.recommend.search.errors", "추천 검색(ES·임베딩) 실패로 인기순으로 답한 수",
+                "feature", feature.tag()).increment();
+    }
+
     public void fallback(Feature feature, FallbackReason reason) {
-        counter("hapbang.chatbot.fallbacks", "LLM 대신 검색 결과·안내 문구로 답한 수",
+        counter("hapbang.chatbot.fallbacks", "LLM 호출이 실패해 정해진 답으로 대신한 수",
                 "feature", feature.tag(), "reason", reason.tag()).increment();
     }
 
@@ -65,8 +76,12 @@ public class ChatbotMetrics {
         FAQ_SEARCH,
         FAQ_CHAT,
         FAQ_STREAM,
+        /** 강의 추천 위젯 API */
         LECTURE_RECOMMEND,
-        INFLUENCER_RECOMMEND
+        /** 인플루언서 추천 위젯 API */
+        INFLUENCER_RECOMMEND,
+        /** 챗봇 "인플루언서 추천받기" 버튼(LLM 이유) */
+        INFLUENCER_BUTTON
     }
 
     /** fallback 이유 */

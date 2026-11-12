@@ -13,12 +13,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
+import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.domain.TasteVectors;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -46,7 +48,10 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>모자라면 인기순으로 채워 {@code size}명을 맞춘다(추천 가능한 회원이 그보다 적으면 그만큼).</li>
  *     <li>요청 회원이 숨김({@link MemberVisibility}: 사본 없음·탈퇴·마스킹)이면 빈 결과이고 {@code requesterHidden=true}다.
  *     사본이 없는 것은 가입 직후 동기화 전이라 화면은 정해진 안내 문구를 띄운다(#717 규칙을 강의 추천과 같이 따른다).</li>
- *     <li>임베딩·ES를 쓸 수 없거나 실패하면 인기순으로 답한다(그때 {@code needsInterest}는 false: 입력이 없어서가 아니다).</li>
+ *     <li>임베딩·ES 호출이 실패하면 인기순으로 답하고 근거는 {@link RecommendBasis#POPULAR_TEMPORARY}다(지표
+ *     {@code hapbang.chatbot.recommend.search.errors}). 모델·ES를 끈 실행은 설정이라 {@link RecommendBasis#POPULAR}다.
+ *     두 경우 모두 {@code needsInterest}는 false다(입력이 없어서가 아니다).</li>
+ *     <li>두 단계다: {@link #pool}이 맞춤 후보만 고르고, {@link #complete}가 고른 순서대로 모자란 자리를 인기순으로 채운다.</li>
  * </ul>
  */
 @Slf4j
@@ -61,12 +66,14 @@ public class InfluencerRecommendUseCase {
     private final ChatbotEmbedder embedder;
     private final ChatbotInfluencerRecommendProperties properties;
     private final InfluencerPopularity popularity;
+    private final ChatbotMetrics metrics;
     // 검색(임베딩·ES) 장애 중인지. 로그는 상태가 바뀔 때만 남긴다
     private final AtomicBoolean searchFailing = new AtomicBoolean(false);
 
     InfluencerRecommendUseCase(InfluencerRecommendStore store, MemberVisibility memberVisibility, RecommendVectorIndex index,
-            ChatbotEmbedder embedder, ChatbotInfluencerRecommendProperties properties) {
+            ChatbotEmbedder embedder, ChatbotInfluencerRecommendProperties properties, ChatbotMetrics metrics) {
         this.store = store;
+        this.metrics = metrics;
         this.memberVisibility = memberVisibility;
         this.index = index;
         this.embedder = embedder;
@@ -76,47 +83,82 @@ public class InfluencerRecommendUseCase {
     }
 
     /**
-     * @param interest 관심사 문장(자유 질문 Tool만 넘긴다). 없으면 null
+     * 위젯·Tool 경로: 맞춤 후보를 {@code size}명까지 고르고 모자라면 인기순으로 채운다.
+     *
+     * @param interest 관심사 문장(자유 질문 Tool·버튼 경로만 넘긴다). 없으면 null
      */
     public InfluencerRecommendation recommend(long userId, @Nullable String interest) {
+        Pool pool = pool(userId, interest, properties.size());
+        return complete(pool, pool.memberIds());
+    }
+
+    /** 맞춤 후보만 최대 {@code size}명(인기순 채움 없음). 본인·추천 불가 제외는 여기서 적용한다 */
+    public Pool pool(long userId, @Nullable String interest, int size) {
         if (!memberVisibility.isVisible(userId)) {
-            return InfluencerRecommendation.forHiddenRequester();
+            return Pool.forHiddenRequester(userId);
         }
         Set<Long> partners = store.completedPartners(userId);
         InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
-        Map<Long, Candidate> chosen = new LinkedHashMap<>();
         // 리뷰 사본 전체를 훑는 값이라 요청마다 한 번만 센다(유사도 후보·인기순 채우기가 같이 쓴다)
         double overallMeanRating = store.overallMeanRating();
-        boolean needsInterest = false;
-        if (index.available() && embedder.available()) {
-            try {
-                Taste taste = taste(userId, me, partners, interest);
-                if (taste == null) {
-                    // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
-                    needsInterest = !hasOwnProfile(me);
-                } else {
-                    similar(userId, taste, chosen, overallMeanRating);
-                }
-                if (searchFailing.compareAndSet(true, false)) {
-                    log.info("인플루언서 추천 검색이 다시 된다");
-                }
-            } catch (VectorCall.Failure e) {
-                // 임베딩·ES 장애. 인기순으로 답한다. DB 오류·코드 오류는 감싸지 않아 그대로 올라간다
-                if (searchFailing.compareAndSet(false, true)) {
-                    log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
-                }
-                chosen.clear();
+        if (!index.available() || !embedder.available()) {
+            // 모델·ES를 끈 실행(설정). 다시 시도해도 같다
+            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false);
+        }
+        try {
+            Taste taste = taste(userId, me, partners, interest);
+            Pool pool;
+            if (taste == null) {
+                // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
+                pool = Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, !hasOwnProfile(me));
+            } else {
+                List<Candidate> similar = similar(userId, taste, overallMeanRating, size);
+                pool = similar.isEmpty() ? Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false)
+                        : new Pool(userId, partners, overallMeanRating, similar, RecommendBasis.PERSONALIZED, false, false);
+            }
+            if (searchFailing.compareAndSet(true, false)) {
+                log.info("인플루언서 추천 검색이 다시 된다");
+            }
+            return pool;
+        } catch (VectorCall.Failure e) {
+            // 임베딩·ES 장애. 인기순으로 답한다. DB 오류·코드 오류는 감싸지 않아 그대로 올라간다
+            if (searchFailing.compareAndSet(false, true)) {
+                log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
+            }
+            metrics.recommendSearchError(Feature.INFLUENCER_RECOMMEND);
+            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR_TEMPORARY, false);
+        }
+    }
+
+    /**
+     * 풀에서 고른 후보를 그 순서대로 두고, 추천 수에 모자라면 인기순으로 채워 답을 만든다.
+     *
+     * @param chosen 풀의 회원 ID(고른 순서). 풀에 없는 ID와 중복은 버린다
+     */
+    public InfluencerRecommendation complete(Pool pool, List<Long> chosen) {
+        if (pool.requesterHidden()) {
+            return InfluencerRecommendation.forHiddenRequester();
+        }
+        Map<Long, Candidate> byId = new LinkedHashMap<>();
+        for (Candidate candidate : pool.candidates()) {
+            byId.put(candidate.memberId(), candidate);
+        }
+        Map<Long, Candidate> picked = new LinkedHashMap<>();
+        for (Long id : chosen) {
+            Candidate candidate = byId.remove(id);
+            if (candidate != null && picked.size() < properties.size()) {
+                picked.put(id, candidate);
             }
         }
-        fillPopular(userId, chosen, overallMeanRating);
-        Map<Long, InfluencerProfile> profiles = store.profiles(chosen.keySet());
+        fillPopular(pool.userId(), picked, pool.overallMeanRating());
+        Map<Long, InfluencerProfile> profiles = store.profiles(picked.keySet());
         List<Candidate> items = new ArrayList<>();
-        for (Candidate candidate : chosen.values()) {
+        for (Candidate candidate : picked.values()) {
             InfluencerProfile profile = profiles.get(candidate.memberId());
             items.add(candidate.complete(profile == null ? List.of() : profile.categories(),
-                    partners.contains(candidate.memberId())));
+                    pool.partners().contains(candidate.memberId())));
         }
-        return new InfluencerRecommendation(items, needsInterest, false);
+        return new InfluencerRecommendation(items, pool.needsInterest(), pool.basis(), false);
     }
 
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
@@ -163,7 +205,7 @@ public class InfluencerRecommendUseCase {
     }
 
     // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명
-    private void similar(long userId, Taste taste, Map<Long, Candidate> chosen, double overallMeanRating) {
+    private List<Candidate> similar(long userId, Taste taste, double overallMeanRating, int size) {
         List<ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
                 properties.numCandidates(), NOT_HIDDEN));
         Map<Long, Double> similarity = new LinkedHashMap<>();
@@ -175,10 +217,10 @@ public class InfluencerRecommendUseCase {
         }
         similarity.keySet().retainAll(store.recommendableOf(similarity.keySet()));
         if (similarity.isEmpty()) {
-            return;
+            return List.of();
         }
         double beta = properties.popularityWeight();
-        List<Candidate> top = rank(store.popularityStats(similarity.keySet()), overallMeanRating, properties.size(),
+        List<Candidate> top = rank(store.popularityStats(similarity.keySet()), overallMeanRating, size,
                 (stats, normalizedPopularity) -> (1 - beta) * similarity.get(stats.memberId()) + beta * normalizedPopularity,
                 EnumSet.noneOf(InfluencerReason.class));
         List<Long> topIds = new ArrayList<>();
@@ -187,10 +229,12 @@ public class InfluencerRecommendUseCase {
         }
         Map<String, float[]> vectors = taste instanceof Taste.Mixed
                 ? VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds))) : Map.of();
+        List<Candidate> reasoned = new ArrayList<>();
         for (Candidate candidate : top) {
             float[] vector = vectors.get(InfluencerIndexPlan.docIdOf(candidate.memberId()));
-            chosen.put(candidate.memberId(), candidate.withReason(taste.reasonFor(vector)));
+            reasoned.add(candidate.withReason(taste.reasonFor(vector)));
         }
+        return reasoned;
     }
 
     // 모자란 자리를 인기순으로 채운다. 점수는 남은 후보 안에서 정규화한 인기다
@@ -274,12 +318,44 @@ public class InfluencerRecommendUseCase {
      * 추천 결과.
      *
      * @param needsInterest   개인 신호(내 프로필·함께 마친 상대)가 없어 인기순으로만 골랐다. 대화 화면이 관심사를 물어볼 수 있다
+     * @param basis           후보의 근거. 검색이 잠시 실패해 인기순으로 대신 답했으면 {@link RecommendBasis#POPULAR_TEMPORARY}
      * @param requesterHidden 요청 회원이 숨김이라 추천하지 않았다(items는 비어 있다)
      */
-    public record InfluencerRecommendation(List<Candidate> items, boolean needsInterest, boolean requesterHidden) {
+    public record InfluencerRecommendation(List<Candidate> items, boolean needsInterest, RecommendBasis basis,
+            boolean requesterHidden) {
 
         static InfluencerRecommendation forHiddenRequester() {
-            return new InfluencerRecommendation(List.of(), false, true);
+            return new InfluencerRecommendation(List.of(), false, RecommendBasis.POPULAR, true);
+        }
+    }
+
+    /**
+     * 맞춤 후보 풀. 인기순 채움이 없다. 버튼 경로는 이 풀을 LLM에 보여 주고 고른 순서로 {@link #complete}를 부른다.
+     *
+     * @param partners          함께 출연을 마친 상대(이유 {@code PAST_PARTNER})
+     * @param overallMeanRating 인기순으로 채울 때 쓰는 전체 평균 별점(요청마다 한 번 센다)
+     * @param candidates        점수 순 맞춤 후보
+     */
+    public record Pool(long userId, Set<Long> partners, double overallMeanRating, List<Candidate> candidates,
+            RecommendBasis basis, boolean needsInterest, boolean requesterHidden) {
+
+        public Pool {
+            partners = Set.copyOf(partners);
+            candidates = List.copyOf(candidates);
+        }
+
+        static Pool empty(long userId, Set<Long> partners, double overallMeanRating, RecommendBasis basis,
+                boolean needsInterest) {
+            return new Pool(userId, partners, overallMeanRating, List.of(), basis, needsInterest, false);
+        }
+
+        static Pool forHiddenRequester(long userId) {
+            return new Pool(userId, Set.of(), 0, List.of(), RecommendBasis.POPULAR, false, true);
+        }
+
+        /** 풀의 회원 ID(점수 순) */
+        public List<Long> memberIds() {
+            return candidates.stream().map(Candidate::memberId).toList();
         }
     }
 

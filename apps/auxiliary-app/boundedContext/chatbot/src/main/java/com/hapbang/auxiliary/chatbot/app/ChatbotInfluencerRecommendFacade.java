@@ -47,34 +47,35 @@ public class ChatbotInfluencerRecommendFacade {
     /** 후보만(LLM 없음, FE 추천 위젯) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommend(long userId) {
-        acquire(widgetRateLimiter, userId);
+        acquire(widgetRateLimiter, userId, Feature.INFLUENCER_RECOMMEND);
+        metrics.request(Feature.INFLUENCER_RECOMMEND);
         return mapper.response(candidates(userId));
     }
 
     /** 후보 + LLM 이유(챗봇 "인플루언서 추천받기" 버튼). LLM이 실패하면 이유 코드 문장 */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommendExplained(long userId) {
-        acquire(rateLimiter, userId);
+        acquire(rateLimiter, userId, Feature.INFLUENCER_BUTTON);
+        metrics.request(Feature.INFLUENCER_BUTTON);
         InfluencerRecommendation recommendation = candidates(userId);
         Explained explained = explainer.explain(recommendation.items());
         if (explained instanceof Explained.Fallback fallback) {
-            metrics.fallback(Feature.INFLUENCER_RECOMMEND, fallback.reason());
+            metrics.fallback(Feature.INFLUENCER_BUTTON, fallback.reason());
         }
         return mapper.explained(recommendation, explained.explanations(), explained instanceof Explained.Fallback);
     }
 
-    private void acquire(KeyedRateLimiter limiter, long userId) {
+    private void acquire(KeyedRateLimiter limiter, long userId, Feature feature) {
         try {
             limiter.acquire(String.valueOf(userId));
         } catch (RateLimitExceededException e) {
-            metrics.rateLimited(Feature.INFLUENCER_RECOMMEND);
+            metrics.rateLimited(feature);
             throw e;
         }
     }
 
-    // 버튼·위젯 경로는 관심사 문장을 받지 않는다(관심사는 자유 질문 Tool만)
+    // 버튼·위젯 경로는 아직 관심사 문장을 받지 않는다(버튼의 관심사는 #720 버튼 경로에서 받는다)
     private InfluencerRecommendation candidates(long userId) {
-        metrics.request(Feature.INFLUENCER_RECOMMEND);
         return useCase.recommend(userId, null);
     }
 }

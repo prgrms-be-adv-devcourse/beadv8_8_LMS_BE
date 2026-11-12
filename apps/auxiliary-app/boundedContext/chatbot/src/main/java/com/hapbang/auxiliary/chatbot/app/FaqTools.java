@@ -23,9 +23,12 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class FaqTools {
 
-    private final FaqSearchService searchService;
+    static final String TOOL_NAME = "searchFaq";
 
-    @Tool(name = "searchFaq", description = """
+    private final FaqSearchService searchService;
+    private final ChatbotMetrics metrics;
+
+    @Tool(name = TOOL_NAME, description = """
             합방 서비스 이용 방법과 정책을 묻는 질문에 쓴다. 회원가입·로그인, 인플루언서 채널 인증, HP 충전·환불, \
             수익·환전, 출연 요청·모집·취소·노쇼, 강의 구매·환불·판매, 채팅, 고객센터·이의 제기, 탈퇴 등에 대한 FAQ를 \
             뜻이 가까운 순서로 최대 몇 개 돌려준다. 결과가 비어 있으면 FAQ에 답이 없는 질문이다.""")
@@ -33,6 +36,7 @@ public class FaqTools {
             @ToolParam(description = "사용자의 질문을 한 문장으로. 예: 'HP 충전은 어떻게 해요?', '출연 취소하면 HP 돌려받나요?'")
             String question,
             ToolContext toolContext) {
+        metrics.toolCall(TOOL_NAME);
         List<FaqHit> hits = searchService.search(question);
         ChatToolContext.faqSources(toolContext).addAll(hits);
         return hits;

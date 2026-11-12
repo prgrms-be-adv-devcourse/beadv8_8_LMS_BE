@@ -186,9 +186,10 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("설명 API: LLM이 실패하면 fallback=true이고 후보는 그대로, 이유는 정해진 문장")
+    @DisplayName("설명 API: LLM이 실패하면 fallback=true이고 후보는 그대로, 이유는 정해진 문장. LLM 실패를 버튼 기능으로 센다")
     void explainedFallback() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
+        double fallbacks = count("hapbang.chatbot.fallbacks", "feature", "influencer_button");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -196,18 +197,26 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
                 .andExpect(jsonPath("$.data.items[*].memberId", contains(2, 3)))
                 .andExpect(jsonPath("$.data.items[0].explanation")
                         .value(InfluencerReason.SIMILAR_CATEGORY.getDescription()));
+        assertThat(count("hapbang.chatbot.fallbacks", "feature", "influencer_button")).isEqualTo(fallbacks + 1);
     }
 
     @Test
-    @DisplayName("설명 API는 회원마다 분당 10회, 위젯 API는 60회로 제한한다(넘으면 429). 두 한도는 따로 센다")
+    @DisplayName("설명 API는 회원마다 분당 10회, 위젯 API는 60회로 제한한다(넘으면 429). 두 한도는 따로 센다. "
+            + "사용 수·거절 수는 버튼(influencer_button)과 위젯(influencer_recommend)으로 나눠 센다")
     void rateLimit() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
+        double buttonRequests = count("hapbang.chatbot.requests", "feature", "influencer_button");
+        double buttonRejected = count("hapbang.chatbot.rate.limit.rejected", "feature", "influencer_button");
+        double widgetRequests = count("hapbang.chatbot.requests", "feature", "influencer_recommend");
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post(BASE + "/explained").with(login(21L, Role.USER))).andExpect(status().isOk());
         }
         mockMvc.perform(post(BASE + "/explained").with(login(21L, Role.USER))).andExpect(status().isTooManyRequests());
         // 설명 한도를 다 쓴 회원도 위젯은 부를 수 있다
         mockMvc.perform(get(BASE).with(login(21L, Role.USER))).andExpect(status().isOk());
+        assertThat(count("hapbang.chatbot.requests", "feature", "influencer_button")).isEqualTo(buttonRequests + 10);
+        assertThat(count("hapbang.chatbot.rate.limit.rejected", "feature", "influencer_button")).isEqualTo(buttonRejected + 1);
+        assertThat(count("hapbang.chatbot.requests", "feature", "influencer_recommend")).isEqualTo(widgetRequests + 1);
 
         for (int i = 0; i < 60; i++) {
             mockMvc.perform(get(BASE).with(login(22L, Role.USER))).andExpect(status().isOk());
@@ -218,7 +227,8 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("Tool: 인자 스키마에 회원 ID가 없고, 회원 ID는 ToolContext에서만 꺼낸다(없으면 거절). 관심사는 선택 인자다")
+    @DisplayName("Tool: 인자 스키마에 회원 ID가 없고, 회원 ID는 ToolContext에서만 꺼낸다(없으면 거절). 관심사는 선택 인자다. "
+            + "결과에 근거 코드가 있고 Tool 호출 수로 센다")
     void tool() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
         String schema = callback.getToolDefinition().inputSchema();
@@ -232,16 +242,18 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         // 설명 글에 줄 합치기로 생긴 연속 공백이 없다(모델 프롬프트로 그대로 나간다)
         assertThat(callback.getToolDefinition().description()).doesNotContain("  ");
 
-        double before = requests();
+        double requests = count("hapbang.chatbot.requests", "feature", "influencer_recommend");
+        double toolCalls = count("hapbang.chatbot.tool.calls", "tool", "recommendInfluencers");
         String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of())));
-        assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false")
-                .doesNotContain(SECRET_BIO);
-        // Tool 경로도 API와 같은 사용 지표로 센다
-        assertThat(requests()).isEqualTo(before + 1);
+        assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false",
+                "\"basis\":\"PERSONALIZED\"").doesNotContain(SECRET_BIO);
+        // Tool 경로는 Tool 호출 수로 센다(위젯 API의 사용 수에는 넣지 않는다)
+        assertThat(count("hapbang.chatbot.tool.calls", "tool", "recommendInfluencers")).isEqualTo(toolCalls + 1);
+        assertThat(count("hapbang.chatbot.requests", "feature", "influencer_recommend")).isEqualTo(requests);
     }
 
-    private double requests() {
-        Counter counter = meterRegistry.find("hapbang.chatbot.requests").tag("feature", "influencer_recommend").counter();
+    private double count(String name, String tagKey, String tagValue) {
+        Counter counter = meterRegistry.find(name).tag(tagKey, tagValue).counter();
         return counter == null ? 0 : counter.count();
     }
 

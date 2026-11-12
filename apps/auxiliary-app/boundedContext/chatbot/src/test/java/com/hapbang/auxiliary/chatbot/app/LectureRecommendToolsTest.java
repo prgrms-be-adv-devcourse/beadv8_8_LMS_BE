@@ -69,15 +69,18 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("회원 ID는 ToolContext에서 꺼낸다. 결과는 후보와 정해진 이유 문장(LLM을 부르지 않는다)")
+    @DisplayName("회원 ID는 ToolContext에서 꺼낸다. 결과는 후보·근거 코드·정해진 이유 문장(LLM을 부르지 않는다). Tool 호출 수를 센다")
     void usesToolContextMemberId() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
 
+        double toolCalls = toolCalls();
+
         String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of())));
 
-        assertThat(result).contains("\"lectureId\":10", "\"lectureId\":11", "\"needsInterest\":true", "\"personalized\":false",
+        assertThat(result).contains("\"lectureId\":10", "\"lectureId\":11", "\"needsInterest\":true", "\"basis\":\"POPULAR\"",
                 "요즘 많이 듣는 강의예요.");
         assertThat(chatModel.calls()).isZero();
+        assertThat(toolCalls()).isEqualTo(toolCalls + 1);
     }
 
     @Test
@@ -174,6 +177,11 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     private double fallbacks() {
         var counter = meterRegistry.find("hapbang.chatbot.fallbacks").tag("feature", "lecture_recommend").tag("reason", "error")
                 .counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    private double toolCalls() {
+        var counter = meterRegistry.find("hapbang.chatbot.tool.calls").tag("tool", "recommendLectures").counter();
         return counter == null ? 0 : counter.count();
     }
 }
