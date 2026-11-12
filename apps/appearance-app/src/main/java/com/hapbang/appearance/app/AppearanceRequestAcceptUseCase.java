@@ -11,6 +11,7 @@ import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequest;
+import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,9 @@ public class AppearanceRequestAcceptUseCase {
         appearanceRequestSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(request, now));
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
+        // 호스트에게 수락을 알리고, 알림센터가 요청 만료 임박 예약을 지우고 출연 예약을 만든다 (#871)
+        eventPublisher.publishEvent(new AppearanceRequestAcceptedEvent(AppearanceContractMapper.toRequestDto(request),
+                appearance.getId(), now));
         AfterCommit.run(() -> {
             log.info("출연 요청을 수락했다 requestId={}, appearanceId={}, guestId={}, hostId={}", requestId,
                     appearance.getId(), guestId, request.getHostId());

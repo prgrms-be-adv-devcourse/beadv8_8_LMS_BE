@@ -32,6 +32,7 @@ public class AppearanceHostCancelUseCase {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceHostCancelRecorder appearanceHostCancelRecorder;
+    private final AppearanceTitleSupport appearanceTitleSupport;
     private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
@@ -50,8 +51,9 @@ public class AppearanceHostCancelUseCase {
         Appearance appearance = appearanceSupport.getForUpdate(appearanceId);
         appearance.validateViewableBy(hostId);
 
-        Long taskId = appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, hostId,
-                confirmPendingCancelRequest, reason, LocalDateTime.now(clock));
+        Long taskId = appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance,
+                appearanceTitleSupport.titleOf(appearance), hostId, confirmPendingCancelRequest, reason,
+                LocalDateTime.now(clock));
         appearanceSupport.flushOrConflict();
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
