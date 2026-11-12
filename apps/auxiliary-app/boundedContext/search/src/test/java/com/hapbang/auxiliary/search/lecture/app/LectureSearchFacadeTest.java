@@ -3,9 +3,9 @@ package com.hapbang.auxiliary.search.lecture.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,22 +57,23 @@ class LectureSearchFacadeTest {
         assertThatThrownBy(() -> facade.search(Requester.member(1L), "프리미어", PageRequest.of(50, 20)))
                 .isInstanceOfSatisfying(SearchException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.PAGE_TOO_DEEP));
-        verify(searcher, never()).search(any(), anyDouble(), anyInt());
+        verify(searcher, never()).search(any(), any(), anyInt());
 
-        when(searcher.search(any(), anyDouble(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of()));
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of()));
         facade.search(Requester.member(1L), "프리미어", PageRequest.of(49, 20));
     }
 
     @Test
-    @DisplayName("ES에 닿지 못하면(평균 C를 구하지 못한 경우 포함) 503 SEARCH_UNAVAILABLE이고 error 지표를 남긴다")
+    @DisplayName("ES에 닿지 못하면 503 SEARCH_UNAVAILABLE이고 error 지표를 남긴다. 평점순은 평균 C를 못 구해도 503이다")
     void unavailable() {
-        when(searcher.search(any(), anyDouble(), anyInt())).thenThrow(new IllegalStateException("ES 장애"));
+        when(searcher.search(any(), any(), anyInt())).thenThrow(new IllegalStateException("ES 장애"));
         assertThatThrownBy(() -> facade.search(Requester.member(1L), null, PageRequest.of(0, 20)))
                 .isInstanceOfSatisfying(SearchException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.SEARCH_UNAVAILABLE));
 
         when(baseline.get()).thenThrow(new IllegalStateException("평균 C 실패"));
-        assertThatThrownBy(() -> facade.search(Requester.member(1L), "프리미어", PageRequest.of(0, 20)))
+        assertThatThrownBy(() -> facade.search(Requester.member(1L), null,
+                PageRequest.of(0, 20, Sort.by(Sort.Order.desc("rating")))))
                 .isInstanceOfSatisfying(SearchException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.SEARCH_UNAVAILABLE));
         assertThat(registry.counter("hapbang.search.requests", "target", "lecture", "outcome", "error").count())
@@ -82,13 +83,13 @@ class LectureSearchFacadeTest {
     @Test
     @DisplayName("평균 C는 검색어가 있는 기본 순서와 평점순에만 구하고, 최신순 목록에는 구하지 않는다")
     void baselineOnlyWhenNeeded() {
-        when(searcher.search(any(), anyDouble(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of()));
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of()));
         when(baseline.get()).thenReturn(4.2);
 
         facade.search(Requester.member(1L), null, PageRequest.of(0, 20));
         facade.search(Requester.member(1L), "프리미어", PageRequest.of(0, 20, Sort.by(Sort.Order.desc("latest"))));
         verify(baseline, never()).get();
-        verify(searcher, org.mockito.Mockito.times(2)).search(any(), eq(0.0), anyInt());
+        verify(searcher, org.mockito.Mockito.times(2)).search(any(), isNull(), anyInt());
 
         facade.search(Requester.member(1L), "프리미어", PageRequest.of(0, 20));
         facade.search(Requester.member(1L), null, PageRequest.of(0, 20, Sort.by(Sort.Order.desc("rating"))));
@@ -96,9 +97,20 @@ class LectureSearchFacadeTest {
     }
 
     @Test
+    @DisplayName("평균 C를 아직 모르면 기본 순서의 검색어 검색은 503 대신 평점 가산 없이(null) 찾는다")
+    void searchesWithoutBoostWhenBaselineUnknown() {
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of()));
+        when(baseline.get()).thenThrow(new IllegalStateException("아직 모름"));
+
+        facade.search(Requester.member(1L), "프리미어", PageRequest.of(0, 20));
+
+        verify(searcher).search(any(), isNull(), anyInt());
+    }
+
+    @Test
     @DisplayName("검색어로 0건이면 회원은 회원 ID, 비회원은 IP 해시로 서로 다른 검색자를 센다. IP를 믿을 수 없는 비회원은 세지 않는다")
     void zeroResultKeywords() {
-        when(searcher.search(any(), anyDouble(), anyInt())).thenReturn(new LectureSearcher.SearchResult(0, List.of()));
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(0, List.of()));
         PageRequest page = PageRequest.of(0, 20);
 
         facade.search(Requester.guest(null), "다빈치", page);

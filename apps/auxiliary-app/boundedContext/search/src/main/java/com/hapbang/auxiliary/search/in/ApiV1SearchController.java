@@ -53,7 +53,8 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
 
     /**
      * 로그인했으면 회원 ID로, 아니면 client IP 키로 센다. {@code @LoginUserId}는 비회원이면 401을 던져 쓰지 않는다. 비회원이면
-     * {@link Principal}이 null이다(Spring Security가 익명 인증을 사용자로 내놓지 않는다).
+     * {@link Principal}이 null이다(Spring Security가 익명 인증을 사용자로 내놓지 않는다). 이름은 늘 숫자다:
+     * {@code GatewayUserHeaderFilter}가 숫자가 아닌 {@code X-User-Id}는 인증하지 않는다(#883 코드 리뷰 8, global resolver를 바꾸지 않으려고 여기서 읽는다).
      */
     @Override
     @GetMapping("/lectures")

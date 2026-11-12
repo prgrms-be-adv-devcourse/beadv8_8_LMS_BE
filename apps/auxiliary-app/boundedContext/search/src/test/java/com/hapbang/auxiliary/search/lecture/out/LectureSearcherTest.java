@@ -132,6 +132,33 @@ class LectureSearcherTest {
     }
 
     @Test
+    @DisplayName("검색어가 있으면 highlights 객체가 늘 있다. 닉네임으로만 걸리면 닉네임 칸만 채우고 나머지는 비어 있다")
+    void highlightsAlwaysWithKeyword() throws Exception {
+        write(1L, "영상 기초", "소개", List.of("1강 설치"), seller(8L, "프리미어장인", true), null);
+        refresh();
+
+        LectureSearchItem.Highlights highlights = search("프리미어", LectureSort.DEFAULT).getFirst().highlights();
+
+        assertThat(highlights).isNotNull();
+        assertThat(highlights.sellerNickname()).isEqualTo("<em>프리미어</em>장인");
+        assertThat(highlights.title()).isNull();
+        assertThat(highlights.description()).isNull();
+        assertThat(highlights.contentTitles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("평균 C를 모르면(null) 평점 가산 없이 글 점수만 쓴다. 글이 같으면 강의 ID 내림차순이다")
+    void noBaselineNoBoost() throws Exception {
+        write(1L, "라이브 방송 기획", "소개", List.of(), seller(7L, "편집장", true), new LectureRating(5.0, 50));
+        write(2L, "라이브 방송 기획", "소개", List.of(), seller(7L, "편집장", true), new LectureRating(2.0, 50));
+        refresh();
+        LectureSearchCondition condition = new LectureSearchCondition("라이브 방송 기획", LectureSort.DEFAULT, 0, 20);
+
+        assertThat(ids(searcher.search(condition, null, 1_000).items())).containsExactly(2L, 1L);
+        assertThat(ids(searcher.search(condition, 3.5, 1_000).items())).containsExactly(1L, 2L);
+    }
+
+    @Test
     @DisplayName("동의어로도 찾는다(공통 동의어 묶음)")
     void synonyms() throws Exception {
         write(1L, "배틀그라운드 에임 강의", "소개", List.of(), seller(7L, "편집장", true), null);
@@ -149,7 +176,7 @@ class LectureSearcherTest {
         refresh();
 
         LectureSearcher.SearchResult result = searcher.search(new LectureSearchCondition(null, LectureSort.DEFAULT, 0, 2),
-                0, 3);
+                null, 3);
         assertThat(result.total()).isEqualTo(3);
         assertThat(result.items()).hasSize(2);
     }
@@ -164,7 +191,7 @@ class LectureSearcherTest {
     }
 
     private List<LectureSearchItem> search(String keyword, LectureSort sort) {
-        return searcher.search(new LectureSearchCondition(keyword, sort, 0, 20), 0, 1_000).items();
+        return searcher.search(new LectureSearchCondition(keyword, sort, 0, 20), null, 1_000).items();
     }
 
     private void write(long id, String title, String description, List<String> contentTitles, Seller seller,

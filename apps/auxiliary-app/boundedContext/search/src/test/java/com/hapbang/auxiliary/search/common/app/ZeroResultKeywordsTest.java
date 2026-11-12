@@ -48,6 +48,20 @@ class ZeroResultKeywordsTest {
     }
 
     @Test
+    @DisplayName("비회원 IP 둘만으로는 남기지 않는다(한 사람이 망을 바꿔 넘기지 못하게). 회원이 1명 이상 있어야 한다(#883 Q8)")
+    void needsMember() {
+        keywords.record("홍길동", "ip:aaaa");
+        keywords.record("홍길동", "ip:bbbb");
+        keywords.record("홍길동", "ip:cccc");
+        assertThat(keywords.flush()).isEmpty();
+
+        keywords.record("홍길동", "ip:aaaa");
+        keywords.record("홍길동", "ip:bbbb");
+        keywords.record("홍길동", 7L);
+        assertThat(keywords.flush()).containsExactly(Map.entry("홍길동", 3L));
+    }
+
+    @Test
     @DisplayName("이메일·URL·전화번호 모양과 30자를 넘는 말은 여러 명이 찾아도 세지 않는다")
     void excludesContactLike() {
         for (long user = 1; user <= 3; user++) {

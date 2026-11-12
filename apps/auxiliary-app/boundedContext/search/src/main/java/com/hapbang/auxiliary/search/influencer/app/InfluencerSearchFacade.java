@@ -37,6 +37,8 @@ public class InfluencerSearchFacade {
     /** 볼 수 있는 결과 범위(앞에서부터) */
     public static final int MAX_RESULT_WINDOW = 1_000;
 
+    static final String UNSUPPORTED_SORT_DETAIL = "지원하지 않는 정렬입니다. followers,desc 또는 rating,desc만 쓸 수 있습니다.";
+
     private final InfluencerSearcher searcher;
     private final RatingBaseline ratingBaseline;
     private final SearchMetrics.Target metrics;
@@ -103,7 +105,7 @@ public class InfluencerSearchFacade {
                 return InfluencerSort.RATING;
             }
         }
-        throw new SearchException(SearchErrorCode.UNSUPPORTED_SORT);
+        throw new SearchException(SearchErrorCode.UNSUPPORTED_SORT, UNSUPPORTED_SORT_DETAIL);
     }
 
     /** 앞뒤·연속 공백을 정리한다. 비면 null(검색어 없음) */

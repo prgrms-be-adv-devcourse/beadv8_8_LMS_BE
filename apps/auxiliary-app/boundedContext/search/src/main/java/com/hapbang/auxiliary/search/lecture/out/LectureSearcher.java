@@ -38,9 +38,11 @@ import co.elastic.clients.util.NamedValue;
  *     <li>filter: 검색에 보일 강의 = {@code hidden=false} 그리고 {@code sellerActive=true}(#882 Q2)</li>
  *     <li>must(검색어): {@code multi_match} best_fields, 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1, tie_breaker 0.3(L11).
  *     검색 분석기가 동의어를 펼친다</li>
- *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + b × 베이지안 평균 / 5). 글이 먼저고 평점은 비슷할 때만 가른다(L11)</li>
+ *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + b × 베이지안 평균 / 5). 글이 먼저고 평점은 비슷할 때만 가른다(L11).
+ *     전체 평균 C를 모르면(null) 가산 없이 글 점수만 쓴다(#883 코드 리뷰)</li>
  *     <li>highlight(검색어가 있을 때): {@code encoder: html}이라 원문의 HTML 특수 문자를 escape하고 걸린 말만 {@code <em>}으로 감싼다(L12).
- *     제목은 통째로, 소개는 걸린 곳 주변 한 조각(약 {@value #DESCRIPTION_FRAGMENT_SIZE}자), 콘텐츠 제목은 걸린 것만 통째로</li>
+ *     제목·판매자 닉네임은 통째로, 소개는 걸린 곳 주변 한 조각(약 {@value #DESCRIPTION_FRAGMENT_SIZE}자), 콘텐츠 제목은 걸린 것만 통째로.
+ *     검색어가 있으면 걸린 칸이 없어도 {@code highlights} 객체를 준다(검색어 없음과 구분)</li>
  * </ul>
  * 순서: 기본은 검색어가 있으면 점수, 없으면 최신. {@code latest}는 강의 ID 내림차순. {@code rating}은 베이지안 평균 (n×R + m×C)/(n+m) →
  * 리뷰 수. 모든 순서의 마지막은 강의 ID 내림차순이다(동점이 많아 없으면 문서를 다시 쓸 때 페이지 사이에서 같은 강의가 또 나오거나 빠진다).
@@ -74,12 +76,12 @@ public class LectureSearcher {
     }
 
     /**
-     * @param ratingBaseline 베이지안 평균의 전체 평균 C
+     * @param ratingBaseline 베이지안 평균의 전체 평균 C. 모르면 null(평점순에는 꼭 있어야 한다)
      * @param maxTotal       전체 건수를 이 값까지만 센다(페이지를 넘길 수 있는 범위)
      * @throws IllegalStateException ES에 닿지 못했거나 거절당했을 때(alias가 없는 처음 적재 전 포함)
      */
     @SuppressWarnings("rawtypes")
-    public SearchResult search(LectureSearchCondition condition, double ratingBaseline, int maxTotal) {
+    public SearchResult search(LectureSearchCondition condition, Double ratingBaseline, int maxTotal) {
         try {
             SearchResponse<Map> response = client.search(s -> {
                 s.index(LectureIndexDefinition.ALIAS)
@@ -93,7 +95,8 @@ public class LectureSearcher {
                 }
                 return s;
             }, Map.class);
-            List<LectureSearchItem> items = response.hits().hits().stream().map(LectureSearcher::item).toList();
+            boolean keyword = condition.keyword() != null;
+            List<LectureSearchItem> items = response.hits().hits().stream().map(hit -> item(hit, keyword)).toList();
             long total = response.hits().total() == null ? items.size() : response.hits().total().value();
             return new SearchResult(Math.min(total, maxTotal), items);
         } catch (IOException | ElasticsearchException e) {
@@ -114,7 +117,7 @@ public class LectureSearcher {
         }
     }
 
-    Query query(LectureSearchCondition condition, double ratingBaseline) {
+    Query query(LectureSearchCondition condition, Double ratingBaseline) {
         BoolQuery.Builder bool = visible();
         if (condition.keyword() == null) {
             return bool.build()._toQuery();
@@ -122,6 +125,9 @@ public class LectureSearcher {
         bool.must(m -> m.multiMatch(mm -> mm.query(condition.keyword()).fields(KEYWORD_FIELDS)
                 .type(TextQueryType.BestFields).tieBreaker(0.3)));
         Query base = bool.build()._toQuery();
+        if (ratingBaseline == null) {
+            return base;
+        }
         return Query.of(q -> q.scriptScore(ss -> ss.query(base)
                 .script(sc -> sc.source(src -> src.scriptString(RATING_BOOST_SCRIPT))
                         .params("b", JsonData.of(ranking.ratingBoost()))
@@ -136,7 +142,7 @@ public class LectureSearcher {
                 .filter(f -> f.term(t -> t.field("sellerActive").value(true)));
     }
 
-    List<SortOptions> sort(LectureSearchCondition condition, double ratingBaseline) {
+    List<SortOptions> sort(LectureSearchCondition condition, Double ratingBaseline) {
         List<SortOptions> sort = new ArrayList<>();
         if (condition.sort() == LectureSort.RATING) {
             sort.add(SortOptions.of(o -> o.script(ss -> ss.type(ScriptSortType.Number).order(SortOrder.Desc)
@@ -154,28 +160,27 @@ public class LectureSearcher {
     static Highlight highlight() {
         return Highlight.of(h -> h.encoder(HighlighterEncoder.Html).preTags("<em>").postTags("</em>")
                 .fields(NamedValue.of("title", HighlightField.of(f -> f.numberOfFragments(0))),
+                        NamedValue.of("sellerNickname", HighlightField.of(f -> f.numberOfFragments(0))),
                         NamedValue.of("description", HighlightField.of(f -> f.fragmentSize(DESCRIPTION_FRAGMENT_SIZE)
                                 .numberOfFragments(1))),
                         NamedValue.of("contentTitles", HighlightField.of(f -> f.numberOfFragments(0)))));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    static LectureSearchItem item(Hit<Map> hit) {
+    static LectureSearchItem item(Hit<Map> hit, boolean keyword) {
         Map<String, Object> source = hit.source();
         Object average = source.get("averageRating");
         return new LectureSearchItem(number(source.get("lectureId")), (String) source.get("title"),
                 number(source.get("sellerUserId")), (String) source.get("sellerNickname"),
                 average == null ? null : round(((Number) average).doubleValue()), number(source.get("reviewCount")),
-                highlights(hit.highlight()));
+                keyword ? highlights(hit.highlight()) : null);
     }
 
-    /** 검색어가 없으면 ES가 highlight를 주지 않아 null이다 */
+    /** 검색어가 있을 때만 부른다. 걸린 칸이 없으면 칸이 비어 있는 객체다 */
     private static LectureSearchItem.Highlights highlights(Map<String, List<String>> highlight) {
-        if (highlight == null || highlight.isEmpty()) {
-            return null;
-        }
-        return new LectureSearchItem.Highlights(first(highlight.get("title")), first(highlight.get("description")),
-                highlight.get("contentTitles"));
+        Map<String, List<String>> fields = highlight == null ? Map.of() : highlight;
+        return new LectureSearchItem.Highlights(first(fields.get("title")), first(fields.get("sellerNickname")),
+                first(fields.get("description")), fields.get("contentTitles"));
     }
 
     private static String first(List<String> fragments) {

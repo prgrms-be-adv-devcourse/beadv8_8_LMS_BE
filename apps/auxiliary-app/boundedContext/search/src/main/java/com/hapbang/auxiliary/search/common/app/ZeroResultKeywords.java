@@ -14,9 +14,10 @@ import lombok.extern.slf4j.Slf4j;
  * 필터 없이 검색어만으로 결과가 0건이던 검색어를 모아 주기마다 로그 한 줄로 남긴다(#771 Q9, Q18). 사전·동의어를 근거 있게 늘리려는 기록이다.
  * 검색어는 남의 이름·닉네임·연락처일 수 있어 아래 조건을 모두 지킨다({@code docs/dev/logging.md} "민감 정보"의 예외).
  * <ul>
- *     <li><b>서로 다른 검색자 {@value #MIN_SEARCHERS}명 이상이 찾은 말만</b> 남긴다. 한 사람만 입력한 말(이름 잘못 입력 등)은 로그에 나오지 않는다.
- *     검색자 키(회원 ID, 비회원이면 client IP 해시, L19)는 이 판단을 위해 메모리에서만 세고(검색어마다 {@value #MIN_SEARCHERS}명까지) 로그에 남기지
- *     않는다.</li>
+ *     <li><b>서로 다른 검색자 {@value #MIN_SEARCHERS}명 이상, 그중 회원 1명 이상이 찾은 말만</b> 남긴다. 한 사람만 입력한 말(이름 잘못 입력 등)은
+ *     로그에 나오지 않는다. 검색자 키(회원 ID, 비회원이면 client IP 해시, L19)는 이 판단을 위해 메모리에서만 세고(검색어마다
+ *     {@value #MIN_SEARCHERS}명까지) 로그에 남기지 않는다. 회원이 꼭 있어야 하는 것은 한 사람이 망을 바꿔(Wi-Fi·LTE) 비회원 IP 둘로 조건을 넘기지
+ *     못하게 하려는 것이다(#883 코드 리뷰 Q8). 비회원 검색도 셈에는 들어간다.</li>
  *     <li>이메일·URL·전화번호 모양, {@value #MAX_LENGTH}자를 넘는 말은 세지 않는다.</li>
  *     <li>누가 검색했는지 붙지 않게, 요청에서는 세기만 하고 로그는 배치 스레드가 찍는다(요청의 {@code userId}·{@code traceId}가 붙지 않음).</li>
  *     <li>검색어는 앞뒤·연속 공백을 정리하고 소문자로 바꿔 센다. 한 주기에 서로 다른 검색어는 {@value #MAX_KEYWORDS}개까지 세고 넘치면 수만 센다.
@@ -88,14 +89,14 @@ public class ZeroResultKeywords {
         }
     }
 
-    /** 서로 다른 검색자 {@value #MIN_SEARCHERS}명 이상이 찾은 검색어를 로그 한 줄로 남기고 비운다. 없으면 남기지 않는다 */
+    /** 서로 다른 검색자 {@value #MIN_SEARCHERS}명 이상(그중 회원 1명 이상)이 찾은 검색어를 로그 한 줄로 남기고 비운다. 없으면 남기지 않는다 */
     public Map<String, Long> flush() {
         Map<String, Long> shared;
         int distinct;
         long droppedCount;
         synchronized (this) {
             shared = tallies.entrySet().stream()
-                    .filter(entry -> entry.getValue().searchers.size() >= MIN_SEARCHERS)
+                    .filter(entry -> entry.getValue().shared())
                     .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().count));
             distinct = tallies.size();
             droppedCount = dropped;
@@ -113,17 +114,23 @@ public class ZeroResultKeywords {
         return top;
     }
 
-    /** 검색어 하나의 횟수와 찾은 검색자(최대 {@value #MIN_SEARCHERS}명까지만 기억) */
+    /** 검색어 하나의 횟수와 찾은 검색자(최대 {@value #MIN_SEARCHERS}명까지만 기억), 회원이 찾았는지 */
     private static final class Tally {
 
         private final Set<Object> searchers = new HashSet<>();
         private long count;
+        private boolean member;
 
         void add(Object searcher) {
             count++;
+            member |= searcher instanceof Long;
             if (searcher != null && searchers.size() < MIN_SEARCHERS) {
                 searchers.add(searcher);
             }
+        }
+
+        boolean shared() {
+            return searchers.size() >= MIN_SEARCHERS && member;
         }
     }
 }
