@@ -1,16 +1,17 @@
 # 검색(search) 모듈
 
-auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾고, 비회원을 포함한 누구나 검색어로 판매 중인 강의를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다. 강의 검색(부모 #881)은 index 채우기(#882, 13장)와 검색 API(#883, 14장)까지 왔다. 보정·처음 적재는 #884다.
+auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾고, 비회원을 포함한 누구나 검색어로 판매 중인 강의를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다. 강의 검색(부모 #881)은 index 채우기(#882, 13장), 검색 API(#883, 14장), 보정·처음 적재·재색인(#884, 15장)까지 왔다.
 
 - 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장), #882(강의 검색 1: 사본과 강의 색인, 13장), #883(강의 검색 2: 검색 API, 14장).
 - 이 문서와 코드가 다르면 코드가 맞다. 확인한 뒤 이 문서를 고친다.
 
 ## 1. 지금 범위
 
-| 한다 (#771, #772, #773, #882, #883) | 아직 안 한다 |
+| 한다 (#771, #772, #773, #882, #883, #884) | 아직 안 한다 |
 | --- | --- |
 | 회원 이벤트로 문서 넣기·숨기기(회원 version 조건부 쓰기, tombstone) | 원본·index 문서 수 차이 alert(지표만 낸다, #772 Q2) |
-| 강의·리뷰·회원 이벤트로 강의 문서 넣기·숨기기·평점·판매자 반영(#882, 13장) | 강의 보정·처음 적재·재색인(#884), 강의 가격·가격 정렬 |
+| 강의·리뷰·회원 이벤트로 강의 문서 넣기·숨기기·평점·판매자 반영(#882, 13장) | 강의 가격·가격 정렬(#909) |
+| 강의·리뷰·판매자 사본 보정, 강의 index 처음 적재·무중단 재색인(#884, 15장) | 강의·리뷰 변경분 API(데이터가 커져 전체 읽기 보정이 길어지면, 15장) |
 | 10분마다 통계(채널·팔로워·평점)와 분야 이름 맞추기 | |
 | 10분마다 이벤트를 놓친 회원 바로잡기(증분 보정, #772) | 관리자 재색인 API, Kafka offset으로 다시 읽기(#773에서 검토하고 넣지 않음, 7장) |
 | 원본·index 문서 수 비교 지표(#772) | 모집 검색, 통합 검색 |
@@ -96,7 +97,8 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | 계층 | 클래스 | 하는 일 |
 | --- | --- | --- |
 | in | `SearchLectureEventListener` | 강의 이벤트 소비(`lecture.events.v1`, 그룹 `auxiliary-app.search-lecture`). 강의·리뷰 변경 2종만 쓴다 |
-| in | `LectureSearchBatch` | tombstone 정리(매일 04:40), 강의 0건 검색어 로그(10분) |
+| in | `LectureSearchBatch` | 강의 보정(끝난 뒤 10분), 판매자 사본 보정(끝난 뒤 10분), 리뷰 보정(끝난 뒤 1시간), 처음 적재·재색인 확인(끝난 뒤 10분), tombstone 정리(매일 04:40), 강의 0건 검색어 로그(10분) |
+| in | `LectureIndexStartup` | 기동 뒤 다른 스레드에서 강의 처음 적재·재색인 확인(15장) |
 | app | `LectureSearchFacade` | 강의 검색 조건 검사, 호출 제한, 지표, 0건 검색어(14장) |
 | app | `LectureSearchRateLimit` | 회원 ID·client IP 키별 호출 제한과 지표(14장) |
 | app | `LectureRatingBaseline`, `LectureZeroResultKeywords` | 강의 평점 전체 평균 C, 강의 0건 검색어(`target=lecture`) |
@@ -104,10 +106,16 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `LectureIndexer` | 강의 → 문서 넣기·숨기기, 리뷰 → 리뷰 사본·평점 다시 세기 |
 | app | `SellerIndexer` | 회원 → 회원 사본, 닉네임·상태가 바뀌면 그 판매자의 강의 문서 고치기 |
 | app | `LectureTombstoneCleanup` | 강의 index의 tombstone 정리(한 pod만, `JobLock` 882_001) |
+| app | `LectureReconciler` | 강의 보정: 강의 동기화 API 전체와 문서 version 비교, 원본에 없는 문서 숨김(한 pod만, `JobLock` 884_001, 15장) |
+| app | `LectureReviewReconciler`, `LectureCopyAligner` | 리뷰 보정: 리뷰 사본 맞추기 + 모든 문서의 판매자·평점 칸을 사본과 맞추기(`JobLock` 884_002, 15장) |
+| app | `SellerChangeReconciler` | 판매자 사본 증분 보정: 회원 변경분을 자기 커서(`seller-changes`)로 읽어 반영(`JobLock` 884_003, 15장) |
+| app | `LectureReindexer`, `LectureIndexLoader`, `LectureIndexCatchUp` | 공통 `Reindexer`에 강의 부품을 끼운다(`JobLock` 884_004). 채우기는 회원 사본 → 리뷰 사본 → 강의, 따라잡기는 강의 보정 + 칸 맞추기(15장) |
+| app | `LectureSyncMetrics`, `LectureReconcileKind` | 강의 보정 지표와 결과 종류(9장) |
 | out | `LectureIndexDefinition`, `LectureIndexSetup` | 대상 이름(`lectures`)·alias·지표 대상 값(`lecture`)과, 그 정의를 채운 `IndexSetup` |
-| out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query` |
+| out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query`, 처음 적재 bulk, 보정용 문서 읽기(mget·페이지)·원본에 없는 문서 숨기기(#884) |
+| out | `LectureSyncSource`, `SearchLectureApiSyncSource` | 강의 동기화 내부 API(강의·리뷰 전체, [계약](../api/internal-lecture-sync.md) 4장) |
 | out | `LectureSearcher` | 강의 검색 쿼리·정렬·highlight, 평균 C 집계(14장) |
-| out | `SearchMemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. JDBC |
+| out | `SearchMemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. 여러 판매자·강의를 한 번에 읽기, 원본에 없는 리뷰 지우기(#884). JDBC |
 
 ### 새 대상(강의·모집)을 붙이는 법
 
@@ -291,12 +299,14 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reconcile.duration{outcome}` | 보정 1회 소요 시간. outcome = success·failure. 길어지면 규모를 다시 판단한다 |
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
 | `hapbang.search.reindex.duration{target, reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). `target` 태그는 #868에서 더했다. reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
-| `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수) |
+| `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수, 강의는 판매 중 강의 수) |
+| `hapbang.search.lecture.reconcile.items{job, kind}` | 강의 보정이 본 항목 수(15장). job = lecture·review·seller. 놓친 이벤트를 바로잡은 kind는 inserted·overwritten·hidden(강의), copied·review_deleted(사본), seller_fixed·rating_fixed(칸 맞추기)이고 already_applied·skipped는 아니다. 인플루언서 `reconcile.members`와 이름을 나눈 것은 같은 이름에 태그 키가 다르면 Prometheus가 받지 않기 때문이다 |
+| `hapbang.search.lecture.reconcile.duration{job, outcome}` | 강의 보정 1회 소요 시간. outcome = success·failure |
 | `hapbang.search.rate.limit.rejected{target, requester}` | 호출 제한으로 429를 준 수(강의 검색만, #883). requester = member·guest |
 | `hapbang.search.rate.limit.skipped{target}` | client IP가 공인 주소가 아니라 IP 호출 제한을 건너뛴 비회원 요청 수. 0이 아니면 Envoy 앞 경로를 확인한다(14장) |
 | `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(`SynonymsCheck` 10분 확인마다 한 번, 대상 수와 상관없음, #895). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
-| `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
+| `kafka_consumer_fetch_manager_records_lag` | 회원·강의 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`·`auxiliary-app.search-lecture`로 보인다 |
 
 - 회원 ID는 지표 태그에 넣지 않는다. 문서 수 차이 alert는 두지 않았다(#773 처음 적재 전에는 차이가 늘 0이 아니다, #772 Q2).
 
@@ -348,6 +358,11 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `ApiV1LectureSearchControllerTest` | 강의 검색 API: 비회원·회원, 정렬, 400 세 종류, 처음 적재 전 503, 회원 429·`Retry-After`, **비회원은 X-Forwarded-For·X-Real-IP·X-Envoy-External-Address를 바꿔도 같은 IP라 429**, 회원·비회원 한도 분리, 사설 주소는 건너뜀·지표, 0건 검색어 |
 | `ClientIpKeyTest` | 공인 주소가 아닌 주소 12가지, 키에 IP 원문 없음, IPv6 /64, pod마다 다른 비밀값 |
 | `LectureGoldenQueryTest` | 강의 대표 검색어 20개, LIKE 규칙 재현 비교와 평점 가산 격자(`build/golden-query-lecture.md`) |
+| `LectureReconcilerTest` | 강의 보정(#884): 놓친 등록(판매자·평점 채움)·수정·판매 중지, 더 새 문서는 그대로, **원본에 없는 문서 숨김**(읽는 동안 생긴 강의·빈 원본은 그대로), 숨긴 뒤 원본에 다시 나타난 강의, 처음 적재 전 |
+| `LectureReviewReconcilerTest` | 리뷰 보정: 놓친 리뷰·원본에 없는 리뷰, **평점 칸 경합으로 남은 옛 평균을 바로잡음**, 판매자 칸 맞추기(더 새 문서는 그대로), 처음 적재 전엔 사본만 |
+| `SellerChangeReconcilerTest` | 판매자 사본 보정: 처음은 지금부터, 놓친 정지, 이미 반영·판매자 아닌 회원, 처음 적재 전엔 사본만 |
+| `LectureReindexerTest` | 강의 처음 적재: 일부만 찬 사본도 모두 맞춤, 판매자·평점·숨김, **적재 중 바뀐 강의·리뷰·판매자가 교체 뒤 반영**, 해시가 같으면 안 함, 실패하면 alias 없음·새 index 삭제, 거절된 강의 건너뜀 |
+| `LectureDocumentStoreReconcileTest`, `LectureReindexWiringTest` | 새 index bulk·mget·페이지 읽기·숨기기(강의 version 지움), 기동·10분 확인이 재색인 실행기로 넘김 |
 
 ## 12. 알려진 한계
 
@@ -359,7 +374,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ## 13. 강의 검색: 사본과 강의 색인 (#882)
 
-강의·리뷰·회원 이벤트로 강의 index(`search-lectures-<해시>`, alias `search-lectures`)를 채운다. 결정은 강의 검색 grill L5·L7·L8과 #882 Q1~Q6이다. 검색 API는 14장(#883)이고, 보정·처음 적재(#884)는 아직 없다. **#884 전에는 운영에 강의 index가 없어 문서 쓰기를 건너뛰고 사본만 고친다**(정상).
+강의·리뷰·회원 이벤트로 강의 index(`search-lectures-<해시>`, alias `search-lectures`)를 채운다. 결정은 강의 검색 grill L5·L7·L8과 #882 Q1~Q6이다. 검색 API는 14장(#883), 보정·처음 적재·재색인은 15장(#884)이다. 처음 적재가 끝나기 전(alias 없음)에는 문서 쓰기를 건너뛰고 사본만 고친다(정상).
 
 ### 사본 (search schema)
 
@@ -397,7 +412,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - **회원**: 사본에 적고, 닉네임·상태가 바뀌었으면(처음 받은 회원 포함) 그 판매자의 모든 강의 문서(숨김 포함)를 `update_by_query`로 고친다. 같은 version을 다시 받으면 사본 값으로 다시 고친다(재시도). 회원 소비자는 인플루언서 반영이 실패해도 판매자 반영은 하고 실패를 그 뒤에 던진다. 고치기 전에 refresh해 방금 만든 문서를 놓치지 않고, 강의 쓰기와 충돌한 문서가 있으면 실패로 보고 다시 시도한다(건너뛰면 옛 판매자 값이 남는다).
 - **판매자 칸은 회원 version으로 옛 값을 막는다**(PR #906 리뷰 Q12). 채우기(강의 소비자)와 `update_by_query`(회원 소비자)는 다른 스레드라 동시에 돈다. 강의 소비자가 사본을 읽은 뒤 쓰기 전에 회원 소비자가 정지를 반영하면, 늦게 쓴 옛 "정상" 값이 정지를 되돌릴 수 있다. 그래서 문서의 `sellerVersion`보다 작은 회원 version이면 판매자 칸을 쓰지 않는다(같은 version은 쓴다. version 없는 정보는 문서에도 version이 없을 때만). #884 보정은 강의 version만 비교하므로 이 보호가 없으면 어긋남이 저절로 풀리지 않는다.
 - **회원 파기(마스킹)**: 회원 앱은 복구 기한이 지난 탈퇴 회원을 파기할 때 닉네임을 `탈퇴회원#{회원ID}`로 바꾸고 `UserModifiedEvent`(version 증가)와 `UserMaskedEvent`를 함께 보낸다(정책 "파기 방법 (#594)"). 검색은 `UserModifiedEvent`로 회원 사본 닉네임을 바꾸고 그 판매자의 강의 문서 `sellerNickname`도 고치므로 원래 닉네임이 남지 않는다. 그래서 `UserMaskedEvent`는 받지 않는다(같은 일을 두 길로 하지 않게, PR #906 리뷰 Q13). 탈퇴한 판매자에게는 판매 중·검수 대기 강의가 없어 그 강의 문서는 숨김 문서로 7일 뒤 정리된다.
-- 회원 사본에 아직 없는 판매자의 강의는 닉네임 없이 정상 판매자로 넣고 회원 이벤트가 채운다(L5). #884 처음 적재는 회원 사본을 먼저 채운다.
+- 회원 사본에 아직 없는 판매자의 강의는 닉네임 없이 정상 판매자로 넣고 회원 이벤트가 채운다(L5). 처음 적재는 회원 목록 전체로 회원 사본을 먼저 맞춘다(15장).
 - 사본(DB)은 alias가 없어도 고친다. 처음 적재(#884)가 사본으로 문서를 만들기 때문이다(L14). 문서 쓰기만 건너뛴다(DEBUG).
 
 ### 강의 이벤트 소비
@@ -409,12 +424,12 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ### 한계
 
-- 평점 다시 세기와 보정(#884)이 같은 강의를 동시에 세면 늦게 센 쪽이 먼저 쓰여 잠깐 옛 값이 남을 수 있다. 소비자 스레드가 하나라 이벤트끼리는 생기지 않고, 다음 리뷰 이벤트나 보정이 바로잡는다.
+- 평점 다시 세기와 보정·따라잡기(#884)가 같은 강의를 동시에 세면 먼저 읽고 늦게 쓴 쪽의 옛 값이 남을 수 있다(평점 칸은 판매자 칸과 달리 version 보호가 없다). 소비자 스레드가 하나라 이벤트끼리는 생기지 않고, 리뷰 보정의 칸 맞추기가 최대 1시간 안에 바로잡는다(15장).
 - 판매자 정보를 강의 문서에 다시 맞출 때마다 강의 index를 refresh한다. 닉네임·상태 변경과 처음 보는 회원(새 가입)마다 한 번 돈다. 강의 index는 문서가 적고 가입 직후 회원은 강의가 없어 `update_by_query`가 0건으로 끝나므로 부담이 작다(#882 리뷰 Q8).
 
 ## 14. 강의 검색 API (#883)
 
-`GET /api/v1/search/lectures` (누구나. 회원이면 회원 한도로 센다). 결정은 강의 검색 grill L2·L9~L12·L18~L20(#881)과 #883이다. **#884 전에는 운영에 강의 index가 없어 503 `SEARCH_UNAVAILABLE`이다**(정상).
+`GET /api/v1/search/lectures` (누구나. 회원이면 회원 한도로 센다). 결정은 강의 검색 grill L2·L9~L12·L18~L20(#881)과 #883이다. 처음 적재가 끝나기 전(alias 없음)에는 503 `SEARCH_UNAVAILABLE`이다(정상, 15장).
 
 | 파라미터 | 뜻 |
 | --- | --- |
@@ -454,3 +469,50 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 비회원이 무작위 검색어로 0건 기록 상한(한 주기 서로 다른 검색어 1,000개)을 채우면 그 주기의 다른 후보가 `dropped`로 빠진다. 잃는 것은 그 주기의 진단 로그뿐이다.
 - 비회원 limiter는 키를 10,000개까지 두고 넘으면 오래 안 쓴 키를 지운다. 그보다 많은 IP를 돌리면 밀려난 키가 새 한도로 시작한다. IP 1만 개 이상을 쓰는 남용은 IP별 한도로 막을 수 없는 규모이고, 지금 운영 도메인에는 IPv6(AAAA)가 없다.
 - 가격 표시·가격 정렬은 없다(강의 가격 칸이 생기면 더한다).
+
+## 15. 강의 보정과 처음 적재·재색인 (#884)
+
+강의 이벤트를 놓쳐도 강의 index가 원본과 맞게 하고, 운영에 강의 index를 무중단으로 처음 적재·재색인한다. 흐름은 인플루언서(6·7장)와 같고, 강의·리뷰에는 변경분 API가 없어 **키셋 전체 읽기 + 비교**로 한다(챗봇 강의 싱크 #717과 같은 방식).
+
+### 보정
+
+| 보정 | 주기·락 | 하는 일 |
+| --- | --- | --- |
+| 강의(`LectureReconciler`) | 끝난 뒤 10분(기동 3분 뒤), `JobLock` 884_001 | 강의 동기화 API를 500개씩 끝까지 읽고, 페이지마다 문서를 한 번에 읽어(mget) 문서가 없거나 강의 version이 작은(없는) 강의만 이벤트와 같은 `LectureIndexer.apply`로 쓴다. 끝까지 읽은 뒤 보이는 문서 중 원본에 없는 강의를 숨긴다 |
+| 판매자 사본(`SellerChangeReconciler`) | 끝난 뒤 10분(기동 4분 뒤), `JobLock` 884_003 | 회원 변경분(#769)을 자기 커서(`search.sync_cursor`의 `seller-changes`)부터 읽어, 사본보다 새 version인 회원만 이벤트와 같은 `SellerIndexer.apply`로 반영한다 |
+| 리뷰(`LectureReviewReconciler`) | 끝난 뒤 1시간(기동 5분 뒤), `JobLock` 884_002 | 리뷰 동기화 API를 끝까지 읽어 리뷰 사본에 version 비교로 반영하고, 원본에 없는 리뷰는 사본에서 지운다. 이어서 **모든 문서의 판매자·평점 칸을 사본과 맞춘다**(`LectureCopyAligner`) |
+
+- **비교는 한 곳**(`LectureReconciler.needsWrite`)이다. 같은 version인데 원본 가격이 있고 문서 가격과 다르면 다시 쓰는 조건은 강의 문서에 가격 칸이 생긴 뒤(#909)에만 넣을 수 있다. 가격 칸 없이 넣으면 모든 강의가 다르게 보여 10분마다 전체를 다시 쓴다. #909의 같은 version 가격 고치기는 강의 쓰기 결과가 `NOOP`이라, 보정 건수는 쓰기 결과가 아니라 쓰기 전 비교로 센다.
+- **원본에 없는 문서 숨기기**: 강의는 Soft Delete라 평소에는 없다(강의 DB를 되돌린 경우). 읽는 동안 생긴 강의(마지막으로 읽은 ID보다 큰 ID)는 건너뛰고, 원본이 0개면 숨기지 않는다(강의 앱 응답이 잘못돼 모두 숨기지 않게). 숨길 때 **강의 version을 지운다.** IDENTITY는 먼저 받은 ID가 늦게 커밋될 수 있어 원본에 있는 강의를 잘못 숨길 수 있는데, version을 지워 두면 다음 보정·이벤트가 같은 version으로도 다시 보이게 한다.
+- **평점 칸 맞추기**: 평점 칸은 판매자 칸(`sellerVersion`)과 달리 version 보호가 없어, 리뷰 반영(소비자)과 보정·따라잡기(다른 스레드)가 같은 강의를 동시에 세면 먼저 읽고 늦게 쓴 옛 평균이 남을 수 있다. 잠금(강의별 DB 잠금)이나 version(사본 갱신 번호)을 두지 않고, 리뷰 보정이 모든 문서를 리뷰 사본 집계와 비교해 최대 1시간 안에 바로잡는다. 잠금은 모든 평점 쓰기가 DB 트랜잭션 안에서 ES를 기다리게 하고, 갱신 번호는 커밋 순서가 번호 순서와 다를 때 구멍이 남는다.
+- **판매자 칸 맞추기**: 회원 사본에 없는 판매자는 건너뛰고, 쓰기는 회원 version 조건이라 문서가 더 새 값이면 noop이다. 회원 이벤트가 사본은 고쳤지만 문서 쓰기가 실패해 DLT로 간 경우, 판매자 보정은 사본이 이미 그 version이라 건너뛰고 이 칸 맞추기가 고친다.
+- **판매자 사본 보정이 인플루언서 증분 보정과 따로인 이유**: 인플루언서 index가 없거나 그쪽 쓰기가 실패해도 판매자 보정이 돌게 하고, "대상은 공통만 참조한다"(3장)를 지킨다. 같은 회원 변경분 API를 10분마다 한 번 더 읽는다(변경이 없으면 요청 1번). 같은 version을 다시 반영하면 사본이 재시도로 보고 `update_by_query`를 다시 돌리므로, 페이지마다 사본 version을 먼저 읽어 이미 반영한 회원은 부르지 않는다.
+- 사본(DB)은 alias가 없어도 맞춘다. 문서 쓰기·칸 맞추기만 처음 적재 전이면 건너뛴다(INFO, 7장 "처음 적재하는 동안"과 같다).
+- 보정한 항목은 하나마다 INFO 한 줄(`강의 이벤트를 놓친 강의 검색 문서를 보정했다`, `원본에 없는 강의의 검색 문서를 숨겼다`, `리뷰 이벤트를 놓친 리뷰 사본을 보정했다`, `회원 이벤트를 놓친 판매자 정보를 강의 검색 문서에 보정했다`, `… 판매자 칸을 고쳤다`, `… 평점 칸을 고쳤다`), 회차마다 INFO 한 줄로 종류별 건수를 남긴다. 지표는 9장 `hapbang.search.lecture.reconcile.*`다.
+- 실패: 강의·회원 앱이나 ES를 부르지 못하면 회차를 멈추고(WARN) 다음 회차에 처음부터(판매자는 저장한 커서부터) 다시 한다. ES가 그 강의 값 때문에 거절한 강의는 건너뛰고 센다(`skipped`).
+
+### 처음 적재·재색인
+
+공통 `Reindexer`(7장)가 하고, 강의는 채우기(`LectureIndexLoader`)와 따라잡기(`LectureIndexCatchUp`)만 넘긴다. 기동 뒤 다른 스레드에서 한 번(`LectureIndexStartup`), 그 뒤 10분마다 확인한다(`LectureSearchBatch`, 인플루언서와 같은 `hapbang.search.reindex-check-interval`). 락은 `JobLock` 884_004라 인플루언서 처음 적재와 함께 돈다. 지표·로그의 `target=lecture`다.
+
+1. (공통) 남은 index를 지우고, 시각 T를 기록한 뒤 새 index를 alias 없이 만든다.
+2. **회원 사본 맞추기**: 회원 목록 API(모든 회원)를 끝까지 읽어 회원 사본에 version 비교로 반영한다. 판매자 칸을 채우기 전에 해야 기존 판매자의 닉네임·정지 상태가 빠지지 않는다.
+3. **리뷰 사본 맞추기**: 리뷰 보정과 같은 코드로 리뷰 동기화 API 전체를 반영한다.
+4. **강의 넣기**: 강의 동기화 API를 끝까지 읽어 페이지마다 그 판매자·평점 사본을 한 번에 읽고 bulk로 넣는다. 강의 이벤트와 같은 script·값이라 #909의 가격도 같이 들어가고, 판매 중이 아닌 강의는 숨김 문서다.
+5. (공통) refresh 뒤 넣은 판매 중 강의 수와 보이는 문서 수(`hidden=false`)를 비교하고 alias를 한 요청으로 옮긴다.
+6. **따라잡기**: 강의 보정 한 번 + 판매자·평점 칸 맞추기 한 번. 채우는 동안의 강의 이벤트는 옛 index로 갔거나(재색인) 건너뛰었고(처음 적재), 회원·리뷰 이벤트는 사본만 고쳤다. 변경분 API가 없어 시각이 아니라 전체 비교로 따라잡는다(겹쳐 읽기 없음). 강의 정기 보정과 같은 락이라 그 보정이 돌고 있으면 5초마다 최대 5분 다시 부른다.
+
+- **사본은 "비어 있을 때만"이 아니라 처음 적재·재색인마다 맞춘다**(#881의 처음 적재 순서 "사본이 비어 있으면 채움"을 바꿈). 운영 사본은 #882 배포 뒤 들어온 이벤트로 일부만 차 있어 비었는지로 고르면 그 전 판매자·리뷰가 빠진다. 이미 같은 행은 version으로 그대로라 결과가 같고, 처음 적재와 재색인이 같은 길이 된다. 재색인은 사전·mapping이 바뀔 때만 돌아 드물고, 회원 목록 읽기는 인플루언서 재색인도 하는 일이다.
+- 기존 강의의 가격(#885 전에 발행된 이벤트로 넣은 문서)은 처음 적재가 강의 동기화 API 전체를 읽어 채운다(#913). 강의 쓰기는 같은 version이면 noop이라 가격 칸이 생긴 뒤 보정만으로는 채워지지 않는다(#909가 같은 version 가격 고치기를 더한다).
+- 실패하면 alias는 그대로(처음 적재면 alias 없음), 새 index를 지우고 10분 뒤 다시 확인한다(7장과 같다).
+
+### 처음 적재 직후
+
+- 적재 직후 최대 1분은 평균 C를 아직 몰라 검색어 검색이 평점 가산 없이 정렬되고, 평점순만 503이다(14장 한계, #883). C를 구하지 못하면 1분 동안 다시 묻지 않기 때문이다.
+- 처음 적재가 끝나기 전 검색 API는 503 `SEARCH_UNAVAILABLE`이다. 운영에서 강의 검색이 열리는 때는 처음 적재가 끝난 때다(로그 `검색 index를 처음 적재 끝냈다 target=lecture`).
+
+### 한계
+
+- 보정 건수는 페이지 앞에서 한 번 읽은 문서와의 비교로 센다. 그 사이 같은 강의의 이벤트가 먼저 반영되면 놓친 이벤트가 아닌데도 보정으로 셀 수 있다(인플루언서 6장 한계와 같다).
+- 강의·리뷰 보정은 매 회차 전체를 읽는다. 지금 규모(강의 수백~수천, 리뷰 수천)에서는 수 초다. 커지면 `reconcile.duration`을 보고 변경분 API(`lecture.updated_at` 인덱스 + `lecture_review.sync_changed_at`)를 검토한다. 보정은 인플루언서 증분 보정처럼 앱 공용 스케줄러 스레드에서 돈다.
+- 판매자 사본 커서도 처음에는 지금 시각부터 읽는다. 첫 회차 전에 놓친 회원 이벤트는 처음 적재의 회원 사본 맞추기와 다음 재색인이 맞춘다.
