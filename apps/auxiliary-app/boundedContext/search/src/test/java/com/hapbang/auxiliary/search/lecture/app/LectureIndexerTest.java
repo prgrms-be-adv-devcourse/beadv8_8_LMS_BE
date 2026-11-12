@@ -205,6 +205,27 @@ class LectureIndexerTest {
     }
 
     @Test
+    @DisplayName("채우기가 사본을 읽은 뒤 쓰기 전에 회원 소비자가 판매자를 정지로 바꿔도, 늦게 쓴 옛 판매자 값이 정지를 되돌리지 못한다(PR #906 리뷰 Q12)")
+    void staleFillDoesNotRevertSellerChange() throws Exception {
+        sellerIndexer.apply(member("편집장", UserStatus.ACTIVE, 1L));
+        AtomicBoolean raceOnce = new AtomicBoolean(true);
+        LectureDocumentStore racing = new LectureDocumentStore(client) {
+            @Override
+            public WriteOutcome writeSeller(long lectureId, Seller seller) {
+                if (raceOnce.getAndSet(false)) {
+                    // 채우기는 이미 version 1(정상)을 읽었다. 그사이 회원 소비자가 정지(version 2)를 반영한다
+                    sellerIndexer.apply(member("편집장", UserStatus.SUSPENDED, 2L));
+                }
+                return super.writeSeller(lectureId, seller);
+            }
+        };
+
+        new LectureIndexer(indexSetup, racing, members, reviews, CLOCK).apply(lecture("제목", true, 0L));
+
+        assertThat(source()).containsEntry("sellerActive", false).containsEntry("sellerVersion", 2);
+    }
+
+    @Test
     @DisplayName("처음 적재 전(alias 없음)에는 사본만 고치고 문서 쓰기는 IndexNotReadyException으로 알린다")
     void beforeFirstLoad() throws Exception {
         SearchElasticsearch.reset(client);
@@ -216,7 +237,7 @@ class LectureIndexerTest {
         assertThatThrownBy(() -> lectureIndexer.apply(lecture("제목", true, 0L)))
                 .isInstanceOf(IndexNotReadyException.class);
 
-        assertThat(members.findSeller(SELLER)).contains(new Seller(SELLER, "편집장", true));
+        assertThat(members.findSeller(SELLER)).contains(new Seller(SELLER, "편집장", true, 1L));
         assertThat(reviews.ratingOf(11L)).isEqualTo(new LectureRating(5.0, 1));
         assertThat(client.indices().exists(e -> e.index(LectureIndexDefinition.ALIAS)).value()).isFalse();
     }

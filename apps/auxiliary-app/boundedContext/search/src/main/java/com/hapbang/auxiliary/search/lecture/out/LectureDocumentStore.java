@@ -32,8 +32,8 @@ import co.elastic.clients.json.JsonData;
  *     <li>판매자 칸(닉네임·정상 여부): 회원 사본({@link #updateSeller}, {@link #writeSeller}).</li>
  *     <li>평점 칸(평균·리뷰 수): 리뷰 사본 집계({@link #writeRating}).</li>
  * </ul>
- * 강의 쓰기는 문서를 <b>처음 만들 때만</b> 판매자·평점 칸을 함께 채운다. 그 뒤로는 판매자·평점 쓰기만 그 칸을 바꿔, 강의 이벤트가 그사이 바뀐 판매자·
- * 평점을 옛 값으로 되돌리지 못하게 한다.
+ * 강의 쓰기(script)는 문서를 <b>처음 만들 때만</b> 넘긴 판매자·평점 값을 함께 넣는다. 그 뒤로는 판매자·평점 쓰기만 그 칸을 바꿔, 강의 이벤트가
+ * 그사이 바뀐 판매자·평점을 옛 값으로 되돌리지 못하게 한다. 판매자 칸은 회원 version({@code sellerVersion})으로도 옛 값을 막는다.
  * <p>
  * 숨김(tombstone): 판매 중이 아닌 강의({@code onSale=false}: 판매 중지·검수 전·삭제)는 문서를 지우지 않고 {@code hidden=true}·
  * {@code hiddenAt}·version을 남긴다. 지우면 늦게 온 옛 이벤트가 문서를 되살린다. 7일 뒤 정리한다. 이미 숨긴 문서에 더 새 숨김 이벤트가 와도
@@ -67,16 +67,30 @@ public class LectureDocumentStore {
             if (created) {
               ctx._source.sellerNickname = params.sellerNickname;
               ctx._source.sellerActive = params.sellerActive;
+              ctx._source.sellerVersion = params.sellerVersion;
               ctx._source.averageRating = params.averageRating;
               ctx._source.reviewCount = params.reviewCount;
             }
             """;
 
-    /** 판매자 칸 반영 script(문서 하나·update_by_query 같이 씀). 값이 같으면 noop이다 */
+    /**
+     * 판매자 칸 반영 script(문서 하나·update_by_query 같이 씀). 값이 같으면 noop이다.
+     * <p>
+     * <b>회원 version 비교</b>(PR #906 리뷰 Q12): 문서의 {@code sellerVersion}보다 작은 회원 version이면 쓰지 않는다. 강의 소비자가 사본을 읽은 뒤 쓰기
+     * 전에 회원 소비자가 더 새 판매자 값(정지 등)을 쓰면, 강의 소비자의 옛 값이 그것을 되돌리지 못하게 한다. 같은 version은 쓴다(재시도). version이 없는
+     * 정보는 문서에도 version이 없을 때만 쓴다({@code UserDto} 규칙).
+     */
     static final String SELLER_SCRIPT = """
+            def current = ctx._source.sellerVersion;
+            if (params.version == null) {
+              if (current != null) { ctx.op = 'noop'; return; }
+            } else if (current != null && ((Number) current).longValue() > ((Number) params.version).longValue()) {
+              ctx.op = 'noop'; return;
+            }
             boolean changed = false;
             if (ctx._source.sellerNickname != params.nickname) { ctx._source.sellerNickname = params.nickname; changed = true; }
             if (ctx._source.sellerActive != params.active) { ctx._source.sellerActive = params.active; changed = true; }
+            if (params.version != null && ctx._source.sellerVersion != params.version) { ctx._source.sellerVersion = params.version; changed = true; }
             if (!changed) { ctx.op = 'noop'; }
             """;
 
@@ -218,6 +232,7 @@ public class LectureDocumentStore {
         params.put("now", JsonData.of(now.toEpochMilli()));
         putIfPresent(params, "sellerNickname", seller == null ? null : seller.nickname());
         params.put("sellerActive", JsonData.of(seller == null || seller.active()));
+        putIfPresent(params, "sellerVersion", seller == null ? null : seller.version());
         params.putAll(ratingParams(rating));
         return params;
     }
@@ -226,6 +241,7 @@ public class LectureDocumentStore {
         Map<String, JsonData> params = new HashMap<>();
         putIfPresent(params, "nickname", seller.nickname());
         params.put("active", JsonData.of(seller.active()));
+        putIfPresent(params, "version", seller.version());
         return params;
     }
 

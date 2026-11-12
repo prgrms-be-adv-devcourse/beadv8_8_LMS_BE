@@ -151,6 +151,24 @@ class LectureDocumentStoreTest {
     }
 
     @Test
+    @DisplayName("판매자 칸은 문서의 회원 version보다 작은 값으로 되돌리지 않는다. 같은 version은 다시 쓰고, version 없는 정보는 문서에 version이 있으면 쓰지 않는다(Q12)")
+    void sellerVersion() throws Exception {
+        store.writeLecture(lecture(11L, "제목", true, 1L), new Seller(7L, "편집장", true, 1L), RATING, NOW);
+        assertThat(source(11L)).containsEntry("sellerVersion", 1);
+
+        assertThat(store.updateSeller(new Seller(7L, "정지된", false, 3L))).isEqualTo(1);
+        assertThat(store.writeSeller(11L, new Seller(7L, "편집장", true, 2L))).isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.updateSeller(new Seller(7L, "편집장", true, 2L))).isZero();
+        assertThat(store.writeSeller(11L, new Seller(7L, "편집장", true))).isEqualTo(WriteOutcome.NOOP);
+        assertThat(source(11L)).containsEntry("sellerNickname", "정지된").containsEntry("sellerActive", false)
+                .containsEntry("sellerVersion", 3);
+
+        assertThat(store.writeSeller(11L, new Seller(7L, "정지된", false, 3L))).isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.writeSeller(11L, new Seller(7L, "복귀", true, 4L))).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("sellerActive", true).containsEntry("sellerVersion", 4);
+    }
+
+    @Test
     @DisplayName("tombstone 정리는 오래된 숨김 문서만 지운다. 판매자가 정지된 강의는 숨김이 아니라 정지가 길어도 남는다(Q2)")
     void cleanupKeepsSuspendedSellerLectures() throws Exception {
         Instant old = NOW.minus(Duration.ofDays(8));

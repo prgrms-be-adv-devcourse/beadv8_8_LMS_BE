@@ -178,7 +178,7 @@ class SearchMemberEventListenerTest {
         send("20", "UserModifiedEvent", user(20, "VERIFIED_INFLUENCER", 5));
 
         await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
-            assertThat(memberCopies.findSeller(20L)).contains(new Seller(20L, "닉네임20", true));
+            assertThat(memberCopies.findSeller(20L)).contains(new Seller(20L, "닉네임20", true, 5L));
             assertThat(client.get(g -> g.index(LectureIndexDefinition.ALIAS).id("31"), Map.class).source())
                     .containsEntry("sellerNickname", "닉네임20");
             assertThat(source(20)).containsEntry("nickname", "닉네임20");

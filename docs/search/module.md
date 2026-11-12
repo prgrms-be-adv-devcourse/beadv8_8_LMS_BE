@@ -361,6 +361,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `title`, `description`, `contentTitles` | text(nori) | 강의 이벤트 |
 | `sellerUserId` | long | 강의 이벤트 |
 | `sellerNickname`, `sellerActive` | text(nori), boolean | 회원 사본(L5·L8). 정지는 숨김이 아니라 `sellerActive=false`다(Q2) |
+| `sellerVersion` | long | 판매자 칸을 쓴 회원 version. 더 작은 version의 판매자 값으로 되돌리지 않는다(PR #906 리뷰 Q12) |
 | `averageRating`, `reviewCount` | double, long | 리뷰 사본의 `counted` 리뷰 평균(반올림 안 함, 없으면 비움)·수(Q4) |
 
 - 검색에 보일 강의 = `hidden=false` 그리고 `sellerActive=true`(검색 API #883이 거른다). 공통 "보이는 문서 세기"(`hidden=false`)는 판매 중 강의 수이고 판매자 상태와 상관없다.
@@ -374,6 +375,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - **판매자·평점 칸은 문서를 새로 만든 뒤 사본에서 읽어 채운다**(Q9). 강의 쓰기는 강의 칸만 쓰고(새 문서는 닉네임 없이 정상 판매자, 평점 없음), 새로 만들었을 때만 사본을 읽는다. 이미 있는 강의를 고칠 때(`UPDATED`)는 사본을 읽지 않는다. 쓰기 결과가 `NOOP`(같은 이벤트 재수신, 옛 이벤트)이어도 채운다. 채우기가 실패해 같은 이벤트를 다시 받으면 강의 쓰기는 `NOOP`이라, 그때 채워야 복구되기 때문이다(PR #906 리뷰). 문서를 만든 뒤에 읽으므로 그 전에 온 회원·리뷰 이벤트(없던 문서를 고치지 못함)의 값도 빠지지 않는다. 채우기 전 잠깐은 빈 값이지만 ES가 새 문서를 검색에 보이는 refresh(1초) 전이다.
 - **리뷰**: 사본에 적고(version 조건) 그 강의의 `counted` 리뷰로 평균·수를 다시 세어 평점 칸을 고친다. 사본이 이미 같은 version이어도 다시 센다(사본은 커밋했는데 문서 쓰기가 실패해 같은 이벤트를 다시 받은 경우). 강의 문서가 없으면 건너뛴다(강의 이벤트가 문서를 만들 때 사본에서 채운다).
 - **회원**: 사본에 적고, 닉네임·상태가 바뀌었으면(처음 받은 회원 포함) 그 판매자의 모든 강의 문서(숨김 포함)를 `update_by_query`로 고친다. 같은 version을 다시 받으면 사본 값으로 다시 고친다(재시도). 회원 소비자는 인플루언서 반영이 실패해도 판매자 반영은 하고 실패를 그 뒤에 던진다. 고치기 전에 refresh해 방금 만든 문서를 놓치지 않고, 강의 쓰기와 충돌한 문서가 있으면 실패로 보고 다시 시도한다(건너뛰면 옛 판매자 값이 남는다).
+- **판매자 칸은 회원 version으로 옛 값을 막는다**(PR #906 리뷰 Q12). 채우기(강의 소비자)와 `update_by_query`(회원 소비자)는 다른 스레드라 동시에 돈다. 강의 소비자가 사본을 읽은 뒤 쓰기 전에 회원 소비자가 정지를 반영하면, 늦게 쓴 옛 "정상" 값이 정지를 되돌릴 수 있다. 그래서 문서의 `sellerVersion`보다 작은 회원 version이면 판매자 칸을 쓰지 않는다(같은 version은 쓴다. version 없는 정보는 문서에도 version이 없을 때만). #884 보정은 강의 version만 비교하므로 이 보호가 없으면 어긋남이 저절로 풀리지 않는다.
 - 회원 사본에 아직 없는 판매자의 강의는 닉네임 없이 정상 판매자로 넣고 회원 이벤트가 채운다(L5). #884 처음 적재는 회원 사본을 먼저 채운다.
 - 사본(DB)은 alias가 없어도 고친다. 처음 적재(#884)가 사본으로 문서를 만들기 때문이다(L14). 문서 쓰기만 건너뛴다(DEBUG).
 

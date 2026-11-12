@@ -29,8 +29,8 @@ class SearchMemberCopyStoreTest {
     @Test
     @DisplayName("처음 받은 회원은 넣고 판매자 정보가 바뀐 것으로 돌려준다")
     void insert() {
-        assertThat(store.apply(user(7L, "강사", UserStatus.ACTIVE, 1L), NOW)).contains(new Seller(7L, "강사", true));
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "강사", true));
+        assertThat(store.apply(user(7L, "강사", UserStatus.ACTIVE, 1L), NOW)).contains(new Seller(7L, "강사", true, 1L));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "강사", true, 1L));
     }
 
     @Test
@@ -44,10 +44,10 @@ class SearchMemberCopyStoreTest {
     void changed() {
         store.apply(user(7L, "강사", UserStatus.ACTIVE, 1L), NOW);
 
-        assertThat(store.apply(user(7L, "새강사", UserStatus.ACTIVE, 2L), NOW)).contains(new Seller(7L, "새강사", true));
+        assertThat(store.apply(user(7L, "새강사", UserStatus.ACTIVE, 2L), NOW)).contains(new Seller(7L, "새강사", true, 2L));
         assertThat(store.apply(user(7L, "새강사", UserStatus.SUSPENDED, 3L), NOW))
-                .contains(new Seller(7L, "새강사", false));
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "새강사", false));
+                .contains(new Seller(7L, "새강사", false, 3L));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "새강사", false, 3L));
     }
 
     @Test
@@ -57,7 +57,7 @@ class SearchMemberCopyStoreTest {
 
         assertThat(store.apply(new UserDto(7L, "강사", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L,
                 List.of("GAME"), "자기소개"), NOW)).isEmpty();
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "강사", true));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "강사", true, 2L));
     }
 
     @Test
@@ -66,7 +66,7 @@ class SearchMemberCopyStoreTest {
         store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW);
 
         assertThat(store.apply(user(7L, "옛닉네임", UserStatus.ACTIVE, 4L), NOW)).isEmpty();
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false, 5L));
     }
 
     @Test
@@ -75,10 +75,10 @@ class SearchMemberCopyStoreTest {
         store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW);
 
         assertThat(store.apply(user(7L, "정지된", UserStatus.SUSPENDED, 5L), NOW))
-                .contains(new Seller(7L, "정지된", false));
+                .contains(new Seller(7L, "정지된", false, 5L));
         assertThat(store.apply(user(7L, "같은버전다른값", UserStatus.ACTIVE, 5L), NOW))
-                .contains(new Seller(7L, "정지된", false));
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false));
+                .contains(new Seller(7L, "정지된", false, 5L));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "정지된", false, 5L));
     }
 
     @Test
@@ -95,7 +95,7 @@ class SearchMemberCopyStoreTest {
         store.apply(user(7L, "버전있음", UserStatus.ACTIVE, 1L), NOW);
 
         assertThat(store.apply(user(7L, "옛이벤트", UserStatus.ACTIVE, null), NOW)).isEmpty();
-        assertThat(store.findSeller(7L)).contains(new Seller(7L, "버전있음", true));
+        assertThat(store.findSeller(7L)).contains(new Seller(7L, "버전있음", true, 1L));
     }
 
     @Test

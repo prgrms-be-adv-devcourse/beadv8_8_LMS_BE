@@ -27,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 public class SearchMemberCopyStore {
 
     private static final String FIND = """
-            SELECT id, nickname, status FROM search.member_copy WHERE id = :id
+            SELECT id, nickname, status, version FROM search.member_copy WHERE id = :id
             """;
 
     private static final String INSERT_IF_ABSENT = """
@@ -53,7 +53,8 @@ public class SearchMemberCopyStore {
         return jdbc.query(FIND, new MapSqlParameterSource("id", userId), (rs, rowNum) -> new Seller(
                 rs.getLong("id"),
                 rs.getString("nickname"),
-                isActive(rs.getString("status")))).stream().findFirst();
+                isActive(rs.getString("status")),
+                rs.getObject("version", Long.class))).stream().findFirst();
     }
 
     /**
@@ -77,7 +78,7 @@ public class SearchMemberCopyStore {
                 .addValue("status", user.status().name())
                 .addValue("version", user.version())
                 .addValue("now", now);
-        Seller incoming = new Seller(user.id(), user.nickname(), user.status() == UserStatus.ACTIVE);
+        Seller incoming = new Seller(user.id(), user.nickname(), user.status() == UserStatus.ACTIVE, user.version());
         if (jdbc.update(INSERT_IF_ABSENT, params) == 1) {
             return Optional.of(incoming);
         }
@@ -91,7 +92,7 @@ public class SearchMemberCopyStore {
             return Optional.of(incoming);
         }
         if (user.version() != null && user.version().equals(stored.version())) {
-            return Optional.of(new Seller(user.id(), stored.nickname(), isActive(stored.status())));
+            return Optional.of(new Seller(user.id(), stored.nickname(), isActive(stored.status()), stored.version()));
         }
         if (!isNewer(user.version(), stored.version())) {
             return Optional.empty();
