@@ -141,13 +141,19 @@ public class AppearanceRecruit extends BaseEntity {
         }
     }
 
-    /** HP 보류 성공 → 모집 중. 이미 반영됐으면 그대로 둔다 (올리기 요청과 보류 재확인 배치가 함께 반영해도 안전하도록) */
-    public void markRecruiting() {
+    /**
+     * HP 보류 성공 → 모집 중. 이미 반영됐으면 그대로 둔다 (올리기 요청과 보류 재확인 배치가 함께 반영해도 안전하도록).
+     *
+     * @return 이번에 {@code RECRUITING}으로 바뀌었으면 true, 이미 반영돼 있었으면 false
+     *         (모집 시작 알림을 한 번만 보내는 데 쓴다)
+     */
+    public boolean markRecruiting() {
         if (status == AppearanceRecruitStatus.RECRUITING) {
-            return;
+            return false;
         }
         requireStatus(AppearanceRecruitStatus.HOLD_PENDING);
         this.status = AppearanceRecruitStatus.RECRUITING;
+        return true;
     }
 
     /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */

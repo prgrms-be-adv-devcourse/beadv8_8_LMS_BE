@@ -69,11 +69,11 @@ class AppearanceBatchRulesTest {
     }
 
     @Test
-    @DisplayName("모집글 보류 결과를 두 번 반영해도 그대로다")
+    @DisplayName("모집글 보류 결과를 두 번 반영해도 그대로다. 바뀐 처음 한 번만 true (모집 시작 이벤트를 다시 보내지 않는다)")
     void recruitHoldResultIsIdempotent() {
         AppearanceRecruit recruit = AppearanceRecruit.create(1L, AppearanceRecruitFixture.content(NOW), POLICY, NOW);
-        recruit.markRecruiting();
-        recruit.markRecruiting();
+        assertThat(recruit.markRecruiting()).isTrue();
+        assertThat(recruit.markRecruiting()).isFalse();
         assertThat(recruit.getStatus()).isEqualTo(AppearanceRecruitStatus.RECRUITING);
         assertThatThrownBy(recruit::markHoldFailed).isInstanceOf(IllegalStateException.class);
     }
