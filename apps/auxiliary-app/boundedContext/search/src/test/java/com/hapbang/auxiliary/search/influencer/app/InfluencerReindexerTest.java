@@ -36,7 +36,7 @@ import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 import com.hapbang.auxiliary.search.influencer.out.MemberDocument;
-import com.hapbang.auxiliary.search.influencer.out.SyncCursor;
+import com.hapbang.auxiliary.search.out.SyncCursor;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
 import com.hapbang.auxiliary.search.support.FakeMemberChangeSource;
 import com.hapbang.auxiliary.search.support.FakeMemberListSource;

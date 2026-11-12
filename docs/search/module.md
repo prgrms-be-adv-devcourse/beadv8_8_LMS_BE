@@ -50,6 +50,8 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | in | `SearchMemberEventListener` | 회원 이벤트 소비(`member.events.v1`, 그룹 `auxiliary-app.search-member`). 대상마다 차례로 반영한다: 인플루언서 문서(5장) → 강의 판매자(13장). 대상마다 처음 적재 전이면 그 대상만 건너뛴다(#882 Q6) |
 | in.kafka | `SearchKafkaConfig`, `SearchLectureKafkaConfig`, `SearchKafkaFactories`, `SearchKafkaSettings` | 회원·강의 소비 설정. 재시도·DLT·offset 규칙은 `SearchKafkaFactories` 하나다 |
 | in.kafka | `TrustedEventDeserializer`, `MissingTypeEvent` | 강의 이벤트 역직렬화. 이 앱에 클래스가 없는 강의 이벤트는 읽지 않고 건너뛴다(알림 것을 복사, #882 Q3) |
+| out | `MemberListSource`·`MemberApiListSource`, `MemberChangeSource`·`MemberApiChangeSource` | 회원 내부 API(회원 목록 #773, 변경분 #769). 인플루언서 처음 적재·증분 보정과 강의 판매자 사본이 함께 쓴다(#884) |
+| out | `SyncCursorStore`, `SyncCursor` | 증분 보정 커서(`search.sync_cursor`, 대상마다 행 하나). JDBC |
 
 ### 공통 코드 (`search.common`)
 
@@ -87,8 +89,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | out | `InfluencerIndexDefinition`, `InfluencerIndexSetup` | 대상 이름(`influencers`)·alias·지표 대상 값(`influencer`)과, 그 정의를 채운 `IndexSetup` |
 | out | `InfluencerDocumentStore` | 회원·통계·분야 이름 쓰기(painless), 처음 적재용 bulk, 증분 보정용 문서 읽기. 나머지는 `DocumentWrites`에 맡긴다 |
 | out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
-| out | `MemberApiStatsSource`, `MemberApiChangeSource`, `MemberApiListSource` | 회원 내부 API(통계·분야 목록·변경분 #769, 회원 목록 #773) |
-| out | `SyncCursorStore` | 증분 보정 커서(`search.sync_cursor`). JDBC |
+| out | `MemberApiStatsSource` | 회원 내부 API(통계·분야 목록 #769) |
 
 ### 강의 (`search.lecture`, #882)
 

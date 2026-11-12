@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.out;
+package com.hapbang.auxiliary.search.out;
 
 import com.hapbang.shared.member.dto.MemberPageDto;
 
