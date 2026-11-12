@@ -270,7 +270,7 @@ class CustomerSupportObjectionKafkaTest {
         OffsetDateTime at = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
         try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
             // 같은 key로 보내 같은 partition에서 결과보다 먼저 읽히게 한다
-            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, true, false,
+            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, 10_000L, true, false,
                     List.of(new LectureContentSyncDto(21L, "1강", 1)), 1L)));
             send(orderItemId, new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(orderItemId, USER_ID, 11L,
                     LecturePurchaseResult.PENDING, at, at, 2L)));

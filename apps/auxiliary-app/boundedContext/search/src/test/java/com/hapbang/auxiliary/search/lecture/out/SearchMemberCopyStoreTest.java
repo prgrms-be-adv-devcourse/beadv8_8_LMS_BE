@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +106,18 @@ class SearchMemberCopyStoreTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> store.apply(user(7L, "닉", null, 1L), NOW))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("판매자 여러 명을 한 번에 읽고, 사본에 없는 회원은 빠진다(#884)")
+    void findSellers() {
+        store.apply(user(7L, "강사", UserStatus.ACTIVE, 1L), NOW);
+        store.apply(user(8L, "정지강사", UserStatus.SUSPENDED, 3L), NOW);
+
+        assertThat(store.findSellers(List.of(7L, 8L, 99L))).containsOnly(
+                Map.entry(7L, new Seller(7L, "강사", true, 1L)),
+                Map.entry(8L, new Seller(8L, "정지강사", false, 3L)));
+        assertThat(store.findSellers(List.of())).isEmpty();
     }
 
     private static UserDto user(Long id, String nickname, UserStatus status, Long version) {

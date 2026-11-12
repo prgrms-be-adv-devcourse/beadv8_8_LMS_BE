@@ -3,7 +3,7 @@ package com.hapbang.auxiliary.notification.app;
 import java.util.Map;
 
 /**
- * N9 채팅 단체방 3종의 문구(#921, ND-130, 알림 종류 문서 0.12). 값({@link GroupRoomAlerts}가 만든다)의 모집글 제목만 쓴다. 호스트
+ * N9 채팅 단체방 3종의 문구(#921, ND-132, 알림 종류 문서 0.12). 값({@link GroupRoomAlerts}가 만든다)의 모집글 제목만 쓴다. 호스트
  * 닉네임과 폐쇄 방의 기록 조회 기한은 넣지 않는다. 형식 버전 {@code v}는 1이다.
  * <p>
  * 종류 코드는 채팅 방 안 안내({@code NotificationKind})와 이름이 같지만 뜻·받는 사람이 다르다(ND-043).

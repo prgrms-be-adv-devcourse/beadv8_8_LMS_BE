@@ -50,7 +50,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
- * N9 채팅 단체방 3종(#921)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-127~ND-130). test-spec NT-GEN-24·08, NT-GEN-10·15(채팅 3종)
+ * N9 채팅 단체방 3종(#921)을 실제 Kafka로 받아 알림을 만드는지 본다(ND-129~ND-132). test-spec NT-GEN-24·08, NT-GEN-10·15(채팅 3종)
  * <ul>
  *     <li>여러 받는 사람: 레코드 하나가 처리 단위라 한 사람의 저장이 실패하면 레코드 전체를 다시 처리하고, 먼저 저장한 사람은 유일 키로
  *     건너뛴다(ND-019).</li>

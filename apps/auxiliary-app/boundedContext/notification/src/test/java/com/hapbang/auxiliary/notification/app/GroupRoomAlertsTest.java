@@ -15,8 +15,8 @@ import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
 
 /**
- * N9 채팅 단체방 3종의 알림 초안과 문구(#921, NT-GEN-24). 받는 사람(ND-011, NT-GEN-08)·원본 대상 ID(ND-128)·이동 대상(ND-129)·
- * 발생 시각·문구(ND-130, 알림 종류 0.12)·필수 값 검증(ND-127).
+ * N9 채팅 단체방 3종의 알림 초안과 문구(#921, NT-GEN-24). 받는 사람(ND-011, NT-GEN-08)·원본 대상 ID(ND-130)·이동 대상(ND-131)·
+ * 발생 시각·문구(ND-132, 알림 종류 0.12)·필수 값 검증(ND-129).
  */
 class GroupRoomAlertsTest {
 
@@ -32,7 +32,7 @@ class GroupRoomAlertsTest {
                 new GroupMembersInvitedEvent(ROOM, 51L, RECRUIT, TITLE, HOST, List.of(101L, 102L), AT));
 
         assertThat(drafts).extracting(NotificationDraft::receiverUserId).containsExactly(101L, 102L);
-        // 받는 사람이 여럿이어도 원본 대상 ID는 사건 하나다. 유일 키에 받는 사람이 있어 각 1건이 된다(ND-019·ND-128)
+        // 받는 사람이 여럿이어도 원본 대상 ID는 사건 하나다. 유일 키에 받는 사람이 있어 각 1건이 된다(ND-019·ND-130)
         assertThat(drafts).allSatisfy(draft -> {
             assertThat(draft.kind()).isEqualTo("GROUP_MEMBERS_INVITED");
             assertThat(draft.sourceEventType()).isEqualTo("GroupMembersInvitedEvent");

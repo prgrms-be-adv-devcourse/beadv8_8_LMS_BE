@@ -49,7 +49,16 @@ public final class NotificationKafkaConstants {
     public static final String LECTURE_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.lecture.event";
     public static final String LECTURE_EVENTS_ENABLED = "hapbang.notification.lecture-events.enabled";
 
-    // 채팅 이벤트 → 알림(N9: 단체방 초대·강퇴·폐쇄 3종, ND-127)
+    // 고객센터 이벤트 → 알림(N7: 문의 답변 도착·이의 제기 접수 불가, ND-122)
+
+    public static final String CUSTOMERSUPPORT_EVENTS_TOPIC = "customersupport.events.v1";
+    public static final String CUSTOMERSUPPORT_ALERT_GROUP = GROUP_PREFIX + "customersupport-alert";
+    public static final String CUSTOMERSUPPORT_EVENTS_DLT = deadLetterTopic(CUSTOMERSUPPORT_EVENTS_TOPIC,
+            CUSTOMERSUPPORT_ALERT_GROUP);
+    public static final String CUSTOMERSUPPORT_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.customersupport.event";
+    public static final String CUSTOMERSUPPORT_EVENTS_ENABLED = "hapbang.notification.customersupport-events.enabled";
+
+    // 채팅 이벤트 → 알림(N9: 단체방 초대·강퇴·폐쇄 3종, ND-129)
 
     public static final String CHAT_EVENTS_TOPIC = "chat.events.v1";
     public static final String CHAT_ALERT_GROUP = GROUP_PREFIX + "chat-alert";
@@ -77,7 +86,7 @@ public final class NotificationKafkaConstants {
 
     // DLT
 
-    /** 원본과 같은 partition 수(회원·출연·지갑·강의·채팅 토픽 모두 3개). 원본과 같은 partition 번호로 보낸다 */
+    /** 원본과 같은 partition 수(회원·출연·지갑·강의·고객센터·채팅 토픽 모두 3개). 원본과 같은 partition 번호로 보낸다 */
     public static final int DEAD_LETTER_PARTITIONS = 3;
     /** 브로커가 1대라 1이다 */
     public static final short DEAD_LETTER_REPLICAS = 1;

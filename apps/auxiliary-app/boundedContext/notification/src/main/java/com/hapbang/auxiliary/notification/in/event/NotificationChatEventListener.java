@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 채팅 이벤트({@code chat.events.v1}, 그룹 {@code auxiliary-app.notification-chat-alert})로 단체방 초대·강퇴·폐쇄 알림을 만드는 진입
- * 어댑터(N9, ND-127).
+ * 어댑터(N9, ND-129).
  * <ul>
  *     <li>컨테이너는 앱 기동 때 시작하지 않고 첫 회원 복제본 Backfill이 끝나면 시작한다(ND-078). 새 그룹이라 {@code earliest}로 읽고,
  *     알림 시작 시각보다 이른 사건은 만들지 않는다(ND-076·ND-095).</li>

@@ -43,9 +43,10 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
  *     <li>소비자는 회원 이벤트({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica}, 가입 환영·승급
  *     승인 포함 ND-080), 출연 이벤트({@code appearance.events.v1}, {@code auxiliary-app.notification-appearance-alert}), 지갑
  *     이벤트({@code billing.events.v1}, {@code auxiliary-app.notification-billing-alert}), 강의 이벤트({@code lecture.events.v1},
- *     {@code auxiliary-app.notification-lecture-alert}, N6 ND-087), 채팅 이벤트({@code chat.events.v1},
- *     {@code auxiliary-app.notification-chat-alert}, N9 ND-127) 다섯이다(ND-047·ND-069). 출연·지갑·강의·채팅 컨테이너는 첫
- *     Backfill 뒤에 시작한다(ND-078).</li>
+ *     {@code auxiliary-app.notification-lecture-alert}, N6 ND-087), 고객센터 이벤트({@code customersupport.events.v1},
+ *     {@code auxiliary-app.notification-customersupport-alert}, N7 ND-122), 채팅 이벤트({@code chat.events.v1},
+ *     {@code auxiliary-app.notification-chat-alert}, N9 ND-129) 여섯이다(ND-047·ND-069). 출연·지갑·강의·고객센터·채팅
+ *     컨테이너는 첫 Backfill 뒤에 시작한다(ND-078).</li>
  *     <li>props는 이 클래스에 적고 연결 주소만 {@code spring.kafka.bootstrap-servers}에서 받는다.</li>
  *     <li>value 역직렬화는 신뢰 패키지 하나만 믿는 {@link JacksonJsonDeserializer}를 {@link TrustedEventDeserializer}와
  *     {@link ErrorHandlingDeserializer}로 감싼다. 깨진 메시지는 오류 처리기가 재시도 없이 DLT로 보낸다. 강의 이벤트만 값을 바이트로
@@ -71,6 +72,11 @@ public class NotificationKafkaConfig {
     public static final String LECTURE_EVENT_SETTINGS = "notificationLectureEventSettings";
     public static final String LECTURE_EVENT_CONTAINER_FACTORY = "notificationLectureEventListenerContainerFactory";
     public static final String LECTURE_EVENT_DEAD_LETTER_TEMPLATE = "notificationLectureEventDeadLetterTemplate";
+    public static final String CUSTOMERSUPPORT_EVENT_SETTINGS = "notificationCustomerSupportEventSettings";
+    public static final String CUSTOMERSUPPORT_EVENT_CONTAINER_FACTORY =
+            "notificationCustomerSupportEventListenerContainerFactory";
+    public static final String CUSTOMERSUPPORT_EVENT_DEAD_LETTER_TEMPLATE =
+            "notificationCustomerSupportEventDeadLetterTemplate";
     public static final String CHAT_EVENT_SETTINGS = "notificationChatEventSettings";
     public static final String CHAT_EVENT_CONTAINER_FACTORY = "notificationChatEventListenerContainerFactory";
     public static final String CHAT_EVENT_DEAD_LETTER_TEMPLATE = "notificationChatEventDeadLetterTemplate";
@@ -247,7 +253,47 @@ public class NotificationKafkaConfig {
         return alertContainerFactory(consumerFactory, errorHandler);
     }
 
-    // 채팅 이벤트 → 알림(N9). 새 토픽 chat.events.v1을 새 그룹으로 읽는다(ND-127). 컨테이너는 첫 Backfill 뒤에 시작한다
+    // 고객센터 이벤트 → 알림(N7, ND-122). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
+
+    @Bean(name = CUSTOMERSUPPORT_EVENT_SETTINGS)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    public NotificationKafkaConsumerSettings notificationCustomerSupportEventSettings() {
+        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_TOPIC,
+                NotificationKafkaConstants.CUSTOMERSUPPORT_ALERT_GROUP);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    ConsumerFactory<String, Object> notificationCustomerSupportEventConsumerFactory(
+            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return consumerFactory(settings, NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_TRUSTED_PACKAGE);
+    }
+
+    @Bean(defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    public ProducerFactory<String, Object> notificationCustomerSupportEventDeadLetterProducerFactory(
+            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterProducerFactory(settings);
+    }
+
+    @Bean(name = CUSTOMERSUPPORT_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    KafkaTemplate<String, Object> notificationCustomerSupportEventDeadLetterTemplate(
+            @Qualifier("notificationCustomerSupportEventDeadLetterProducerFactory")
+            ProducerFactory<String, Object> producerFactory) {
+        return deadLetterTemplate(producerFactory);
+    }
+
+    @Bean(name = CUSTOMERSUPPORT_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
+    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
+    ConcurrentKafkaListenerContainerFactory<String, Object> notificationCustomerSupportEventListenerContainerFactory(
+            @Qualifier("notificationCustomerSupportEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
+            @Qualifier(NotificationKafkaErrorHandlerConfig.CUSTOMERSUPPORT_EVENT_ERROR_HANDLER)
+            DefaultErrorHandler errorHandler) {
+        return alertContainerFactory(consumerFactory, errorHandler);
+    }
+
+    // 채팅 이벤트 → 알림(N9). 새 토픽 chat.events.v1을 새 그룹으로 읽는다(ND-129). 컨테이너는 첫 Backfill 뒤에 시작한다
     // (ND-078, autoStartup false)
 
     @Bean(name = CHAT_EVENT_SETTINGS)
@@ -290,7 +336,7 @@ public class NotificationKafkaConfig {
 
     // 소비자들이 함께 쓰는 조립
 
-    /** 알림을 만드는 출연·지갑·강의·채팅 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
+    /** 알림을 만드는 출연·지갑·강의·고객센터·채팅 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
     private static <V> ConcurrentKafkaListenerContainerFactory<String, V> alertContainerFactory(
             ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, V> factory = containerFactory(consumerFactory, errorHandler);

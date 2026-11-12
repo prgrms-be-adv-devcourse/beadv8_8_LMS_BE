@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.search.influencer.out;
+package com.hapbang.auxiliary.search.out;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  *     아니라 이 값으로 잰다(#772 Q3: 커서 시각은 변경이 없는 동안 멈춰 있어 보정이 정상이어도 지연이 커 보인다).</li>
  * </ul>
  *
- * @param name            읽는 대상({@link #MEMBER_CHANGES})
+ * @param name            읽는 대상({@link #MEMBER_CHANGES}, {@link #SELLER_CHANGES})
  * @param memberUpdatedAt 마지막으로 반영한 회원의 updatedAt(회원 앱 시간대 Asia/Seoul)
  * @param memberId        마지막으로 반영한 회원 ID
  * @param caughtUpAt      마지막으로 끝까지 읽은 시각(KST). 아직 없으면 null
@@ -22,6 +22,9 @@ public record SyncCursor(String name, LocalDateTime memberUpdatedAt, long member
 
     /** 회원 변경분 커서 이름 */
     public static final String MEMBER_CHANGES = "member-changes";
+
+    /** 강의 판매자 사본의 회원 변경분 커서 이름(#884). 인플루언서 커서와 따로 움직인다 */
+    public static final String SELLER_CHANGES = "seller-changes";
 
     /** 겹쳐 읽을 때의 회원 ID. 겹친 시간에 바뀐 회원을 모두 다시 읽는다 */
     public static final long READ_FROM_ID = 0L;

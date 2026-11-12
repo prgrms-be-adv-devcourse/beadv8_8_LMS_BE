@@ -14,14 +14,14 @@ import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
 
 /**
- * N9 채팅 단체방 3종(#921, ND-127)의 이벤트를 알림 초안으로 바꾼다.
+ * N9 채팅 단체방 3종(#921, ND-129)의 이벤트를 알림 초안으로 바꾼다.
  * <ul>
  *     <li>받는 사람: 초대는 이번 초대로 참여한 회원마다, 강퇴는 강퇴된 회원, 폐쇄는 폐쇄한 호스트를 뺀 참여자마다다(ND-011). 폐쇄 때
  *     호스트만 남았으면 빈 목록이다(알림 없이 커밋).</li>
  *     <li>원본 대상 ID는 계약의 사건 ID다: 초대 {@code <chatRoomId>:<inviteRequestId>}, 강퇴
- *     {@code <chatRoomId>:<kickedUserId>:<participationVersion>}, 폐쇄 {@code chatRoomId}(ND-128). 받는 사람이 여럿이어도 같은
+ *     {@code <chatRoomId>:<kickedUserId>:<participationVersion>}, 폐쇄 {@code chatRoomId}(ND-130). 받는 사람이 여럿이어도 같은
  *     값이고, 유일 키에 받는 사람이 있어 각 1건이다(ND-019).</li>
- *     <li>이동 대상은 초대·폐쇄가 {@code CHAT_ROOM}/방 ID이고 강퇴는 없다(ND-129, 강퇴된 회원은 방을 볼 수 없다).</li>
+ *     <li>이동 대상은 초대·폐쇄가 {@code CHAT_ROOM}/방 ID이고 강퇴는 없다(ND-131, 강퇴된 회원은 방을 볼 수 없다).</li>
  *     <li>발생 시각은 이벤트의 사건 시각이다(ND-021).</li>
  *     <li>필수 값이 비면 {@link IllegalArgumentException}을 던진다. 소비자는 재시도 없이 DLT로 보낸다(ND-010). 받는 사람 목록이
  *     비어도 같다(계약상 초대는 참여한 회원이 있을 때만, 폐쇄는 호스트를 포함해 낸다).</li>

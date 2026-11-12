@@ -172,7 +172,7 @@ class SearchMemberEventListenerTest {
     void appliesSellerToLectures() throws Exception {
         SearchElasticsearch.createLectureIndex(client);
         new LectureDocumentStore(client).writeLecture(
-                new LectureSyncDto(31L, 20L, "강의", null, true, false, List.of(), 0L),
+                new LectureSyncDto(31L, 20L, "강의", null, 10_000L, true, false, List.of(), 0L),
                 new Seller(20L, "옛닉네임", true), LectureRating.NONE, Instant.now());
 
         send("20", "UserModifiedEvent", user(20, "VERIFIED_INFLUENCER", 5));
