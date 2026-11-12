@@ -1,10 +1,11 @@
-package com.hapbang.auxiliary.search.influencer.in;
+package com.hapbang.auxiliary.search.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,14 +42,21 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import com.hapbang.auxiliary.search.influencer.app.ContentCategoryNames;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerMemberIndexer;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaConfig;
-import com.hapbang.auxiliary.search.influencer.in.kafka.SearchKafkaSettings;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaConfig;
+import com.hapbang.auxiliary.search.in.kafka.SearchKafkaSettings;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.lecture.app.SellerIndexer;
+import com.hapbang.auxiliary.search.lecture.out.LectureDocumentStore;
+import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
+import com.hapbang.auxiliary.search.lecture.out.LectureRating;
+import com.hapbang.auxiliary.search.lecture.out.SearchMemberCopyStore;
+import com.hapbang.auxiliary.search.lecture.out.Seller;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.auxiliary.search.support.SearchElasticsearchTestcontainersConfig;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -79,6 +87,12 @@ class SearchMemberEventListenerTest {
     @Autowired
     @Qualifier(SearchElasticsearchConfig.CLIENT)
     private ElasticsearchClient client;
+
+    @Autowired
+    private SellerIndexer sellerIndexer;
+
+    @Autowired
+    private SearchMemberCopyStore memberCopies;
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
@@ -145,12 +159,30 @@ class SearchMemberEventListenerTest {
         // 컨텍스트의 index 준비 빈은 앞 테스트에서 준비된 것으로 기억할 수 있어, 처음 기동한 pod처럼 새로 만든다
         InfluencerMemberIndexer indexer = new InfluencerMemberIndexer(new InfluencerIndexSetup(client),
                 new InfluencerDocumentStore(client), new ContentCategoryNames(new FakeMemberStatsSource()));
-        SearchMemberEventListener listener = new SearchMemberEventListener(indexer, settings());
+        SearchMemberEventListener listener = new SearchMemberEventListener(indexer, sellerIndexer, settings());
 
         listener.on(new UserModifiedEvent(new UserDto(13L, "닉네임13", Role.INFLUENCER, UserStatus.ACTIVE, 1L)));
 
         assertThat(client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*").allowNoIndices(true))
                 .indices()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("같은 회원 이벤트로 강의 판매자 사본도 고치고, 닉네임·상태가 바뀌면 그 판매자의 강의 문서를 고친다(#882 Q1·Q6)")
+    void appliesSellerToLectures() throws Exception {
+        SearchElasticsearch.createLectureIndex(client);
+        new LectureDocumentStore(client).writeLecture(
+                new LectureSyncDto(31L, 20L, "강의", null, true, false, List.of(), 0L),
+                new Seller(20L, "옛닉네임", true), LectureRating.NONE, Instant.now());
+
+        send("20", "UserModifiedEvent", user(20, "VERIFIED_INFLUENCER", 5));
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
+            assertThat(memberCopies.findSeller(20L)).contains(new Seller(20L, "닉네임20", true, 5L));
+            assertThat(client.get(g -> g.index(LectureIndexDefinition.ALIAS).id("31"), Map.class).source())
+                    .containsEntry("sellerNickname", "닉네임20");
+            assertThat(source(20)).containsEntry("nickname", "닉네임20");
+        });
     }
 
     private static String user(long id, String role, long version) {

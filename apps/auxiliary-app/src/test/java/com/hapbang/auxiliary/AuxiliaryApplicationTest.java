@@ -63,6 +63,7 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.chatbot.copy-events.enabled=false",
                 // 검색 회원 이벤트 소비(#771)도 끈다. 소비는 검색 모듈 Kafka 테스트가 본다
                 "hapbang.search.member-events.enabled=false",
+                "hapbang.search.lecture-events.enabled=false",
                 // 운영 설정은 다른 앱 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
                 "hapbang.clients.appearance.base-url=http://localhost:1",
                 "hapbang.clients.member.base-url=http://localhost:1",
