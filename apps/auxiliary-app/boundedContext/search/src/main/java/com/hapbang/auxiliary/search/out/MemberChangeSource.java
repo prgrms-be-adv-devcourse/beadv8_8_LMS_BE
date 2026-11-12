@@ -17,4 +17,20 @@ public interface MemberChangeSource {
      * @param afterId        커서 회원 ID
      */
     MemberChangePageDto changes(LocalDateTime afterUpdatedAt, long afterId, int size);
+
+    /**
+     * 다음 커서가 빠진 응답을 거절한다(#769 계약: 항목이 있으면 커서를 주고, 빈 페이지는 hasNext=false). 받아들이면 같은 커서로 끝없이 다시 부르거나
+     * 커서를 저장하지 못한다. 인플루언서 증분 보정과 판매자 사본 보정(#884)이 함께 쓴다.
+     *
+     * @throws IllegalStateException 다음 커서가 빠진 경우
+     */
+    static void requireNextCursor(MemberChangePageDto page) {
+        boolean noCursor = page.nextAfterUpdatedAt() == null || page.nextAfterId() == null;
+        boolean partialCursor = (page.nextAfterUpdatedAt() == null) != (page.nextAfterId() == null);
+        if (partialCursor || (noCursor && (page.hasNext() || !page.items().isEmpty()))) {
+            throw new IllegalStateException("회원 변경분 응답에 다음 커서가 없습니다 items=" + page.items().size()
+                    + ", hasNext=" + page.hasNext() + ", nextAfterUpdatedAt=" + page.nextAfterUpdatedAt()
+                    + ", nextAfterId=" + page.nextAfterId());
+        }
+    }
 }

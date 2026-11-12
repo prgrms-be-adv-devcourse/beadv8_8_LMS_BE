@@ -116,13 +116,17 @@ public class LectureDocumentStore {
             """;
 
     /**
-     * 원본에 없는 강의의 문서를 숨기는 script(#884 보정). 이미 숨겼으면 noop이다. 강의 version은 그대로 둔다(원본에 다시 나타나면 더 큰 version의 강의
-     * 쓰기가 보이게 한다).
+     * 원본에 없는 강의의 문서를 숨기는 script(#884 보정). 이미 숨겼으면 noop이다.
+     * <p>
+     * <b>강의 version을 지운다.</b> 원본에 다시 나타나면(늦게 커밋된 강의를 보정이 원본에 없다고 잘못 본 경우, 강의 DB를 되돌린 경우) 같은 version의
+     * 강의 쓰기도 반영되어 다시 보이게 한다. version을 남기면 같은 version의 이벤트·보정이 noop이라 영영 숨겨진다. 원본에 없는 강의라 막아야 할 옛
+     * 이벤트도 없다.
      */
     static final String HIDE_SCRIPT = """
             if (ctx._source.hidden == true) { ctx.op = 'noop'; return; }
             ctx._source.hidden = true;
             ctx._source.hiddenAt = params.now;
+            ctx._source.remove('lectureVersion');
             """;
 
     /** 보정·따라잡기가 원본·사본과 비교하려고 읽는 칸({@link IndexedLecture}) */
@@ -330,7 +334,8 @@ public class LectureDocumentStore {
     }
 
     /**
-     * 원본에 없는 강의의 문서를 숨긴다(#884 보정). 강의 version은 그대로 두고 숨긴 시각을 찍어 7일 뒤 정리된다.
+     * 원본에 없는 강의의 문서를 숨긴다(#884 보정). 강의 version을 지워 원본에 다시 나타나면 같은 version으로도 다시 쓰이게 하고({@link #HIDE_SCRIPT}),
+     * 숨긴 시각을 찍어 7일 뒤 정리된다.
      *
      * @return 숨겼으면 {@link WriteOutcome#UPDATED}, 이미 숨겼으면 {@link WriteOutcome#NOOP}, 문서가 없으면 {@link WriteOutcome#MISSING}
      */

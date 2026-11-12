@@ -93,7 +93,7 @@ class LectureDocumentStoreReconcileTest {
     }
 
     @Test
-    @DisplayName("원본에 없는 강의를 숨길 때 강의 version은 그대로 두고, 이미 숨겼으면 noop, 문서가 없으면 건너뛴다")
+    @DisplayName("원본에 없는 강의를 숨길 때 강의 version을 지워 같은 version으로도 다시 보이게 하고, 이미 숨겼으면 noop, 문서가 없으면 건너뛴다")
     void hideLecture() throws Exception {
         SearchElasticsearch.createLectureIndex(client);
         store.writeLecture(lecture(11L, true, 2L), SELLER, RATING, NOW);
@@ -104,11 +104,14 @@ class LectureDocumentStoreReconcileTest {
         assertThat(store.hideLecture(99L, later)).isEqualTo(WriteOutcome.MISSING);
 
         assertThat(source(LectureIndexDefinition.ALIAS, 11L)).containsEntry("hidden", true)
-                .containsEntry("hiddenAt", later.toEpochMilli()).containsEntry("lectureVersion", 2)
-                .containsEntry("sellerNickname", "편집장");
-        // 원본에 다시 나타나면 더 큰 version의 강의 쓰기가 다시 보이게 한다
-        assertThat(store.writeLecture(lecture(11L, true, 3L), SELLER, RATING, NOW)).isEqualTo(WriteOutcome.UPDATED);
-        assertThat(source(LectureIndexDefinition.ALIAS, 11L)).containsEntry("hidden", false);
+                .containsEntry("hiddenAt", later.toEpochMilli()).containsEntry("sellerNickname", "편집장")
+                .doesNotContainKey("lectureVersion");
+        // 원본에 다시 나타나면(늦게 커밋된 강의를 잘못 숨긴 경우) 같은 version의 강의 쓰기로 다시 보이고, 판매자·평점 칸은 그대로다
+        assertThat(store.writeLecture(lecture(11L, true, 2L), null, LectureRating.NONE, NOW))
+                .isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(LectureIndexDefinition.ALIAS, 11L)).containsEntry("hidden", false)
+                .containsEntry("lectureVersion", 2).containsEntry("sellerNickname", "편집장")
+                .containsEntry("reviewCount", 2);
     }
 
     @Test
