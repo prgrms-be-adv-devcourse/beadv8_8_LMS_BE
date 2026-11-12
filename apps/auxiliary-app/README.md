@@ -148,6 +148,16 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - 강의 사본은 값이 바뀌었거나 원본 없음 표시가 바뀔 때만 요청을 적는다. 값이 같은 매시 싱크는 요청을 적지 않는다.
 - 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
 - **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
+- **대화 Tool의 `ToolContext`**(`ChatToolContext`, #720): 키는 `memberId`(요청 회원 ID)와 `faqSources`(Tool이 찾은 FAQ를 담는 목록) 둘이다. 대화 쪽은 Map을 `ChatToolContext.of`로만 만들어 세 Tool(`searchFaq`, `recommendLectures`, `recommendInfluencers`)이 같은 키를 읽는다. 값이 없으면 Tool이 거절한다.
+- **벡터 호출 감싸기**(`VectorCall`): 추천은 ES 검색·임베딩 호출만 감싸 실패를 "검색 장애"로 본다. 그 사이의 DB 조회·코드 오류는 감싸지 않아 그대로 올라간다. 벡터 계산(평균·정규화·혼합·코사인)은 `TasteVectors` 하나를 강의·인플루언서가 함께 쓴다.
+
+**지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
+
+| 보장 | 외부 장애 때도 | 테스트 |
+|---|---|---|
+| 한 문서는 한 실행만 처리한다 | 처리 시간이 임대(5분)보다 짧을 때 | `IndexTaskRunnerTest.claimsWholeDocuments`, `runOnceTakesClaimLock` |
+| LLM 동시 호출 상한은 챗봇 기능 전체가 나눠 쓴다. 넘으면 모델을 부르지 않고 정해진 답 | | `FaqChatServiceTest.busyWhenConcurrentLimitReached`, `concurrentLimitSharedAcrossFeatures` |
+| 세 Tool은 같은 `ToolContext`(`ChatToolContext.of`)로 부른다. 회원 ID는 Tool 인자가 아니라 여기서만 꺼낸다 | | `LectureRecommendToolsTest.usesToolContextMemberId`, `rejectsWithoutMemberId`, `InfluencerRecommendApiTest.tool`, `FaqIndexingIntegrationTest.searchFaqTool` |
 
 ## 챗봇 강의 추천 (#718)
 
@@ -158,6 +168,18 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - **후보**: 신호(구매 1.0, 장바구니 0.6, 리뷰 별점 보정, 0 하한, 최근 50개)의 가중 평균 벡터, 관심사가 있으면 `(1−α)·신호 + α·관심사`(α 0.3, local·prod 같음). kNN 뒤 보유·결제 중·장바구니·본인 강의·숨김 판매자(탈퇴·마스킹·사본 없음)를 빼고 `(1−β)·유사도 + β·인기`(β 0.05, local·prod 같음), 판매자당 2개·5개, 모자라면 인기순(숨김 판매자는 SQL에서 거른다). α·β는 임베딩 모델마다 다를 값이라 코드 기본값 없이 프로필 yaml에 둔다. 가중치·상한·α·β는 평가 전 "임시값"이고 추천 가중치 보정(#867)에서 다시 정한다. 다시 정할 때 평가 결과를 설정 주석·PR에 적는다. 이유 코드는 강의마다 구매·장바구니·관심사 중 가까운 쪽(`LectureTaste`). 맞춤으로 고를 수 없으면(활동이 없거나 활동한 강의가 색인 전) 인기순과 `needsInterest=true`(관심사를 주면 맞춤). 모델·ES 연결이 없는 실행이면 관심사도 소용없어 `false`다. 실행 중 ES·임베딩 장애는 활동이 없는 회원의 요청으로는 알 수 없어 `true`일 수 있고, 그때 관심사 요청은 503이다.
 - **실패**: 색인·임베딩을 쓸 수 없으면 관심사 없는 요청은 인기순(`personalized=false`, `hapbang.chatbot.fallbacks{feature=lecture_recommend}`), 관심사 요청은 503 `LECTURE_RECOMMEND_UNAVAILABLE`. 로그는 호출 실패가 시작되거나 회복될 때만 남긴다. 503은 잠시 뒤 다시 보내면 되는 거절이라 공통 예외 처리기도 요청마다 ERROR로 남기지 않는다(오류 코드의 `isRetryLater()`, DEBUG). fallback 지표는 인기순 답이 나간 뒤에 센다. DB 오류는 그대로 500. API는 관심사 요청만 회원별 호출 제한(`chatbot-recommend-lecture`)을 세고, Tool·버튼 경로는 대화 진입점(#720)의 제한이 감싼다.
 - **LLM**: 대화 Tool `recommendLectures`(회원 ID는 `ToolContext`의 `memberId`)는 정해진 이유 문장만 준다. 결과를 바깥 대화 LLM이 읽으므로 회원이 산·담은 강의 제목은 넣지 않는다("구매하신 강의와 비슷해요"). 기준 강의 제목은 회원 본인 화면(API)에만 나간다. 관심사가 100자를 넘으면 Tool은 거절하지 않고 자른다(모델 인자라 거절하면 대화가 끊긴다. API는 400). 버튼 경로(`LectureRecommendExplainUseCase`, #720이 연결)만 `LlmCallGuard`로 강의마다 이유 문장을 받고, 후보 밖 강의는 버리고, 실패하면 정해진 문장이다.
+
+**지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
+
+| 보장 | 외부 장애 때도 | 테스트 |
+|---|---|---|
+| 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·숨김 판매자(탈퇴·마스킹·사본 없음)의 강의는 추천하지 않는다 | 인기순으로 채울 때도. 사본 상태가 `ACTIVE`인 채 마스킹만 반영된 판매자도 | `LectureRecommendUseCaseTest.exclusions` |
+| 요청 회원이 숨김(탈퇴·마스킹)이면 빈 결과(인기순도 주지 않는다) | | `hiddenRequesterGetsNothing`, `maskedRequesterGetsNothing` |
+| 판매자당 2개, 모두 5개. 모자라면 인기순 | 색인 전 강의도 사본으로 채운다 | `LectureRankerTest.capsPerSellerAndSize`, `sellerCapAndPopularFill` |
+| 가중이 0 이하인 강의는 신호가 아니다 | | `LectureSignalsTest.dropsNonPositive` |
+| 대화 Tool 결과에 회원이 산·담은 강의 제목이 없다 | | `toolHidesBasisTitle` |
+| 버튼 경로 프롬프트에 회원 ID·회원이 산 강의가 없다 | | `LectureRecommendToolsTest.explainPromptHasNoMemberInfo` |
+| 색인·임베딩을 쓸 수 없으면 관심사 없는 요청은 인기순 | index 없음, 모델·ES 연결 없는 실행 | `unavailableIndex`, `LectureRecommendModelOffTest` |
 
 ## 챗봇 인플루언서 추천 (#719)
 
@@ -173,7 +195,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - **정합 점검**(`InfluencerIndexCheckBatch`, 매시 :45, `hapbang.chatbot.recommend.influencer.check-cron`): 모든 회원 사본을 문서와 비교해 어긋난 회원의 요청을 적는다. 첫 배포 뒤 첫 점검이 처음 전체 색인이다. 연속 3번 실패하면 `[CHATBOT_INFLUENCER_CHECK_FAILED]` ERROR(실패 수는 pod 메모리, FAQ 점검과 같다). 요청만 적으므로 배치 스레드를 짧게 쓰고, 임베딩·재시도는 실행기 한 곳이 한다. 사본 행은 지우지 않으므로(탈퇴·마스킹도 행을 남긴다) 사본만 훑는다. ES에만 남은 문서는 DB를 초기화했을 때만 생기고 그때는 index를 지우고 다시 색인한다(강의 추천 점검과 같다). 추천에는 DB 재확인으로 나오지 않는다.
 - **인기 점수**: 요청할 때 사본에서 센다(색인에 넣지 않으므로 출연·리뷰가 바뀌어도 재색인이 없다). 완료 출연 수(호스트·게스트) + 리뷰 수로 보정한 평균 별점(베이지안), 원본 없음 출연·리뷰는 뺀다. 후보 안에서 0~1로 맞춘 뒤 `(1 − β)·유사도 + β·인기`.
 - **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순. 요청 회원이 숨김(`MemberVisibility`: 사본 없음·탈퇴·마스킹, #717 규칙을 강의 추천과 같이 따름)이면 빈 목록과 `notice`(정해진 안내 문구). 사본이 없는 것은 대개 가입 직후 동기화 전이다. 인기 집계는 요청마다 추천 가능 회원 전체를 센다(강의 추천의 인기 후보 50개 같은 상한이 없다). 수천 명 규모라 캐시를 두지 않는 대신 전체 평균 별점은 요청마다 한 번만 세고, 위젯에도 회원별 호출 제한(분당 60회)을 걸어 한 회원의 연타가 앱 공용 DB 연결을 붙잡지 않게 한다. 그래도 느려지면 짧은 캐시를 둔다.
-- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `userId`에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 경로도 사용 지표 `INFLUENCER_RECOMMEND`로 센다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool 결과는 카드를 그리도록 회원 ID를 담아 대화 LLM에 가고, Tool 설명이 회원 ID를 답에 쓰지 말라고 한다.
+- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `memberId`(`ChatToolContext`)에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 경로도 사용 지표 `INFLUENCER_RECOMMEND`로 센다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool 결과는 카드를 그리도록 회원 ID를 담아 대화 LLM에 가고, Tool 설명이 회원 ID를 답에 쓰지 말라고 한다.
 - 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한(설명 `rate-limit` 분당 10회, 위젯 `widget-rate-limit` 분당 60회, 따로 센다), 설명 시간 상한, Tool 관심사 최대 길이, 분야 이름 보관·재시도 시간, 점검 실패 알림 횟수.
 - LLM 설명은 후보를 순번으로 받아 코드가 회원 ID로 되돌린다. 범위 밖 순번·빈 문장·순번을 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 `fallback=true`.
 
@@ -184,6 +206,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 | 마스킹 회원 문서는 지운다 | 회원 API(분야 이름)가 기동 때부터 죽어 있어도 | `InfluencerIndexTaskHandlerTest.categoryNamesDown`, `InfluencerIndexRequestTest.checkerWithoutCategoryNames` |
 | 정지·강등·탈퇴는 숨긴다. 복구되면 푼다 | 숨김: 회원 API 장애 때도. 복구: 정지 직후 복구(ES refresh 지연). 회원 API 장애 때는 살아날 때까지 숨긴 채 | `hideAndShowWithoutReembedding`, `restoreRightAfterSuspend`, `categoryNamesDown`, `checkerWithoutCategoryNames` |
 | 본인은 추천하지 않는다 | | `InfluencerRecommendUseCaseTest` |
+| 숨김 회원(사본 없음·탈퇴·마스킹)은 요청하면 빈 결과다. 추천 불가(정지·마스킹)는 후보로 나오지 않는다 | 사본 상태가 `ACTIVE`인 채 마스킹만 반영돼도(맞춤 후보·인기순 채우기 모두). 색인이 늦어 문서가 아직 보여도 | `withdrawnRequester`, `maskedRequester`, `requesterWithoutCopy`, `maskedCandidates`, `staleIndexIsFilteredByCopy` |
 | 항상 5명(추천 가능한 회원이 그보다 적을 때만 적게) | 임베딩 장애, index 없음(첫 배포·ES 오류) 때 인기순 | `InfluencerRecommendUseCaseTest` |
 | 회원 ID는 `ToolContext`에서만 | | `InfluencerRecommendApiTest.tool` |
 | 설명 API의 LLM 프롬프트에 닉네임·자기소개 원문·회원 ID를 보내지 않는다(Tool 결과에는 회원 ID가 있다) | | `explained`, `promptHasNoMemberIds` |
