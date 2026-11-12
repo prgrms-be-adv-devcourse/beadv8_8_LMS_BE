@@ -294,10 +294,10 @@
 | NT-GEN-13 | `domain.NotificationTest`, `app.NotificationWriterTest`(값 `v`, 저장된 값으로 같은 문구) | 전부 |
 | NT-GEN-17·18, NT-IDEM-06 (N6 A단계) | `app.AppearanceCancelRequestAlertsTest`, `app.LectureObjectionAlertsTest`(받는 사람, 원본 대상 ID·회차, 이동 대상, 발생 시각, 문구 0.6) | 변환·문구만. Kafka 소비·저장·중복은 N5 병합 뒤(#862 B단계) |
 | NT-KAF-08 (N6 A단계) | `in.event.kafka.ObjectionLegacyFormatTest`((1)~(3) 판별), `app.AppearanceCancelRequestAlertsTest`·`app.LectureObjectionAlertsTest`(필수 값 거절, (4)) | 판별·검증만. 커밋·DLT 동작은 B단계 |
-| NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06 (N6 B단계) | `in.event.NotificationCancelRequestAndObjectionAlertTest`(출연 취소 요청 3종·이의 제기 결과 4종 저장과 문구, 시작 시각 전 건너뜀, 회차별 반환 지연과 재전송, #818 이전 형식 커밋·`null` 값·일부 키 없음·JSON 객체가 아닌 본문 DLT, 파기된 게스트 닉네임, 출연 필수 값 DLT, 패키지 안 다른 종류 건너뜀·밖 타입·타입 헤더 없음 DLT, (group, topic)마다 컨테이너 하나), `in.event.NotificationAlertListenerStarterTest`(강의 컨테이너도 Backfill 뒤 시작) | 전부. 지표 값은 보지 않는다 |
+| NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06 (N6 B단계) | `in.event.NotificationCancelRequestAndObjectionAlertTest`(출연 취소 요청 3종·이의 제기 결과 4종 저장과 문구, 시작 시각 전 건너뜀, 회차별 반환 지연과 재전송, #818 이전 형식 커밋·`null` 값·일부 키 없음·JSON 객체가 아닌 본문 DLT, 파기된 게스트 닉네임, 받을 수 없는 호스트·시작 시각 전이면 게스트 복제본이 없어도 DLT 없이 건너뜀, 받을 수 있는데 게스트 복제본이 없으면 DLT, 출연 필수 값 DLT, 패키지 안 다른 종류 건너뜀·밖 타입·타입 헤더 없음 DLT, (group, topic)마다 컨테이너 하나), `in.event.NotificationAlertListenerStarterTest`(강의 컨테이너도 Backfill 뒤 시작) | 전부. 지표 값은 보지 않는다 |
 | NT-GEN-19, NT-GEN-10·15 지갑 4종 (N7 #907) | `app.WalletAlertsTest`(받는 사람, 원본 대상 ID, 이동 대상, 발생 시각, 값 키는 문구에 쓰는 값만(ND-109), 문구 0.7, 송금 예정일 KST 날짜 경계, 필수 값 거절), `in.event.NotificationBillingEventListenerTest`(필수 값이 빈 4종은 재시도 제외 예외로 바꾸고 저장하지 않음), `in.event.NotificationWalletAlertTest`(Kafka로 4종 저장과 문구, 재전송 1건, 같은 환불 요청의 운영자 확인·실패 공존, 시작 시각 전·탈퇴·정지 회원 건너뜀, 필수 값 DLT) | 전부. 재시도 없음은 리스너 단위 시험의 예외 타입으로 보고, Kafka 시험은 DLT 도착만 본다 |
 | NT-GEN-10·15·20 (N7 출연) | `app.AppearanceProgressAlertsTest`(10종의 받는 사람, 원본 대상 ID, 이동 대상, 발생 시각, 문구 0.8, `EARLY`·`HOST` 빈 값, 만료 두 초안, 필수 값 거절) | 변환·문구 |
-| NT-GEN-20, NT-KAF-09 (N7 출연) | `in.event.NotificationAppearanceProgressAlertTest`(10종 저장과 문구, 만료 재전송 뒤 호스트·게스트 각 1건, `EARLY`·`HOST`·모집 시작·모집 전체 취소는 알림·DLT 없음, 파기 닉네임, 시작 시각 전 건너뜀, `appearanceId` 없는 수락은 DLT) | 전부. 예약 입력은 N10 |
+| NT-GEN-20, NT-KAF-09 (N7 출연) | `in.event.NotificationAppearanceProgressAlertTest`(10종 저장과 문구, 만료 재전송 뒤 호스트·게스트 각 1건, `EARLY`·`HOST`·모집 시작·모집 전체 취소는 알림·DLT 없음, 파기 닉네임, 시작 시각 전 건너뜀, 받을 수 없는 호스트·시작 시각 전이면 상대 복제본이 없어도 DLT 없이 건너뜀, 받을 수 있는데 상대 복제본이 없으면 DLT, `appearanceId` 없는 수락은 DLT) | 전부. 예약 입력은 N10 |
 | NT-USR-03 | `app.NotificationWriterTest`(탈퇴 받는 사람 제외) | 저장 서비스 수준. 함께 받는 사람·예약은 N5·N10 |
 | NT-USR-07 | `app.NotificationConcurrencyTest`(보존 정리와 파기의 겹침, B·C 두 파기의 겹침), `app.NotificationMaskingServiceTest`(저장된 알림·밀려난 알림, 파기 상태 복제본, 파기 뒤 옛 닉네임 초안 저장, 복제본 없는 회원의 파기와 저장 동시 처리), `in.event.NotificationMemberEventListenerTest`(파기 이벤트, 변경 이벤트와 순서, 재수신), `domain.NotificationUserTest`·`app.NotificationUserSyncServiceTest`(파기된 복제본은 가입·변경으로 바뀌지 않음) | 전부(ND-051·ND-054) |
 | NT-RT-01·02·03 | `in.NotificationRealtimeIntegrationTest`(commit 뒤 받는 사람에게 알림+안 읽은 수, commit 전 프레임 없음, 롤백 시 없음, 다른 회원 연결로 안 감) | 전부. 저장 서비스 수준(Kafka 소비로 만드는 알림은 N5 이후) |
@@ -325,6 +325,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-12 #908 Bot 리뷰 반영: 4장 연결 표의 N6 B단계·N7 출연 행에 상대 닉네임을 읽는 순서(시작 시각·받는 사람을 먼저 보고 건너뜀, 상대 복제본 없음 DLT) 시험을 더했다. 항목·집계는 그대로다.
 - 2026-11-12 decisions.md ND-110~ND-113 반영(N7 출연 묶음, #908): NT-GEN-20(출연 10종)을 더하고, NT-GEN-10·15의 범위와 NT-KAF-09의 입력에 N7 출연을 더했다. 집계 103 → 104, 유효 97, 미결 7. 지갑 묶음(#907) 병합 뒤 결정 번호를 ND-110~ND-113으로 고쳤다.
 - 2026-11-12 decisions.md ND-105~ND-108 반영(N7 지갑 묶음, #907): NT-GEN-19(지갑 4종)를 더하고, NT-GEN-10·15의 범위에 N7 지갑을 더했다. 집계 102 → 103, 유효 96, 미결 7.
 - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): NT-BUN-04에 발생 시각(ND-101)을, NT-BUN-05를 되살림(ND-097)으로 고쳐 유효로 바꿨고, ND-097의 경합 테스트 NT-BUN-06~08을 더했다. NT-GEN-12에 ND-098을 반영했다(예약 5종 U11 남음). 집계 98 → 101, 유효 94, 미결 7. 구현 뒤 4장 연결 테스트 표에 NT-BUN-01~08을 더하고 NT-BND-03 범위를 N8까지로 고쳤다(상태·집계 그대로). PR 리뷰 뒤 NT-BUN-09(전체 읽음과 겹침)를 더했다(집계 101 → 102, 유효 95).

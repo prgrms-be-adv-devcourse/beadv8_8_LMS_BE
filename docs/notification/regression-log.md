@@ -86,6 +86,30 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-062 · 2026-11-12 · 통과 (N7 출연 #908 Bot 리뷰 반영: 상대 닉네임 읽는 순서 시험)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-062 |
+| 실행 날짜 | 2026-11-12 15:02~15:05 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `7e28fb12` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 시험만 바꿨다(운영 코드 변경 없음). `NotificationAppearanceProgressAlertTest`·`NotificationCancelRequestAndObjectionAlertTest`에 각 3개: 받을 수 없는 호스트·시작 시각 전이면 상대 복제본이 없어도 DLT 없이 건너뜀, 받을 수 있는데 상대 복제본이 없으면 재시도 뒤 DLT. test-spec 4장 연결 표 |
+| 대상 기능 | `NotificationAlertService.createMentioning`(N7 출연)·`cancelRequested`(N6)의 순서: 시작 시각·받는 사람을 본 뒤 상대 닉네임을 읽는다 |
+| 관련 NT ID | NT-GEN-17, NT-GEN-20 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`는 새로 실행, `:auxiliary-app`·`:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-061) |
+| 건수 | 새로 실행: `:notification` 268(새 시험 6). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(CI에서 확인) |
+| 관련 변경 | #908 Bot 리뷰 |
+
+**메모**: 실행 전에 변이로 시험을 확인했다. 두 메서드가 상대 닉네임을 먼저 읽도록 잠시 바꾸고 두 시험 클래스를 돌리면 28개 중 4개(건너뜀 경로, 출연 2·N6 2)가 실패했다. 상대 복제본 없음 DLT 시험 2개는 순서와 상관없이 DLT로 가서 통과한다. 변이는 되돌렸고 원본과 diff가 없음을 확인했다.
+
 #### NR-061 · 2026-11-12 · 통과 (N7 출연 #908 origin/dev 병합 뒤)
 
 | 항목 | 값 |
