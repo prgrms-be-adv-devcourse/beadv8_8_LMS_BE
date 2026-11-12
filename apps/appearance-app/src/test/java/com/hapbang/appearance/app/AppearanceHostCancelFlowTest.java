@@ -79,6 +79,8 @@ class AppearanceHostCancelFlowTest {
     private static final Long OTHER = 5L;
     private static final long FEE = 30_000L;
     private static final long PENALTY = 9_000L;
+    private static final String REQUEST_TITLE = "주말 게임 합방 출연 요청";
+    private static final String RECRUIT_TITLE = "주말 게임 합방 게스트 모집";
 
     @Autowired
     AppearanceFacade appearanceFacade;
@@ -233,8 +235,9 @@ class AppearanceHostCancelFlowTest {
             assertThat(canceled.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
             assertThat(canceled.cancelRequests().getFirst().status())
                     .isEqualTo(AppearanceCancelRequestStatus.CLOSED_BY_HOST_CANCEL);
-            assertThat(BillingCalls.penalties(billingClient)).extracting(PenaltyCommand::payoutAmountHp)
-                    .containsExactly(PENALTY);
+            assertThat(BillingCalls.penalties(billingClient))
+                    .extracting(PenaltyCommand::payoutAmountHp, PenaltyCommand::sourceTitle)
+                    .containsExactly(org.assertj.core.groups.Tuple.tuple(PENALTY, REQUEST_TITLE));
         }
 
         @Test
@@ -410,9 +413,10 @@ class AppearanceHostCancelFlowTest {
             assertThat(vacancy.getReason()).isEqualTo(HpTaskReason.RECRUIT_CANCELED);
             assertThat(vacancy.getAmount()).isEqualTo(FEE);
             assertThat(BillingCalls.penalties(billingClient))
-                    .extracting(PenaltyCommand::receiverUserId, PenaltyCommand::payoutAmountHp)
-                    .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(GUEST, PENALTY),
-                            org.assertj.core.groups.Tuple.tuple(GUEST2, PENALTY));
+                    .extracting(PenaltyCommand::receiverUserId, PenaltyCommand::payoutAmountHp,
+                            PenaltyCommand::sourceTitle)
+                    .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(GUEST, PENALTY, RECRUIT_TITLE),
+                            org.assertj.core.groups.Tuple.tuple(GUEST2, PENALTY, RECRUIT_TITLE));
             assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
             assertThat(output.getAll().lines().filter(line -> line.contains("모집을 취소했다")))
                     .singleElement().satisfies(line -> assertThat(line)

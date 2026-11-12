@@ -177,10 +177,10 @@ class AppearanceHostCancelTest {
     }
 
     @Test
-    @DisplayName("위약금 정산 작업: PENALTY, 기준액 = 출연료, 위약금은 받는 회원에게, 호스트 반환 몫 = 기준액 − 위약금. 위약금 0·기준액 초과는 IllegalArgumentException")
+    @DisplayName("위약금 정산 작업: PENALTY, 기준액 = 출연료, 위약금은 받는 회원에게, 호스트 반환 몫 = 기준액 − 위약금, 출처 제목. 위약금 0·기준액 초과는 IllegalArgumentException")
     void penaltyTask() {
         HpTask task = HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 30_000, GUEST, 9_000, 30L,
-                HpTaskReason.HOST_CANCELED, "APPEARANCE_REQUEST-12-PENALTY-APPEARANCE-30", NOW);
+                "같이 방송해요", HpTaskReason.HOST_CANCELED, "APPEARANCE_REQUEST-12-PENALTY-APPEARANCE-30", NOW);
 
         assertThat(task.getTaskType()).isEqualTo(HpTaskType.PENALTY);
         assertThat(task.getMemberId()).isEqualTo(HOST);
@@ -189,9 +189,10 @@ class AppearanceHostCancelTest {
         assertThat(task.getPayoutAmount()).isEqualTo(9_000);
         assertThat(task.releaseAmountOfPenalty()).isEqualTo(21_000);
         assertThat(task.getAppearanceId()).isEqualTo(30L);
+        assertThat(task.getSourceTitle()).isEqualTo("같이 방송해요");
         assertThatThrownBy(() -> HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 30_000, GUEST, 0, 30L,
-                HpTaskReason.HOST_CANCELED, "k", NOW)).isInstanceOf(IllegalArgumentException.class);
+                "제목", HpTaskReason.HOST_CANCELED, "k", NOW)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 30_000, GUEST, 30_001,
-                30L, HpTaskReason.HOST_CANCELED, "k", NOW)).isInstanceOf(IllegalArgumentException.class);
+                30L, "제목", HpTaskReason.HOST_CANCELED, "k", NOW)).isInstanceOf(IllegalArgumentException.class);
     }
 }
