@@ -70,15 +70,16 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     /** 쿠폰 ID는 Long 범위 안의 숫자만 본다. 그 밖은 정상 경로가 응답한다 */
     private static final Pattern PATH = Pattern.compile("/api/v1/coupons/(\\d{1,18})/issue-requests");
 
-    private final CouponSoldOutCache soldOutCache;
-    private final Counter soldOut;
+    /** 필터 등록은 서블릿 컨텍스트가 뜰 때라 일반 빈보다 먼저다. 캐시(Redis 연결)·지표는 첫 요청 때 꺼내 앞당겨 만들지 않는다 */
+    private final SingletonSupplier<CouponSoldOutCache> soldOutCache;
+    private final SingletonSupplier<Counter> soldOut;
     /** MVC가 ProblemDetail을 쓰는 변환기. 본문 직렬화를 예외 처리기 응답과 같게 한다 */
     private final SingletonSupplier<HttpMessageConverter<Object>> problemWriter;
 
-    public CouponSoldOutFastPathFilter(CouponSoldOutCache soldOutCache, MeterRegistry meterRegistry,
+    public CouponSoldOutFastPathFilter(Supplier<CouponSoldOutCache> soldOutCache, Supplier<MeterRegistry> meterRegistry,
                                        Supplier<List<HttpMessageConverter<?>>> mvcConverters) {
-        this.soldOutCache = soldOutCache;
-        this.soldOut = meterRegistry.counter(CouponIssueRequestUseCase.SOLD_OUT_METRIC);
+        this.soldOutCache = SingletonSupplier.of(soldOutCache);
+        this.soldOut = SingletonSupplier.of(() -> meterRegistry.get().counter(CouponIssueRequestUseCase.SOLD_OUT_METRIC));
         this.problemWriter = SingletonSupplier.of(() -> problemWriter(mvcConverters.get()));
     }
 
@@ -90,7 +91,7 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        soldOut.increment();
+        soldOut.obtain().increment();
         ServerHttpObservationFilter.findObservationContext(request).ifPresent(context -> context.setPathPattern(URI_PATTERN));
         writeSoldOut(request, response);
     }
@@ -98,7 +99,7 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     /** 매진 캐시를 보다 예외가 나면 매진이 아닌 것으로 보고 정상 경로(최종 판정은 Lua)에 맡긴다. 이 필터는 보안 앞이라 예외가 새면 공통 오류 응답을 거치지 못한다 */
     private boolean isSoldOut(long couponId) {
         try {
-            return soldOutCache.isSoldOut(couponId);
+            return soldOutCache.obtain().isSoldOut(couponId);
         } catch (RuntimeException e) {
             logger.debug("매진 캐시를 보지 못해 정상 경로로 넘긴다 couponId=" + couponId, e);
             return false;

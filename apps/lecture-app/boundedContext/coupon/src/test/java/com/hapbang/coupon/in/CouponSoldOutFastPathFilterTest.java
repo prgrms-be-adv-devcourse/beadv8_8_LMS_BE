@@ -43,7 +43,7 @@ class CouponSoldOutFastPathFilterTest {
 
     private final CouponSoldOutCache soldOutCache = mock();
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final CouponSoldOutFastPathFilter filter = new CouponSoldOutFastPathFilter(soldOutCache, meterRegistry,
+    private final CouponSoldOutFastPathFilter filter = new CouponSoldOutFastPathFilter(() -> soldOutCache, () -> meterRegistry,
             () -> List.of(new JacksonJsonHttpMessageConverter()));
 
     @Test
@@ -81,7 +81,7 @@ class CouponSoldOutFastPathFilterTest {
         assertThat(chain.getRequest()).isNotNull();
         assertThat(response.getContentAsString()).isEmpty();
         verify(soldOutCache).isSoldOut(COUPON_ID);
-        assertThat(meterRegistry.get(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter().count()).isZero();
+        assertThat(meterRegistry.find(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter()).isNull();
     }
 
     @Test
