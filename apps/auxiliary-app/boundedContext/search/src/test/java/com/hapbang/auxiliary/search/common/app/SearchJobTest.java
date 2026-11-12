@@ -12,10 +12,10 @@ import org.junit.jupiter.api.Test;
 class SearchJobTest {
 
     @Test
-    @DisplayName("락 번호는 그 작업을 더한 검색 이슈 번호(#771, #772, #773) × 1000 + 순번이고 서로 겹치지 않는다. 태그는 search-로 시작한다")
+    @DisplayName("락 번호는 그 작업을 더한 검색 이슈 번호(#771, #772, #773, #882) × 1000 + 순번이고 서로 겹치지 않는다. 태그는 search-로 시작한다")
     void lockKeys() {
         assertThat(Arrays.stream(SearchJob.values()).map(SearchJob::lockKey)).doesNotHaveDuplicates()
-                .allMatch(key -> Set.of(771L, 772L, 773L).contains(key / 1000));
+                .allMatch(key -> Set.of(771L, 772L, 773L, 882L).contains(key / 1000));
         assertThat(Arrays.stream(SearchJob.values()).map(SearchJob::tag)).allMatch(tag -> tag.startsWith("search-"));
     }
 }

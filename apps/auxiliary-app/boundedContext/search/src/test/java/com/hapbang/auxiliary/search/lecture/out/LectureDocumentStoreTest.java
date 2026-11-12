@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.search.lecture.out;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -147,6 +148,23 @@ class LectureDocumentStoreTest {
         assertThat(store.updateSeller(new Seller(7L, "정지된", false))).isZero();
         assertThat(store.writeSeller(11L, new Seller(7L, "복귀", true))).isEqualTo(WriteOutcome.UPDATED);
         assertThat(store.writeSeller(99L, SELLER)).isEqualTo(WriteOutcome.MISSING);
+    }
+
+    @Test
+    @DisplayName("tombstone 정리는 오래된 숨김 문서만 지운다. 판매자가 정지된 강의는 숨김이 아니라 정지가 길어도 남는다(Q2)")
+    void cleanupKeepsSuspendedSellerLectures() throws Exception {
+        Instant old = NOW.minus(Duration.ofDays(8));
+        store.writeLecture(lecture(11L, "오래전 판매 중지", false, 1L), SELLER, RATING, old);
+        store.writeLecture(lecture(12L, "최근 판매 중지", false, 1L), SELLER, RATING, NOW);
+        store.writeLecture(new LectureSyncDto(13L, 8L, "정지된 판매자", null, true, false, List.of(), 1L),
+                new Seller(8L, "정지", false), RATING, old);
+        client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
+
+        assertThat(store.writes().deleteHiddenBefore(NOW.minus(Duration.ofDays(7)))).isEqualTo(1);
+
+        assertThat(client.exists(e -> e.index(LectureIndexDefinition.ALIAS).id("11")).value()).isFalse();
+        assertThat(source(12L)).containsEntry("hidden", true);
+        assertThat(source(13L)).containsEntry("hidden", false).containsEntry("sellerActive", false);
     }
 
     @Test
