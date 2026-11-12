@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-069 · 2026-11-12 · 통과 (N7 회원 #915 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-069 |
+| 실행 날짜 | 2026-11-12 16:04~16:15 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | `8ee9f33c`(`4b5bccca` + origin/dev `84b349c3` 병합. 실행은 병합 커밋 직전의 같은 작업 트리) |
+| 작업 트리 변경 | origin/dev(출연 #908 PR #916, 검색 #914, 강의 #910 PR #920) 병합. 충돌 8파일(`NotificationTemplates`와 알림 문서 7개)은 dev 내용을 두고 회원 변경을 더해 풀었다. 겹친 실행 기록 번호만 NR-062~NR-064 → NR-066~NR-068로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 출연·강의·회원 알림이 함께 등록된 `NotificationTemplates`, 검색 #914) |
+| 관련 NT ID | NT-GEN-20·21·22, NT-GEN-10·15, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test` |
+| 건수 | `:notification` 300, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음(R-01의 JobLock 시험도 이번에는 통과) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ Q2 a) |
+| 관련 변경 | #915 |
+
 #### NR-068 · 2026-11-12 · 통과 (N7 회원 3종 #915 자체 리뷰 반영)
 
 | 항목 | 값 |
@@ -1748,4 +1770,4 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-10 NR-010·NR-011(N2 알림 저장·REST, #801)을 더했다.
 - 2026-11-10 NR-012·NR-013(ND-054 파기 표시, #801)을 더했다.
 - 2026-11-10 NR-014·NR-015(#801 PR 리뷰: 같은 알림 행의 동시 쓰기)를 더했다.
-- 2026-11-12 NR-066(실패, global JobLock 시험)·NR-067(N7 회원 3종, #915)과 4장 R-01을 더했다. 자체 리뷰 반영 뒤 NR-068을 더했다(작업 중 NR-062~NR-064였고 출연·강의 병합 뒤 고쳤다).
+- 2026-11-12 NR-066(실패, global JobLock 시험)·NR-067(N7 회원 3종, #915)과 4장 R-01을 더했다. 자체 리뷰 반영 뒤 NR-068을 더했다(작업 중 NR-062~NR-064였고 출연·강의 병합 뒤 고쳤다). origin/dev 병합 뒤 NR-069를 더했다.
