@@ -45,7 +45,7 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 - OrderItemPaid (기존 토픽 `lecture.events.v1`, key = 주문 항목 ID): eventId, 주문/항목, usages[{memberCouponId,generation}], paidAt.
 - OrderItemCancelCompleted (같은 토픽, key = 주문 항목 ID): eventId, 주문/항목, usages, billing 반환 작업 ID, 쿠폰별 예산 복구 결과, completedAt.
-- CouponIssueRequested (토픽 `coupon.events.v1`, key = couponId): issueRequestId, couponId, memberId, epoch, issuedAt, expiresAt. 소비 그룹 `lecture-app.coupon-issue`, DLT는 팀 규칙대로 `coupon.events.v1.lecture-app.coupon-issue.DLT`. 팀 Kafka 규칙에 이벤트 ID가 없어 소비 멱등은 결정적 작업 ID `coupon-issue:{couponId}:{requestId}`(`processed_operation`)로 한다. 접수 직후 앱이 보내고(ACK 대기 설정), 재발행 배치가 같은 ID로 다시 보낼 수 있다.
+- CouponIssueRequested (토픽 `coupon.events.v1`, key = couponId): issueRequestId, couponId, memberId, epoch, issuedAt, expiresAt. 소비 그룹 `lecture-app.coupon-issue`, DLT는 팀 규칙대로 `coupon.events.v1.lecture-app.coupon-issue.DLT`. 팀 Kafka 규칙에 이벤트 ID가 없어 소비 멱등은 결정적 작업 ID `coupon-issue:{couponId}:{requestId}`(`processed_operation`)로 한다. 접수 직후 앱이 ACK를 기다리지 않고 보내고(2026-11-12. 요청 스레드는 전송 준비 `max.block.ms` = `publish-ack-timeout`만 기다릴 수 있다), 재발행 배치가 같은 ID로 다시 보낼 수 있다.
 
 같은 주문 항목의 결제 완료·취소 완료는 같은 key라 순서가 지켜진다. 이벤트 ID(`processed_operation`)뿐 아니라 사용 시도의 최종 결과로 역전도 막는다. 인프로세스 `@ApplicationModuleListener`로 두 모듈을 잇지 않는다.
 
