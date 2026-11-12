@@ -136,7 +136,7 @@ class LectureDocumentStoreTest {
     void updateSeller() throws Exception {
         store.writeLecture(lecture(11L, "판매 중", true, 1L), SELLER, RATING, NOW);
         store.writeLecture(lecture(12L, "판매 중지", false, 1L), SELLER, RATING, NOW);
-        store.writeLecture(new LectureSyncDto(13L, 8L, "다른 판매자", null, true, false, List.of(), 1L),
+        store.writeLecture(new LectureSyncDto(13L, 8L, "다른 판매자", null, 10_000L, true, false, List.of(), 1L),
                 new Seller(8L, "다른", true), RATING, NOW);
 
         assertThat(store.updateSeller(new Seller(7L, "정지된", false))).isEqualTo(2);
@@ -174,7 +174,7 @@ class LectureDocumentStoreTest {
         Instant old = NOW.minus(Duration.ofDays(8));
         store.writeLecture(lecture(11L, "오래전 판매 중지", false, 1L), SELLER, RATING, old);
         store.writeLecture(lecture(12L, "최근 판매 중지", false, 1L), SELLER, RATING, NOW);
-        store.writeLecture(new LectureSyncDto(13L, 8L, "정지된 판매자", null, true, false, List.of(), 1L),
+        store.writeLecture(new LectureSyncDto(13L, 8L, "정지된 판매자", null, 10_000L, true, false, List.of(), 1L),
                 new Seller(8L, "정지", false), RATING, old);
         client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
 
@@ -198,7 +198,7 @@ class LectureDocumentStoreTest {
     }
 
     private static LectureSyncDto lecture(long id, String title, boolean onSale, long version) {
-        return new LectureSyncDto(id, 7L, title, "소개", onSale, false,
+        return new LectureSyncDto(id, 7L, title, "소개", 10_000L, onSale, false,
                 List.of(new LectureContentSyncDto(1L, "1강 설치", 1), new LectureContentSyncDto(2L, "2강 컷편집", 2)),
                 version);
     }

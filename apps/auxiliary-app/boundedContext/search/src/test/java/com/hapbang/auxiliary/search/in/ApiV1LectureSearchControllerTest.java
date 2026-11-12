@@ -213,7 +213,7 @@ class ApiV1LectureSearchControllerTest {
         for (int i = 0; i < contentTitles.size(); i++) {
             contents.add(new LectureContentSyncDto((long) i + 1, contentTitles.get(i), i + 1));
         }
-        store.writeLecture(new LectureSyncDto(id, 7L, title, description, true, false, contents, 1L),
+        store.writeLecture(new LectureSyncDto(id, 7L, title, description, 10_000L, true, false, contents, 1L),
                 new Seller(7L, "편집장", true), rating, NOW);
     }
 

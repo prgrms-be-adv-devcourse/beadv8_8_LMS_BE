@@ -36,15 +36,4 @@ public record LectureSyncDto(
         Objects.requireNonNull(title, "title은 필수입니다.");
         contents = List.copyOf(Objects.requireNonNull(contents, "contents는 필수입니다."));
     }
-
-    /**
-     * 가격 없이 만든다({@code priceHp = null}). 가격을 더하기 전 모양으로 DTO를 만드는 다른 모듈 테스트가 그대로 컴파일되게 잠시 둔다.
-     *
-     * @deprecated #909에서 이 생성자를 쓰는 테스트를 고치고 지운다. 새 코드는 정식 생성자를 쓴다
-     */
-    @Deprecated(forRemoval = true)
-    public LectureSyncDto(Long id, Long sellerUserId, String title, String description, boolean onSale,
-                          boolean deleted, List<LectureContentSyncDto> contents, long version) {
-        this(id, sellerUserId, title, description, null, onSale, deleted, contents, version);
-    }
 }

@@ -206,7 +206,7 @@ class LectureSearcherTest {
             contents.add(new LectureContentSyncDto((long) i + 1, contentTitles.get(i), i + 1));
         }
         long sellerUserId = seller == null ? 99L : seller.userId();
-        store.writeLecture(new LectureSyncDto(id, sellerUserId, title, description, onSale, false, contents, 1L), seller,
+        store.writeLecture(new LectureSyncDto(id, sellerUserId, title, description, 10_000L, onSale, false, contents, 1L), seller,
                 rating == null ? LectureRating.NONE : rating, NOW);
     }
 

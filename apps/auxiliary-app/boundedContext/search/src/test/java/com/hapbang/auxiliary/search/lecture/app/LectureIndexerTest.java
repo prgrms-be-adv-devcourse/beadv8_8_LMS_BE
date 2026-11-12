@@ -95,7 +95,7 @@ class LectureIndexerTest {
 
         assertThat(lectureIndexer.apply(lecture("수정", true, 1L)).outcome()).isEqualTo(WriteOutcome.NOOP);
 
-        lectureIndexer.apply(new LectureSyncDto(11L, SELLER, "수정", "소개", false, true, List.of(), 3L));
+        lectureIndexer.apply(new LectureSyncDto(11L, SELLER, "수정", "소개", 10_000L, false, true, List.of(), 3L));
         assertThat(source()).containsEntry("hidden", true).containsEntry("lectureVersion", 3);
         assertThat(lectureIndexer.apply(lecture("되살리기", true, 2L)).outcome()).isEqualTo(WriteOutcome.NOOP);
         assertThat(source()).containsEntry("hidden", true);
@@ -254,7 +254,7 @@ class LectureIndexerTest {
     }
 
     private static LectureSyncDto lecture(String title, boolean onSale, long version) {
-        return new LectureSyncDto(11L, SELLER, title, "소개", onSale, false,
+        return new LectureSyncDto(11L, SELLER, title, "소개", 10_000L, onSale, false,
                 List.of(new LectureContentSyncDto(1L, "1강", 1)), version);
     }
 
