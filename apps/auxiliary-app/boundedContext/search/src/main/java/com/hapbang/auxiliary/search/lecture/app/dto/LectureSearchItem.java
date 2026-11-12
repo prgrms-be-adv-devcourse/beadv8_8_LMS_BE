@@ -5,18 +5,18 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 강의 검색 결과 한 줄(#883 L12). 강의 목록 카드에서 썸네일·가격을 뺀 칸이다. 썸네일은 FE가 강의 앱 일괄 API로 채우고, 가격은 강의 가격 칸이
- * 생기면 더한다.
+ * 강의 검색 결과 한 줄(#883 L12). 강의 목록 카드에서 썸네일을 뺀 칸이다. 썸네일은 FE가 강의 앱 일괄 API로 채운다.
  *
  * @param lectureId      강의 ID
  * @param title          제목(원문)
+ * @param priceHp        가격(HP, #909). 검색 문서에 가격이 아직 없으면(가격 필드가 생기기 전의 옛 메시지로 만든 문서) null
  * @param sellerUserId   판매자 회원 ID
  * @param sellerNickname 판매자 닉네임. 아직 모르면 null
  * @param averageRating  리뷰 평균(소수 첫째 자리 반올림, 강의 목록과 같음). 리뷰가 없으면 null. 평점순에 쓰는 보정 평균이 아니다
  * @param reviewCount    리뷰 수
  * @param highlights     검색어가 걸린 곳. 검색어가 있으면 늘 있고(걸린 칸이 없으면 칸만 null), 검색어가 없으면 null
  */
-public record LectureSearchItem(long lectureId, String title, long sellerUserId, String sellerNickname,
+public record LectureSearchItem(long lectureId, String title, Long priceHp, long sellerUserId, String sellerNickname,
                                 Double averageRating, long reviewCount, Highlights highlights) {
 
     /**

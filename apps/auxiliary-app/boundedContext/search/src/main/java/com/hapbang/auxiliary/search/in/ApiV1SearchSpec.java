@@ -43,15 +43,16 @@ public interface ApiV1SearchSpec {
     @Operation(summary = "강의 검색 (비회원 가능)", description = """
             강의 제목·콘텐츠 제목·판매자 닉네임·소개로 판매 중인 강의를 찾는다. 줄임말(배그·롤 등)은 동의어로 함께 찾는다. \
             기본 순서는 검색어가 있으면 관련도순(글이 먼저, 비슷하면 평점이 가름), 없으면 최신순이다. \
-            sort는 latest,desc(최신순)·rating,desc(평점 높은 순, 리뷰가 적으면 전체 평균 쪽으로 보정) 하나만 쓸 수 있고 \
+            sort는 latest,desc(최신순)·rating,desc(평점 높은 순, 리뷰가 적으면 전체 평균 쪽으로 보정)·\
+            price,asc(가격 낮은 순)·price,desc(가격 높은 순, 가격이 아직 없는 강의는 어느 쪽이든 맨 뒤) 하나만 쓸 수 있고 \
             그 밖은 400 UNSUPPORTED_SORT. 앞에서 1,000건까지만 볼 수 있고(totalElements도 1,000까지) 넘으면 400 PAGE_TOO_DEEP. \
             검색할 수 없으면 503 SEARCH_UNAVAILABLE(강의 목록 GET /api/v1/lectures는 그대로 쓸 수 있다). \
             회원은 회원마다, 비회원은 접속 IP마다 1분에 60번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS(Retry-After 초). \
             highlights는 검색어가 걸린 곳이다. HTML 특수 문자는 escape되어 있고 걸린 말만 <em>으로 감쌌다(그 밖의 태그 없음). \
-            썸네일·가격은 없다(썸네일은 강의 앱 일괄 API로 채운다). 처음 화면(검색어 없음)은 강의 목록 API를 쓴다.""")
+            priceHp는 가격(HP)이고 아직 모르면 null이다. 썸네일은 없다(강의 앱 일괄 API로 채운다). 처음 화면(검색어 없음)은 강의 목록 API를 쓴다.""")
     RsData<Page<LectureSearchItem>> searchLectures(
             @Parameter(hidden = true) Principal principal,
             @Parameter(hidden = true) HttpServletRequest request,
             @Parameter(description = "검색어(최대 50자). 없으면 판매 중인 강의 전체", example = "프리미어") @Size(max = 50) String keyword,
-            @Parameter(description = "page(0부터), size(기본 20, 최대 100), sort(latest,desc 또는 rating,desc)") Pageable pageable);
+            @Parameter(description = "page(0부터), size(기본 20, 최대 100), sort(latest,desc, rating,desc, price,asc, price,desc 중 하나. price만 쓰면 오름차순)") Pageable pageable);
 }

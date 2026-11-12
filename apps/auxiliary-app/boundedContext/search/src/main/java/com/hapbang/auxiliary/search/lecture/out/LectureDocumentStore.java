@@ -38,9 +38,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * 칸마다 출처가 하나다(Q2). 쓰는 곳도 출처마다 나뉜다.
  * <ul>
- *     <li>강의 칸(제목·소개·콘텐츠 제목·판매자 ID·숨김): 강의 이벤트({@link #writeLecture}). <b>강의 version 조건부 쓰기</b>로, 문서의
- *     {@code lectureVersion}보다 클 때만 반영한다. 순서가 뒤바뀐 이벤트·같은 이벤트 두 번·삭제 뒤 늦게 온 옛 이벤트는 noop이다. ES external
- *     versioning은 쓰지 않는다(판매자·평점 부분 갱신이 ES 문서 버전을 올려 다음 강의 이벤트를 거절하게 만든다, 인플루언서 #771과 같은 이유).</li>
+ *     <li>강의 칸(제목·소개·콘텐츠 제목·가격·판매자 ID·숨김): 강의 이벤트({@link #writeLecture}). <b>강의 version 조건부 쓰기</b>로, 문서의
+ *     {@code lectureVersion}보다 클 때만 반영한다(가격 칸만 같은 version에도 맞춘다, {@link #PRICE_SCRIPT}). 순서가 뒤바뀐 이벤트·
+ *     같은 이벤트 두 번·삭제 뒤 늦게 온 옛 이벤트는 noop이다. ES external versioning은 쓰지 않는다(판매자·평점 부분 갱신이 ES 문서 버전을 올려 다음 강의 이벤트를 거절하게 만든다, 인플루언서 #771과 같은 이유).</li>
  *     <li>판매자 칸(닉네임·정상 여부): 회원 사본({@link #updateSeller}, {@link #writeSeller}).</li>
  *     <li>평점 칸(평균·리뷰 수): 리뷰 사본 집계({@link #writeRating}).</li>
  * </ul>
@@ -59,6 +59,9 @@ public class LectureDocumentStore {
     /**
      * 강의 이벤트 반영 script(scripted upsert). 문서가 없으면 {@code ctx._source}가 빈 문서다. {@code lectureId}가 없으면 새 문서로 보고 판매자·
      * 평점 칸도 채운다.
+     * <p>
+     * 가격 칸(#909): 넘긴 가격이 없으면(가격 필드가 생기기 전의 옛 메시지·응답) 문서 가격을 그대로 둔다. 같은 version의 가격 맞추기는
+     * {@link #PRICE_SCRIPT}가 따로 한다.
      */
     static final String LECTURE_SCRIPT = """
             def current = ctx._source.lectureVersion;
@@ -70,6 +73,9 @@ public class LectureDocumentStore {
             ctx._source.title = params.title;
             ctx._source.description = params.description;
             ctx._source.contentTitles = params.contentTitles;
+            if (params.priceHp != null) {
+              ctx._source.priceHp = params.priceHp;
+            }
             if (params.visible) {
               ctx._source.hidden = false;
               ctx._source.remove('hiddenAt');
@@ -83,6 +89,23 @@ public class LectureDocumentStore {
               ctx._source.sellerVersion = params.sellerVersion;
               ctx._source.averageRating = params.averageRating;
               ctx._source.reviewCount = params.reviewCount;
+            }
+            """;
+
+    /**
+     * 같은 version의 가격 맞추기 script(#909). 문서의 {@code lectureVersion}이 넘긴 version과 <b>같고</b> 가격이 다를 때만 가격 칸 하나를
+     * 고친다. 같은 강의 ID·version은 이벤트와 동기화 API가 같은 값이라({@code docs/api/internal-lecture-sync.md}) 맞는 값이다. 가격을 모르는 옛
+     * pod(롤링 배포 중)가 더 새 version을 써서 낡은 가격도 같은 version이 다시 오면(재전달·재발행, #884 보정) 고쳐진다.
+     * <p>
+     * 강의 script에 넣지 않고 따로 부르는 이유: 강의 쓰기 결과 {@code NOOP}(같은 이벤트 재수신)는 판매자·평점 칸을 다시 채우는 신호다(PR #906 리뷰).
+     * 가격을 고쳤다고 결과가 {@code UPDATED}가 되면 그 복구가 빠진다.
+     */
+    static final String PRICE_SCRIPT = """
+            def current = ctx._source.lectureVersion;
+            if (current == null || ((Number) current).longValue() != params.version || ctx._source.priceHp == params.priceHp) {
+              ctx.op = 'noop';
+            } else {
+              ctx._source.priceHp = params.priceHp;
             }
             """;
 
@@ -148,19 +171,23 @@ public class LectureDocumentStore {
 
     /**
      * 강의 이벤트를 문서에 반영한다. 판매 중이면 보이는 문서, 아니면 숨김 문서다. 판매자·평점 칸은 문서를 처음 만들 때만 넘긴 값으로 채운다.
+     * <p>
+     * 강의 쓰기가 {@code NOOP}이고 가격이 있으면 같은 version의 가격을 맞춘다({@link #PRICE_SCRIPT}, 요청 하나 더). 결과는 그대로 {@code NOOP}이다.
      *
      * @param seller 판매자 정보. 회원 사본에 아직 없으면 {@code null}(닉네임 없이, 정상 판매자로 넣고 회원 이벤트가 채운다)
      * @param rating 리뷰 사본의 평균·리뷰 수
      * @param now    숨긴 시각(7일 뒤 정리 기준)
-     * @return 새로 만들었으면 {@link WriteOutcome#CREATED}, 반영했으면 {@link WriteOutcome#UPDATED}, 옛 version이면 {@link WriteOutcome#NOOP}
+     * @return 새로 만들었으면 {@link WriteOutcome#CREATED}, 반영했으면 {@link WriteOutcome#UPDATED}, 같거나 옛 version이면
+     *         {@link WriteOutcome#NOOP}(같은 version의 가격만 고친 경우 포함)
      * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
      * @throws DocumentRejectedException ES가 그 강의의 값 때문에 거절한 경우(다시 써도 같다)
      * @throws IllegalStateException     그 밖에 쓰지 못한 경우
      */
     public WriteOutcome writeLecture(LectureSyncDto lecture, Seller seller, LectureRating rating, Instant now) {
         Map<String, JsonData> params = lectureParams(lecture, seller, rating, now);
+        WriteOutcome outcome;
         try {
-            return DocumentWrites.outcome(client.update(u -> u.index(LectureIndexDefinition.ALIAS)
+            outcome = DocumentWrites.outcome(client.update(u -> u.index(LectureIndexDefinition.ALIAS)
                     .id(String.valueOf(lecture.id()))
                     .requireAlias(true)
                     // 같은 문서를 판매자·평점 쓰기가 함께 바꾸면 다시 읽어 script를 다시 돈다
@@ -178,6 +205,13 @@ public class LectureDocumentStore {
         } catch (IOException e) {
             throw new IllegalStateException("강의 검색 문서를 쓰지 못했습니다 lectureId=" + lecture.id(), e);
         }
+        if (outcome == WriteOutcome.NOOP && lecture.priceHp() != null) {
+            Map<String, JsonData> priceParams = new HashMap<>();
+            priceParams.put("version", JsonData.of(lecture.version()));
+            priceParams.put("priceHp", JsonData.of(lecture.priceHp()));
+            partialUpdate(lecture.id(), PRICE_SCRIPT, priceParams);
+        }
+        return outcome;
     }
 
     /**
@@ -397,6 +431,7 @@ public class LectureDocumentStore {
         params.put("title", JsonData.of(lecture.title()));
         putIfPresent(params, "description", lecture.description());
         params.put("contentTitles", JsonData.of(lecture.contents().stream().map(LectureContentSyncDto::title).toList()));
+        putIfPresent(params, "priceHp", lecture.priceHp());
         params.put("visible", JsonData.of(lecture.onSale()));
         params.put("now", JsonData.of(now.toEpochMilli()));
         putIfPresent(params, "sellerNickname", seller == null ? null : seller.nickname());

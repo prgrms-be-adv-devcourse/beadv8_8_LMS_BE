@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.ClassUtils;
 
 import com.hapbang.auxiliary.notification.app.LectureObjectionAlerts;
+import com.hapbang.auxiliary.notification.app.LectureProgressAlerts;
 import com.hapbang.auxiliary.notification.app.NotificationAlertService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
@@ -28,10 +29,17 @@ import com.hapbang.auxiliary.notification.in.event.kafka.ObjectionLegacyFormat;
 import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
+import com.hapbang.shared.lecture.event.LectureApprovedEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
+import com.hapbang.shared.lecture.event.LectureOrderHoldFailedEvent;
+import com.hapbang.shared.lecture.event.LectureOrderItemCanceledEvent;
+import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
+import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
+import com.hapbang.shared.lecture.event.LectureRejectedEvent;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -42,7 +50,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 강의 이벤트({@code lecture.events.v1}, 그룹 {@code auxiliary-app.notification-lecture-alert})로 이의 제기 결과 4종(판단·반환
- * 완료·철회·반환 지연) 알림을 만드는 진입 어댑터(N6, ND-082·ND-087).
+ * 완료·철회·반환 지연, N6, ND-082·ND-087)과 강의 진행 7종(검수 승인·반려, 구매 완료, 결제 실패, 구매 취소, 자동 구매 확정, 이의
+ * 제기 접수, N7 강의, ND-114) 알림을 만드는 진입 어댑터.
  * <ul>
  *     <li>값을 바이트로 받는다(ND-096). #818 이전 형식인지 원본 JSON의 키로 판별해야 하는데({@link ObjectionLegacyFormat},
  *     ND-086), 레코드로 바꾸면 키 없음과 {@code null} 값이 같아진다.</li>
@@ -50,6 +59,8 @@ import tools.jackson.databind.json.JsonMapper;
  *     종류(추천용 동기화 등, 클래스패스에 없는 새 종류 포함)는 본문을 읽지 않고 건너뛴다.</li>
  *     <li>#818 이전 형식은 알림 없이 커밋하고 로그(종류마다 1·2·4…번째만 INFO)와 지표 {@value #LEGACY_SKIPPED_METRIC}를 남긴다. 판별할 수 없으면(값이
  *     {@code null}, 일부 키만 없음) 검증 실패로 재시도 없이 DLT로 보낸다. 읽을 수 없는 본문도 같다.</li>
+ *     <li>강의 진행 7종은 #872부터 Kafka로 나가 이전 형식이 없으므로 판별 없이 바로 읽는다(ND-114). 필수 값이 비면 재시도 없이 DLT로
+ *     보낸다. 직접·첫 재생 구매 확정은 알림 없이 커밋한다.</li>
  *     <li>컨테이너는 첫 회원 복제본 Backfill이 끝나면 시작하고(ND-078), 알림 시작 시각 전 사건은 저장하지 않는다(ND-076).</li>
  *     <li>저장 실패(복제본 없음, DB 장애)는 블로킹 재시도 뒤 DLT로 간다(ND-010·ND-035).</li>
  * </ul>
@@ -72,6 +83,12 @@ public class NotificationLectureEventListener {
     private static final Map<String, Class<?>> OBJECTION_EVENTS = Stream.<Class<?>>of(
                     LectureObjectionResolvedEvent.class, LectureObjectionReturnCompletedEvent.class,
                     LectureObjectionWithdrawnEvent.class, LectureObjectionReturnActionRequiredEvent.class)
+            .collect(Collectors.toUnmodifiableMap(Class::getName, Function.identity()));
+    /** 강의 진행 7종(ND-114). 이전 형식 판별 없이 읽는다 */
+    private static final Map<String, Class<?>> PROGRESS_EVENTS = Stream.<Class<?>>of(
+                    LectureApprovedEvent.class, LectureRejectedEvent.class, LectureOrderPaidEvent.class,
+                    LectureOrderHoldFailedEvent.class, LectureOrderItemCanceledEvent.class,
+                    LectureOrderItemConfirmedEvent.class, LectureObjectionFiledEvent.class)
             .collect(Collectors.toUnmodifiableMap(Class::getName, Function.identity()));
 
     private final NotificationAlertService alerts;
@@ -103,6 +120,11 @@ public class NotificationLectureEventListener {
         if (!NotificationKafkaConstants.LECTURE_EVENTS_TRUSTED_PACKAGE.equals(ClassUtils.getPackageName(typeId))) {
             throw new RejectedEventException("이벤트 신뢰 패키지 밖의 타입입니다: " + typeId, null);
         }
+        Class<?> progress = PROGRESS_EVENTS.get(typeId);
+        if (progress != null) {
+            handle(read(progress, record.value()));
+            return;
+        }
         Class<?> type = OBJECTION_EVENTS.get(typeId);
         if (type == null) {
             skipped(typeId, record);
@@ -117,7 +139,7 @@ public class NotificationLectureEventListener {
     }
 
     /**
-     * 레코드 하나가 처리 단위다. 판단은 구매자·판매자 2건이고, 한쪽 저장이 실패하면 레코드 전체를 다시 처리한다(먼저 저장한 건은 유일
+     * 레코드 하나가 처리 단위다. 판단·이의 제기 접수는 구매자·판매자 2건이고, 한쪽 저장이 실패하면 레코드 전체를 다시 처리한다(먼저 저장한 건은 유일
      * 인덱스로 건너뛴다, ND-019). 계속 실패하면(복제본 없음 등, ND-035) 다른 쪽 알림도 함께 DLT로 미뤄지고, DLT에서 다시 넣으면 둘 다
      * 만든다. 받는 사람마다 따로 커밋하면 DLT 레코드가 절반만 처리된 상태가 되어 재처리 기준이 흐려지므로 나누지 않는다
      */
@@ -125,20 +147,30 @@ public class NotificationLectureEventListener {
         drafts(event).forEach(alerts::create);
     }
 
-    /** 초안으로 바꾼다. 필수 값이 빈 이벤트(검증 실패)는 재시도 없이 DLT로 보낸다(ND-086). 저장 단계의 오류는 바꾸지 않는다 */
+    /**
+     * 초안으로 바꾼다. 필수 값이 빈 이벤트(검증 실패)는 재시도 없이 DLT로 보낸다(ND-086·ND-114). 저장 단계의 오류는 바꾸지 않는다.
+     * 직접·첫 재생 구매 확정은 빈 목록이라 알림 없이 커밋한다
+     */
     private static List<NotificationDraft> drafts(Object event) {
         try {
             return switch (event) {
+                case LectureApprovedEvent approved -> List.of(LectureProgressAlerts.approved(approved));
+                case LectureRejectedEvent rejected -> List.of(LectureProgressAlerts.rejected(rejected));
+                case LectureOrderPaidEvent paid -> List.of(LectureProgressAlerts.paid(paid));
+                case LectureOrderHoldFailedEvent failed -> List.of(LectureProgressAlerts.holdFailed(failed));
+                case LectureOrderItemCanceledEvent canceled -> List.of(LectureProgressAlerts.canceled(canceled));
+                case LectureOrderItemConfirmedEvent confirmed -> LectureProgressAlerts.confirmed(confirmed);
+                case LectureObjectionFiledEvent filed -> LectureProgressAlerts.objectionFiled(filed);
                 case LectureObjectionResolvedEvent resolved -> LectureObjectionAlerts.resolved(resolved);
                 case LectureObjectionReturnCompletedEvent completed ->
                         List.of(LectureObjectionAlerts.returnCompleted(completed));
                 case LectureObjectionWithdrawnEvent withdrawn -> List.of(LectureObjectionAlerts.withdrawn(withdrawn));
                 case LectureObjectionReturnActionRequiredEvent delayed ->
                         List.of(LectureObjectionAlerts.returnActionRequired(delayed));
-                default -> throw new IllegalStateException("처리기가 없는 이의 제기 이벤트입니다: " + event.getClass());
+                default -> throw new IllegalStateException("처리기가 없는 강의 이벤트입니다: " + event.getClass());
             };
         } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 이의 제기 결과 이벤트입니다.", e);
+            throw new RejectedEventException("알림을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(), e);
         }
     }
 

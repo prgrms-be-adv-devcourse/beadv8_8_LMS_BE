@@ -20,7 +20,7 @@ import com.hapbang.shared.lecture.dto.LectureSyncDto;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 
-/** 강의 검색 문서 쓰기(#882): 강의 version 조건부 쓰기, tombstone, 판매자·평점 칸. nori ES 컨테이너로 돈다 */
+/** 강의 검색 문서 쓰기(#882): 강의 version 조건부 쓰기, tombstone, 가격 칸(#909), 판매자·평점 칸. nori ES 컨테이너로 돈다 */
 class LectureDocumentStoreTest {
 
     private static final Instant NOW = Instant.parse("2026-11-12T06:00:00Z");
@@ -45,7 +45,7 @@ class LectureDocumentStoreTest {
         Map<String, Object> doc = source(11L);
         assertThat(doc).containsEntry("lectureId", 11).containsEntry("lectureVersion", 1).containsEntry("hidden", false)
                 .containsEntry("title", "프리미어 컷편집").containsEntry("description", "소개")
-                .containsEntry("contentTitles", List.of("1강 설치", "2강 컷편집"))
+                .containsEntry("contentTitles", List.of("1강 설치", "2강 컷편집")).containsEntry("priceHp", 10000)
                 .containsEntry("sellerUserId", 7).containsEntry("sellerNickname", "편집장")
                 .containsEntry("sellerActive", true).containsEntry("averageRating", 4.5).containsEntry("reviewCount", 2)
                 .doesNotContainKey("hiddenAt");
@@ -74,6 +74,39 @@ class LectureDocumentStoreTest {
         assertThat(store.writeLecture(lecture(11L, "수정", true, 3L), SELLER, RATING, NOW))
                 .isEqualTo(WriteOutcome.NOOP);
         assertThat(source(11L)).containsEntry("title", "수정").containsEntry("lectureVersion", 3);
+    }
+
+    @Test
+    @DisplayName("가격은 새 version이면 바꾸고, 가격이 없는 옛 메시지는 가격 칸을 그대로 둔다(#909)")
+    void priceWithNewerVersion() throws Exception {
+        store.writeLecture(lecture(11L, "처음", true, 1L, 10_000L), SELLER, RATING, NOW);
+
+        assertThat(store.writeLecture(lecture(11L, "옛 메시지", true, 2L, null), SELLER, RATING, NOW))
+                .isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("title", "옛 메시지").containsEntry("priceHp", 10000);
+
+        store.writeLecture(lecture(11L, "가격 수정", true, 3L, 20_000L), SELLER, RATING, NOW);
+        assertThat(source(11L)).containsEntry("priceHp", 20000).containsEntry("lectureVersion", 3);
+    }
+
+    @Test
+    @DisplayName("같은 version이면 결과는 NOOP이고 다른 칸은 그대로다. 넘긴 가격이 있고 다를 때만 가격 칸을 고친다. 옛 version은 가격도 그대로다(#909)")
+    void priceWithSameVersion() throws Exception {
+        store.writeLecture(lecture(11L, "제목", true, 2L, null), SELLER, RATING, NOW);
+        assertThat(source(11L)).doesNotContainKey("priceHp");
+
+        assertThat(store.writeLecture(lecture(11L, "다른 제목", false, 2L, 10_000L), SELLER, RATING, NOW))
+                .isEqualTo(WriteOutcome.NOOP);
+        assertThat(source(11L)).containsEntry("priceHp", 10000).containsEntry("title", "제목")
+                .containsEntry("hidden", false).containsEntry("lectureVersion", 2);
+
+        assertThat(store.writeLecture(lecture(11L, "제목", true, 2L, 10_000L), SELLER, RATING, NOW))
+                .isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.writeLecture(lecture(11L, "제목", true, 2L, null), SELLER, RATING, NOW))
+                .isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.writeLecture(lecture(11L, "제목", true, 1L, 5_000L), SELLER, RATING, NOW))
+                .isEqualTo(WriteOutcome.NOOP);
+        assertThat(source(11L)).containsEntry("priceHp", 10000);
     }
 
     @Test
@@ -136,7 +169,7 @@ class LectureDocumentStoreTest {
     void updateSeller() throws Exception {
         store.writeLecture(lecture(11L, "판매 중", true, 1L), SELLER, RATING, NOW);
         store.writeLecture(lecture(12L, "판매 중지", false, 1L), SELLER, RATING, NOW);
-        store.writeLecture(new LectureSyncDto(13L, 8L, "다른 판매자", null, true, false, List.of(), 1L),
+        store.writeLecture(new LectureSyncDto(13L, 8L, "다른 판매자", null, 10_000L, true, false, List.of(), 1L),
                 new Seller(8L, "다른", true), RATING, NOW);
 
         assertThat(store.updateSeller(new Seller(7L, "정지된", false))).isEqualTo(2);
@@ -174,7 +207,7 @@ class LectureDocumentStoreTest {
         Instant old = NOW.minus(Duration.ofDays(8));
         store.writeLecture(lecture(11L, "오래전 판매 중지", false, 1L), SELLER, RATING, old);
         store.writeLecture(lecture(12L, "최근 판매 중지", false, 1L), SELLER, RATING, NOW);
-        store.writeLecture(new LectureSyncDto(13L, 8L, "정지된 판매자", null, true, false, List.of(), 1L),
+        store.writeLecture(new LectureSyncDto(13L, 8L, "정지된 판매자", null, 10_000L, true, false, List.of(), 1L),
                 new Seller(8L, "정지", false), RATING, old);
         client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
 
@@ -198,7 +231,11 @@ class LectureDocumentStoreTest {
     }
 
     private static LectureSyncDto lecture(long id, String title, boolean onSale, long version) {
-        return new LectureSyncDto(id, 7L, title, "소개", onSale, false,
+        return lecture(id, title, onSale, version, 10_000L);
+    }
+
+    private static LectureSyncDto lecture(long id, String title, boolean onSale, long version, Long priceHp) {
+        return new LectureSyncDto(id, 7L, title, "소개", priceHp, onSale, false,
                 List.of(new LectureContentSyncDto(1L, "1강 설치", 1), new LectureContentSyncDto(2L, "2강 컷편집", 2)),
                 version);
     }

@@ -95,7 +95,7 @@ class LectureIndexerTest {
 
         assertThat(lectureIndexer.apply(lecture("수정", true, 1L)).outcome()).isEqualTo(WriteOutcome.NOOP);
 
-        lectureIndexer.apply(new LectureSyncDto(11L, SELLER, "수정", "소개", false, true, List.of(), 3L));
+        lectureIndexer.apply(new LectureSyncDto(11L, SELLER, "수정", "소개", 10_000L, false, true, List.of(), 3L));
         assertThat(source()).containsEntry("hidden", true).containsEntry("lectureVersion", 3);
         assertThat(lectureIndexer.apply(lecture("되살리기", true, 2L)).outcome()).isEqualTo(WriteOutcome.NOOP);
         assertThat(source()).containsEntry("hidden", true);
@@ -205,6 +205,32 @@ class LectureIndexerTest {
     }
 
     @Test
+    @DisplayName("가격 없이 만든 문서의 채우기가 실패한 뒤 같은 version이 가격과 함께 다시 오면, 가격을 맞추고 판매자·평점도 채운다(#909)")
+    void fillsCopiesWhenRedeliveryAlignsPrice() throws Exception {
+        sellerIndexer.apply(member("정지된", UserStatus.SUSPENDED, 1L));
+        reviews.apply(review(1L, 3, true, 0L), LocalDateTime.now(CLOCK));
+        AtomicBoolean failOnce = new AtomicBoolean(true);
+        LectureDocumentStore flaky = new LectureDocumentStore(client) {
+            @Override
+            public WriteOutcome writeSeller(long lectureId, Seller seller) {
+                if (failOnce.getAndSet(false)) {
+                    throw new IllegalStateException("ES 일시 장애");
+                }
+                return super.writeSeller(lectureId, seller);
+            }
+        };
+        LectureIndexer indexer = new LectureIndexer(indexSetup, flaky, members, reviews, CLOCK);
+        LectureSyncDto withoutPrice = new LectureSyncDto(11L, SELLER, "제목", "소개", null, true, false, List.of(), 0L);
+
+        assertThatThrownBy(() -> indexer.apply(withoutPrice)).isInstanceOf(IllegalStateException.class);
+        assertThat(source()).doesNotContainKey("priceHp");
+
+        assertThat(indexer.apply(lecture("제목", true, 0L)).outcome()).isEqualTo(WriteOutcome.NOOP);
+        assertThat(source()).containsEntry("priceHp", 10000).containsEntry("sellerNickname", "정지된")
+                .containsEntry("sellerActive", false).containsEntry("averageRating", 3.0).containsEntry("reviewCount", 1);
+    }
+
+    @Test
     @DisplayName("채우기가 사본을 읽은 뒤 쓰기 전에 회원 소비자가 판매자를 정지로 바꿔도, 늦게 쓴 옛 판매자 값이 정지를 되돌리지 못한다(PR #906 리뷰 Q12)")
     void staleFillDoesNotRevertSellerChange() throws Exception {
         sellerIndexer.apply(member("편집장", UserStatus.ACTIVE, 1L));
@@ -254,7 +280,7 @@ class LectureIndexerTest {
     }
 
     private static LectureSyncDto lecture(String title, boolean onSale, long version) {
-        return new LectureSyncDto(11L, SELLER, title, "소개", onSale, false,
+        return new LectureSyncDto(11L, SELLER, title, "소개", 10_000L, onSale, false,
                 List.of(new LectureContentSyncDto(1L, "1강", 1)), version);
     }
 
