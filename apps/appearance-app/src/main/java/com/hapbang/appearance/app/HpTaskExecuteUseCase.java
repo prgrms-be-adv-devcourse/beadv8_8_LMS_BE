@@ -174,11 +174,12 @@ public class HpTaskExecuteUseCase {
     /**
      * 지급 작업 → Billing 지급 요청 (#282). 멱등 키를 지급 요청 ID로 쓰고, 보류에서 기록한 금액(출연료)만큼 게스트에게 지급한다.
      * 전체 지급이 아니라 금액을 정한 지급이다: 모집글 보류에는 다른 출연의 몫이 함께 있다.
+     * 지급 알림용 출처 제목은 작업에 저장해 둔 값을 싣는다(#871, 실행·재시도 때 원본을 다시 읽지 않는다).
      */
     private PayoutCommand toPayoutCommand(HpTask task) {
         return PayoutCommand.partial(task.getMemberId(), BillingReferenceType.valueOf(task.getRefType().name()),
                 task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceTypeOf(task),
-                task.getAppearanceId(), task.getPayoutAmount());
+                task.getAppearanceId(), task.getPayoutAmount(), task.getSourceTitle());
     }
 
     /** 지급 원천 종류: 요청서 보류면 {@code APPEARANCE_REQUEST}, 모집글 보류면 {@code RECRUIT_APPEARANCE} (원천 ID는 출연 ID) */
@@ -190,12 +191,14 @@ public class HpTaskExecuteUseCase {
     /**
      * 위약금 정산 작업 → Billing 위약금 정산 요청 (#239). 멱등 키를 취소 ID로 쓰고, 보류에서 위약금은 게스트에게 지급하고
      * 나머지는 호스트에게 반환한다. 지급 원천은 출연(요청서 출처 {@code APPEARANCE_REQUEST}, 모집 출처 {@code RECRUIT_APPEARANCE})이다.
+     * 지급 알림용 출처 제목은 작업에 저장해 둔 값을 싣는다(#871).
      */
     private PenaltyCommand toPenaltyCommand(HpTask task) {
         return new PenaltyCommand(task.getMemberId(), BillingReferenceType.valueOf(task.getRefType().name()),
                 task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceTypeOf(task),
                 task.getAppearanceId(),
-                task.releaseAmountOfPenalty(), task.getPayoutAmount());
+                task.releaseAmountOfPenalty(), task.getPayoutAmount(),
+                task.getSourceTitle());
     }
 
     /** 반환 작업 → Billing 반환 요청. 작업의 멱등 키를 반환 요청 ID로 쓰고, 기록한 금액만큼 반환한다 */

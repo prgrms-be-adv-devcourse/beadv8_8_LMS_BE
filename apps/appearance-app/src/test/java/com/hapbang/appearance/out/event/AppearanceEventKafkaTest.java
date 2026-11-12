@@ -7,6 +7,8 @@ import static com.hapbang.appearance.out.event.AppearanceEventExternalizationCon
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CHANGED;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_TYPE;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_VERSION;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.RECRUIT_CLOSED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.RECRUIT_OPENED;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REQUEST_SENT;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REVIEW_PUBLISHED;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +66,7 @@ import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.shared.appearance.domain.AppearanceRecruitCloseType;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
@@ -76,6 +79,8 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
+import com.hapbang.shared.appearance.event.AppearanceRecruitClosedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitOpenedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
@@ -226,6 +231,29 @@ class AppearanceEventKafkaTest {
         assertThat(application.hostId()).isEqualTo(HOST);
         assertThat(application.guestId()).isEqualTo(GUEST);
         assertThat(application.appliedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("모집글을 올리고 조기 마감하면(각각 커밋) 새 key appearance-recruit:<모집글 ID>로 모집 시작·마감 이벤트가 나가고, 마감 방식은 이름(EARLY)으로 실린다 (#871)")
+    void recruitOpenedAndClosed() {
+        AppearanceRecruitResDto recruit = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(clock.now()));
+        appearanceRecruitFacade.closeEarly(HOST, recruit.id());
+
+        List<ConsumerRecord<String, String>> records = awaitExactly("appearance-recruit:" + recruit.id(), 2);
+
+        assertThat(records).extracting(record -> header(record, EVENT_TYPE))
+                .containsExactlyInAnyOrder(RECRUIT_OPENED, RECRUIT_CLOSED);
+        AppearanceRecruitOpenedEvent opened = jsonMapper.readValue(ofType(records, RECRUIT_OPENED).getFirst().value(),
+                AppearanceRecruitOpenedEvent.class);
+        assertThat(opened.recruit().recruitId()).isEqualTo(recruit.id());
+        assertThat(opened.recruit().title()).isEqualTo(recruit.title());
+        assertThat(opened.recruit().recruitDeadline()).isEqualTo(recruit.recruitDeadline());
+        ConsumerRecord<String, String> closedRecord = ofType(records, RECRUIT_CLOSED).getFirst();
+        assertThat(closedRecord.value()).contains("\"closeType\":\"EARLY\"");
+        AppearanceRecruitClosedEvent closed = jsonMapper.readValue(closedRecord.value(),
+                AppearanceRecruitClosedEvent.class);
+        assertThat(closed.closeType()).isEqualTo(AppearanceRecruitCloseType.EARLY);
+        assertThat(closed.closedAt()).isNotNull();
     }
 
     @Test
