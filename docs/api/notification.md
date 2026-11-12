@@ -42,20 +42,20 @@
 | 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
 
-### 2.2 이동 대상 (FE 계약, ND-074·ND-084)
+### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107)
 
-목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)에서 쓰는 값은 아래와 같다.
+목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)에서 쓰는 값은 아래와 같다.
 
 | `targetType` | `targetId` | 쓰는 종류 |
 | --- | --- | --- |
 | `APPEARANCE_REQUEST` | 출연 요청 ID | 출연 요청 도착 |
 | `APPEARANCE_RECRUIT` | 모집글 ID | 모집 지원 도착 |
-| `CHARGE` | 충전 ID | 충전 완료 |
-| `REFUND_REQUEST` | 환불 요청 ID | 환불 완료 |
-| `EXCHANGE` | 환전 ID | 환전 거절·송금 완료·송금 실패·최종 실패 |
+| `CHARGE` | 충전 ID | 충전 완료·실패 |
+| `REFUND_REQUEST` | 환불 요청 ID | 환불 완료·실패·운영자 확인 필요 |
+| `EXCHANGE` | 환전 ID | 환전 승인·거절·송금 완료·송금 실패·최종 실패 |
 | `APPEARANCE` | 출연 ID(지급 완료는 `sourceId`, 원천이 요청이든 모집이든. 출연 취소 요청 3종은 `cancelRequest.appearanceId`) | 지급 완료, 출연 취소 요청 도착·수락·거절 |
 | `LECTURE_ORDER_ITEM` | 주문 항목 ID(`orderItemId`) | 이의 제기 판단·반환 완료·철회·반환 지연(구매자·판매자 같은 값) |
-| `null` | `null` | 가입 환영, 승급 승인 |
+| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102) |
 
 ## 3. 실시간 연결
 
