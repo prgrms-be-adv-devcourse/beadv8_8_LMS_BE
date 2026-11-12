@@ -113,7 +113,7 @@ class LectureSearcherTest {
     }
 
     @Test
-    @DisplayName("alias가 가격 mapping이 없는 옛 index를 가리켜도(재색인이 옮기기 전) 가격순은 거절되지 않고 최신순으로 나온다(#909 리뷰)")
+    @DisplayName("alias가 가격 mapping이 없는 옛 index를 가리켜도(재색인이 옮기기 전) 가격순은 거절되지 않고 최신순으로 나온다(#909)")
     void priceSortOnIndexWithoutPriceMapping() throws Exception {
         SearchElasticsearch.reset(client);
         String old = LectureIndexDefinition.INDEX_PREFIX + "old000000000";

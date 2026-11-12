@@ -205,7 +205,7 @@ class LectureIndexerTest {
     }
 
     @Test
-    @DisplayName("가격 없이 만든 문서의 채우기가 실패한 뒤 같은 version이 가격과 함께 다시 오면, 가격을 맞추고 판매자·평점도 채운다(#909 리뷰)")
+    @DisplayName("가격 없이 만든 문서의 채우기가 실패한 뒤 같은 version이 가격과 함께 다시 오면, 가격을 맞추고 판매자·평점도 채운다(#909)")
     void fillsCopiesWhenRedeliveryAlignsPrice() throws Exception {
         sellerIndexer.apply(member("정지된", UserStatus.SUSPENDED, 1L));
         reviews.apply(review(1L, 3, true, 0L), LocalDateTime.now(CLOCK));

@@ -80,7 +80,7 @@ public class LectureDocumentStore {
             """;
 
     /**
-     * 같은 version의 가격 맞추기 script(#909, PR 리뷰). 문서의 {@code lectureVersion}이 넘긴 version과 <b>같고</b> 가격이 다를 때만 가격 칸 하나를
+     * 같은 version의 가격 맞추기 script(#909). 문서의 {@code lectureVersion}이 넘긴 version과 <b>같고</b> 가격이 다를 때만 가격 칸 하나를
      * 고친다. 같은 강의 ID·version은 이벤트와 동기화 API가 같은 값이라({@code docs/api/internal-lecture-sync.md}) 맞는 값이다. 가격을 모르는 옛
      * pod(롤링 배포 중)가 더 새 version을 써서 낡은 가격도 같은 version이 다시 오면(재전달·재발행, #884 보정) 고쳐진다.
      * <p>
