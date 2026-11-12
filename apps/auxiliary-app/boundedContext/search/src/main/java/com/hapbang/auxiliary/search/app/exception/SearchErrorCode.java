@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum SearchErrorCode implements BaseErrorCode {
 
-    /** 고를 수 있는 정렬이 아니다. 대상마다 고를 수 있는 정렬이 달라 Facade가 상세 메시지로 알린다(#883 코드 리뷰) */
+    /** 고를 수 있는 정렬이 아니다. 대상마다 고를 수 있는 정렬이 달라 Facade가 상세 메시지로 알린다(#883) */
     UNSUPPORTED_SORT(HttpStatus.BAD_REQUEST, "지원하지 않는 정렬입니다."),
     /** 앞에서 1,000건 밖의 페이지 */
     PAGE_TOO_DEEP(HttpStatus.BAD_REQUEST, "검색 결과는 앞에서 1,000건까지만 볼 수 있습니다. 검색어나 조건을 좁혀 주세요."),

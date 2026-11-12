@@ -36,7 +36,7 @@ class ZeroResultKeywordsTest {
     }
 
     @Test
-    @DisplayName("비회원은 IP 해시 문자열로 센다. 같은 해시는 한 명, 회원 ID와 해시는 서로 다른 검색자다(L19, #868)")
+    @DisplayName("비회원은 IP 해시 문자열로 센다. 같은 해시는 한 명, 회원 ID와 해시는 서로 다른 검색자다(회원 1 + 비회원 1이면 남는다, 감수, #883)")
     void guestSearchersByIpHash() {
         keywords.record("프리미어", "ip:ab12");
         keywords.record("프리미어", "ip:ab12");
@@ -48,7 +48,7 @@ class ZeroResultKeywordsTest {
     }
 
     @Test
-    @DisplayName("비회원 IP 둘만으로는 남기지 않는다(한 사람이 망을 바꿔 넘기지 못하게). 회원이 1명 이상 있어야 한다(#883 Q8)")
+    @DisplayName("비회원 IP 둘만으로는 남기지 않는다(한 사람이 망을 바꿔 넘기지 못하게). 회원이 1명 이상 있어야 한다(#883)")
     void needsMember() {
         keywords.record("홍길동", "ip:aaaa");
         keywords.record("홍길동", "ip:bbbb");

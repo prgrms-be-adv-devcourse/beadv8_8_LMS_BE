@@ -60,7 +60,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `TombstoneCleanup` | 7일 지난 숨김 문서 정리(대상마다 얇은 하위 클래스) |
 | app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
 | app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
-| app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 대상마다 얇은 하위 클래스로 따로 센다(#883 Q4). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
+| app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 대상마다 얇은 하위 클래스로 따로 센다(#883). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
 | app | `CachedRatingBaseline` | 베이지안 평균의 전체 평균 C를 pod 메모리에 두는 캐시(주기 10분, 실패하면 1분 동안 다시 묻지 않음, 다시 구하는 동안 다른 요청은 기다리지 않고 가진 값을 씀). 대상마다 얇은 하위 클래스(#883) |
 | in | `SynonymsCheckBatch` | 동의어 묶음 확인 시각(기동 1분 뒤, 그 뒤 10분마다, `hapbang.search.synonyms-check-interval`). ES를 부르므로 재색인 실행기로 넘긴다(앱 공용 스케줄러 스레드를 붙잡지 않음). 모든 대상이 함께 쓰는 묶음이라 대상 배치가 아니라 공통에 둔다 |
 | out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
@@ -301,9 +301,9 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 
 - 0건 검색어는 사전·동의어를 늘릴 근거로 모은다(#771 Q9, PR #828 리뷰 뒤 Q18). 검색어는 남의 이름·닉네임·연락처일 수 있어 조건을 둔다.
   - **필터 없이 검색어만으로 0건**인 요청만 센다. 필터가 좁아 0건인 것은 사전 문제가 아니다(지표 `zero.results`도 같은 기준).
-  - **서로 다른 검색자 2명 이상, 그중 회원 1명 이상이 찾은 말만** 로그에 나온다. 한 사람만 입력한 말은 남지 않는다. 검색자는 회원 ID, 강의 검색의 비회원은 client IP의 HMAC(14장)이고, 이 판단에만 메모리에서 쓰고(검색어마다 2명까지) 남기지 않는다. 회원이 꼭 있어야 하는 것은 한 사람이 망을 바꿔(Wi-Fi·LTE) 비회원 IP 둘로 넘기지 못하게 하려는 것이다(#883 Q8). 공인 주소가 아닌 비회원은 세지 않는다.
+  - **서로 다른 검색자 2명 이상, 그중 회원 1명 이상이 찾은 말만** 로그에 나온다. 한 사람만 입력한 말은 남지 않는다. 검색자는 회원 ID, 강의 검색의 비회원은 client IP의 HMAC(14장)이고, 이 판단에만 메모리에서 쓰고(검색어마다 2명까지) 남기지 않는다. 회원이 꼭 있어야 하는 것은 한 사람이 망을 바꿔(Wi-Fi·LTE) 비회원 IP 둘로 넘기지 못하게 하려는 것이다(#883). 로그인 한 번·로그아웃 한 번(회원 1 + 비회원 1)으로는 넘을 수 있지만, 로그인한 회원 스스로의 기록이라 감수한다. 공인 주소가 아닌 비회원은 세지 않는다.
   - 이메일·URL·전화번호 모양(숫자 8개 이상)과 30자를 넘는 말은 세지 않는다.
-  - 대상(인플루언서·강의)마다 따로 센다(#883 Q4). 요청에서는 세기만 하고 10분마다 배치 스레드가 대상마다 `여러 검색자가 찾았지만 결과가 없던 검색어를 모았다 target=…, keywords={…}` 한 줄(상위 100개)로 남긴다. 그래서 요청의 `userId`·`traceId`가 붙지 않는다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
+  - 대상(인플루언서·강의)마다 따로 센다(#883). 요청에서는 세기만 하고 10분마다 배치 스레드가 대상마다 `여러 검색자가 찾았지만 결과가 없던 검색어를 모았다 target=…, keywords={…}` 한 줄(상위 100개)로 남긴다. 그래서 요청의 `userId`·`traceId`가 붙지 않는다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
 - 인플루언서 검색에는 rate limit을 두지 않았다(로그인 전용, #767 Q28). 위 요청 수·p95와 k6 측정을 보고 정한다. 강의 검색은 비회원에게 열려 있어 처음부터 둔다(14장).
 
 ## 10. 로컬 실행
@@ -364,7 +364,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 | 표 | 칸 | 채우는 곳 |
 | --- | --- | --- |
-| `search.member_copy` | 회원 ID, 닉네임, 상태, version | 회원 이벤트(그룹 `auxiliary-app.search-member`). 누가 판매자가 될지 몰라 모든 회원을 둔다(Q1) |
+| `search.member_copy` | 회원 ID, 닉네임, 상태, version | 회원 이벤트(그룹 `auxiliary-app.search-member`). 누가 판매자가 될지 몰라 모든 회원을 둔다 |
 | `search.lecture_review_copy` | 리뷰 ID, 강의 ID, 별점, `counted`, `deleted`, version | 리뷰 이벤트 |
 
 - 강의 자체는 사본을 두지 않는다. 강의 이벤트 값을 바로 문서로 쓰고, 처음 적재·보정은 강의 동기화 API를 읽는다(L13·L14).
@@ -374,14 +374,14 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 | 필드 | 종류 | 출처 |
 | --- | --- | --- |
-| `lectureId` | long | 강의 ID. 최신순과 동점 정리 키(등록 시각이 DTO에 없어 ID 순서로 대신한다, Q5) |
+| `lectureId` | long | 강의 ID. 최신순과 동점 정리 키(등록 시각이 DTO에 없어 ID 순서로 대신한다) |
 | `lectureVersion` | long | 강의 version(조건부 쓰기) |
 | `hidden`, `hiddenAt` | boolean, date | 판매 중이 아닌 강의(`onSale=false`: 판매 중지·검수 전·삭제)의 tombstone |
 | `title`, `description`, `contentTitles` | text(nori) | 강의 이벤트 |
 | `sellerUserId` | long | 강의 이벤트 |
-| `sellerNickname`, `sellerActive` | text(nori), boolean | 회원 사본(L5·L8). 정지는 숨김이 아니라 `sellerActive=false`다(Q2) |
+| `sellerNickname`, `sellerActive` | text(nori), boolean | 회원 사본(L5·L8). 정지는 숨김이 아니라 `sellerActive=false`다 |
 | `sellerVersion` | long | 판매자 칸을 쓴 회원 version. 더 작은 version의 판매자 값으로 되돌리지 않는다(PR #906 리뷰 Q12) |
-| `averageRating`, `reviewCount` | double, long | 리뷰 사본의 `counted` 리뷰 평균(반올림 안 함, 없으면 비움)·수(Q4) |
+| `averageRating`, `reviewCount` | double, long | 리뷰 사본의 `counted` 리뷰 평균(반올림 안 함, 없으면 비움)·수 |
 
 - 검색에 보일 강의 = `hidden=false` 그리고 `sellerActive=true`(검색 API #883이 거른다). 공통 "보이는 문서 세기"(`hidden=false`)는 판매 중 강의 수이고 판매자 상태와 상관없다.
 - tombstone 정리(7일)는 숨김 문서만 지운다. 판매자가 오래 정지돼도 문서가 남아 정지가 풀리면 바로 다시 보인다.
@@ -402,7 +402,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 ### 강의 이벤트 소비
 
 - `lecture.events.v1`, 그룹 `auxiliary-app.search-lecture`, `earliest`부터. `LectureChangedEvent`·`LectureReviewChangedEvent`만 쓰고 나머지 강의 이벤트는 건너뛴다. 강의 이벤트 패키지 밖의 타입(`java.util` 등 역직렬화기 기본 신뢰 타입)은 건너뛰지 않고 재시도 없이 DLT로 보낸다.
-- **이 앱에 클래스가 없는 강의 이벤트는 역직렬화 단계에서 건너뛴다**(Q3). `__TypeId__`가 `com.hapbang.shared.lecture.event` 바로 안의 클래스 이름인데 클래스가 없으면 본문을 읽지 않고 `MissingTypeEvent`로 넘긴다. 강의 앱이 새 이벤트를 더해 먼저 배포해도(#872) DLT로 가지 않아 "Kafka DLT 적재" 경보가 울리지 않는다. 회원 이벤트 소비(`auxiliary-app.search-member`)는 아직 클래스 이름 방식이다.
+- **이 앱에 클래스가 없는 강의 이벤트는 역직렬화 단계에서 건너뛴다**. `__TypeId__`가 `com.hapbang.shared.lecture.event` 바로 안의 클래스 이름인데 클래스가 없으면 본문을 읽지 않고 `MissingTypeEvent`로 넘긴다. 강의 앱이 새 이벤트를 더해 먼저 배포해도(#872) DLT로 가지 않아 "Kafka DLT 적재" 경보가 울리지 않는다. 회원 이벤트 소비(`auxiliary-app.search-member`)는 아직 클래스 이름 방식이다.
 - 재시도·DLT는 회원 소비와 같다(1·2·4초 3회 뒤 `lecture.events.v1.auxiliary-app.search-lecture.DLT`, 보존 7일). 필수 값이 빠진 이벤트와 깨진 본문은 재시도 없이 DLT로 간다.
 - ES가 7초보다 오래 멈추면 그동안의 강의·리뷰 이벤트가 DLT로 간다. #884 보정(강의 10분·리뷰 1시간)이 바로잡기 전까지는 [kafka.md "DLT 재처리 runbook"](../architecture/infrastructure/kafka.md#dlt-재처리-runbook)대로 되돌린다. version 조건이라 여러 번 넣어도 결과가 같다.
 
@@ -413,7 +413,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ## 14. 강의 검색 API (#883)
 
-`GET /api/v1/search/lectures` (누구나. 회원이면 회원 한도로 센다). 결정은 강의 검색 grill L2·L9~L12·L18~L20과 #883 Q1~Q7이다. **#884 전에는 운영에 강의 index가 없어 503 `SEARCH_UNAVAILABLE`이다**(정상).
+`GET /api/v1/search/lectures` (누구나. 회원이면 회원 한도로 센다). 결정은 강의 검색 grill L2·L9~L12·L18~L20(#881)과 #883이다. **#884 전에는 운영에 강의 index가 없어 503 `SEARCH_UNAVAILABLE`이다**(정상).
 
 | 파라미터 | 뜻 |
 | --- | --- |
@@ -421,9 +421,9 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `page`, `size`, `sort` | size 기본 20·최대 100. sort는 `latest,desc`·`rating,desc`만(그 밖 400 `UNSUPPORTED_SORT`, 상세 메시지가 강의 정렬을 알린다) |
 
 - 보이는 강의: `hidden=false` 그리고 `sellerActive=true`(13장).
-- 순서: 기본은 검색어가 있으면 점수, 없으면 최신. `latest`는 강의 ID 내림차순(등록 시각 칸이 없고 ID가 등록 순서와 같다, #882 Q5, #883 Q1). `rating`은 베이지안 평균 (n×R + m×C)/(n+m) → 리뷰 수. **모든 순서의 마지막은 강의 ID 내림차순**이다.
-- 점수: 검색어가 있으면 글 점수 × (1 + b × 베이지안 평균 / 5). b=0.1, m=5(`hapbang.search.lecture-ranking.*`). 가산이 "베이지안 평균 / 5"로 묶여 평점이 주는 이득은 최대 약 2.4%라 사실상 동점만 가른다. 제목에 걸린 강의를 소개에만 걸린 고평점 강의가 이기지 않는다. golden query 통과 구간은 0.05~1.0이다(0은 글이 같은 강의를 못 가르고, 5는 글이 조금 더 맞는 강의를 평점이 뒤집는다). 실제 리뷰 분포를 보고 조정한다(재색인 불필요, #883 Q7).
-- 평균 C는 검색에 보이는 강의의 리뷰 수 가중 평균이고 pod마다 10분 캐시다. 검색어가 있는 기본 순서와 평점순에만 구한다(최신순 목록은 구하지 않는다). 다시 구하는 동안 다른 요청은 기다리지 않고 가진 값을 쓴다. **C를 아직 모르면**(pod가 뜬 직후 집계 실패, 처음 적재 직후 등 1분 대기 중) 기본 순서의 검색어 검색은 503 대신 평점 가산 없이 글 점수만으로 찾고, 평점순만 503이다(#883 코드 리뷰, Q6 변경).
+- 순서: 기본은 검색어가 있으면 점수, 없으면 최신. `latest`는 강의 ID 내림차순(등록 시각 칸이 없고 ID가 등록 순서와 같다, #882 Q5, #883). `rating`은 베이지안 평균 (n×R + m×C)/(n+m) → 리뷰 수. **모든 순서의 마지막은 강의 ID 내림차순**이다.
+- 점수: 검색어가 있으면 글 점수 × (1 + b × 베이지안 평균 / 5). b=0.1, m=5(`hapbang.search.lecture-ranking.*`). 가산이 "베이지안 평균 / 5"로 묶여 평점이 주는 이득은 보통 범위(보정 평균 3.5~4.8)에서 약 2.4%, 극단(5 대 1)에서 약 8%, 식의 상한은 10%다. 그래서 비슷한 글끼리만 가르고, 제목에 걸린 강의를 소개에만 걸린 고평점 강의가 이기지 않는다(글 점수 차이 약 3배). golden query 통과 구간은 0.05~1.0이다(0은 글이 같은 강의를 못 가르고, 5는 글이 조금 더 맞는 강의를 평점이 뒤집는다). 실제 리뷰 분포를 보고 조정한다(재색인 불필요).
+- 평균 C는 검색에 보이는 강의의 리뷰 수 가중 평균이고 pod마다 10분 캐시다. 검색어가 있는 기본 순서와 평점순에만 구한다(최신순 목록은 구하지 않는다). 다시 구하는 동안 다른 요청은 기다리지 않고 가진 값을 쓴다. **C를 아직 모르면**(pod가 뜬 직후 집계 실패, 처음 적재 직후 등 1분 대기 중) 기본 순서의 검색어 검색은 503 대신 평점 가산 없이 글 점수만으로 찾고, 평점순만 503이다(#883).
 - highlights(검색어가 있을 때만): ES `encoder: html`이 원문의 HTML 특수 문자를 escape하고 걸린 말만 `<em>…</em>`으로 감싼다. 제목·판매자 닉네임은 통째로, 소개는 걸린 곳 주변 한 조각(약 100자), 콘텐츠 제목은 걸린 것만 통째로다. 검색어가 있으면 걸린 칸이 없어도 `highlights` 객체를 주고(칸만 null), 검색어가 없으면 null이다.
 - 응답 한 줄: `lectureId`, `title`, `sellerUserId`, `sellerNickname`, `averageRating`(소수 첫째 반올림, 강의 목록과 같음, 없으면 null), `reviewCount`, `highlights{title, sellerNickname, description, contentTitles[]}`. 썸네일은 강의 앱 일괄 API로 FE가 채우고, 가격은 강의 가격 칸이 생기면 더한다.
 - 앞에서 1,000건까지(`page × size + size ≤ 1000`, 넘으면 400 `PAGE_TOO_DEEP`). ES에 닿지 못하면 503 `SEARCH_UNAVAILABLE`(강의 목록 `GET /api/v1/lectures`는 그대로 쓸 수 있다).
@@ -433,14 +433,14 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 회원은 회원 ID, 비회원은 client IP 키로 따로 센다. 둘 다 분당 60회(`hapbang.search.lecture-rate-limit.{member,guest}.*`, k6·429 지표를 보고 조정). 넘으면 429 `TOO_MANY_REQUESTS`와 `Retry-After`(global 처리기). 정렬·페이지 오류(400)도 센다. 검색어 50자 초과 같은 형식 오류는 Spring 메서드 검증이 컨트롤러 전에 400을 내 세지 않는다(ES까지 가지 않는다).
 - 앱 메모리(`KeyedRateLimiter`)에서 센다. replica가 1개라 한도가 곧 전체 한도이고, 배포 중 두 pod가 겹치면 잠깐 최대 2배다.
 - **client IP는 `request.getRemoteAddr()`만 쓴다.** 운영은 Tomcat `RemoteIpValve`가 Envoy가 붙인 실제 접속 주소를 넣고, 클라이언트가 보낸 `X-Forwarded-For`는 무시된다(#726 실측, [API Gateway](../architecture/infrastructure/api-gateway.md) rate limit). `X-Forwarded-For`·`X-Real-IP`·`X-Envoy-External-Address`는 위조할 수 있어 읽지 않는다. 로컬·테스트 profile은 `forward-headers-strategy`가 없어 직접 접속 주소다.
-- IPv6는 앞 64비트(/64)로 센다. 공인 주소 판단과 /64 규칙은 회원 앱 이메일 인증(#557)을 그대로 옮겼다(`ClientIpKey`, #883 Q3). 두 앱이 같은 규칙이어야 하므로 한쪽을 고치면 다른 쪽도 고친다. common으로 옮길지는 rate limit 공용화 판단(#697) 때 본다.
-- **키는 IP 원문이 아니라 HMAC-SHA256(pod마다 무작위 비밀값, IP) 앞 16자다**(#883 Q5). limiter가 거절 시작 때 남기는 WARN(`key=`)과 0건 검색어 메모리에 IP가 남지 않는다. 남용한 IP는 같은 시각 Envoy access log의 429와 `client_ip`로 찾는다.
-- **공인 주소가 아니면(사설·루프백·링크 로컬 등) IP 한도를 건너뛴다**(#883 Q2). Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호이고, 그때 한 사람이 모든 비회원을 429로 막지 않게 한다. 처음 한 번과 그 뒤 10분마다 WARN `비회원 client IP가 공인 주소가 아니라 IP 호출 제한을 건너뛰었다 … ip=…, skipped=…`를 남기고, 건수는 `hapbang.search.rate.limit.skipped`로 본다. 그동안 비회원도 1,000건 제한과 ES 장애 503은 그대로 받는다.
+- IPv6는 앞 64비트(/64)로 센다. 공인 주소 판단과 /64 규칙은 회원 앱 이메일 인증(#557)을 그대로 옮겼다(`ClientIpKey`, #883). 두 앱이 같은 규칙이어야 하므로 한쪽을 고치면 다른 쪽도 고친다. common으로 옮길지는 rate limit 공용화 판단(#697) 때 본다.
+- **키는 IP 원문이 아니라 HMAC-SHA256(pod마다 무작위 비밀값, IP) 앞 16자다**(#883). limiter가 거절 시작 때 남기는 WARN(`key=`)과 0건 검색어 메모리에 IP가 남지 않는다. 남용한 IP는 같은 시각 Envoy access log의 429와 `client_ip`로 찾는다.
+- **공인 주소가 아니면(사설·루프백·링크 로컬 등) IP 한도를 건너뛴다**(#883). Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호이고, 그때 한 사람이 모든 비회원을 429로 막지 않게 한다. 처음 한 번과 그 뒤 10분마다 WARN `비회원 client IP가 공인 주소가 아니라 IP 호출 제한을 건너뛰었다 … ip=…, skipped=…`를 남기고, 건수는 `hapbang.search.rate.limit.skipped`로 본다. 그동안 비회원도 1,000건 제한과 ES 장애 503은 그대로 받는다.
 - 운영 확인(배포 뒤, 비회원·같은 PC): 1분 안에 61번 보내면 61번째가 429 → `X-Forwarded-For`를 다른 공인 IP로 바꿔도 계속 429 → 다른 망(테더링)에서는 200. 위조 무시는 Tomcat valve 동작이라 앱 테스트로 재현하지 못해 이것으로 대신한다.
 
 ### 0건 검색어 (L19)
 
-- 검색어가 있는데 0건이면 회원은 회원 ID, 비회원은 client IP 키로 서로 다른 검색자를 센다. 로그에는 서로 다른 검색자 2명 이상, 그중 회원 1명 이상인 말만 남는다(#883 Q8). 공인 주소가 아닌 비회원은 세지 않는다. 강의 검색에는 필터가 없어 검색어가 있는 0건은 모두 센다. 나머지 규칙(2명 이상, 연락처 모양·30자 초과 제외, 10분마다 한 줄)은 9장과 같고, 인플루언서와 따로 `target=lecture`로 남긴다.
+- 검색어가 있는데 0건이면 회원은 회원 ID, 비회원은 client IP 키로 서로 다른 검색자를 센다. 로그에는 서로 다른 검색자 2명 이상, 그중 회원 1명 이상인 말만 남는다(#883). 공인 주소가 아닌 비회원은 세지 않는다. 강의 검색에는 필터가 없어 검색어가 있는 0건은 모두 센다. 나머지 규칙(2명 이상, 연락처 모양·30자 초과 제외, 10분마다 한 줄)은 9장과 같고, 인플루언서와 따로 `target=lecture`로 남긴다.
 
 ### golden query (L20)
 
@@ -448,7 +448,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ### 한계
 
-- 평균 C를 모르는 동안(pod가 뜬 직후 집계 실패, 처음 적재 직후 최대 1분)은 검색어 검색의 순서가 평점 가산 없이 나온다. 평점순은 그동안 503이다.
+- 평균 C를 모르는 동안(pod가 뜬 직후 첫 집계 중이나 집계 실패, 처음 적재 직후 최대 1분)은 검색어 검색의 순서가 평점 가산 없이 나온다. 평점순은 그동안 503이다. 인플루언서 평점순도 pod가 뜬 직후 첫 집계가 도는 동안(보통 수십 ms) 들어온 요청은 503이다(요청 스레드가 ES를 기다리지 않게 한 대가).
+- 0건 검색어의 "회원 1명 이상" 조건은 한 사람이 로그인·로그아웃으로 회원 1 + 비회원 1이 되면 넘을 수 있다(9장).
 - 비회원이 무작위 검색어로 0건 기록 상한(한 주기 서로 다른 검색어 1,000개)을 채우면 그 주기의 다른 후보가 `dropped`로 빠진다. 잃는 것은 그 주기의 진단 로그뿐이다.
 - 비회원 limiter는 키를 10,000개까지 두고 넘으면 오래 안 쓴 키를 지운다. 그보다 많은 IP를 돌리면 밀려난 키가 새 한도로 시작한다. IP 1만 개 이상을 쓰는 남용은 IP별 한도로 막을 수 없는 규모이고, 지금 운영 도메인에는 IPv6(AAAA)가 없다.
 - 가격 표시·가격 정렬은 없다(강의 가격 칸이 생기면 더한다).

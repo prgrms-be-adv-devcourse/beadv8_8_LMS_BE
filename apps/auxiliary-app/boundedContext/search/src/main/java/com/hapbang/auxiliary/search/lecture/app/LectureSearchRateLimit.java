@@ -16,7 +16,7 @@ import io.micrometer.core.instrument.MeterRegistry;
  * <ul>
  *     <li>회원은 회원 ID, 비회원은 client IP 키로 따로 센다(각 분당 60회 기본). 넘으면 429 {@code TOO_MANY_REQUESTS}와 {@code Retry-After}
  *     (global 처리기). 거절은 요청마다 로그를 남기지 않는다({@code docs/dev/logging.md} 429).</li>
- *     <li>IP를 믿을 수 없는 비회원(공인 주소가 아님)은 IP 한도를 건너뛴다(Q2). 한 사람이 모든 비회원을 막지 않게 하려는 것이고, 건수는 지표로 본다.</li>
+ *     <li>IP를 믿을 수 없는 비회원(공인 주소가 아님)은 IP 한도를 건너뛴다. 한 사람이 모든 비회원을 막지 않게 하려는 것이고, 건수는 지표로 본다.</li>
  * </ul>
  * 지표
  * <ul>

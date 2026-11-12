@@ -17,18 +17,18 @@ import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 비회원 검색자를 가리키는 키(#883 L18·L19, Q2·Q3·Q5). rate limit 키와 0건 검색어의 검색자 키에 함께 쓴다.
+ * 비회원 검색자를 가리키는 키(#883 L18·L19). rate limit 키와 0건 검색어의 검색자 키에 함께 쓴다.
  * <ul>
  *     <li>입력은 {@code request.getRemoteAddr()}만이다. 운영은 Tomcat {@code RemoteIpValve}가 Envoy가 붙인 실제 접속 주소를 넣고, 클라이언트가
  *     보낸 {@code X-Forwarded-For}는 무시된다(#726 실측, {@code docs/architecture/infrastructure/api-gateway.md}).
  *     {@code X-Forwarded-For}·{@code X-Real-IP}·{@code X-Envoy-External-Address}는 위조할 수 있어 읽지 않는다.</li>
  *     <li>IPv6는 앞 64비트(/64)로 센다. 보통 한 회선에 /64 묶음을 주므로 주소를 바꿔 가며 한도를 피하지 못하게 한다.</li>
- *     <li>키는 IP 원문이 아니라 HMAC-SHA256(pod마다 무작위 비밀값, IP) 앞 16자다(Q5). 로그·메모리에 IP가 남지 않고, 비밀값을 모르면 IPv4
+ *     <li>키는 IP 원문이 아니라 HMAC-SHA256(pod마다 무작위 비밀값, IP) 앞 16자다. 로그·메모리에 IP가 남지 않고, 비밀값을 모르면 IPv4
  *     전체를 대입해도 되돌릴 수 없다. pod가 다시 뜨면 값이 바뀌지만 한도·0건 검색어도 pod 메모리라 상관없다.</li>
- *     <li>공인 주소가 아니면(사설·루프백·링크 로컬 등) 키를 주지 않는다(Q2). Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호라 IP 한도를
+ *     <li>공인 주소가 아니면(사설·루프백·링크 로컬 등) 키를 주지 않는다. Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호라 IP 한도를
  *     건너뛴다. 처음 한 번과 그 뒤 {@value #WARN_INTERVAL_MINUTES}분마다 한 번 WARN을 남긴다(내부 주소는 개인정보가 아니라 남긴다).</li>
  * </ul>
- * {@link #ipLimitKey}·{@link #isPublicAddress}는 회원 앱 {@code MemberEmailVerificationUseCase}(#557)를 그대로 옮긴 것이다(Q3). 두 앱이
+ * {@link #ipLimitKey}·{@link #isPublicAddress}는 회원 앱 {@code MemberEmailVerificationUseCase}(#557)를 그대로 옮긴 것이다. 두 앱이
  * 같은 규칙이어야 하므로 한쪽을 고치면 다른 쪽도 고친다. 공용화(common)는 rate limit 공용화 판단(#697) 때 함께 본다. 회원 앱과 같이 CGNAT 대역
  * {@code 100.64/10}은 공인으로 본다(Tomcat은 내부 proxy로 건너뛰지만 우리 cluster 대역은 10.42·10.43이라 생기지 않는다).
  */

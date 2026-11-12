@@ -22,7 +22,7 @@ class LectureSearchBatch {
         this.zeroResultKeywords = zeroResultKeywords;
     }
 
-    /** 결과 0건 검색어를 모아 로그 한 줄로 남긴다. 인플루언서와 같은 주기·설정 키, pod마다 따로 센 것을 각자 남긴다(락 없음, Q4) */
+    /** 결과 0건 검색어를 모아 로그 한 줄로 남긴다. 인플루언서와 같은 주기·설정 키, pod마다 따로 센 것을 각자 남긴다(락 없음) */
     @Scheduled(fixedDelayString = "${hapbang.search.zero-result-log-interval:10m}", initialDelayString = "10m")
     void logZeroResultKeywords() {
         zeroResultKeywords.flush();

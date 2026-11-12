@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** 비회원 검색자 키(#883 Q2·Q3·Q5): 공인 주소 판단과 IPv6 /64는 회원 앱(#557)과 같고, 키는 IP 원문이 아닌 HMAC이다 */
+/** 비회원 검색자 키(#883): 공인 주소 판단과 IPv6 /64는 회원 앱(#557)과 같고, 키는 IP 원문이 아닌 HMAC이다 */
 class ClientIpKeyTest {
 
     private final ClientIpKey clientIpKey = new ClientIpKey();

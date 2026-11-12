@@ -16,7 +16,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** 평점 전체 평균 캐시의 동시 요청(#883 코드 리뷰): 다시 구하는 동안 다른 요청은 기다리지 않는다. 주기·실패 대기는 {@code RatingBaselineTest}가 본다 */
+/** 평점 전체 평균 캐시의 동시 요청(#883): 다시 구하는 동안 다른 요청은 기다리지 않는다. 주기·실패 대기는 {@code RatingBaselineTest}가 본다 */
 class CachedRatingBaselineTest {
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));

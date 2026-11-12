@@ -21,7 +21,7 @@ public class LectureSearchConfig {
         return new KeyedRateLimiter("search-lecture-member", limit.limit(), limit.period(), limit.maxKeys());
     }
 
-    /** 비회원 키는 client IP의 HMAC({@code ClientIpKey})이라 거절 시작 WARN에도 IP가 남지 않는다(Q5) */
+    /** 비회원 키는 client IP의 HMAC({@code ClientIpKey})이라 거절 시작 WARN에도 IP가 남지 않는다 */
     @Bean(name = GUEST_RATE_LIMITER, defaultCandidate = false)
     KeyedRateLimiter lectureSearchGuestRateLimiter(LectureRateLimitProperties properties) {
         LectureRateLimitProperties.Limit limit = properties.guest();

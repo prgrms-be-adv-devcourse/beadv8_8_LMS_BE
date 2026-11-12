@@ -23,11 +23,12 @@ import com.hapbang.auxiliary.search.lecture.out.LectureSearcher.SearchResult;
  * <ul>
  *     <li>먼저 호출 제한을 센다({@link LectureSearchRateLimit}, 회원 ID·client IP 각 분당 60회). 넘으면 429다. 정렬·페이지 오류(400)도 센다.
  *     검색어 길이 같은 형식 오류는 Spring 메서드 검증이 컨트롤러 전에 400을 내 세지 않는다(ES까지 가지 않는다).</li>
- *     <li>정렬은 {@code latest,desc}·{@code rating,desc} 하나만 고를 수 있고, 그 밖은 400 {@code UNSUPPORTED_SORT}다(L10, Q1).</li>
+ *     <li>정렬은 {@code latest,desc}·{@code rating,desc} 하나만 고를 수 있고, 그 밖은 400 {@code UNSUPPORTED_SORT}다(L10).</li>
  *     <li>앞에서 {@value #MAX_RESULT_WINDOW}건까지만 볼 수 있다({@code page × size + size}가 넘으면 400 {@code PAGE_TOO_DEEP}).
  *     전체 수도 그만큼까지만 센다.</li>
  *     <li>평점 전체 평균 C를 아직 모르면(pod가 뜬 직후 집계 실패, 1분 대기 중) 기본 순서의 검색어 검색은 평점 가산 없이 글 점수만으로 찾는다.
- *     C는 점수에 최대 약 2.4%만 보태는 동점 처리용이라 이것 때문에 검색을 막지 않는다(#883 코드 리뷰). 평점순은 C가 꼭 필요해 503이다.</li>
+ *     C는 비슷한 글끼리 순서를 가르는 작은 가산(보통 2~3%, 식의 상한 10%)에만 쓰여 이것 때문에 검색을 막지 않는다. 평점순은 C가 꼭 필요해
+ *     503이다.</li>
  *     <li>ES에 닿지 못하면(처음 적재 전이라 alias가 없을 때 포함) 503 {@code SEARCH_UNAVAILABLE}이다. 강의 앱의 강의 목록
  *     ({@code GET /api/v1/lectures})은 그대로 쓸 수 있다.</li>
  *     <li>검색어로 0건이면 검색어를 모은다({@link LectureZeroResultKeywords}, L19). 회원은 회원 ID, 비회원은 client IP 해시로 서로 다른 검색자를
@@ -94,7 +95,7 @@ public class LectureSearchFacade {
         } else if (requester.clientIpKey() != null) {
             zeroResultKeywords.record(keyword, requester.clientIpKey());
         }
-        // 공인 주소가 아닌 비회원(경로가 깨진 신호, Q2)은 검색자를 구분할 수 없어 세지 않는다
+        // 공인 주소가 아닌 비회원(경로가 깨진 신호)은 검색자를 구분할 수 없어 세지 않는다
     }
 
     /**

@@ -39,7 +39,7 @@ import co.elastic.clients.util.NamedValue;
  *     <li>must(검색어): {@code multi_match} best_fields, 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1, tie_breaker 0.3(L11).
  *     검색 분석기가 동의어를 펼친다</li>
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + b × 베이지안 평균 / 5). 글이 먼저고 평점은 비슷할 때만 가른다(L11).
- *     전체 평균 C를 모르면(null) 가산 없이 글 점수만 쓴다(#883 코드 리뷰)</li>
+ *     전체 평균 C를 모르면(null) 가산 없이 글 점수만 쓴다(#883)</li>
  *     <li>highlight(검색어가 있을 때): {@code encoder: html}이라 원문의 HTML 특수 문자를 escape하고 걸린 말만 {@code <em>}으로 감싼다(L12).
  *     제목·판매자 닉네임은 통째로, 소개는 걸린 곳 주변 한 조각(약 {@value #DESCRIPTION_FRAGMENT_SIZE}자), 콘텐츠 제목은 걸린 것만 통째로.
  *     검색어가 있으면 걸린 칸이 없어도 {@code highlights} 객체를 준다(검색어 없음과 구분)</li>
