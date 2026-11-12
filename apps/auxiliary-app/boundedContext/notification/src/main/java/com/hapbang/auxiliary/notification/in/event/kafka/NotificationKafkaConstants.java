@@ -49,6 +49,15 @@ public final class NotificationKafkaConstants {
     public static final String LECTURE_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.lecture.event";
     public static final String LECTURE_EVENTS_ENABLED = "hapbang.notification.lecture-events.enabled";
 
+    // 고객센터 이벤트 → 알림(N7: 문의 답변 도착·이의 제기 접수 불가, ND-122)
+
+    public static final String CUSTOMERSUPPORT_EVENTS_TOPIC = "customersupport.events.v1";
+    public static final String CUSTOMERSUPPORT_ALERT_GROUP = GROUP_PREFIX + "customersupport-alert";
+    public static final String CUSTOMERSUPPORT_EVENTS_DLT = deadLetterTopic(CUSTOMERSUPPORT_EVENTS_TOPIC,
+            CUSTOMERSUPPORT_ALERT_GROUP);
+    public static final String CUSTOMERSUPPORT_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.customersupport.event";
+    public static final String CUSTOMERSUPPORT_EVENTS_ENABLED = "hapbang.notification.customersupport-events.enabled";
+
     // 소비
 
     /**

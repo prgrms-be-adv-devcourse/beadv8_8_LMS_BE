@@ -46,6 +46,7 @@ class NotificationAlertListenerStarterTest {
         registry.add(NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, () -> "true");
         registry.add(NotificationKafkaConstants.BILLING_EVENTS_ENABLED, () -> "true");
         registry.add(NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, () -> "true");
+        registry.add(NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, () -> "true");
         registry.add("hapbang.notification.user-backfill.on-startup", () -> "true");
         registry.add("hapbang.notification.user-backfill.retry-initial-interval", () -> "100ms");
         registry.add("hapbang.notification.user-backfill.retry-max-interval", () -> "200ms");
@@ -75,6 +76,8 @@ class NotificationAlertListenerStarterTest {
                 .isFalse();
         assertThat(registry.getListenerContainer(NotificationBillingEventListener.LISTENER_ID).isRunning()).isFalse();
         assertThat(registry.getListenerContainer(NotificationLectureEventListener.LISTENER_ID).isRunning()).isFalse();
+        assertThat(registry.getListenerContainer(NotificationCustomerSupportEventListener.LISTENER_ID).isRunning())
+                .isFalse();
         // 회원 복제본 리스너(가입 환영·승급 승인 포함)는 기다리지 않는다
         assertThat(registry.getListenerContainer(NotificationMemberEventListener.LISTENER_ID).isRunning()).isTrue();
         // 기다리는 동안 이 pod의 대기 게이지는 1이다(ND-093. pod마다 따로 내고 alert는 앱별 max로 본다)
@@ -89,6 +92,8 @@ class NotificationAlertListenerStarterTest {
             assertThat(registry.getListenerContainer(NotificationBillingEventListener.LISTENER_ID).isRunning())
                     .isTrue();
             assertThat(registry.getListenerContainer(NotificationLectureEventListener.LISTENER_ID).isRunning())
+                    .isTrue();
+            assertThat(registry.getListenerContainer(NotificationCustomerSupportEventListener.LISTENER_ID).isRunning())
                     .isTrue();
             assertThat(meters.get(NotificationAlertListenerStarter.WAITING_METRIC).gauge().value()).isZero();
         });
