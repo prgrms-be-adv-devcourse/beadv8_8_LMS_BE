@@ -148,6 +148,7 @@
 | NT-BUN-06 | 서로 다른 `settlementId` 동시 지급 | 판매자 S, 같은 날짜 | 서로 다른 지급 N건을 동시에 | 묶음 1건, 금액·건수가 지급마다 정확히 한 번 반영되고 `notification_payout_item`이 N행 | 갱신 유실이 없어야 한다 | ND-032, ND-053, ND-097 | 테이블 `notification_payout_item` | Integration(PG) | 유효 |
 | NT-BUN-07 | 되살림과 새 알림 동시 저장 | S의 날짜 묶음이 밀려남, S의 알림 20개 | 그 날짜 새 지급과 S의 다른 새 알림을 동시에 | 끝난 뒤 S의 보이는 알림이 20개를 넘지 않고, 두 처리의 결과가 모두 반영된다 | — | ND-022, ND-053, ND-097 | — | Integration(PG) | 유효 |
 | NT-BUN-08 | 되살림과 재전달 경합 | S의 날짜 묶음이 밀려남 | 그 날짜 새 지급과 이미 반영된 지급의 재전달을 동시에 | 새 지급만 한 번 반영되어 되살아나고, 재전달은 금액·건수를 바꾸지 않는다 | — | ND-032, ND-097 | 테이블 `notification_payout_item` | Integration(PG) | 유효 |
+| NT-BUN-09 | 묶음 갱신·되살림과 전체 읽음 겹침 | S의 보이는 알림 20개(안 읽음), 묶음이 보이거나 밀려남 | 그 날짜 새 지급과 S의 전체 읽음을 동시에 | 교착 없이 둘 다 끝나고, 금액·건수가 한 번 반영되며 보이는 알림이 20개고, 묶음이 아닌 보이는 알림은 모두 읽음이다 | 전체 읽음은 받는 사람 행 잠금 없이 안 읽은 행을 ID 오름차순으로 잠근다. 묶음 처리의 알림 행 잠금도 ID 오름차순이어야 한다. 회귀 방지 항목이다: 묶음 행만 먼저 잠그던 이전 코드도 이 두 경우에는 교착에 이르지 않는다(module.md 3.2 "동시성 설계") | ND-022, ND-053, ND-103 | `PATCH /api/v1/notifications/read-all` | Integration(PG) | 유효 |
 
 ### 2.8 SCH — 예약 알림
 
@@ -254,7 +255,7 @@
 | QRY 조회·접근 | 4 | 4 | 0 | 0 | 0 |
 | READ 읽음 | 6 | 6 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 5 | 5 | 0 | 0 | 0 |
-| BUN 하루 묶음 | 8 | 8 | 0 | 0 | 0 |
+| BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
 | SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
 | RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
@@ -262,7 +263,7 @@
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **101** | **94** | **7** | **0** | **0** |
+| **합계** | **102** | **95** | **7** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -283,7 +284,7 @@
 | NT-BND-01 | `apps/auxiliary-app` `AuxiliaryModularityTest#verify`(notification 모듈을 찾고 경계 검사) | 전부 |
 | NT-BND-02 | `./gradlew verifyModuleStructure` | 전부 |
 | NT-BND-03 | `NotificationModuleIntegrationTest`, `apps/auxiliary-app` `AuxiliaryApplicationTest#flywaySchemas` | N8까지(schema, `notification`·`notification_payout_item`·`notification_runtime_setting`·`notification_user`, 모듈 SQL 적용, 이력 위치) |
-| NT-BUN-01~08 (N8) | `app.NotificationDailyPayoutTest`(판매자·날짜별 합산, 같은 지급 순차·동시, KST 경계, 갱신 때 안 읽음·늦은 발생 시각, 되살림·다시 숨김·재전달 불변, 지급 기록 실패 시 전체 롤백, 서로 다른 지급 동시, 되살림과 새 알림 동시, 되살림과 재전달 경합), `app.DailyPayoutTest`(강의 원천만, KST 날짜·JVM 시간대 무관, 문구), `in.event.NotificationAlertEventListenerTest`(Kafka로 묶음·재전달·시작 시각 전), `in.NotificationRealtimeIntegrationTest`(만들 때·갱신 때 프레임, 재전달 프레임 없음) | 전부 |
+| NT-BUN-01~09 (N8) | `app.NotificationDailyPayoutTest`(전체 읽음과 겹침은 퍼사드가 아니라 같은 저장소 쿼리 수준, 판매자·날짜별 합산, 같은 지급 순차·동시, KST 경계, 갱신 때 안 읽음·늦은 발생 시각, 되살림·다시 숨김·재전달 불변, 지급 기록 실패 시 전체 롤백, 서로 다른 지급 동시, 되살림과 새 알림 동시, 되살림과 재전달 경합), `app.DailyPayoutTest`(강의 원천만, KST 날짜·JVM 시간대 무관, 문구), `in.event.NotificationAlertEventListenerTest`(Kafka로 묶음·재전달·시작 시각 전), `in.NotificationRealtimeIntegrationTest`(만들 때·갱신 때 프레임, 재전달 프레임 없음) | 전부 |
 | NT-QRY-01~04 | `in.ApiV1NotificationControllerTest`(최신 20개·발생 시각 정렬, 다른 회원 차단·비로그인 401·관리자 403, 대상 삭제 무관) | 전부 |
 | NT-READ-01~06 | `in.ApiV1NotificationControllerTest`(누를 때 읽음, 목록으로 안 읽음, 남의·없는·밀려난 알림 404 통일, 전체 읽음, 최대 20, 다시 읽음 200), `domain.NotificationTest` | 전부. 실시간 프레임의 안 읽은 수(READ-05)는 아래 N3 행 |
 | NT-RET-01~05 | `app.NotificationWriterTest`(21번째 Soft Delete, 밀려난 알림 재저장 안 됨, 늦게 온 오래된 알림, Hard Delete 없음, 같은 회원 동시 저장 20개 유지), `app.NotificationConcurrencyTest`(읽음·전체 읽음과 보존 정리의 겹침) | 저장 서비스 수준. RET-02의 Kafka 재수신은 N5 이후 |
@@ -319,7 +320,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
-- 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): NT-BUN-04에 발생 시각(ND-101)을, NT-BUN-05를 되살림(ND-097)으로 고쳐 유효로 바꿨고, ND-097의 경합 테스트 NT-BUN-06~08을 더했다. NT-GEN-12에 ND-098을 반영했다(예약 5종 U11 남음). 집계 98 → 101, 유효 94, 미결 7. 구현 뒤 4장 연결 테스트 표에 NT-BUN-01~08을 더하고 NT-BND-03 범위를 N8까지로 고쳤다(상태·집계 그대로).
+- 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): NT-BUN-04에 발생 시각(ND-101)을, NT-BUN-05를 되살림(ND-097)으로 고쳐 유효로 바꿨고, ND-097의 경합 테스트 NT-BUN-06~08을 더했다. NT-GEN-12에 ND-098을 반영했다(예약 5종 U11 남음). 집계 98 → 101, 유효 94, 미결 7. 구현 뒤 4장 연결 테스트 표에 NT-BUN-01~08을 더하고 NT-BND-03 범위를 N8까지로 고쳤다(상태·집계 그대로). PR 리뷰 뒤 NT-BUN-09(전체 읽음과 겹침)를 더했다(집계 101 → 102, 유효 95).
 - 2026-11-11 decisions.md ND-069~ND-079 반영(N5 사전 결정, #859): NT-GEN-10(ND-075)·NT-KAF-04(ND-076)·NT-IDEM-05(ND-073)·NT-USR-05(ND-072)·NT-USR-06(ND-077·ND-078)을 유효로, NT-GEN-12에 ND-071을 반영했다(U11 남음). NT-GEN-15(이동 대상, ND-074), NT-USR-08~10(Backfill 버전·파기·동시성, 실패·건너뜀·잠금, 재실행 API), ④ 계획 검토 뒤 NT-KAF-07(대체 시각, ND-081)·NT-GEN-16(회원 알림은 복제본 리스너 안, ND-080)을 더했다. 집계 87 → 93, 유효 85, 미결 8. 구현 뒤 NT-KAF-04에 잘못된 값 기동 실패(ND-088)를, NT-USR-10에 503(ND-089)을 더했다. ND-095 뒤 NT-KAF-04를 설정이 없을 때의 첫 기동 기록으로 고쳤다. PR 리뷰 뒤 NT-USR-10을 비동기 시작·조회·Redis 상태 일치(ND-092)로, NT-USR-09에 대기 게이지(ND-093)를 더했다.
 - 2026-11-11 decisions.md ND-082~ND-087 반영(N6 사전 결정, #862): NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06을 더하고 4장 집계를 고쳤다. NT-GEN-15·16, NT-KAF-07은 N5(#859)가 쓰는 번호라 비워 두었다.
 - 2026-11-11 N6 B단계(#862, ND-096): 4장 연결 테스트 표에 N6 통합 테스트를 연결했다. 상태·집계는 바꾸지 않았다.

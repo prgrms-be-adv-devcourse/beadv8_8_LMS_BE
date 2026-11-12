@@ -20,10 +20,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.auxiliary.notification.app.NotificationWriteResult.Outcome;
 import com.hapbang.auxiliary.notification.app.exception.NotificationErrorCode;
 import com.hapbang.auxiliary.notification.app.exception.NotificationException;
+import com.hapbang.auxiliary.notification.out.NotificationRepository;
 import com.hapbang.auxiliary.notification.support.TestNotificationTemplate;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -51,6 +53,12 @@ class NotificationDailyPayoutTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private NotificationRepository repository;
+
+    @Autowired
+    private TransactionTemplate transaction;
 
     // NT-BUN-01
 
@@ -300,6 +308,70 @@ class NotificationDailyPayoutTest {
         assertThat(payloadNumber(s, "count")).isEqualTo(2L);
         assertThat(payloadNumber(s, "totalPaidAmountHp")).isEqualTo(3_000L);
         assertThat(itemsOf(s)).isEqualTo(2);
+    }
+
+    // NT-BUN-09: 전체 읽음(받는 사람 행 잠금 없이 안 읽은 행을 ID 오름차순으로 잠근다)과 겹침. 회귀 방지용이다: 묶음 행만 먼저
+    // 잠그던 이전 코드도 이 두 경우에는 교착에 이르지 않아(보이는 묶음 갱신은 밀어낼 행이 없고, 되살림 때 묶음은 전체 읽음의 잠금 대상이
+    // 아니다) 이전 코드에서도 통과한다. 알림 행 잠금이 ID 오름차순이 아니게 바뀌면 교착·시간 초과로 실패할 수 있다
+
+    @Test
+    void 보이는_묶음_갱신과_전체_읽음이_겹쳐도_교착_없이_둘_다_반영된다() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            long s = member(UserStatus.ACTIVE);
+            // 묶음이 가장 오래되도록 먼저 만들고, 그 뒤 알림 19개(보이는 알림 20개, 모두 안 읽음)
+            writer.addDailyPayout(payout(s, 1_000L, DAY));
+            for (int i = 0; i < 19; i++) {
+                writer.save(draft(s, "n-" + i, 7L, "호스트", DAY.plusSeconds(10 + i)));
+            }
+
+            runTogether(List.of(() -> writer.addDailyPayout(payout(s, 2_000L, DAY.plusSeconds(60))),
+                    () -> markAllRead(s)));
+
+            assertThat(payloadNumber(s, "count")).isEqualTo(2L);
+            assertThat(aliveOf(s)).isEqualTo(NotificationWriter.KEEP);
+            assertThat(unreadOthersOf(s)).isZero();
+        }
+    }
+
+    @Test
+    void 밀려난_묶음_되살림과_전체_읽음이_겹쳐도_교착_없이_둘_다_반영된다() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            long s = member(UserStatus.ACTIVE);
+            writer.addDailyPayout(payout(s, 1_000L, DAY));
+            for (int i = 0; i < 20; i++) {
+                writer.save(draft(s, "n-" + i, 7L, "호스트", DAY.plusSeconds(10 + i)));
+            }
+
+            runTogether(List.of(() -> writer.addDailyPayout(payout(s, 2_000L, DAY.plusSeconds(3_600))),
+                    () -> markAllRead(s)));
+
+            assertThat(singleBundle(s).get("deleted_at")).isNull();
+            assertThat(payloadNumber(s, "count")).isEqualTo(2L);
+            assertThat(aliveOf(s)).isEqualTo(NotificationWriter.KEEP);
+            assertThat(unreadOthersOf(s)).isZero();
+        }
+    }
+
+    /**
+     * 전체 읽음과 같은 잠금·갱신(NotificationQueryFacade.markAllRead와 같은 쿼리 순서). 퍼사드는 로그인 인가가 걸려 있어 저장소로 같은
+     * 쿼리를 쓴다. {@code runTogether}에 넣으려고 결과 없이 null을 돌려준다
+     */
+    private NotificationWriteResult markAllRead(long receiver) {
+        transaction.executeWithoutResult(status -> {
+            List<Long> unread = repository.lockUnreadInIdOrder(receiver);
+            if (!unread.isEmpty()) {
+                repository.markReadAll(unread, Instant.now());
+            }
+        });
+        return null;
+    }
+
+    /**
+     * 묶음이 아닌 보이는 알림 중 안 읽은 수. 전체 읽음이 반영됐는지 본다(묶음은 전체 읽음 뒤에 갱신되면 다시 안 읽음이 될 수 있어 뺀다)
+     */
+    private int unreadOthersOf(long receiver) {
+        return jdbc.queryForObject("select count(*) from notification.notification where receiver_user_id = ? "
+                + "and kind <> ? and deleted_at is null and read_at is null", Integer.class, receiver, KIND);
     }
 
     private long member(UserStatus status) {

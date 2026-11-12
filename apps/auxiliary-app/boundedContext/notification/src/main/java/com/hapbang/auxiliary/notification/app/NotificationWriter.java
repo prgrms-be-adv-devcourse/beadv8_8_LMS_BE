@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.notification.app;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -107,8 +108,8 @@ public class NotificationWriter {
      *     <li>받는 사람 복제본 행을 잠근다(ND-053). 같은 판매자의 지급·알림 저장은 모두 이 잠금으로 줄을 선다. 복제본이 없으면 실패해
      *     재시도 뒤 DLT로 간다(ND-035). 받을 수 없는 회원이면 아무것도 쓰지 않는다(ND-018·ND-072).</li>
      *     <li>이미 더한 지급이면 묶음을 되살리거나 읽음·발생 시각을 바꾸지 않고 중복으로 끝낸다.</li>
-     *     <li>그 날짜 묶음(삭제된 행 포함)이 없으면 만들고, 있으면 행을 잠근 뒤 금액·건수를 더하고 발생 시각을 늦은 값으로, 다시 안
-     *     읽음으로 바꾸며 밀려났으면 되살린다.</li>
+     *     <li>그 날짜 묶음(삭제된 행 포함)이 없으면 만들고, 있으면 보이는 알림과 묶음 행을 ID 오름차순으로 잠근 뒤 금액·건수를 더하고
+     *     발생 시각을 늦은 값으로, 다시 안 읽음으로 바꾸며 밀려났으면 되살린다.</li>
      *     <li>지급을 기록하고, 21번째부터 숨긴다(ND-022). 되살린 묶음이 21번째보다 오래되면 다시 숨는다.</li>
      *     <li>commit 뒤 실시간으로 넘긴다(ND-059). 숨겨진 묶음이면 넘기지 않는다.</li>
      * </ol>
@@ -154,9 +155,15 @@ public class NotificationWriter {
         return new NotificationWriteResult(outcome, bundleId);
     }
 
-    /** 묶음 행을 잠그고 잠근 뒤의 값에 지급을 더한다 */
+    /**
+     * 묶음 행을 잠그고 잠근 뒤의 값에 지급을 더한다. 받는 사람의 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근다. 뒤이은 보존
+     * 정리가 밀어낼 행은 모두 이 안에 있으므로 알림 행 잠금이 늘 ID 오름차순이고, 받는 사람 행 잠금 없이 같은 순서로 잠그는 전체 읽음과
+     * 교착하지 않는다(module.md 3.2 "동시성", #890 리뷰). 받는 사람 행 잠금 안이라 보이는 알림이 바뀌지 않는다
+     */
     private void addTo(long bundleId, DailyPayout payout, Function<Map<String, Object>, String> renderer) {
-        notifications.lockInIdOrder(List.of(bundleId));
+        List<Long> toLock = new ArrayList<>(notifications.findAliveIdsNewestFirst(payout.receiverUserId()));
+        toLock.add(bundleId);
+        notifications.lockInIdOrder(toLock);
         Notification current = notifications.findById(bundleId).orElseThrow();
         Map<String, Object> payload = PayoutDailyTemplate.added(current.getPayload(), payout);
         Instant occurredAt = current.getOccurredAt().isAfter(payout.paidAt()) ? current.getOccurredAt()

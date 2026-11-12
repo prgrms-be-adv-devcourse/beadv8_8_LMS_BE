@@ -86,6 +86,30 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-053 · 2026-11-12 · 통과 (N8 #890 PR 리뷰 반영: 묶음 잠금 순서)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-053 |
+| 실행 날짜 | 1차 2026-11-12 10:50~10:53, 2차 10:57~11:00 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `d2cdf456`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `NotificationWriter.addTo`가 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근다. NT-BUN-09 시험 2개(전체 읽음과 겹침). 2차는 S6 뒤 시험 단언(묶음 밖 알림 모두 읽음)·주석과 문서 보강 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) 잠금 순서 |
+| 관련 NT ID | NT-BUN-09, NT-BUN-01~08, NT-RET, NT-READ |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차 모두 통과(종료 코드 0) |
+| 건수 | 1차 새로 실행: `:notification` 231, `:auxiliary-app` 13. 2차 새로 실행: `:notification` 231(`:auxiliary-app` test는 UP-TO-DATE, 1차 결과). 실패 0·건너뜀 0. `:auxiliary-global`·`:chatbot`·`:search` test는 UP-TO-DATE(마지막 실행 NR-052) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+**메모**: NT-BUN-09 시험 2개는 고치기 전 코드에서도 통과했다(10:4x `:notification:test --tests "*NotificationDailyPayoutTest"` 15/15). 이전 코드도 밀어냄이 일어나는 경우(되살림)에는 묶음 행이 전체 읽음의 잠금 대상이 아니고, 묶음 행이 대상인 경우(보이는 묶음 갱신)에는 밀어낼 행이 없어 교착에 이르지 않기 때문이다. 이번 수정은 잠금 순서 규칙을 코드가 직접 지키게 한 방어적 수정이고, 시험은 회귀 방지용이다.
+
 #### NR-052 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤)
 
 | 항목 | 값 |
