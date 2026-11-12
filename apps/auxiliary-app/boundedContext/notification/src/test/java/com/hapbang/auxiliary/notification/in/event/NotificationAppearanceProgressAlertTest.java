@@ -289,6 +289,46 @@ class NotificationAppearanceProgressAlertTest {
         assertThat(deadLetterKeys()).doesNotContain("old");
     }
 
+    // 행동한 상대 닉네임을 읽는 순서(ND-113, NotificationAlertService.createMentioning)
+
+    @Test
+    void 받을_수_없는_호스트의_요청_수락은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
+        long host = withdrawnMember();
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "mention:withdrawn",
+                new AppearanceRequestAcceptedEvent(request(host, guestWithoutReplica, "탈퇴 합방"), nextId(), AT));
+        awaitProcessed();
+
+        assertThat(rows(host)).isEmpty();
+        assertThat(deadLetterKeys()).doesNotContain("mention:withdrawn");
+    }
+
+    @Test
+    void 시작_시각보다_이른_요청_수락은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
+        long host = member("호스트");
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "mention:old", new AppearanceRequestAcceptedEvent(
+                request(host, guestWithoutReplica, "옛 합방"), nextId(), LocalDateTime.parse("2025-12-31T10:00:00")));
+        awaitProcessed();
+
+        assertThat(rows(host)).isEmpty();
+        assertThat(deadLetterKeys()).doesNotContain("mention:old");
+    }
+
+    @Test
+    void 받을_수_있는_호스트의_요청_수락에서_게스트_복제본이_없으면_재시도_뒤_DLT로_보낸다() {
+        long host = member("호스트");
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "mention:missing",
+                new AppearanceRequestAcceptedEvent(request(host, guestWithoutReplica, "빈 상대 합방"), nextId(), AT));
+
+        new MemberEventKafka(bootstrapServers, APPEARANCE_TOPIC).awaitDeadLetter(APPEARANCE_DLT, "mention:missing");
+        assertThat(rows(host)).isEmpty();
+    }
+
     @Test
     void 성립한_출연_ID가_빠진_요청_수락은_DLT로_보낸다() {
         long host = member("호스트");
@@ -316,6 +356,12 @@ class NotificationAppearanceProgressAlertTest {
     private long member(String nickname) {
         long id = nextId();
         users.save(NotificationUser.create(new UserDto(id, nickname, Role.INFLUENCER, UserStatus.ACTIVE, 1L)));
+        return id;
+    }
+
+    private long withdrawnMember() {
+        long id = nextId();
+        users.save(NotificationUser.create(new UserDto(id, "탈퇴호스트", Role.INFLUENCER, UserStatus.WITHDRAWN, 1L)));
         return id;
     }
 
