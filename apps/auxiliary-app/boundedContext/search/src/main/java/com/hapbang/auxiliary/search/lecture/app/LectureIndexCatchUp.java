@@ -11,7 +11,7 @@ import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 강의 재색인 따라잡기 부품(#884 L14 ④). alias를 새 index로 옮긴 직후, 채우는 동안 바뀐 원본을 새 index에 반영한다. 강의·리뷰에는 변경분 API가 없어
+ * 강의 재색인 따라잡기 부품(#884). alias를 새 index로 옮긴 직후, 채우는 동안 바뀐 원본을 새 index에 반영한다. 강의·리뷰에는 변경분 API가 없어
  * 시각 대신 <b>전체를 한 번 비교</b>한다.
  * <ol>
  *     <li>강의 보정({@link LectureReconciler}): 채우는 동안의 강의 이벤트는 옛 index로 갔거나(재색인) 건너뛰었다(처음 적재). 강의 동기화 API 전체와

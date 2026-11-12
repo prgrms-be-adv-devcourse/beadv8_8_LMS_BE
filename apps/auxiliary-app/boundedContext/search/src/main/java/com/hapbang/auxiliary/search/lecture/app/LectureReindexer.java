@@ -22,7 +22,7 @@ import com.hapbang.auxiliary.search.out.MemberListSource;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * 강의 검색 index의 처음 적재와 무중단 재색인(#884 L14). 흐름은 공통 {@link Reindexer}가 하고(#868), 여기는 강의 부품을 끼워 넣는다.
+ * 강의 검색 index의 처음 적재와 무중단 재색인(#884). 흐름은 공통 {@link Reindexer}가 하고(#868), 여기는 강의 부품을 끼워 넣는다.
  * <ul>
  *     <li>채우기: {@link LectureIndexLoader}(판매자 사본 → 리뷰 사본 → 강의)</li>
  *     <li>따라잡기: {@link LectureIndexCatchUp}(강의 보정 + 판매자·평점 칸 맞추기)</li>

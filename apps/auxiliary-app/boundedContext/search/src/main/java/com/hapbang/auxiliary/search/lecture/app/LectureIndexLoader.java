@@ -24,7 +24,7 @@ import com.hapbang.shared.member.dto.UserDto;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 강의 재색인 채우기 부품(#884 L14). 처음 적재·재색인이 만든 새 index(alias 없음)를 아래 순서로 채운다.
+ * 강의 재색인 채우기 부품(#884). 처음 적재·재색인이 만든 새 index(alias 없음)를 아래 순서로 채운다.
  * <ol>
  *     <li><b>판매자 사본</b>: 회원 목록 API(모든 회원)를 끝까지 읽어 회원 사본에 반영한다(회원 version 비교, 이미 같으면 그대로). 강의 문서의 판매자
  *     칸을 채우기 전에 해야 기존 판매자의 닉네임·정지 상태가 빠지지 않는다.</li>
@@ -32,7 +32,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li><b>강의</b>: 강의 동기화 API를 끝까지 읽어 페이지마다 그 판매자·평점 사본을 한 번에 읽고 bulk로 넣는다. 강의 이벤트와 같은 script라 판매 중이
  *     아닌 강의는 숨김 문서다.</li>
  * </ol>
- * 사본은 "비어 있을 때만"이 아니라 처음 적재·재색인마다 맞춘다(#884 Q2 a). 운영 사본은 #882 배포 뒤의 이벤트로 일부만 차 있어, 비었는지로 고르면 그 전
+ * 사본은 "비어 있을 때만"이 아니라 처음 적재·재색인마다 맞춘다. 운영 사본은 #882 배포 뒤의 이벤트로 일부만 차 있어, 비었는지로 고르면 그 전
  * 판매자·리뷰가 빠진다. 처음 적재와 재색인이 같은 길이다.
  * <p>
  * 정보가 빠진 회원은 사본 맞추기에서 건너뛰고, ES가 그 강의 값 때문에 거절한 강의는 건너뛰고 센다(멈추면 처음 적재가 영영 끝나지 않는다). 그 밖의
@@ -109,7 +109,7 @@ class LectureIndexLoader implements IndexLoader {
         return new LoadResult(read, visible, hidden, skipped);
     }
 
-    /** 회원 목록 전체로 회원 사본을 맞춘다(Q2 a). 회원 version 비교라 이미 같은 회원은 그대로다 */
+    /** 회원 목록 전체로 회원 사본을 맞춘다. 회원 version 비교라 이미 같은 회원은 그대로다 */
     private void syncSellerCopies() {
         long read = 0;
         long skipped = 0;

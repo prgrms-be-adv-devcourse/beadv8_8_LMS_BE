@@ -37,7 +37,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 리뷰 보정과 판매자·평점 칸 맞추기(#884 L13, Q1 a): 놓친 리뷰 이벤트, 원본에 없는 리뷰, 평점 칸 경합으로 남은 옛 값, 회원 사본과 다른 판매자 칸.
+ * 리뷰 보정과 판매자·평점 칸 맞추기(#884): 놓친 리뷰 이벤트, 원본에 없는 리뷰, 평점 칸 경합으로 남은 옛 값, 회원 사본과 다른 판매자 칸.
  * 강의 앱은 가짜, 사본은 PostgreSQL 컨테이너, 문서는 nori ES 컨테이너다
  */
 @RepositoryTest
@@ -114,7 +114,7 @@ class LectureReviewReconcilerTest {
     }
 
     @Test
-    @DisplayName("평점 칸 경합으로 문서에 옛 평균이 남아 있으면(사본은 맞음) 다음 보정이 바로잡는다(Q1 a)")
+    @DisplayName("평점 칸 경합으로 문서에 옛 평균이 남아 있으면(사본은 맞음) 다음 보정이 바로잡는다")
     void fixesStaleRating() throws Exception {
         indexer.apply(lecture(LECTURE, 0L));
         indexer.apply(review(1L, 5, true, false, 0L));

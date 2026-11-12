@@ -46,7 +46,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 강의 index 처음 적재·재색인(#884 L14 완료 조건): 사본 맞추기 → 강의 적재 → alias 교체 → 따라잡기, 적재 중 바뀐 강의·리뷰·판매자가 교체 뒤
+ * 강의 index 처음 적재·재색인(#884 완료 조건): 사본 맞추기 → 강의 적재 → alias 교체 → 따라잡기, 적재 중 바뀐 강의·리뷰·판매자가 교체 뒤
  * 반영된다. 공통 흐름(실패 시 alias 유지, 교체 시간 초과 등)은 {@code ReindexerTest}가 본다. 회원·강의 앱은 가짜, 사본은 PostgreSQL 컨테이너,
  * 문서는 nori ES 컨테이너다
  */
@@ -80,7 +80,7 @@ class LectureReindexerTest {
     @Test
     @DisplayName("alias가 없으면 사본을 맞춘 뒤(일부만 차 있어도) 모든 강의를 넣고 alias를 붙인다. 판매자·평점은 사본 값, 판매 중이 아닌 강의는 숨김")
     void firstLoad() throws Exception {
-        // 운영처럼 사본이 일부만 차 있다(#882 배포 뒤 이벤트로 들어온 회원 하나). 비었는지와 상관없이 모두 맞춘다(Q2 a)
+        // 운영처럼 사본이 일부만 차 있다(#882 배포 뒤 이벤트로 들어온 회원 하나). 비었는지와 상관없이 모두 맞춘다
         members.apply(new UserDto(99L, "다른회원", Role.USER, UserStatus.ACTIVE, 1L), LocalDateTime.now(CLOCK));
         memberList.user(new UserDto(SELLER, "편집장", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L))
                 .user(new UserDto(SUSPENDED_SELLER, "정지강사", Role.VERIFIED_INFLUENCER, UserStatus.SUSPENDED, 5L));

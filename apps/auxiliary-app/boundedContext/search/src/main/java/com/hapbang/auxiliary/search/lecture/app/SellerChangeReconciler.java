@@ -25,7 +25,7 @@ import com.hapbang.shared.member.dto.UserDto;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 판매자 사본 증분 보정(#884 Q3 a). 회원 이벤트를 놓쳐도(DLT) 회원 사본과 그 판매자의 강의 문서가 원본과 맞춰지게, 10분마다 회원 변경분(#769)을 저장한
+ * 판매자 사본 증분 보정(#884). 회원 이벤트를 놓쳐도(DLT) 회원 사본과 그 판매자의 강의 문서가 원본과 맞춰지게, 10분마다 회원 변경분(#769)을 저장한
  * 커서부터 끝까지 읽어 반영한다. 한 pod에서만 돈다({@link SearchJob#SELLER_RECONCILE}).
  * <ul>
  *     <li><b>인플루언서 증분 보정과 따로 돈다</b>: 커서({@link SyncCursor#SELLER_CHANGES})·락이 따로라 인플루언서 index가 없거나 그쪽 쓰기가
@@ -35,7 +35,7 @@ import lombok.extern.slf4j.Slf4j;
  *     문서를 다시 맞추기({@code update_by_query}) 때문이다. 그 문서 칸은 리뷰 보정의 칸 맞추기가 본다. 강의 alias가 없으면(처음 적재 전) 사본만
  *     고치고 다음 회원을 계속한다.</li>
  *     <li><b>커서·1분 겹쳐 읽기·처음</b>: 인플루언서 증분 보정(#772)과 같다. 커서가 없으면 지금 시각부터 읽고, 그 전 회원은 처음 적재의 회원 사본
- *     맞추기(#884 Q2 a)가 맡는다.</li>
+ *     맞추기가 맡는다.</li>
  * </ul>
  * 보정 건수: 강의 문서가 실제로 바뀐 회원은 {@link LectureReconcileKind#SELLER_FIXED}(INFO 한 줄), 사본만 바뀐 회원(판매자가 아니거나
  * 처음 적재 전)은 {@link LectureReconcileKind#COPIED}, 사본이 이미 같거나 더 새 version이면 {@link LectureReconcileKind#ALREADY_APPLIED}다.

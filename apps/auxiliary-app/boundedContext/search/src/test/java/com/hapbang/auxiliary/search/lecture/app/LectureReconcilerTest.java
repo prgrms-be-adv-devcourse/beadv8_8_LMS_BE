@@ -38,7 +38,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 강의 보정(#884 L13 완료 조건): 놓친 강의 등록·수정·판매 중지가 다음 보정에서 반영되고, 원본에 없는 문서가 숨겨진다. 강의 앱은 가짜, 사본은 PostgreSQL
+ * 강의 보정(#884 완료 조건): 놓친 강의 등록·수정·판매 중지가 다음 보정에서 반영되고, 원본에 없는 문서가 숨겨진다. 강의 앱은 가짜, 사본은 PostgreSQL
  * 컨테이너, 문서는 nori ES 컨테이너다
  */
 @RepositoryTest

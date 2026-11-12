@@ -45,7 +45,7 @@ class LectureSearchBatch {
     }
 
     /**
-     * 처음 적재·재색인이 필요한지 확인하고 필요하면 한다(L14, 인플루언서 #773 Q2와 같다). 시작 때 실패했거나 lock을 놓친 경우를 사람 없이 다시 한다.
+     * 처음 적재·재색인이 필요한지 확인하고 필요하면 한다(인플루언서와 같다). 시작 때 실패했거나 lock을 놓친 경우를 사람 없이 다시 한다.
      * 시작 때 한 번은 {@code LectureIndexStartup}이 하므로 10분 뒤부터 한다. 적재는 몇 분 걸릴 수 있어 재색인 실행기로 넘긴다(앱 공용 스케줄러
      * 스레드를 붙잡지 않게). 인플루언서와 같은 설정 키다.
      */
@@ -54,19 +54,19 @@ class LectureSearchBatch {
         reindexExecutor.execute(reindexer::run);
     }
 
-    /** 강의 보정(L13). 끝난 뒤 10분 쉬고 다시 한다. 인플루언서 배치(1·2분)와 시작을 어긋나게 3분 뒤에 시작한다 */
+    /** 강의 보정. 끝난 뒤 10분 쉬고 다시 한다. 인플루언서 배치(1·2분)와 시작을 어긋나게 3분 뒤에 시작한다 */
     @Scheduled(fixedDelayString = "${hapbang.search.lecture-reconcile-interval:10m}", initialDelayString = "3m")
     void reconcileLectures() {
         lectureReconciler.run();
     }
 
-    /** 판매자 사본 증분 보정(Q3 a). 끝난 뒤 10분 쉬고 다시 한다. 4분 뒤에 시작한다 */
+    /** 판매자 사본 증분 보정. 끝난 뒤 10분 쉬고 다시 한다. 4분 뒤에 시작한다 */
     @Scheduled(fixedDelayString = "${hapbang.search.seller-reconcile-interval:10m}", initialDelayString = "4m")
     void reconcileSellers() {
         sellerReconciler.run();
     }
 
-    /** 리뷰 보정과 판매자·평점 칸 맞추기(L13, Q1 a). 끝난 뒤 1시간 쉬고 다시 한다. 5분 뒤에 시작한다 */
+    /** 리뷰 보정과 판매자·평점 칸 맞추기. 끝난 뒤 1시간 쉬고 다시 한다. 5분 뒤에 시작한다 */
     @Scheduled(fixedDelayString = "${hapbang.search.lecture-review-reconcile-interval:1h}", initialDelayString = "5m")
     void reconcileReviews() {
         reviewReconciler.run();

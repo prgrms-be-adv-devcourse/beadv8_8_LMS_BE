@@ -27,7 +27,7 @@ import com.hapbang.shared.lecture.dto.LectureSyncPageDto;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 강의 보정(#884 L13). 강의 이벤트를 놓쳐도(DLT, 소비 버그) 강의 문서가 원본과 맞춰지게, 10분마다 강의 동기화 API를 키셋으로 끝까지 읽어 문서와
+ * 강의 보정(#884). 강의 이벤트를 놓쳐도(DLT, 소비 버그) 강의 문서가 원본과 맞춰지게, 10분마다 강의 동기화 API를 키셋으로 끝까지 읽어 문서와
  * 비교한다. 한 pod에서만 돈다({@link SearchJob#LECTURE_RECONCILE}).
  * <ul>
  *     <li><b>비교</b>: 페이지마다 그 강의들의 문서를 한 번에 읽어(mget) 다른 것만 쓴다({@link #needsWrite}). 평소에는 쓰기 요청이 없다.</li>
@@ -36,7 +36,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li><b>원본에 없는 문서</b>: 끝까지 읽은 뒤 보이는 문서 중 이번에 읽지 못한 강의를 숨긴다. 읽는 동안 생긴 강의(마지막으로 읽은 ID보다 큰 ID)는
  *     건너뛴다. 원본이 비어 있으면(읽은 강의 0개) 숨기지 않는다(강의 앱 응답이 잘못돼 모든 문서를 숨기지 않게).</li>
  * </ul>
- * 재색인 뒤 따라잡기(#884 L14 ④)도 이 보정을 같은 락으로 한 번 돈다.
+ * 재색인 뒤 따라잡기도 이 보정을 같은 락으로 한 번 돈다.
  * <p>
  * 한계: 보정 건수는 페이지 앞에서 한 번 읽은 문서와의 비교로 센다(쓰기 결과로 세지 않는다). 그 페이지를 반영하는 사이 같은 강의의 이벤트가 먼저 반영되면
  * 놓친 이벤트가 아닌데도 보정으로 셀 수 있다(인플루언서 증분 보정과 같은 한계). 쓰기는 강의 version 조건이라 결과는 같다.
@@ -92,7 +92,7 @@ public class LectureReconciler {
             metrics.reconciled(LectureSyncMetrics.JOB_LECTURE, result, Duration.ofNanos(System.nanoTime() - started));
             return result;
         } catch (IndexNotReadyException e) {
-            // 처음 적재 전은 실패가 아니라 할 일이 없는 것이다(#773 Q1)
+            // 처음 적재 전은 실패가 아니라 할 일이 없는 것이다(실패 지표에 넣지 않는다)
             throw e;
         } catch (RuntimeException e) {
             metrics.reconcileFailed(LectureSyncMetrics.JOB_LECTURE, Duration.ofNanos(System.nanoTime() - started));
@@ -136,8 +136,8 @@ public class LectureReconciler {
     /**
      * 원본과 문서가 다른지. 문서가 없거나, 문서의 강의 version이 원본보다 작거나 없으면(원본에 없다고 숨긴 문서) 다시 쓴다.
      * <p>
-     * 비교는 여기 한 곳에만 둔다. 같은 version인데 원본 가격이 있고 문서 가격과 다르면 다시 쓰는 조건(#884 Q4 a)은 강의 문서에 가격 칸이 생기는
-     * #909가 병합된 뒤 여기에 더한다(그 전에 넣으면 모든 강의가 다르게 보여 10분마다 전체를 다시 쓴다).
+     * 비교는 여기 한 곳에만 둔다. 같은 version인데 원본 가격이 있고 문서 가격과 다르면 다시 쓰는 조건은 강의 문서에 가격 칸이 생긴 뒤(#909)에만 넣을
+     * 수 있다(가격 칸 없이 넣으면 모든 강의가 다르게 보여 10분마다 전체를 다시 쓴다).
      */
     static boolean needsWrite(LectureSyncDto lecture, IndexedLecture indexed) {
         return indexed == null || indexed.lectureVersion() == null || indexed.lectureVersion() < lecture.version();

@@ -34,7 +34,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 판매자 사본 증분 보정(#884 Q3 a): 놓친 닉네임·상태 변경이 다음 보정에서 회원 사본과 강의 문서에 반영된다. 회원 앱·커서는 가짜, 사본은 PostgreSQL
+ * 판매자 사본 증분 보정(#884): 놓친 닉네임·상태 변경이 다음 보정에서 회원 사본과 강의 문서에 반영된다. 회원 앱·커서는 가짜, 사본은 PostgreSQL
  * 컨테이너, 문서는 nori ES 컨테이너다
  */
 @RepositoryTest

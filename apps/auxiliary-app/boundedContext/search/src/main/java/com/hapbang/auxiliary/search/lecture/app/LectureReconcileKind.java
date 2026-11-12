@@ -17,7 +17,7 @@ public enum LectureReconcileKind {
     REVIEW_DELETED("review_deleted", true),
     /** 판매자 칸이 회원 사본과 달라 고쳤다(판매자 보정·칸 맞추기) */
     SELLER_FIXED("seller_fixed", true),
-    /** 평점 칸이 리뷰 사본 집계와 달라 고쳤다(칸 맞추기, Q1 a) */
+    /** 평점 칸이 리뷰 사본 집계와 달라 고쳤다(칸 맞추기. 평점 칸 경합으로 남은 옛 값 포함) */
     RATING_FIXED("rating_fixed", true),
     /** 이미 같거나 더 새 값이었다(이벤트가 반영함) */
     ALREADY_APPLIED("already_applied", false),

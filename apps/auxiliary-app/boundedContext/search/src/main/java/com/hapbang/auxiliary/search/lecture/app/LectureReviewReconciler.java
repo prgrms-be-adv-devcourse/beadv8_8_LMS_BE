@@ -23,12 +23,12 @@ import com.hapbang.shared.lecture.dto.LectureReviewSyncPageDto;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 리뷰 보정(#884 L13). 1시간마다 리뷰 동기화 API를 키셋으로 끝까지 읽어 리뷰 사본을 맞추고, 이어서 모든 강의 문서의 판매자·평점 칸을 사본과 맞춘다
+ * 리뷰 보정(#884). 1시간마다 리뷰 동기화 API를 키셋으로 끝까지 읽어 리뷰 사본을 맞추고, 이어서 모든 강의 문서의 판매자·평점 칸을 사본과 맞춘다
  * ({@link LectureCopyAligner}). 한 pod에서만 돈다({@link SearchJob#LECTURE_REVIEW_RECONCILE}).
  * <ul>
  *     <li><b>사본 맞추기</b>: 리뷰마다 이벤트와 같은 사본 반영({@link LectureReviewCopyStore#apply}, version이 클 때만)을 한다. 원본에 없는 리뷰는
  *     사본에서 지운다(읽는 동안 생긴 리뷰는 빼고).</li>
- *     <li><b>칸 맞추기</b>: 사본을 바꾼 강의만이 아니라 모든 문서를 본다. 놓친 리뷰 이벤트뿐 아니라 평점 칸 경합으로 남은 옛 값(#884 Q1 a)도 이 회차에
+ *     <li><b>칸 맞추기</b>: 사본을 바꾼 강의만이 아니라 모든 문서를 본다. 놓친 리뷰 이벤트뿐 아니라 평점 칸 경합으로 남은 옛 값({@link LectureCopyAligner})도 이 회차에
  *     바로잡는다.</li>
  *     <li>사본은 alias가 없어도(처음 적재 전) 맞춘다. 칸 맞추기만 건너뛴다(처음 적재가 사본으로 문서를 만든다).</li>
  * </ul>
@@ -96,7 +96,7 @@ public class LectureReviewReconciler {
     }
 
     /**
-     * 리뷰 동기화 API 전체로 리뷰 사본을 맞춘다. 처음 적재·재색인(#884 Q2 a)도 문서를 만들기 전에 부른다.
+     * 리뷰 동기화 API 전체로 리뷰 사본을 맞춘다. 처음 적재·재색인도 문서를 만들기 전에 부른다.
      *
      * @return 읽은 리뷰 수와 결과별 수({@link LectureReconcileKind#COPIED}, {@link LectureReconcileKind#ALREADY_APPLIED},
      * {@link LectureReconcileKind#REVIEW_DELETED})
