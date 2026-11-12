@@ -167,16 +167,37 @@ class LectureReconcilerTest {
     }
 
     @Test
-    @DisplayName("비교는 문서가 없거나, 강의 version이 원본보다 작거나 없을 때만 다시 쓴다")
+    @DisplayName("같은 version인데 가격만 빠진(다른) 문서는 다음 보정에서 가격을 고치고, 보정으로 센다(강의 쓰기 결과는 NOOP이어도)")
+    void missedPrice() throws Exception {
+        indexer.apply(new LectureSyncDto(11L, SELLER, "가격 모름", "소개", null, true, false, List.of(), 2L));
+        indexer.apply(lecture(12L, "가격 같음", true, 2L));
+        source.lecture(new LectureSyncDto(11L, SELLER, "가격 모름", "소개", 25_000L, true, false, List.of(), 2L))
+                .lecture(lecture(12L, "가격 같음", true, 2L));
+
+        LectureReconcileResult result = reconciler.reconcile();
+
+        assertThat(result.count(LectureReconcileKind.OVERWRITTEN)).isEqualTo(1);
+        assertThat(result.count(LectureReconcileKind.ALREADY_APPLIED)).isEqualTo(1);
+        assertThat(source(11L)).containsEntry("priceHp", 25_000).containsEntry("lectureVersion", 2);
+        assertThat(reconciler.reconcile().fixed()).isZero();
+    }
+
+    @Test
+    @DisplayName("비교는 문서가 없거나, 강의 version이 원본보다 작거나 없거나, 같은 version에 원본 가격이 있고 문서 가격과 다를 때만 다시 쓴다")
     void needsWrite() {
         LectureSyncDto lecture = lecture(11L, "제목", true, 3L);
-        Seller seller = new Seller(SELLER, null, true, null);
+        LectureSyncDto noPrice = new LectureSyncDto(11L, SELLER, "제목", "소개", null, true, false, List.of(), 3L);
 
         assertThat(LectureReconciler.needsWrite(lecture, null)).isTrue();
-        assertThat(LectureReconciler.needsWrite(lecture, indexed(null, seller))).isTrue();
-        assertThat(LectureReconciler.needsWrite(lecture, indexed(2L, seller))).isTrue();
-        assertThat(LectureReconciler.needsWrite(lecture, indexed(3L, seller))).isFalse();
-        assertThat(LectureReconciler.needsWrite(lecture, indexed(4L, seller))).isFalse();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(null, 10_000L))).isTrue();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(2L, 10_000L))).isTrue();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(3L, 10_000L))).isFalse();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(4L, 10_000L))).isFalse();
+        // 같은 version의 가격: 문서에 없거나 다르면 쓰고, 원본 가격을 모르거나 문서가 더 새 version이면 쓰지 않는다
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(3L, null))).isTrue();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(3L, 9_000L))).isTrue();
+        assertThat(LectureReconciler.needsWrite(noPrice, indexed(3L, 9_000L))).isFalse();
+        assertThat(LectureReconciler.needsWrite(lecture, indexed(4L, 9_000L))).isFalse();
     }
 
     @Test
@@ -190,8 +211,9 @@ class LectureReconcilerTest {
         assertThat(registry.find("hapbang.search.lecture.reconcile.duration").timers()).isEmpty();
     }
 
-    private static IndexedLecture indexed(Long version, Seller seller) {
-        return new IndexedLecture(11L, version, false, seller, LectureRating.NONE);
+    private static IndexedLecture indexed(Long version, Long priceHp) {
+        return new IndexedLecture(11L, version, false, priceHp, new Seller(SELLER, null, true, null),
+                LectureRating.NONE);
     }
 
     private static LectureSyncDto lecture(long id, String title, boolean onSale, long version) {

@@ -59,7 +59,7 @@ class LectureDocumentStoreReconcileTest {
     }
 
     @Test
-    @DisplayName("보정은 문서들의 강의 version·숨김·판매자·평점 칸을 한 번에 읽고, 문서가 없는 강의는 빠진다")
+    @DisplayName("보정은 문서들의 강의 version·숨김·가격·판매자·평점 칸을 한 번에 읽고, 문서가 없는 강의는 빠진다")
     void findLectures() {
         SearchElasticsearch.createLectureIndex(client);
         store.writeLecture(lecture(11L, true, 2L), SELLER, RATING, NOW);
@@ -68,8 +68,8 @@ class LectureDocumentStoreReconcileTest {
         Map<Long, IndexedLecture> found = store.findLectures(List.of(11L, 12L, 99L));
 
         assertThat(found).containsOnly(
-                Map.entry(11L, new IndexedLecture(11L, 2L, false, SELLER, RATING)),
-                Map.entry(12L, new IndexedLecture(12L, 5L, true, new Seller(7L, null, true, null),
+                Map.entry(11L, new IndexedLecture(11L, 2L, false, 10_000L, SELLER, RATING)),
+                Map.entry(12L, new IndexedLecture(12L, 5L, true, 10_000L, new Seller(7L, null, true, null),
                         LectureRating.NONE)));
         assertThat(store.findLectures(List.of())).isEmpty();
     }

@@ -153,8 +153,8 @@ public class LectureDocumentStore {
             """;
 
     /** 보정·따라잡기가 원본·사본과 비교하려고 읽는 칸({@link IndexedLecture}) */
-    static final List<String> INDEXED_FIELDS = List.of("lectureVersion", "hidden", "sellerUserId", "sellerNickname",
-            "sellerActive", "sellerVersion", "averageRating", "reviewCount");
+    static final List<String> INDEXED_FIELDS = List.of("lectureVersion", "hidden", "priceHp", "sellerUserId",
+            "sellerNickname", "sellerActive", "sellerVersion", "averageRating", "reviewCount");
 
     private final ElasticsearchClient client;
     private final DocumentWrites writes;
@@ -387,7 +387,7 @@ public class LectureDocumentStore {
         LectureRating rating = new LectureRating(average == null ? null : ((Number) average).doubleValue(),
                 count == null ? 0L : count);
         return new IndexedLecture(lectureId, longOf(source.get("lectureVersion")),
-                Boolean.TRUE.equals(source.get("hidden")), seller, rating);
+                Boolean.TRUE.equals(source.get("hidden")), longOf(source.get("priceHp")), seller, rating);
     }
 
     private static Long longOf(Object value) {

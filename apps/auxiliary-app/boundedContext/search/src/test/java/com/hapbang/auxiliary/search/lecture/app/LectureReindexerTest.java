@@ -99,7 +99,7 @@ class LectureReindexerTest {
         assertThat(result.catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
         assertThat(indexSetup.state().aliasTargets()).containsExactly(expected);
         assertThat(source(11L)).containsEntry("title", "프리미어 컷편집").containsEntry("hidden", false)
-                .containsEntry("sellerNickname", "편집장").containsEntry("sellerVersion", 2)
+                .containsEntry("priceHp", 10_000).containsEntry("sellerNickname", "편집장").containsEntry("sellerVersion", 2)
                 .containsEntry("averageRating", 4.5).containsEntry("reviewCount", 2);
         assertThat(source(12L)).containsEntry("hidden", true);
         assertThat(source(13L)).containsEntry("sellerActive", false).containsEntry("sellerNickname", "정지강사");
