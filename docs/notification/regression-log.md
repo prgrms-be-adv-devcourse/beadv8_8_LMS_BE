@@ -86,6 +86,50 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-071 · 2026-11-12 · 통과 (N9 채팅 #921 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-071 (임시 번호, NR-070과 같다) |
+| 실행 날짜 | 2026-11-12 17:02~17:06 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 origin/dev `84b349c3`) |
+| 작업 트리 변경 | NR-070 + S6 리뷰 반영: `GroupRoomAlerts` 변수 이름(`kickedUserId`), `NotificationChatEventListener` 주석(받는 사람마다 커밋), API 문서 2.2 `CHAT_ROOM` 행 |
+| 대상 기능 | NR-070과 같다 |
+| 관련 NT ID | NR-070과 같다 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(NR-070 결과) |
+| 건수 | `:notification` 303, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. origin/dev `06b4864f`(회원 #915) 병합 전 |
+| 관련 변경 | #921 |
+
+#### NR-070 · 2026-11-12 · 통과 (N9 채팅 단체방 3종 #921 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-070 (임시 번호: dev의 회원 #915가 NR-069까지 썼다. 병합 순서에 따라 고친다) |
+| 실행 날짜 | 2026-11-12 16:39~16:50 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 origin/dev `84b349c3`) |
+| 작업 트리 변경 | N9 구현: `GroupRoomAlerts`·`GroupRoomAlertTemplates`·`NotificationChatEventListener` 새로 추가, `NotificationTemplates`·Kafka 설정 4개·`NotificationAlertListenerStarter`·시험 설정 수정, 시험 `GroupRoomAlertsTest`·`NotificationChatAlertTest` 추가, `NotificationAlertListenerStarterTest`에 채팅 컨테이너 추가 |
+| 대상 기능 | 채팅 단체방 초대·강퇴·폐쇄 알림(새 그룹 `auxiliary-app.notification-chat-alert`), Backfill 뒤 시작 |
+| 관련 NT ID | NT-GEN-08, NT-GEN-10, NT-GEN-15, NT-GEN-24, NT-KAF-06, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 303(dev 287 + 채팅 16), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음. 앞선 RED 확인(구현 전 컴파일 오류, 리스너 처리기가 빈 상태의 Kafka 시험 실패)은 의도한 실패라 기록하지 않는다. RED2 첫 실행은 다른 터미널의 Gradle 데몬 중지로 중간에 끊겼다(F-ENV, 결과 파일 없음) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. origin/dev `06b4864f`(회원 #915) 병합 전 |
+| 관련 변경 | #921 |
+
 #### NR-065 · 2026-11-12 · 통과 (N7 강의 #910 origin/dev 병합 뒤, 1차 실패 → 시험 격리 수정 뒤 재실행)
 
 | 항목 | 값 |

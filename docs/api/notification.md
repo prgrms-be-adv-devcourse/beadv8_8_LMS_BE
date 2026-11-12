@@ -42,9 +42,9 @@
 | 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
 
-### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-112·ND-116)
+### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-112·ND-116·ND-129)
 
-목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)·N7 출연(ND-112)·N7 강의(ND-116)에서 쓰는 값은 아래와 같다.
+목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)·N7 출연(ND-112)·N7 강의(ND-116)·N9 채팅(ND-129)에서 쓰는 값은 아래와 같다.
 
 | `targetType` | `targetId` | 쓰는 종류 |
 | --- | --- | --- |
@@ -57,7 +57,8 @@
 | `LECTURE` | 강의 ID(`lectureId`) | 강의 검수 승인·반려 |
 | `LECTURE_ORDER` | 주문 ID(`orderId`) | 구매 완료, 결제 실패 |
 | `LECTURE_ORDER_ITEM` | 주문 항목 ID(`orderItemId`) | 이의 제기 판단·반환 완료·철회·반환 지연(구매자·판매자 같은 값), 이의 제기 접수(구매자·판매자 같은 값), 구매 취소, 자동 구매 확정 |
-| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102) |
+| `CHAT_ROOM` | 단체방 ID(`chatRoomId`) | 단체방 초대, 단체방 폐쇄 |
+| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102), 단체방 강퇴(ND-129) |
 
 ## 3. 실시간 연결
 
@@ -88,3 +89,4 @@
 | 2026-11-11 | ND-084 반영(N6 사전 결정, #862): 2.2 이동 대상에 N6 값(`APPEARANCE`, `LECTURE_ORDER_ITEM`)을 적었다 |
 | 2026-11-12 | ND-112 반영(N7 출연 사전 결정, #908): 2.2 이동 대상의 쓰는 종류에 출연 10종을 더했다(새 `targetType` 없음) |
 | 2026-11-12 | ND-116 반영(N7 강의 사전 결정, #910): 2.2 이동 대상에 새 `targetType` `LECTURE`·`LECTURE_ORDER`를 더하고 `LECTURE_ORDER_ITEM`의 쓰는 종류에 강의 3종을 더했다 |
+| 2026-11-12 | ND-129 반영(N9 채팅 사전 결정, #921): 2.2 이동 대상에 새 `targetType` `CHAT_ROOM`을 더하고 `null` 행에 단체방 강퇴를 더했다 |
