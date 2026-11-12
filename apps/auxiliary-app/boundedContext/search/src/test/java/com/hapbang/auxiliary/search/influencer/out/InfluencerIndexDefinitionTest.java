@@ -11,10 +11,10 @@ import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 class InfluencerIndexDefinitionTest {
 
     /**
-     * 운영 index 이름(2026-11-11, #860 배포 뒤). 사용자 사전·{@code influencers/index.json}·동의어 묶음 이름을 바꾸면 이 값이 바뀌고 배포 때
-     * 재색인이 한 번 돈다. 그때는 PR 본문 "병합 전 확인"에 적고 이 값을 함께 고친다
+     * 운영 index 이름(#895 배포 뒤. 그 전은 {@code search-influencers-d656dfa35eee}). 사용자 사전·{@code influencers/index.json}·동의어 묶음
+     * 이름을 바꾸면 이 값이 바뀌고 배포 때 재색인이 한 번 돈다. 그때는 PR 본문 "병합 전 확인"에 적고 이 값을 함께 고친다
      */
-    private static final String PRODUCTION_INDEX = "search-influencers-d656dfa35eee";
+    private static final String PRODUCTION_INDEX = "search-influencers-df33405ee9ab";
 
     @Test
     @DisplayName("레포 파일로 index 이름(search-influencers-해시 12자)과 본문을 만들고, 사용자 사전과 동의어 묶음 이름을 채운다")
@@ -25,7 +25,7 @@ class InfluencerIndexDefinitionTest {
         assertThat(definition.indexBody())
                 .contains("\"치지직\"", "\"배그\"", "\"" + IndexDefinition.SYNONYMS_SET + "\"")
                 .doesNotContain("__USER_DICTIONARY__", "__SYNONYMS_SET__");
-        assertThat(definition.synonymRules()).hasSize(10).contains("롤, 리그 오브 레전드, 리그오브레전드, LoL");
+        assertThat(definition.synonymRules()).hasSize(11).contains("롤, 리그 오브 레전드, 리그오브레전드, LoL");
     }
 
     @Test

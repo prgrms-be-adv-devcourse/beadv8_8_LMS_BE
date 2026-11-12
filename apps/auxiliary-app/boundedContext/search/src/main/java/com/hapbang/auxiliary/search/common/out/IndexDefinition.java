@@ -27,10 +27,10 @@ import org.springframework.core.io.ClassPathResource;
 public final class IndexDefinition {
 
     /**
-     * ES Synonyms API 동의어 묶음 이름. index가 아니라 cluster에 하나이고 모든 대상이 함께 쓴다(L17). 이름이 index 본문에 들어가 바꾸면 설정 해시가
-     * 바뀌므로, 공통 이름으로 바꾸는 일은 사용자 사전이 바뀌어 어차피 재색인하는 강의 검색 PR에서 함께 한다(#868 R4)
+     * ES Synonyms API 동의어 묶음 이름. index가 아니라 cluster에 하나이고 모든 대상이 함께 쓴다(L17). 이름이 index 본문에 들어가 바꾸면 모든 대상의
+     * 설정 해시가 바뀌어 재색인한다. 옛 이름 {@code search-influencers-synonyms}에서 바꿨다(#895, #868 R4)
      */
-    public static final String SYNONYMS_SET = "search-influencers-synonyms";
+    public static final String SYNONYMS_SET = "search-synonyms";
 
     private static final String COMMON = "search/common/";
     private static final String USER_DICTIONARY_PLACEHOLDER = "\"__USER_DICTIONARY__\"";
