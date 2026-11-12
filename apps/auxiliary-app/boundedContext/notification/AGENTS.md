@@ -52,7 +52,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 - 받는 사람 상태·역할·닉네임은 회원 복제본 `notification_user`에서 읽는다. 탈퇴·정지한 회원이면 알림과 예약을 만들지 않는다(ND-018, ND-072).
 - 회원 복제본은 가입 이벤트로 만들고, 복제본이 없을 때 온 변경 이벤트로도 만든다(있으면 더 큰 버전만 반영, ND-049). 이것은 첫 배포 Backfill(ND-077)을 대체하지 않는다.
 - 받는 사람 복제본이 아직 없으면 알림을 만들지 않고 처리를 실패시켜 kafka.md "재시도와 DLT"대로 재시도 뒤 DLT로 보낸다(ND-035).
-- 첫 배포 Backfill은 회원 목록 내부 API로 하고, 버전이 더 클 때만 반영하며 파기 표시가 있는 복제본은 바꾸지 않는다(ND-077). 출연·지갑·강의 알림 소비자만 첫 Backfill 뒤 시작하고(강의는 ND-087), 앱 기동·회원 복제본 리스너·챗봇은 기다리게 하지 않는다. 가입 환영·승급 승인은 회원 복제본 리스너 안에서 반영 전 역할로 만든다(ND-080). 기동 실행과 관리자 재실행은 같은 advisory lock을 쓴다(ND-078·ND-079). 관리자 재실행은 비동기이고 실행 상태는 Redis에 둔다(ND-092). 대기 게이지와 alert는 ND-093. 알림 처리 중에는 회원 앱을 동기 호출하지 않는다.
+- 첫 배포 Backfill은 회원 목록 내부 API로 하고, 버전이 더 클 때만 반영하며 파기 표시가 있는 복제본은 바꾸지 않는다(ND-077). 출연·지갑·강의·고객센터 알림 소비자만 첫 Backfill 뒤 시작하고(강의는 ND-087, 고객센터는 ND-122), 앱 기동·회원 복제본 리스너·챗봇은 기다리게 하지 않는다. 가입 환영·승급 승인은 회원 복제본 리스너 안에서 반영 전 역할로 만든다(ND-080). 기동 실행과 관리자 재실행은 같은 advisory lock을 쓴다(ND-078·ND-079). 관리자 재실행은 비동기이고 실행 상태는 Redis에 둔다(ND-092). 대기 게이지와 alert는 ND-093. 알림 처리 중에는 회원 앱을 동기 호출하지 않는다.
 - 업무 시각이 알림 시작 시각보다 이른 사건은 알림을 만들지 않고 커밋한다(ND-076). 운영은 설정값 없이 앱이 처음 뜰 때의 시각을 `notification_runtime_setting`에 한 번 기록해 계속 쓴다(ND-095). 설정값이 있으면 그 값이 앞선다. 사건 시각 필드가 없는 이벤트는 Kafka 레코드 timestamp를 대체 시각으로 쓰며 사건 시각과 같다고 보장하지 않는다(ND-081).
 
 ### 3.3 생성·저장
@@ -98,7 +98,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 4. 임의로 정하지 않는 것
 
 - 미결 U1~U19과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
-- **consumer group 이름**은 `auxiliary-app.notification-<목적>`이다(ND-047). 새 목적의 그룹을 더하면 kafka.md 토픽 표 반영을 팀에 요청한다.
+- **consumer group 이름**은 `auxiliary-app.notification-<목적>`이다(ND-047). 새 목적의 그룹은 kafka.md 토픽 표의 소비 그룹 칸에 적고 그 PR 리뷰로 팀 검토를 받는다(ND-128).
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
 - 발행 모듈 이벤트 계약은 알림 담당이 정해 이벤트 계약 요청 문서에 두고, 발행 담당이 Issue로 받아 구현한다(ND-037). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
 - 테스트 방식은 루트 AGENTS 11장에 따라 미정이다. [`test-spec.md`](../../../../docs/notification/test-spec.md)의 기준 밖은 질문한다.
@@ -114,7 +114,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 다음 팀 공유 문서는 알림 작업에서 고치지 않는다. 고칠 필요가 있으면 이유와 함께 먼저 확인한다.
 
 - 루트 `AGENTS.md`, `docs/policy.md`, `docs/GLOSSARY.md`
-- `docs/architecture/infrastructure/kafka.md`, `docs/architecture/final-project-infrastructure.md`
+- `docs/architecture/infrastructure/kafka.md`, `docs/architecture/final-project-infrastructure.md`. 단, kafka.md 토픽 표의 알림 소비 그룹 칸은 4장 consumer group 규칙대로 고친다
 - 채팅 문서(`apps/chat-app/docs/**`)와 채팅 코드
 - `apps/auxiliary-app/README.md`, 챗봇 모듈(`boundedContext/chatbot`)
 

@@ -86,6 +86,30 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-073 · 2026-11-12 · 통과 (N7 고객센터 #918 PR 리뷰 반영: 테스트 설정의 고객센터 소비자 끄기)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-073 |
+| 실행 날짜 | 2026-11-12 17:35~17:39 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `9be8102b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 시험 설정: `hapbang-module-test.yaml`·`AuxiliaryApplicationTest`에 `hapbang.notification.customersupport-events.enabled=false`(고객센터 시험 클래스·Starter 시험만 켠다). 설명: Starter 게이지·`NotificationAlertService`·`NotificationKafkaConstants` 주석, Starter 시험 주석. 문서: 모듈 AGENTS 4장·6장·55행, decisions ND-128, PROGRESS |
+| 대상 기능 | Kafka가 없는 시험 컨텍스트에서 고객센터 소비자 빈·컨테이너를 만들지 않음 |
+| 관련 NT ID | NT-KAF-10, NT-GEN-23(회귀) |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-070과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-072) |
+| 건수 | 새로 실행: `:notification` 310, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 설정 누락을 직접 잡는 시험은 따로 없다(기존 시험이 모두 통과하는지로 확인) |
+| 관련 변경 | #918 PR 리뷰 |
+
+**메모**: 이번 실행은 3분 36초로 NR-072(15분 45초)보다 짧다. NR-072는 병합 뒤라 모든 모듈 시험을 새로 실행했고 이번에는 알림·앱 시험만 새로 실행했으므로, 시간 차이를 설정 수정의 효과로 보지 않는다.
+
 #### NR-072 · 2026-11-12 · 통과 (N7 고객센터 #918 origin/dev 병합 뒤)
 
 | 항목 | 값 |
