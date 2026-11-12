@@ -21,6 +21,7 @@ import com.hapbang.auxiliary.search.lecture.out.LectureSearcher.SearchResult;
 /**
  * 강의 검색(#883, {@code GET /api/v1/search/lectures}). 비회원도 쓴다(L2, 강의 목록과 같다).
  * <ul>
+ *     <li>먼저 호출 제한을 센다({@link LectureSearchRateLimit}, 회원 ID·client IP 각 분당 60회). 넘으면 429다. 잘못된 요청도 센다.</li>
  *     <li>정렬은 {@code latest,desc}·{@code rating,desc} 하나만 고를 수 있고, 그 밖은 400 {@code UNSUPPORTED_SORT}다(L10, Q1).</li>
  *     <li>앞에서 {@value #MAX_RESULT_WINDOW}건까지만 볼 수 있다({@code page × size + size}가 넘으면 400 {@code PAGE_TOO_DEEP}).
  *     전체 수도 그만큼까지만 센다.</li>
@@ -38,13 +39,15 @@ public class LectureSearchFacade {
 
     static final String UNSUPPORTED_SORT_DETAIL = "지원하지 않는 정렬입니다. latest,desc 또는 rating,desc만 쓸 수 있습니다.";
 
+    private final LectureSearchRateLimit rateLimit;
     private final LectureSearcher searcher;
     private final LectureRatingBaseline ratingBaseline;
     private final SearchMetrics.Target metrics;
     private final LectureZeroResultKeywords zeroResultKeywords;
 
-    public LectureSearchFacade(LectureSearcher searcher, LectureRatingBaseline ratingBaseline, SearchMetrics metrics,
-            LectureZeroResultKeywords zeroResultKeywords) {
+    public LectureSearchFacade(LectureSearchRateLimit rateLimit, LectureSearcher searcher,
+            LectureRatingBaseline ratingBaseline, SearchMetrics metrics, LectureZeroResultKeywords zeroResultKeywords) {
+        this.rateLimit = rateLimit;
         this.searcher = searcher;
         this.ratingBaseline = ratingBaseline;
         this.metrics = metrics.forTarget(LectureIndexDefinition.METRIC_TARGET);
@@ -52,9 +55,10 @@ public class LectureSearchFacade {
     }
 
     /**
-     * @param requester 검색한 사람. 0건 검색어를 "서로 다른 검색자 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
+     * @param requester 검색한 사람. 호출 제한과, 0건 검색어를 "서로 다른 검색자 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
      */
     public Page<LectureSearchItem> search(Requester requester, String keyword, Pageable pageable) {
+        rateLimit.acquire(requester);
         LectureSort sort = sort(pageable.getSort());
         if (pageable.getOffset() + pageable.getPageSize() > MAX_RESULT_WINDOW) {
             throw new SearchException(SearchErrorCode.PAGE_TOO_DEEP);

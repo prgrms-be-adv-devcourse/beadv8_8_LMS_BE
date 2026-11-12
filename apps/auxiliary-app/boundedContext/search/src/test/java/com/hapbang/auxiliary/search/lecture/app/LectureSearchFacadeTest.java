@@ -32,8 +32,8 @@ class LectureSearchFacadeTest {
     private final LectureRatingBaseline baseline = mock(LectureRatingBaseline.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final LectureZeroResultKeywords zeroResultKeywords = new LectureZeroResultKeywords();
-    private final LectureSearchFacade facade = new LectureSearchFacade(searcher, baseline, new SearchMetrics(registry),
-            zeroResultKeywords);
+    private final LectureSearchFacade facade = new LectureSearchFacade(mock(LectureSearchRateLimit.class), searcher,
+            baseline, new SearchMetrics(registry), zeroResultKeywords);
 
     @Test
     @DisplayName("정렬은 없음·latest,desc·rating,desc만 받고, 그 밖은 강의 정렬을 알리는 400 UNSUPPORTED_SORT다")
