@@ -1,18 +1,19 @@
 # 검색(search) 모듈
 
-auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다.
+auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다. 강의 검색(부모 #881)은 index를 채우는 데까지 왔다(#882, 13장). 검색 API는 #883, 보정·처음 적재는 #884다.
 
-- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장).
+- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장), #882(강의 검색 1: 사본과 강의 색인, 13장).
 - 이 문서와 코드가 다르면 코드가 맞다. 확인한 뒤 이 문서를 고친다.
 
 ## 1. 지금 범위
 
-| 한다 (#771, #772, #773) | 아직 안 한다 |
+| 한다 (#771, #772, #773, #882) | 아직 안 한다 |
 | --- | --- |
 | 회원 이벤트로 문서 넣기·숨기기(회원 version 조건부 쓰기, tombstone) | 원본·index 문서 수 차이 alert(지표만 낸다, #772 Q2) |
-| 10분마다 통계(채널·팔로워·평점)와 분야 이름 맞추기 | 강의·모집 검색, 통합 검색 |
+| 강의·리뷰·회원 이벤트로 강의 문서 넣기·숨기기·평점·판매자 반영(#882, 13장) | 강의 검색 API(#883), 강의 보정·처음 적재·재색인(#884), 강의 가격(#885) |
+| 10분마다 통계(채널·팔로워·평점)와 분야 이름 맞추기 | |
 | 10분마다 이벤트를 놓친 회원 바로잡기(증분 보정, #772) | 관리자 재색인 API, Kafka offset으로 다시 읽기(#773에서 검토하고 넣지 않음, 7장) |
-| 원본·index 문서 수 비교 지표(#772) | |
+| 원본·index 문서 수 비교 지표(#772) | 모집 검색, 통합 검색 |
 | 이미 있는 인플루언서 처음 적재, 설정이 바뀐 index 무중단 재색인(#773, 7장) | |
 | 7일 지난 tombstone 정리 | |
 | `GET /api/v1/search/influencers`, 지표 | |
@@ -44,6 +45,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | config | `SearchConfig` | 처음 적재·재색인 실행기(`searchReindexExecutor`, 가상 스레드, 7장) |
 | app | `exception/SearchErrorCode`·`SearchException` | 검색 오류 코드 |
 | in | `ApiV1SearchController`·`ApiV1SearchSpec` | 검색 API(대상별 경로, 8장) |
+| in | `SearchMemberEventListener` | 회원 이벤트 소비(`member.events.v1`, 그룹 `auxiliary-app.search-member`). 대상마다 차례로 반영한다: 인플루언서 문서(5장) → 강의 판매자(13장). 대상마다 처음 적재 전이면 그 대상만 건너뛴다(#882 Q6) |
+| in.kafka | `SearchKafkaConfig`, `SearchLectureKafkaConfig`, `SearchKafkaFactories`, `SearchKafkaSettings` | 회원·강의 소비 설정. 재시도·DLT·offset 규칙은 `SearchKafkaFactories` 하나다 |
+| in.kafka | `TrustedEventDeserializer`, `MissingTypeEvent` | 강의 이벤트 역직렬화. 이 앱에 클래스가 없는 강의 이벤트는 읽지 않고 건너뛴다(알림 것을 복사, #882 Q3) |
 
 ### 공통 코드 (`search.common`)
 
@@ -64,7 +68,6 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 | 계층 | 클래스 | 하는 일 |
 | --- | --- | --- |
-| in | `SearchMemberEventListener` | 회원 이벤트 소비(`member.events.v1`, 그룹 `auxiliary-app.search-member`) |
 | in | `SearchBatch` | 통계 동기화(끝난 뒤 10분), 증분 보정(끝난 뒤 10분), 처음 적재·재색인 확인(끝난 뒤 10분), tombstone 정리(매일 04:30), 0건 검색어 로그(10분) |
 | in | `SearchIndexStartup` | 기동 뒤 다른 스레드에서 처음 적재·재색인 확인(동의어 포함) |
 | app | `InfluencerMemberIndexer` | 회원 정보 → 넣기 또는 숨기기 |
@@ -80,6 +83,19 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource`, `MemberApiChangeSource`, `MemberApiListSource` | 회원 내부 API(통계·분야 목록·변경분 #769, 회원 목록 #773) |
 | out | `SyncCursorStore` | 증분 보정 커서(`search.sync_cursor`). JDBC |
+
+### 강의 (`search.lecture`, #882)
+
+| 계층 | 클래스 | 하는 일 |
+| --- | --- | --- |
+| in | `SearchLectureEventListener` | 강의 이벤트 소비(`lecture.events.v1`, 그룹 `auxiliary-app.search-lecture`). 강의·리뷰 변경 2종만 쓴다 |
+| in | `LectureSearchBatch` | tombstone 정리(매일 04:40) |
+| app | `LectureIndexer` | 강의 → 문서 넣기·숨기기, 리뷰 → 리뷰 사본·평점 다시 세기 |
+| app | `SellerIndexer` | 회원 → 회원 사본, 닉네임·상태가 바뀌면 그 판매자의 강의 문서 고치기 |
+| app | `LectureTombstoneCleanup` | 강의 index의 tombstone 정리(한 pod만, `JobLock` 882_001) |
+| out | `LectureIndexDefinition`, `LectureIndexSetup` | 대상 이름(`lectures`)·alias·지표 대상 값(`lecture`)과, 그 정의를 채운 `IndexSetup` |
+| out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query` |
+| out | `MemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. JDBC |
 
 ### 새 대상(강의·모집)을 붙이는 법
 
@@ -291,7 +307,11 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 부품의 겹쳐 읽기부터 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림, 이름이 겹치는 다른 대상 index를 지우지 않음(#868) |
 | `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
 | `SearchReindexWiringTest` | 기동·10분 확인이 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링·기동 재색인을 켠 컨텍스트, 재색인은 가짜) |
-| `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀 |
+| `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀, 같은 이벤트로 강의 판매자 반영(#882) |
+| `SearchLectureEventListenerTest` | 실제 Kafka로 강의·리뷰 반영, 쓰지 않는 타입 건너뜀, **이 앱에 클래스가 없는 타입은 DLT로 가지 않고 건너뜀**, 깨진 본문은 DLT, 처음 적재 전엔 사본만(#882) |
+| `LectureIndexerTest` | 강의 등록·수정·판매 중지·삭제, 리뷰 작성·수정·삭제, 판매자 닉네임 변경·정지, 순서 역전, 문서 쓰기 실패 뒤 재시도, 문서를 만드는 사이 바뀐 사본 따라잡기, 처음 적재 전(PostgreSQL + ES) |
+| `LectureDocumentStoreTest`, `LectureIndexSetupTest` | 강의 version 조건부 쓰기·tombstone·판매자·평점 칸, 정지된 판매자 강의는 정리에서 남음, 강의 index 정의·mapping·인플루언서 index와 분리 |
+| `MemberCopyStoreTest`, `LectureReviewCopyStoreTest` | 회원 사본 version 규칙(같은 version 재수신 포함), 리뷰 사본과 counted만 평균(PostgreSQL 컨테이너) |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
 | `IndexDefinitionTest`, `InfluencerIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868) |
@@ -311,3 +331,54 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.
 - 처음 적재·재색인은 한 pod가 회원 목록(모든 회원)을 500명씩 읽어 페이지마다 bulk로 넣는다. 일반 유저도 숨김 문서로 들어가 문서 수는 회원 수만큼이고 7일 뒤 정리된다. 회원 수만 명까지는 수십 초로 본다. 훨씬 커지면 `reindex.duration`을 보고 bulk 크기·refresh 끄기를 검토한다.
 - #771·#772 코드로 이미 alias가 붙은 로컬 ES는 해시가 같아 처음 적재가 돌지 않는다(운영은 #860 전까지 검색이 꺼져 있어 index가 없다). 로컬의 `search-influencers-*`를 지우고 띄운다.
+
+## 13. 강의 검색: 사본과 강의 색인 (#882)
+
+강의·리뷰·회원 이벤트로 강의 index(`search-lectures-<해시>`, alias `search-lectures`)를 채운다. 결정은 강의 검색 grill L5·L7·L8과 #882 Q1~Q6이다. 검색 API(#883)와 보정·처음 적재(#884)는 아직 없다. **#884 전에는 운영에 강의 index가 없어 문서 쓰기를 건너뛰고 사본만 고친다**(정상).
+
+### 사본 (search schema)
+
+| 표 | 칸 | 채우는 곳 |
+| --- | --- | --- |
+| `search.member_copy` | 회원 ID, 닉네임, 상태, version | 회원 이벤트(그룹 `auxiliary-app.search-member`). 누가 판매자가 될지 몰라 모든 회원을 둔다(Q1) |
+| `search.lecture_review_copy` | 리뷰 ID, 강의 ID, 별점, `counted`, `deleted`, version | 리뷰 이벤트 |
+
+- 강의 자체는 사본을 두지 않는다. 강의 이벤트 값을 바로 문서로 쓰고, 처음 적재·보정은 강의 동기화 API를 읽는다(L13·L14).
+- 둘 다 원본 version이 더 클 때만 반영한다(회원은 `UserDto` 규칙대로 version 없는 정보도 다룬다).
+
+### 문서
+
+| 필드 | 종류 | 출처 |
+| --- | --- | --- |
+| `lectureId` | long | 강의 ID. 최신순과 동점 정리 키(등록 시각이 DTO에 없어 ID 순서로 대신한다, Q5) |
+| `lectureVersion` | long | 강의 version(조건부 쓰기) |
+| `hidden`, `hiddenAt` | boolean, date | 판매 중이 아닌 강의(`onSale=false`: 판매 중지·검수 전·삭제)의 tombstone |
+| `title`, `description`, `contentTitles` | text(nori) | 강의 이벤트 |
+| `sellerUserId` | long | 강의 이벤트 |
+| `sellerNickname`, `sellerActive` | text(nori), boolean | 회원 사본(L5·L8). 정지는 숨김이 아니라 `sellerActive=false`다(Q2) |
+| `averageRating`, `reviewCount` | double, long | 리뷰 사본의 `counted` 리뷰 평균(반올림 안 함, 없으면 비움)·수(Q4) |
+
+- 검색에 보일 강의 = `hidden=false` 그리고 `sellerActive=true`(검색 API #883이 거른다). 공통 "보이는 문서 세기"(`hidden=false`)는 판매 중 강의 수이고 판매자 상태와 상관없다.
+- tombstone 정리(7일)는 숨김 문서만 지운다. 판매자가 오래 정지돼도 문서가 남아 정지가 풀리면 바로 다시 보인다.
+
+### 반영 규칙
+
+- **칸마다 출처가 하나다.** 강의 칸은 강의 이벤트가, 판매자 칸은 회원 사본이, 평점 칸은 리뷰 사본이 쓴다. 강의 쓰기는 문서를 **처음 만들 때만** 판매자·평점 칸을 사본에서 채운다. 그 뒤 강의를 고쳐도 그사이 바뀐 닉네임·평점을 옛 값으로 되돌리지 않는다.
+- **강의**: painless scripted upsert로 문서의 `lectureVersion`보다 클 때만 반영한다. ES external versioning은 판매자·평점 부분 갱신이 ES 버전을 올려 다음 강의 이벤트를 거절하게 만들어 쓰지 않는다(인플루언서 5장과 같은 이유). 문서가 없어도 숨김 문서를 만들어 삭제 뒤 늦은 이벤트가 되살리지 못한다.
+- **문서를 처음 만든 직후** 회원·리뷰 사본을 다시 읽어 다르면 맞춘다. 사본을 읽고 문서를 만들기 전에 회원·리뷰 이벤트가 오면, 그 이벤트는 없던 문서를 고치지 못하고 이 쓰기는 옛 값을 넣기 때문이다.
+- **리뷰**: 사본에 적고(version 조건) 그 강의의 `counted` 리뷰로 평균·수를 다시 세어 평점 칸을 고친다. 사본이 이미 같은 version이어도 다시 센다(사본은 커밋했는데 문서 쓰기가 실패해 같은 이벤트를 다시 받은 경우). 강의 문서가 없으면 건너뛴다(강의 이벤트가 문서를 만들 때 사본에서 채운다).
+- **회원**: 사본에 적고, 닉네임·상태가 바뀌었으면(처음 받은 회원 포함) 그 판매자의 모든 강의 문서(숨김 포함)를 `update_by_query`로 고친다. 같은 version을 다시 받으면 사본 값으로 다시 고친다(재시도). 고치기 전에 refresh해 방금 만든 문서를 놓치지 않고, 강의 쓰기와 충돌한 문서가 있으면 실패로 보고 다시 시도한다(건너뛰면 옛 판매자 값이 남는다).
+- 회원 사본에 아직 없는 판매자의 강의는 닉네임 없이 정상 판매자로 넣고 회원 이벤트가 채운다(L5). #884 처음 적재는 회원 사본을 먼저 채운다.
+- 사본(DB)은 alias가 없어도 고친다. 처음 적재(#884)가 사본으로 문서를 만들기 때문이다(L14). 문서 쓰기만 건너뛴다(DEBUG).
+
+### 강의 이벤트 소비
+
+- `lecture.events.v1`, 그룹 `auxiliary-app.search-lecture`, `earliest`부터. `LectureChangedEvent`·`LectureReviewChangedEvent`만 쓰고 나머지 타입은 건너뛴다.
+- **이 앱에 클래스가 없는 강의 이벤트는 역직렬화 단계에서 건너뛴다**(Q3). `__TypeId__`가 `com.hapbang.shared.lecture.event` 바로 안의 클래스 이름인데 클래스가 없으면 본문을 읽지 않고 `MissingTypeEvent`로 넘긴다. 강의 앱이 새 이벤트를 더해 먼저 배포해도(#872) DLT로 가지 않아 "Kafka DLT 적재" 경보가 울리지 않는다. 회원 이벤트 소비(`auxiliary-app.search-member`)는 아직 클래스 이름 방식이다.
+- 재시도·DLT는 회원 소비와 같다(1·2·4초 3회 뒤 `lecture.events.v1.auxiliary-app.search-lecture.DLT`, 보존 7일). 필수 값이 빠진 이벤트와 깨진 본문은 재시도 없이 DLT로 간다.
+- ES가 7초보다 오래 멈추면 그동안의 강의·리뷰 이벤트가 DLT로 간다. #884 보정(강의 10분·리뷰 1시간)이 바로잡기 전까지는 [kafka.md "DLT 재처리 runbook"](../architecture/infrastructure/kafka.md#dlt-재처리-runbook)대로 되돌린다. version 조건이라 여러 번 넣어도 결과가 같다.
+
+### 한계
+
+- 평점 다시 세기와 보정(#884)이 같은 강의를 동시에 세면 늦게 센 쪽이 먼저 쓰여 잠깐 옛 값이 남을 수 있다. 소비자 스레드가 하나라 이벤트끼리는 생기지 않고, 다음 리뷰 이벤트나 보정이 바로잡는다.
+- 판매자 닉네임·상태를 바꾸면 강의 index를 refresh한다. 닉네임·상태 변경은 드물어 부담이 작다.
