@@ -12,13 +12,18 @@ import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceReview;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.shared.appearance.domain.AppearanceConfirmType;
+import com.hapbang.shared.appearance.domain.AppearanceRecruitCloseType;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
+import com.hapbang.shared.appearance.dto.AppearanceDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.dto.AppearanceRecruitDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
+import com.hapbang.shared.appearance.event.AppearanceApplicationNotSelectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
@@ -126,6 +131,67 @@ public final class AppearanceContractMapper {
                                                                 LocalDateTime scheduledAt) {
         return new AppearanceCancelRequestDto(cancelRequest.getId(), cancelRequest.getAppearanceId(), title,
                 cancelRequest.getHostId(), cancelRequest.getGuestId(), cancelRequest.getSequence(), scheduledAt);
+    }
+
+    /**
+     * 지원 미선정 이벤트 (#871). 지원 거절·마감·모집 전체 취소가 같은 값으로 낸다.
+     *
+     * @param recruit       이 지원의 모집글 (제목·호스트·방송 예정 일시를 담는다)
+     * @param notSelectedAt 거절·마감·모집 취소를 처리한 시각
+     * @throws IllegalArgumentException 이 지원의 모집글이 아님
+     */
+    public static AppearanceApplicationNotSelectedEvent toNotSelectedEvent(AppearanceApplication application,
+                                                                         AppearanceRecruit recruit,
+                                                                         LocalDateTime notSelectedAt) {
+        return new AppearanceApplicationNotSelectedEvent(toApplicationDto(application, recruit),
+                recruit.getScheduledAt(), notSelectedAt);
+    }
+
+    /**
+     * 다른 모듈에 넘기는 출연 정보 (호스트 일방 취소·확인·불참 이벤트, #871).
+     * 출연은 제목을 따로 갖지 않으므로 출처 제목을 받는다.
+     *
+     * @param title 출처 요청서·모집글의 제목
+     */
+    public static AppearanceDto toAppearanceDto(Appearance appearance, String title) {
+        return new AppearanceDto(appearance.getId(), title, appearance.getHostId(), appearance.getGuestId(),
+                appearance.getScheduledAt());
+    }
+
+    /** 다른 모듈에 넘기는 모집글 정보 (모집 시작·마감·취소 이벤트, #871). 모집 내용·채널 주소는 담지 않는다 */
+    public static AppearanceRecruitDto toRecruitDto(AppearanceRecruit recruit) {
+        return new AppearanceRecruitDto(recruit.getId(), recruit.getHostId(), recruit.getTitle(),
+                recruit.getRecruitDeadline());
+    }
+
+    /**
+     * 다른 모듈에 알리는 모집 마감 방식 (#871). 방식을 더하면 여기서 컴파일 오류가 나므로 계약 값을 꼭 정한다.
+     *
+     * @throws IllegalStateException 마감하지 않은 모집글
+     */
+    public static AppearanceRecruitCloseType toCloseType(AppearanceRecruit recruit) {
+        if (recruit.getCloseType() == null) {
+            throw new IllegalStateException("마감한 모집글만 마감 방식을 알릴 수 있습니다: " + recruit.getId());
+        }
+        return switch (recruit.getCloseType()) {
+            case DEADLINE -> AppearanceRecruitCloseType.DEADLINE;
+            case EARLY -> AppearanceRecruitCloseType.EARLY;
+        };
+    }
+
+    /**
+     * 다른 모듈에 알리는 출연 확인 방식 (#871). 방식을 더하면 여기서 컴파일 오류가 나므로 계약 값을 꼭 정한다.
+     *
+     * @throws IllegalStateException 확인하지 않은 출연
+     */
+    public static AppearanceConfirmType toConfirmType(Appearance appearance) {
+        if (appearance.getConfirmType() == null) {
+            throw new IllegalStateException("확인한 출연만 확인 방식을 알릴 수 있습니다: " + appearance.getId());
+        }
+        return switch (appearance.getConfirmType()) {
+            case HOST -> AppearanceConfirmType.HOST;
+            case AUTO -> AppearanceConfirmType.AUTO;
+        };
     }
 
     private static void requirePublished(AppearanceReview review, String message) {

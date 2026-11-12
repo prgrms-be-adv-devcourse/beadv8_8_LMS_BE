@@ -13,6 +13,7 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.shared.appearance.event.AppearanceApplicationSelectedEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +65,10 @@ public class AppearanceApplicationRespondUseCase {
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
+        // 게스트에게 선정을 알리고, 알림센터가 출연 예약을 만든다 (#871)
+        eventPublisher.publishEvent(new AppearanceApplicationSelectedEvent(
+                AppearanceContractMapper.toApplicationDto(application, recruit), appearance.getId(),
+                recruit.getScheduledAt(), now));
         AfterCommit.run(() -> {
             log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
                     applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());
@@ -84,6 +89,7 @@ public class AppearanceApplicationRespondUseCase {
         application.reject(now);
 
         appearanceApplicationSupport.flushOrConflict();
+        eventPublisher.publishEvent(AppearanceContractMapper.toNotSelectedEvent(application, recruit, now));
         AfterCommit.run(() -> {
             log.info("모집 지원을 거절했다 applicationId={}, recruitId={}, hostId={}", applicationId, recruit.getId(), hostId);
         });
