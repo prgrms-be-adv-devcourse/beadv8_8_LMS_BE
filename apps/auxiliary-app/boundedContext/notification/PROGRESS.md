@@ -8,7 +8,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-12. 상태는 `dev` `973ccbe5`(N8 #890 병합 PR #903 포함) 기준 git log로 확인했다.
+마지막 갱신: 2026-11-12. 상태는 `dev` `b38a267f`(N7 출연 #908 병합 PR #916 포함) 기준 git log로 확인했다.
 
 ## 1. 현재 상태
 
@@ -20,8 +20,8 @@
 | `boundedContext/notification` 디렉터리 | N1·N2 구현 | `build.gradle.kts`, `src/`(회원 복제본, Kafka 소비·DLT 설정, 알림 저장·REST·파기 닉네임). [module.md](../../../../docs/notification/module.md) 2장 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1~N6·N8 완료, N7 진행 중(모듈별, 지갑 #907 완료, 출연 #908) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-062 |
+| 기능 구현 | N1~N6·N8 완료, N7 진행 중(모듈별, 지갑 #907·출연 #908 완료, 고객센터 #918) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-062, NR-065~NR-066(#918, 임시 번호) |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
@@ -60,8 +60,8 @@
 | M4 | P1 | 강의 새 이벤트 7종 | 강의 | N0 | 미착수 | 2026-11-06 조사: 7종 레코드가 없다(`LectureObjectionFiledEvent` 없음, `LectureObjectionFiledDto`만 있음). #712 `LectureChangedEvent`·`LecturePurchaseChangedEvent`는 부분 재사용 후보다(제목·금액·검수 상태·사유가 부족). 구매 확정 전이는 동기화 이벤트도 없다(`apps/lecture-app/src/main/java/com/hapbang/lecture/app/LectureSyncEvents.java:59`). 부분 4, 미충족 3 |
 | M5 | P1 | 지갑 새 이벤트 4종, 지급 이벤트 제목(ND-040) | 지갑 | N0 | 완료 | #873(PR #886, dev `69240da8`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 3장 |
 | M6 | P1 | 회원 새 이벤트 3종(반려 2종, 채널 인증 승인) | 회원 | N0 | 미착수 | 2026-11-06 조사: 반려 2종은 발행하지 않는다(미충족). 채널 인증 승인은 새 이벤트(ND-042), 승급 승인은 `UserModifiedEvent` 역할 비교(ND-016) |
-| M7 | P1 | 고객센터 새 이벤트 3종 | 고객센터 | N0 | 미착수 | 2026-11-06 조사: 3종 모두 발행하지 않는다(미충족) |
-| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908(정책 ND-110~ND-113, 구현·테스트 완료, dev 병합 뒤 NR-061, PR 전) |
+| M7 | P1 | 고객센터 새 이벤트 2종(답변 수정은 발행하지 않음) | 고객센터 | N0 | 완료 | #875. 2종 모두 `@Externalized`. 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 5장. 답변 수정 알림은 폐기(ND-123) |
+| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908 완료(PR #916, 정책 ND-110~ND-113). 고객센터 2종 #918(정책 ND-122~ND-127, 구현·테스트 완료 NR-066, PR 전) |
 | N8 | P1 | 강의 지급 하루 묶음 | 알림 | N2 | 완료 | #890(PR #903, dev `81a7347e`). 정책 ND-097~ND-104 |
 | M8 | P2 | 채팅: 단체방 이벤트 3종, `chat.events.v1` 토픽 | 채팅 | N0 | 미착수 | shared에 `Group*Event` 없음, 코드·설정에 `chat.events.v1` 없음. ND-043·ND-044 |
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 미착수 | 코드 없음 |
@@ -92,6 +92,8 @@
 
 - `docs/policy.md`에 알림센터 장 추가, `docs/GLOSSARY.md`에 알림센터 용어 반영(팀 승인 후속).
 - 원천 설계 `docs/architecture/infrastructure/notification.md`를 축소할지(팀 결정).
+- `docs/architecture/infrastructure/kafka.md` 토픽 표의 고객센터 알림 소비 그룹(#918, ND-122): 알림 담당 승인으로 적었고 팀 검토는 PR 리뷰에서 받는다.
+- 원천 설계 `docs/architecture/infrastructure/notification.md`의 즉시 알림 수(49종)와 답변 수정 알림은 ND-123과 다르다(팀 공유 문서, 승인 필요).
 - `apps/auxiliary-app/README.md` "권한"·"실행과 설정"에 알림 웹소켓 핸드셰이크 경로 예외(ND-060)를 적는 일(팀 공유 문서, 승인 필요).
 - Billing 쪽 T1(BD-127)·T6·T7은 [`docs/billing/decisions.md`](../../../../docs/billing/decisions.md) 10장에서 관리한다.
 

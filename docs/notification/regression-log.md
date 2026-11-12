@@ -86,6 +86,54 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-066 · 2026-11-12 · 통과 (N7 고객센터 #918 S6 리뷰 반영: 빈 제목 DLT)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-066 (임시 번호, NR-065와 같은 이유) |
+| 실행 날짜 | 2026-11-12 16:40~16:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `b38a267f` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-065 뒤: `CustomerSupportAlerts`(필수 값 이름표를 필드 이름으로, `replyId` 이중 검사 제거, 제목은 `isBlank`면 거절하고 정상 제목은 그대로(ND-127)), `NotificationTemplates` 줄 나눔, `NotificationKafkaConfig` 주석. 시험: 단위 2개(빈·공백 제목 거절, 앞뒤 공백 제목 그대로), 통합 DLT 시험에 공백 제목 추가. 문서(ND-127, kafka.md 30행 문구) |
+| 대상 기능 | 고객센터 2종 변환의 필수 값 검사 |
+| 관련 NT ID | NT-GEN-23, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-065와 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-065) |
+| 건수 | 새로 실행: `:notification` 278(새 시험 2), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다) |
+| 관련 변경 | #918 S6 리뷰 |
+
+**메모**: 시험을 먼저 바꾸고 두 시험 클래스만 돌려 단위 `문의_제목이_빈_문자열이나_공백뿐이면_거절한다`·통합 `필수_값이_빠진_고객센터_이벤트는_DLT로_보낸다`가 실패하는 것(RED)을 본 뒤 구현했다. 앞뒤 공백 제목 시험은 지금 동작을 고정하는 시험이라 처음부터 통과했다. 리뷰 반영 전 시작한 검증 실행은 코드를 고치기 전에 멈췄다(결과 없음, 기록하지 않음).
+
+#### NR-065 · 2026-11-12 · 통과 (N7 고객센터 #918 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-065 (임시 번호: 병렬 진행 중인 강의 #910·회원 #915 기록 다음. 병합 순서에 따라 고친다, ND-105) |
+| 실행 날짜 | 2026-11-12 16:06~16:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `b38a267f` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 운영: 새 `CustomerSupportAlerts`·`CustomerSupportAlertTemplates`·`NotificationCustomerSupportEventListener`, 수정 `NotificationTemplates`·`NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}`·`NotificationAlertListenerStarter`. 시험: 새 `CustomerSupportAlertsTest`(4)·`NotificationCustomerSupportAlertTest`(4), `NotificationAlertListenerStarterTest`에 고객센터 컨테이너 단언. 알림 문서(ND-122~ND-126 반영) |
+| 대상 기능 | 고객센터 2종 알림(문의 답변 도착·이의 제기 접수 불가), 새 소비자 그룹·DLT, Backfill 뒤 시작 |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-23, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle 9.7.1(wrapper), Docker 29.8.0 실행 중, Testcontainers(각 시험 설정대로 PostgreSQL·Kafka 등) |
+| 결과 | 통과(종료 코드 0). `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test`가 모두 새로 실행됐다(`UP-TO-DATE` 없음) |
+| 건수 | `:notification` 276, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0(XML 기준) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다). 운영 Kafka에서 #875 이후 지난 M7 이벤트가 늦은 알림이 되는 것(ND-122)은 배포 뒤에만 확인할 수 있다 |
+| 관련 변경 | #918 |
+
+**메모**: 시험을 먼저 쓰고 컴파일 실패(RED: `CUSTOMERSUPPORT_EVENT_SETTINGS` 등 기호 없음)를 확인했다. 운영 코드 없이 동작으로 실패하는 단계는 건너뛰고 운영 코드를 쓴 뒤, 대신 변이로 시험을 확인했다(새 시험 3클래스만 실행): (1) 답변 도착 처리기가 저장하지 않음 → 통합 답변 시험 1개 실패 (2) Backfill 뒤 시작 목록에서 고객센터 리스너 제거 → Starter 시험 실패 (3) 답변 원본 대상 ID를 문의 ID로 → 단위 3개·통합 1개 실패. 변이는 되돌렸고 원본과 같은지 `cmp`로 확인했다.
+
 #### NR-062 · 2026-11-12 · 통과 (N7 출연 #908 Bot 리뷰 반영: 상대 닉네임 읽는 순서 시험)
 
 | 항목 | 값 |
