@@ -21,6 +21,7 @@ import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.ScriptSortType;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.mapping.FieldType;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
@@ -45,7 +46,8 @@ import co.elastic.clients.util.NamedValue;
  *     검색어가 있으면 걸린 칸이 없어도 {@code highlights} 객체를 준다(검색어 없음과 구분)</li>
  * </ul>
  * 순서: 기본은 검색어가 있으면 점수, 없으면 최신. {@code latest}는 강의 ID 내림차순. {@code rating}은 베이지안 평균 (n×R + m×C)/(n+m) →
- * 리뷰 수. 모든 순서의 마지막은 강의 ID 내림차순이다(동점이 많아 없으면 문서를 다시 쓸 때 페이지 사이에서 같은 강의가 또 나오거나 빠진다).
+ * 리뷰 수. {@code price}는 가격 오름·내림이고 가격 없는 강의(옛 메시지로 만든 문서)는 어느 쪽이든 맨 뒤다(#909, 무료 강의가 없어 null은 0원이 아니라
+ * 모르는 값이다). 모든 순서의 마지막은 강의 ID 내림차순이다(동점이 많아 없으면 문서를 다시 쓸 때 페이지 사이에서 같은 강의가 또 나오거나 빠진다).
  */
 @Component
 public class LectureSearcher {
@@ -144,17 +146,36 @@ public class LectureSearcher {
 
     List<SortOptions> sort(LectureSearchCondition condition, Double ratingBaseline) {
         List<SortOptions> sort = new ArrayList<>();
-        if (condition.sort() == LectureSort.RATING) {
-            sort.add(SortOptions.of(o -> o.script(ss -> ss.type(ScriptSortType.Number).order(SortOrder.Desc)
-                    .script(sc -> sc.source(src -> src.scriptString(RATING_SORT_SCRIPT))
-                            .params("m", JsonData.of(ranking.ratingPriorReviews()))
-                            .params("c", JsonData.of(ratingBaseline))))));
-            sort.add(SortOptions.of(o -> o.field(f -> f.field("reviewCount").order(SortOrder.Desc))));
-        } else if (condition.sort() == LectureSort.DEFAULT && condition.keyword() != null) {
-            sort.add(SortOptions.of(o -> o.score(s -> s.order(SortOrder.Desc))));
+        switch (condition.sort()) {
+            case RATING -> {
+                sort.add(SortOptions.of(o -> o.script(ss -> ss.type(ScriptSortType.Number).order(SortOrder.Desc)
+                        .script(sc -> sc.source(src -> src.scriptString(RATING_SORT_SCRIPT))
+                                .params("m", JsonData.of(ranking.ratingPriorReviews()))
+                                .params("c", JsonData.of(ratingBaseline))))));
+                sort.add(SortOptions.of(o -> o.field(f -> f.field("reviewCount").order(SortOrder.Desc))));
+            }
+            case PRICE_ASC -> sort.add(priceSort(SortOrder.Asc));
+            case PRICE_DESC -> sort.add(priceSort(SortOrder.Desc));
+            case DEFAULT -> {
+                if (condition.keyword() != null) {
+                    sort.add(SortOptions.of(o -> o.score(s -> s.order(SortOrder.Desc))));
+                }
+            }
+            case LATEST -> {
+                // 마지막 강의 ID 내림차순이 곧 최신순이다
+            }
         }
         sort.add(SortOptions.of(o -> o.field(f -> f.field("lectureId").order(SortOrder.Desc))));
         return sort;
+    }
+
+    /**
+     * 가격순(#909). 가격 없는 강의는 어느 방향이든 맨 뒤다. {@code unmappedType}: 재색인이 alias를 옮기기 전 잠깐 alias가 가격 mapping이 없는 옛
+     * index를 가리키면 ES가 정렬을 거절(503)하는 대신 모든 강의를 가격 없음으로 보고 최신순으로 준다(#909).
+     */
+    private static SortOptions priceSort(SortOrder order) {
+        return SortOptions.of(o -> o.field(f -> f.field("priceHp").order(order).missing("_last")
+                .unmappedType(FieldType.Long)));
     }
 
     static Highlight highlight() {
@@ -171,7 +192,7 @@ public class LectureSearcher {
         Map<String, Object> source = hit.source();
         Object average = source.get("averageRating");
         return new LectureSearchItem(number(source.get("lectureId")), (String) source.get("title"),
-                number(source.get("sellerUserId")), (String) source.get("sellerNickname"),
+                nullableNumber(source.get("priceHp")), number(source.get("sellerUserId")), (String) source.get("sellerNickname"),
                 average == null ? null : round(((Number) average).doubleValue()), number(source.get("reviewCount")),
                 keyword ? highlights(hit.highlight()) : null);
     }
@@ -194,6 +215,10 @@ public class LectureSearcher {
 
     private static long number(Object value) {
         return value == null ? 0 : ((Number) value).longValue();
+    }
+
+    private static Long nullableNumber(Object value) {
+        return value == null ? null : ((Number) value).longValue();
     }
 
     /**
