@@ -58,6 +58,10 @@ public class LectureIndexer {
      * 강의 칸만 먼저 쓴다(새 문서면 판매자 닉네임 없이 정상 판매자, 평점 없음으로 만든다). 이미 있는 문서의 판매자·평점 칸은 회원·리뷰 반영이 맡으므로 사본을
      * 읽지 않는다(Q9). 문서를 <b>새로 만들었을 때만</b> 사본을 읽어 판매자·평점 칸을 채운다. 문서를 만든 뒤에 읽으므로, 그 전에 온 회원·리뷰 이벤트(없던
      * 문서를 고치지 못함)의 값도 빠지지 않는다. 채우기 전 잠깐(같은 처리 안)은 빈 값이지만 ES가 새 문서를 검색에 보이는 refresh(1초) 전이다.
+     * <p>
+     * 쓰기 결과가 {@code NOOP}(같은 이벤트를 다시 받음, 순서가 뒤바뀐 옛 이벤트)이어도 채운다. 문서를 만든 뒤 채우기가 실패해 같은 이벤트를 다시 받으면
+     * 강의 쓰기는 이미 그 version이라 {@code NOOP}이기 때문이다(PR #906 리뷰). 사본의 지금 값을 쓰고 값이 같으면 noop이라 옛 이벤트에서 돌아도
+     * 해가 없다. 보통의 수정({@code UPDATED})은 사본을 읽지 않는다.
      *
      * @throws IllegalArgumentException 강의 정보가 없는 경우(다시 처리해도 같다. 필수 값은 DTO 생성자가 막는다)
      * @throws IndexNotReadyException   alias가 없는 경우(처음 적재 전). 부르는 쪽이 건너뛴다
@@ -70,7 +74,7 @@ public class LectureIndexer {
         }
         indexSetup.ensureReady();
         WriteOutcome outcome = documents.writeLecture(lecture, null, LectureRating.NONE, clock.instant());
-        if (outcome == WriteOutcome.CREATED) {
+        if (outcome == WriteOutcome.CREATED || outcome == WriteOutcome.NOOP) {
             fillFromCopies(lecture);
         }
         return new LectureIndexResult(lecture.id(), lecture.version(), lecture.onSale(), outcome);

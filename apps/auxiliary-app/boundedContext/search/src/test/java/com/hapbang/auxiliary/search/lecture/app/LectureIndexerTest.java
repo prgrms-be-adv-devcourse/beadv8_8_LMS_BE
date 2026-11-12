@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -176,6 +177,31 @@ class LectureIndexerTest {
 
         assertThat(source()).containsEntry("sellerNickname", "새닉네임").containsEntry("sellerActive", false)
                 .containsEntry("averageRating", 2.0).containsEntry("reviewCount", 1);
+    }
+
+    @Test
+    @DisplayName("문서를 만든 뒤 판매자·평점 채우기가 실패하면, 같은 이벤트를 다시 받을 때(강의 쓰기는 NOOP) 채운다(PR #906 리뷰)")
+    void fillsCopiesOnRedeliveryAfterFailure() throws Exception {
+        sellerIndexer.apply(member("정지된", UserStatus.SUSPENDED, 1L));
+        reviews.apply(review(1L, 3, true, 0L), LocalDateTime.now(CLOCK));
+        AtomicBoolean failOnce = new AtomicBoolean(true);
+        LectureDocumentStore flaky = new LectureDocumentStore(client) {
+            @Override
+            public WriteOutcome writeSeller(long lectureId, Seller seller) {
+                if (failOnce.getAndSet(false)) {
+                    throw new IllegalStateException("ES 일시 장애");
+                }
+                return super.writeSeller(lectureId, seller);
+            }
+        };
+        LectureIndexer indexer = new LectureIndexer(indexSetup, flaky, members, reviews, CLOCK);
+
+        assertThatThrownBy(() -> indexer.apply(lecture("제목", true, 0L))).isInstanceOf(IllegalStateException.class);
+        assertThat(source()).containsEntry("sellerActive", true);
+
+        assertThat(indexer.apply(lecture("제목", true, 0L)).outcome()).isEqualTo(WriteOutcome.NOOP);
+        assertThat(source()).containsEntry("sellerNickname", "정지된").containsEntry("sellerActive", false)
+                .containsEntry("averageRating", 3.0).containsEntry("reviewCount", 1);
     }
 
     @Test
