@@ -16,11 +16,18 @@ public class ChatbotLectureRecommendConfig {
 
     public static final String RATE_LIMITER = "chatbotLectureRecommendRateLimiter";
     public static final String WIDGET_RATE_LIMITER = "chatbotLectureWidgetRateLimiter";
+    public static final String BUTTON_RATE_LIMITER = "chatbotLectureButtonRateLimiter";
 
     @Bean(RATE_LIMITER)
     KeyedRateLimiter chatbotLectureRecommendRateLimiter(ChatbotLectureRecommendProperties properties) {
         ChatbotLectureRecommendProperties.RateLimit limit = properties.rateLimit();
         return new KeyedRateLimiter("chatbot-recommend-lecture", limit.limit(), limit.period(), limit.maxKeys());
+    }
+
+    @Bean(BUTTON_RATE_LIMITER)
+    KeyedRateLimiter chatbotLectureButtonRateLimiter(ChatbotLectureRecommendProperties properties) {
+        ChatbotLectureRecommendProperties.RateLimit limit = properties.buttonRateLimit();
+        return new KeyedRateLimiter("chatbot-recommend-lecture-button", limit.limit(), limit.period(), limit.maxKeys());
     }
 
     @Bean(WIDGET_RATE_LIMITER)

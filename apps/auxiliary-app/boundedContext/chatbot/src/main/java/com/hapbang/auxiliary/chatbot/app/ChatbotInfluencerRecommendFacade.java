@@ -1,11 +1,12 @@
 package com.hapbang.auxiliary.chatbot.app;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
-import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendExplainer.Explained;
+import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendExplainUseCase.Explained;
 import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRecommendation;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendConfig;
@@ -25,19 +26,19 @@ import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 public class ChatbotInfluencerRecommendFacade {
 
     private final InfluencerRecommendUseCase useCase;
-    private final InfluencerRecommendExplainer explainer;
+    private final InfluencerRecommendExplainUseCase explainUseCase;
     private final InfluencerRecommendMapper mapper;
     private final KeyedRateLimiter rateLimiter;
     private final KeyedRateLimiter widgetRateLimiter;
     private final ChatbotMetrics metrics;
 
-    ChatbotInfluencerRecommendFacade(InfluencerRecommendUseCase useCase, InfluencerRecommendExplainer explainer,
+    ChatbotInfluencerRecommendFacade(InfluencerRecommendUseCase useCase, InfluencerRecommendExplainUseCase explainUseCase,
             InfluencerRecommendMapper mapper,
             @Qualifier(ChatbotInfluencerRecommendConfig.RATE_LIMITER) KeyedRateLimiter rateLimiter,
             @Qualifier(ChatbotInfluencerRecommendConfig.WIDGET_RATE_LIMITER) KeyedRateLimiter widgetRateLimiter,
             ChatbotMetrics metrics) {
         this.useCase = useCase;
-        this.explainer = explainer;
+        this.explainUseCase = explainUseCase;
         this.mapper = mapper;
         this.rateLimiter = rateLimiter;
         this.widgetRateLimiter = widgetRateLimiter;
@@ -52,17 +53,17 @@ public class ChatbotInfluencerRecommendFacade {
         return mapper.response(candidates(userId));
     }
 
-    /** 후보 + LLM 이유(챗봇 "인플루언서 추천받기" 버튼). LLM이 실패하면 이유 코드 문장 */
+    /**
+     * 챗봇 "인플루언서 추천받기" 버튼: 쿼리 확장 + 리랭킹 + 이유. LLM이 실패하면 코드 순서와 이유 코드 문장({@code fallback=true}).
+     *
+     * @param interest 관심사(검증된 값). 없거나 공백뿐이면 null로 본다
+     */
     @PreAuthorize(ChatbotRoles.MEMBER)
-    public InfluencerRecommendResDto recommendExplained(long userId) {
+    public InfluencerRecommendResDto recommendExplained(long userId, @Nullable String interest) {
         acquire(rateLimiter, userId, Feature.INFLUENCER_BUTTON);
         metrics.request(Feature.INFLUENCER_BUTTON);
-        InfluencerRecommendation recommendation = candidates(userId);
-        Explained explained = explainer.explain(recommendation.items());
-        if (explained instanceof Explained.Fallback fallback) {
-            metrics.fallback(Feature.INFLUENCER_BUTTON, fallback.reason());
-        }
-        return mapper.explained(recommendation, explained.explanations(), explained instanceof Explained.Fallback);
+        Explained explained = explainUseCase.recommend(userId, LectureRecommendUseCase.normalizeInterest(interest));
+        return mapper.explained(explained.recommendation(), explained.explanations(), explained.fallback());
     }
 
     private void acquire(KeyedRateLimiter limiter, long userId, Feature feature) {
@@ -74,7 +75,7 @@ public class ChatbotInfluencerRecommendFacade {
         }
     }
 
-    // 버튼·위젯 경로는 아직 관심사 문장을 받지 않는다(버튼의 관심사는 #720 버튼 경로에서 받는다)
+    // 위젯은 관심사를 받지 않는다(관심사는 버튼·자유 질문 Tool)
     private InfluencerRecommendation candidates(long userId) {
         return useCase.recommend(userId, null);
     }

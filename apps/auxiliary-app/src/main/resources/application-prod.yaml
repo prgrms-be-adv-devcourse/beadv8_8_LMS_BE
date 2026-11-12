@@ -11,6 +11,11 @@ spring:
     openai:
       api-key: "${OPENAI_API_KEY}"
       chat:
+        # OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가서 앱 공통 spring.http.clients.read-timeout(5s)이 걸리지 않는다(#720).
+        # 기본은 60s·재시도 3회라 LlmCallGuard가 포기한 뒤에도 호출이 남아 동시 상한을 넘길 수 있다. 가드 상한 중 가장 긴
+        # FAQ 스트림(45s)보다 조금 길게 두고, 재시도는 가드가 fallback으로 대신하므로 끈다. 실제로 끊기는지는 직접 잰다(PR 참고)
+        timeout: 50s
+        max-retries: 0
         model: gpt-4o-mini
         temperature: 0.2
       embedding:

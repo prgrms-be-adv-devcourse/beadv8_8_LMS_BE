@@ -84,6 +84,10 @@ spring:
     tools:
       observations:
         include-content: false
+      # 자유 질문 한 요청의 Tool 호출 상한(#720). Tool이 3개라 3으로 둔다(Spring AI 기본은 Tool 하나당 40회·전체 150회로 느슨하다).
+      # 넘으면 기본값(on-limit-exceeded: throw)대로 예외이고, 자유 질문은 실패로 처리한다(카드가 있으면 카드 + 정해진 문장)
+      limits:
+        max-total-tool-calls: 3
   # Elasticsearch(챗봇 FAQ 색인, #715). 주소·인증은 프로필 파일에서 정한다. ES가 죽어도 앱은 뜨고 챗봇만 검색 없이 답한다.
   # ES 헬스 지표는 전체 상태(/actuator/health)에만 들어가고 liveness·readiness 그룹에는 들어가지 않는다
   elasticsearch:

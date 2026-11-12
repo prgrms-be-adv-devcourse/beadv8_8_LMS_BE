@@ -88,12 +88,16 @@ public class InfluencerRecommendUseCase {
      * @param interest 관심사 문장(자유 질문 Tool·버튼 경로만 넘긴다). 없으면 null
      */
     public InfluencerRecommendation recommend(long userId, @Nullable String interest) {
-        Pool pool = pool(userId, interest, properties.size());
+        Pool pool = pool(userId, interest == null ? null : List.of(interest), properties.size());
         return complete(pool, pool.memberIds());
     }
 
-    /** 맞춤 후보만 최대 {@code size}명(인기순 채움 없음). 본인·추천 불가 제외는 여기서 적용한다 */
-    public Pool pool(long userId, @Nullable String interest, int size) {
+    /**
+     * 맞춤 후보만 최대 {@code size}명(인기순 채움 없음). 본인·추천 불가 제외는 여기서 적용한다.
+     *
+     * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
+     */
+    public Pool pool(long userId, @Nullable List<String> interest, int size) {
         if (!memberVisibility.isVisible(userId)) {
             return Pool.forHiddenRequester(userId);
         }
@@ -130,6 +134,17 @@ public class InfluencerRecommendUseCase {
         }
     }
 
+    /** 풀의 후보에 분야를 채운다(버튼 경로의 LLM 프롬프트용). 함께 출연한 이력({@code PAST_PARTNER})은 붙이지 않는다 */
+    public List<Candidate> describe(Pool pool) {
+        Map<Long, InfluencerProfile> profiles = store.profiles(pool.memberIds());
+        List<Candidate> described = new ArrayList<>();
+        for (Candidate candidate : pool.candidates()) {
+            InfluencerProfile profile = profiles.get(candidate.memberId());
+            described.add(candidate.complete(profile == null ? List.of() : profile.categories(), false));
+        }
+        return described;
+    }
+
     /**
      * 풀에서 고른 후보를 그 순서대로 두고, 추천 수에 모자라면 인기순으로 채워 답을 만든다.
      *
@@ -163,9 +178,9 @@ public class InfluencerRecommendUseCase {
 
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
     private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, Set<Long> partners,
-            @Nullable String interest) {
+            @Nullable List<String> interest) {
         if (interest != null) {
-            return new Taste.Single(VectorCall.run(() -> embedder.embedQuery(interest)), InfluencerReason.MATCHES_INTEREST);
+            return new Taste.Single(VectorCall.run(() -> embedder.embedInterest(interest)), InfluencerReason.MATCHES_INTEREST);
         }
         if (me == null || !me.isInfluencer()) {
             return null;

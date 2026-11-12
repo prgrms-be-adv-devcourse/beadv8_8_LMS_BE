@@ -22,9 +22,11 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.hapbang.auxiliary.chatbot.app.dto.InfluencerItemResDto;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
@@ -95,12 +97,13 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("설명 API: LLM 이유를 후보 순번으로 받아 붙인다. 범위 밖 순번·빈 문장은 버리고 이유 코드 문장으로 채운다. 프롬프트에 닉네임·자기소개 원문이 없다")
+    @DisplayName("설명 API: LLM이 고른 후보 순번으로 이유를 붙인다. 범위 밖 순번·빈 문장은 버리고 남은 후보(코드 순서)는 이유 코드 문장. "
+            + "프롬프트에 닉네임·자기소개 원문이 없다")
     void explained() throws Exception {
         chatModel.reply("""
-                [{"candidate": 1, "reason": "게임 방송 분야가 같아 합이 잘 맞을 거예요."},
+                {"picks": [{"candidate": 1, "reason": "게임 방송 분야가 같아 합이 잘 맞을 거예요."},
                  {"candidate": 9, "reason": "범위 밖 후보"},
-                 {"candidate": 2, "reason": "  "}]""");
+                 {"candidate": 2, "reason": "  "}]}""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -121,7 +124,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     void promptHasNoMemberIds() throws Exception {
         influencer(90017L, "GAME", "롤");
         index(90017L);
-        chatModel.reply("[]");
+        chatModel.reply("{\"picks\": []}");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -134,8 +137,8 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     @DisplayName("설명 API: 후보 순번을 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 fallback=true")
     void explainedDropsCandidateMentions() throws Exception {
         chatModel.reply("""
-                [{"candidate": 1, "reason": "후보 1은 게임 방송을 해요."},
-                 {"candidate": 2, "reason": "후보2번과 잘 맞아요."}]""");
+                {"picks": [{"candidate": 1, "reason": "후보 1은 게임 방송을 해요."},
+                 {"candidate": 2, "reason": "후보2번과 잘 맞아요."}]}""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -150,8 +153,8 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     @DisplayName("설명 API: 문장에 든 수치(출연 3회, 2번, 3명, 별점 4.5점)는 그대로 쓴다")
     void explainedKeepsNumbers() throws Exception {
         chatModel.reply("""
-                [{"candidate": 1, "reason": "완료한 출연이 3회이고 평균 별점이 4.5점이에요."},
-                 {"candidate": 2, "reason": "음악 방송을 2번 했고 3명과 함께했어요."}]""");
+                {"picks": [{"candidate": 1, "reason": "완료한 출연이 3회이고 평균 별점이 4.5점이에요."},
+                 {"candidate": 2, "reason": "음악 방송을 2번 했고 3명과 함께했어요."}]}""");
 
         mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -161,13 +164,48 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("설명 API: LLM이 고른 순서대로 놓는다(코드 순서와 달라도). 본문 없이 불러도 된다")
+    void explainedFollowsLlmOrder() throws Exception {
+        chatModel.reply("""
+                {"picks": [{"candidate": 2, "reason": "음악 쪽으로 넓혀 보세요."},
+                 {"candidate": 1, "reason": "같은 게임 분야예요."}]}""");
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.basis").value("PERSONALIZED"))
+                .andExpect(jsonPath("$.data.items[*].memberId", contains(3, 2)))
+                .andExpect(jsonPath("$.data.items[0].explanation").value("음악 쪽으로 넓혀 보세요."));
+        assertThat(chatModel.calls()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("설명 API: 본문 {interest}가 있으면 쿼리 확장 1회 + 리랭킹 1회이고 그 관심사로 찾는다. 관심사 101자는 400")
+    void explainedWithInterest() throws Exception {
+        embeddingModel.put(FakeEmbeddingModel.query("노래 방송"), FakeEmbeddingModel.axis(1));
+        chatModel.reply("""
+                {"picks": [{"candidate": 1, "reason": "노래 방송을 해요."}]}""");
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"interest\": \"노래 방송\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].memberId").value(3))
+                .andExpect(jsonPath("$.data.items[0].reasons", contains("MATCHES_INTEREST")));
+        assertThat(chatModel.calls()).isEqualTo(2);
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"interest\": \"" + "가".repeat(101) + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("Tool: 관심사 문장은 설정 길이(100자)까지만 임베딩한다")
     void toolTruncatesInterest() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
         String longInterest = "요".repeat(150);
 
         callback.call("{\"interest\": \"" + longInterest + "\"}",
-                new ToolContext(ChatToolContext.of(1L, List.of())));
+                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCards.Collector())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(100)));
     }
@@ -180,7 +218,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         String interest = "요".repeat(99) + emoji + "요".repeat(10);
 
         callback.call("{\"interest\": \"" + interest + "\"}",
-                new ToolContext(ChatToolContext.of(1L, List.of())));
+                new ToolContext(ChatToolContext.of(1L, List.of(), new ChatCards.Collector())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(99) + emoji));
     }
@@ -228,7 +266,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
 
     @Test
     @DisplayName("Tool: 인자 스키마에 회원 ID가 없고, 회원 ID는 ToolContext에서만 꺼낸다(없으면 거절). 관심사는 선택 인자다. "
-            + "결과에 근거 코드가 있고 Tool 호출 수로 센다")
+            + "LLM에 가는 결과에는 회원 ID·PAST_PARTNER가 없고 카드에는 있다. Tool 호출 수로 센다")
     void tool() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
         String schema = callback.getToolDefinition().inputSchema();
@@ -244,9 +282,15 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
 
         double requests = count("hapbang.chatbot.requests", "feature", "influencer_recommend");
         double toolCalls = count("hapbang.chatbot.tool.calls", "tool", "recommendInfluencers");
-        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of())));
-        assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false",
-                "\"basis\":\"PERSONALIZED\"").doesNotContain(SECRET_BIO);
+        ChatCards.Collector cards = new ChatCards.Collector();
+        completed(300L, 1L, 2L);
+        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of(), cards)));
+        // 대화 LLM에 가는 결과에는 회원 ID와 함께 출연한 이력이 없다. 카드(FE로 따로 나감)에는 있다
+        assertThat(result).contains("SIMILAR_CATEGORY", "\"needsInterest\":false", "\"basis\":\"PERSONALIZED\"")
+                .doesNotContain(SECRET_BIO, "memberId", "PAST_PARTNER");
+        assertThat(cards.cards().influencers().items()).extracting(InfluencerItemResDto::memberId).contains(2L);
+        assertThat(cards.cards().influencers().items().stream().filter(item -> item.memberId() == 2L).findFirst()
+                .orElseThrow().reasons()).contains(InfluencerReason.PAST_PARTNER);
         // Tool 경로는 Tool 호출 수로 센다(위젯 API의 사용 수에는 넣지 않는다)
         assertThat(count("hapbang.chatbot.tool.calls", "tool", "recommendInfluencers")).isEqualTo(toolCalls + 1);
         assertThat(count("hapbang.chatbot.requests", "feature", "influencer_recommend")).isEqualTo(requests);

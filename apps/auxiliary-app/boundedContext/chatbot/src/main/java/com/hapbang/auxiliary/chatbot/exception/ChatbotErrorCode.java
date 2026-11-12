@@ -19,7 +19,9 @@ public enum ChatbotErrorCode implements BaseErrorCode {
     /** 회원 사본으로 확인한 결과 지금 정상 상태의 관리자가 아니다(사본 없음 포함) (#717) */
     NOT_ADMIN(HttpStatus.FORBIDDEN, "관리자만 이용할 수 있습니다."),
     /** 싱크 회차가 없다 (#716) */
-    SYNC_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "동기화 실행 기록을 찾을 수 없습니다.");
+    SYNC_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "동기화 실행 기록을 찾을 수 없습니다."),
+    /** 자유 질문의 이전 대화(history)가 규칙에 맞지 않는다: 빈 내용, 역할별 길이 초과, 글자 수 합 초과 (#720) */
+    INVALID_CHAT_HISTORY(HttpStatus.BAD_REQUEST, "이전 대화 내용이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

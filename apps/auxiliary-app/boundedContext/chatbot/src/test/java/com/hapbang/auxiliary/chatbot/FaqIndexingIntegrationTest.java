@@ -22,6 +22,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
+import com.hapbang.auxiliary.chatbot.app.ChatCards;
 import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
 import com.hapbang.auxiliary.chatbot.app.FaqHit;
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
@@ -237,7 +238,7 @@ class FaqIndexingIntegrationTest {
         List<FaqHit> sources = new CopyOnWriteArrayList<>();
 
         ToolCallback[] callbacks = ToolCallbacks.from(faqTools);
-        String result = callbacks[0].call("{\"question\":\"HP 충전 방법\"}", new ToolContext(ChatToolContext.of(1L, sources)));
+        String result = callbacks[0].call("{\"question\":\"HP 충전 방법\"}", new ToolContext(ChatToolContext.of(1L, sources, new ChatCards.Collector())));
 
         assertThat(callbacks).hasSize(1);
         assertThat(callbacks[0].getToolDefinition().name()).isEqualTo("searchFaq");

@@ -7,7 +7,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -28,6 +30,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>
  * 기본 동작({@link Mode#TOOL_ANSWER})은 실제 모델이 하는 일을 흉내 낸다. 요청에 실린 {@code searchFaq} Tool을 사용자 질문으로 부르고
  * (요청의 ToolContext를 그대로 넘긴다), 결과의 첫 FAQ 답변으로 답한다. 결과가 없으면 안내 문구로 답한다. 받은 요청은 {@link #lastPrompt()}로 본다.
+ * <p>
+ * {@link Mode#TOOL_CALLS}는 실제 공급자처럼 Tool 호출을 <b>요청</b>한다(#720). Tool은 Spring AI의 {@code ToolCallingAdvisor}가
+ * 실행하고 결과를 다시 보낸다. 그래서 Tool 호출 상한({@code spring.ai.tools.limits.*})과 대화의 Tool 등록을 실제 경로로 확인한다.
  */
 public class FakeChatModel implements ChatModel {
 
@@ -49,7 +54,12 @@ public class FakeChatModel implements ChatModel {
         /** 빈 답 */
         EMPTY,
         /** {@link #reply(String)}로 정한 글을 그대로 답한다(구조화 응답 {@code .entity()} 확인, #719) */
-        REPLY
+        REPLY,
+        /**
+         * {@link #toolCalls}로 정한 Tool을 한 번에 하나씩 호출 요청한다. 다 부르면 정한 글로 답하거나(스트림도 같다), 실패하게
+         * 정했으면 실패한다. {@link #toolLoop}는 같은 Tool을 끝없이 요청한다
+         */
+        TOOL_CALLS
     }
 
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
@@ -57,6 +67,10 @@ public class FakeChatModel implements ChatModel {
     private final AtomicReference<Prompt> lastPrompt = new AtomicReference<>();
     private final AtomicInteger calls = new AtomicInteger();
     private final AtomicReference<String> reply = new AtomicReference<>("");
+    private final AtomicReference<List<String>> scriptedTools = new AtomicReference<>(List.of());
+    private volatile boolean loopTools;
+    private volatile boolean failAfterTools;
+    private volatile boolean failAfterFirstToken;
     private volatile CompletableFuture<Void> gate = CompletableFuture.completedFuture(null);
 
     public void mode(Mode mode) {
@@ -79,9 +93,39 @@ public class FakeChatModel implements ChatModel {
         mode.set(Mode.REPLY);
     }
 
+    /**
+     * 정한 Tool들을 차례로 호출 요청한 뒤 {@code answer}로 답한다.
+     *
+     * @param failAfterTools 다 부른 뒤 답하지 않고 실패한다(카드를 만든 뒤 LLM 실패)
+     */
+    public void toolCalls(List<String> tools, String answer, boolean failAfterTools) {
+        scriptedTools.set(List.copyOf(tools));
+        reply.set(answer);
+        loopTools = false;
+        this.failAfterTools = failAfterTools;
+        failAfterFirstToken = false;
+        mode.set(Mode.TOOL_CALLS);
+    }
+
+    /** 스트림: 정한 Tool을 다 부른 뒤 첫 조각을 보내고 실패한다 */
+    public void toolCallsThenFailAfterFirstToken(List<String> tools, String answer) {
+        toolCalls(tools, answer, false);
+        failAfterFirstToken = true;
+    }
+
+    /** 같은 Tool을 끝없이 호출 요청한다(Tool 호출 상한 확인) */
+    public void toolLoop(String tool) {
+        toolCalls(List.of(tool), "", false);
+        loopTools = true;
+    }
+
     public void reset() {
         mode.set(Mode.TOOL_ANSWER);
         reply.set("");
+        scriptedTools.set(List.of());
+        loopTools = false;
+        failAfterTools = false;
+        failAfterFirstToken = false;
         lastPrompt.set(null);
         calls.set(0);
         release();
@@ -112,6 +156,16 @@ public class FakeChatModel implements ChatModel {
             case EMPTY -> response("");
             case REPLY -> response(reply.get());
             case TOOL_ANSWER -> response(answer(prompt));
+            case TOOL_CALLS -> {
+                ChatResponse toolCall = nextToolCall(prompt);
+                if (toolCall != null) {
+                    yield toolCall;
+                }
+                if (failAfterTools) {
+                    throw new IllegalStateException("가짜 모델: Tool 뒤 실패");
+                }
+                yield response(reply.get());
+            }
         };
     }
 
@@ -124,6 +178,20 @@ public class FakeChatModel implements ChatModel {
                 case HANG -> Flux.just(response("늦은 답")).delaySubscription(Mono.fromFuture(gate, true));
                 case EMPTY -> Flux.just(response(""));
                 case REPLY -> Flux.just(response(reply.get()));
+                case TOOL_CALLS -> {
+                    ChatResponse toolCall = nextToolCall(prompt);
+                    if (toolCall != null) {
+                        yield Flux.just(toolCall);
+                    }
+                    if (failAfterTools) {
+                        yield Flux.error(new IllegalStateException("가짜 모델: Tool 뒤 실패"));
+                    }
+                    if (failAfterFirstToken) {
+                        yield Flux.concat(Flux.just(response(reply.get())),
+                                Flux.error(new IllegalStateException("가짜 모델: Tool 뒤 도중 실패")));
+                    }
+                    yield Flux.just(response(reply.get()));
+                }
                 case FAIL_AFTER_FIRST_TOKEN -> Flux.concat(Flux.just(response(ANSWER_PREFIX)),
                         Flux.error(new IllegalStateException("가짜 모델 도중 실패")));
                 case TOOL_ANSWER -> {
@@ -137,6 +205,20 @@ public class FakeChatModel implements ChatModel {
                 }
             };
         });
+    }
+
+    // 이번 요청에서 이미 받은 Tool 결과 수만큼 정한 Tool을 지나, 다음 Tool 호출을 요청한다. 다 불렀으면 null
+    private @Nullable ChatResponse nextToolCall(Prompt prompt) {
+        long answered = prompt.getInstructions().stream().filter(ToolResponseMessage.class::isInstance).count();
+        List<String> tools = scriptedTools.get();
+        if (!loopTools && answered >= tools.size()) {
+            return null;
+        }
+        String tool = loopTools ? tools.getFirst() : tools.get((int) answered);
+        AssistantMessage call = AssistantMessage.builder().content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-" + answered, "function", tool, "{}")))
+                .build();
+        return new ChatResponse(List.of(new Generation(call)));
     }
 
     private void record(Prompt prompt) {

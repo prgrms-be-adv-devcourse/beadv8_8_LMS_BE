@@ -80,8 +80,16 @@ public class ChatbotMetrics {
         LECTURE_RECOMMEND,
         /** 인플루언서 추천 위젯 API */
         INFLUENCER_RECOMMEND,
-        /** 챗봇 "인플루언서 추천받기" 버튼(LLM 이유) */
-        INFLUENCER_BUTTON
+        /** 챗봇 "강의 추천받기" 버튼(리랭킹 + 이유) */
+        LECTURE_BUTTON,
+        /** 챗봇 "인플루언서 추천받기" 버튼(리랭킹 + 이유) */
+        INFLUENCER_BUTTON,
+        /** 버튼 경로의 관심사 쿼리 확장(LLM 실패 지표만) */
+        QUERY_EXPANSION,
+        /** 자유 질문(한 번에 받기) */
+        CHAT,
+        /** 자유 질문(스트림) */
+        CHAT_STREAM
     }
 
     /** fallback 이유 */
@@ -94,7 +102,11 @@ public class ChatbotMetrics {
         BUSY,
         /** 시간 초과 */
         TIMEOUT,
-        /** 모델 호출 오류 */
-        ERROR
+        /** 모델 호출 오류(쓸 만한 답이 하나도 없는 경우 포함) */
+        ERROR,
+        /** 모델은 답했지만 정해진 형식(JSON)으로 읽을 수 없음. 회로 실패로 세지 않는다 */
+        FORMAT,
+        /** 한 요청의 Tool 호출이 상한을 넘음. 회로 실패로 세지 않는다 */
+        TOOL_LIMIT
     }
 }

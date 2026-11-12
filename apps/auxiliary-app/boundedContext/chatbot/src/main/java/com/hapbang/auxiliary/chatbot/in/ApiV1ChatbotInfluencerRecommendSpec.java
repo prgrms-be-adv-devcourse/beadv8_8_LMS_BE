@@ -1,11 +1,13 @@
 package com.hapbang.auxiliary.chatbot.in;
 
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
+import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonRequest;
 import com.hapbang.auxiliary.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 
 @Tag(name = "챗봇 인플루언서 추천", description = "출연 상대로 어울리는 인플루언서 추천 (#719, 로그인 회원). 후보와 순서는 코드가 정하고, "
         + "LLM은 설명 경로에서 이유만 쓴다")
@@ -19,10 +21,13 @@ public interface ApiV1ChatbotInfluencerRecommendSpec {
             연타를 막으려고 회원마다 주기당 호출 수를 제한한다(설명 API보다 넉넉함, 넘으면 429).""")
     RsData<InfluencerRecommendResDto> recommend(@Parameter(hidden = true) Long userId);
 
-    @Operation(summary = "인플루언서 추천 + 이유(LLM)", description = """
-            챗봇 "인플루언서 추천받기" 버튼용. 후보는 위 API와 같고, 항목마다 explanation(추천 이유 문장)이 붙는다. \
-            LLM이 실패하거나 시간 상한을 넘기거나 쓸 만한 답이 하나도 없으면 fallback=true이고 이유 코드의 정해진 문장으로 답한다\
-            (후보는 그대로). LLM에는 회원 ID를 보내지 않는다. 범위 밖 후보·빈 문장은 버리고 그 후보는 정해진 문장으로 채운다. \
-            회원마다 주기당 호출 수를 제한한다(넘으면 429).""")
-    RsData<InfluencerRecommendResDto> recommendExplained(@Parameter(hidden = true) Long userId);
+    @Operation(summary = "인플루언서 추천 + 이유(LLM)", description = "챗봇 '인플루언서 추천받기' 버튼용. "
+            + "본문 {interest?}(#720에서 추가, 본문이 없어도 된다). 관심사가 있으면 그 문장으로 찾고 LLM이 비슷한 표현으로 늘려 함께 찾는다"
+            + "(실패하면 원문으로). 코드가 만든 맞춤 후보(최대 20명) 안에서 LLM이 고르고 이유(explanation)를 쓰며, 모자라면 "
+            + "남은 후보(코드 순서) → 인기순으로 채운다. LLM이 고르지 않은 항목은 이유 코드의 정해진 문장이다. LLM이 실패하거나 "
+            + "시간 상한을 넘기거나 쓸 만한 답이 없으면 fallback=true이고 코드 순서와 정해진 문장으로 답한다. "
+            + "LLM에는 회원 ID·닉네임·자기소개를 보내지 않는다. basis·needsInterest·notice는 위젯 API와 같다. "
+            + "회원마다 주기당 호출 수를 제한한다(넘으면 429).")
+    RsData<InfluencerRecommendResDto> recommendExplained(@Parameter(hidden = true) Long userId,
+            @Valid RecommendButtonRequest request);
 }

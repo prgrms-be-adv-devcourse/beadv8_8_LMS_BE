@@ -83,15 +83,17 @@ public class LectureRecommendUseCase {
      * @param interest 사용자가 직접 입력한 관심사 문장({@link #normalizeInterest}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
-        Pool pool = pool(memberId, interest, properties.resultSize());
+        Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize());
         return complete(pool, pool.lectureIds());
     }
 
     /**
      * 맞춤 후보만 최대 {@code size}개(인기순 채움 없음). 제외 규칙과 판매자당 상한은 여기서 적용하므로 풀에서 어떤 강의를 골라도
      * 규칙을 지킨다.
+     *
+     * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
      */
-    public Pool pool(long memberId, @Nullable String interest, int size) {
+    public Pool pool(long memberId, @Nullable List<String> interest, int size) {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
@@ -145,11 +147,11 @@ public class LectureRecommendUseCase {
         return toRecommendation(fillPopular(pool, picked), pool.reasons(), pool.needsInterest(), pool.basis());
     }
 
-    private Pool personalized(long memberId, @Nullable String interest, List<LectureSignals.Signal> signals,
+    private Pool personalized(long memberId, @Nullable List<String> interest, List<LectureSignals.Signal> signals,
             Set<Long> excluded, int size) {
         Map<Long, float[]> signalVectors =
                 VectorCall.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
-        float[] interestVector = interest == null ? null : VectorCall.run(() -> embedder.embedQuery(interest));
+        float[] interestVector = interest == null ? null : VectorCall.run(() -> embedder.embedInterest(interest));
         LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {

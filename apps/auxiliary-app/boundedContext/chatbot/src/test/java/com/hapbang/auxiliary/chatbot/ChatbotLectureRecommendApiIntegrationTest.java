@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.chatbot;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -32,7 +34,8 @@ import io.micrometer.core.instrument.MeterRegistry;
  */
 @Import(FakeAiModelsConfig.class)
 @TestPropertySource(properties = {"hapbang.chatbot.recommend.lecture.rate-limit.limit=2",
-        "hapbang.chatbot.recommend.lecture.widget-rate-limit.limit=5"})
+        "hapbang.chatbot.recommend.lecture.widget-rate-limit.limit=5",
+        "hapbang.chatbot.recommend.lecture.button-rate-limit.limit=2"})
 class ChatbotLectureRecommendApiIntegrationTest extends ChatbotIntegrationTestBase {
 
     private static final String PATH = "/api/v1/chatbot/recommendations/lectures";
@@ -51,14 +54,45 @@ class ChatbotLectureRecommendApiIntegrationTest extends ChatbotIntegrationTestBa
         data.member(2);
         data.member(7);
         data.member(8);
+        data.member(9);
         data.member(100);
         data.lecture(10, 100, "스프링 입문", "스프링 부트", List.of(), true, false, false);
     }
 
     @Test
-    @DisplayName("로그인하지 않으면 401")
+    @DisplayName("로그인하지 않으면 401(위젯·버튼)")
     void anonymousIsUnauthorized() throws Exception {
         mockMvc.perform(get(PATH)).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(PATH + "/explained")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("버튼 API: 본문이 없어도 된다. 맞춤 후보가 없으면 LLM 없이 인기순, fallback=false. 관심사 101자는 400")
+    void buttonContract() throws Exception {
+        mockMvc.perform(post(PATH + "/explained").with(login(1L)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].lectureId").value(10))
+                .andExpect(jsonPath("$.data.basis").value("POPULAR"))
+                .andExpect(jsonPath("$.data.fallback").value(false));
+        mockMvc.perform(post(PATH + "/explained").with(login(1L)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(PATH + "/explained").with(login(1L)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"interest\": \"" + "가".repeat(101) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("버튼 API는 위젯과 따로 좁은 한도(테스트 2회)를 센다. 넘으면 429, 지표는 lecture_button")
+    void buttonRateLimit() throws Exception {
+        long userId = 9L;
+        double rejected = rejected("lecture_button");
+        mockMvc.perform(post(PATH + "/explained").with(login(userId))).andExpect(status().isOk());
+        mockMvc.perform(post(PATH + "/explained").with(login(userId))).andExpect(status().isOk());
+
+        mockMvc.perform(post(PATH + "/explained").with(login(userId))).andExpect(status().isTooManyRequests());
+        mockMvc.perform(get(PATH).with(login(userId))).andExpect(status().isOk());
+        assertThat(rejected("lecture_button")).isEqualTo(rejected + 1);
     }
 
     @Test
@@ -142,5 +176,10 @@ class ChatbotLectureRecommendApiIntegrationTest extends ChatbotIntegrationTestBa
             request.addHeader(GatewayUserHeaderFilter.USER_ROLE, Role.USER.name());
             return request;
         };
+    }
+
+    private double rejected(String feature) {
+        var counter = meterRegistry.find("hapbang.chatbot.rate.limit.rejected").tag("feature", feature).counter();
+        return counter == null ? 0 : counter.count();
     }
 }

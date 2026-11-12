@@ -22,12 +22,15 @@ public final class ChatToolContext {
     /** Tool이 찾은 FAQ를 담는 목록. 값은 스레드 안전한 {@code Collection<FaqHit>}이어야 한다(스트림은 다른 스레드에서 Tool을 부른다) */
     public static final String FAQ_SOURCES = "faqSources";
 
+    /** 추천 Tool이 만든 카드와 부른 Tool 이름을 담는 수집기. 값은 {@link ChatCards.Collector} */
+    public static final String CARDS = "recommendCards";
+
     private ChatToolContext() {
     }
 
     /** 대화 한 번의 ToolContext */
-    public static Map<String, Object> of(long memberId, Collection<FaqHit> faqSources) {
-        return Map.of(MEMBER_ID, memberId, FAQ_SOURCES, faqSources);
+    public static Map<String, Object> of(long memberId, Collection<FaqHit> faqSources, ChatCards.Collector cards) {
+        return Map.of(MEMBER_ID, memberId, FAQ_SOURCES, faqSources, CARDS, cards);
     }
 
     /** @param tool 거절 메시지에 넣을 Tool 이름 */
@@ -36,6 +39,13 @@ public final class ChatToolContext {
             return memberId;
         }
         throw new IllegalStateException("ToolContext에 " + MEMBER_ID + "가 없어 " + tool + " 호출을 거절한다");
+    }
+
+    static ChatCards.Collector cards(@Nullable ToolContext toolContext, String tool) {
+        if (toolContext != null && toolContext.getContext().get(CARDS) instanceof ChatCards.Collector cards) {
+            return cards;
+        }
+        throw new IllegalStateException("ToolContext에 " + CARDS + "가 없어 " + tool + " 호출을 거절한다");
     }
 
     @SuppressWarnings("unchecked")

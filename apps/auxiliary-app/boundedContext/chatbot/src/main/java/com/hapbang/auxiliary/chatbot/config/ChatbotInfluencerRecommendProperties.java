@@ -23,7 +23,6 @@ import jakarta.validation.constraints.Positive;
  * @param popularity        인기 점수
  * @param rateLimit         LLM 설명 버튼 경로({@code /explained})의 회원별 호출 제한
  * @param widgetRateLimit   위젯 경로(LLM 없음)의 회원별 호출 제한. 요청마다 추천 가능 회원 전체의 인기를 집계하므로 연타만 막는다
- * @param explainTimeout    LLM 설명 한 번의 시간 상한. 넘으면 이유 코드 문장으로 답한다
  * @param interestMaxLength 자유 질문 Tool이 받은 관심사 문장의 최대 길이(글자 수, 이모지도 한 글자). 넘으면 자른다(임베딩 비용 상한)
  * @param categoryNamesTtl  회원 API에서 받은 분야 이름 표를 들고 있는 시간
  * @param categoryNamesRetry 분야 이름 표를 받지 못했을 때 다시 받기까지 기다리는 시간(TTL보다 짧게: 기동 직후 실패가 오래 가지 않게)
@@ -41,7 +40,6 @@ public record ChatbotInfluencerRecommendProperties(
         @DefaultValue @Valid Popularity popularity,
         @DefaultValue @Valid RateLimit rateLimit,
         @DefaultValue @Valid WidgetRateLimit widgetRateLimit,
-        @DefaultValue("15s") @NotNull Duration explainTimeout,
         @DefaultValue("100") @Positive int interestMaxLength,
         @DefaultValue("10m") @NotNull Duration categoryNamesTtl,
         @DefaultValue("30s") @NotNull Duration categoryNamesRetry,

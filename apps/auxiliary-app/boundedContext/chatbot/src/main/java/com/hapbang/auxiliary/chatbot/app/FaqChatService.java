@@ -150,7 +150,7 @@ public class FaqChatService {
         return chatClient.prompt()
                 .user(message)
                 .tools(faqTools)
-                .toolContext(ChatToolContext.of(memberId, sources));
+                .toolContext(ChatToolContext.of(memberId, sources, new ChatCards.Collector()));
     }
 
     // 모델이 정상으로 답했을 때. Tool이 FAQ를 하나도 못 찾았으면 매칭 실패로 센다

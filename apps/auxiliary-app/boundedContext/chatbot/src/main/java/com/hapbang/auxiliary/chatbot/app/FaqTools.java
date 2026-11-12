@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.chatbot.app;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.ai.chat.model.ToolContext;
@@ -36,9 +37,11 @@ public class FaqTools {
             @ToolParam(description = "사용자의 질문을 한 문장으로. 예: 'HP 충전은 어떻게 해요?', '출연 취소하면 HP 돌려받나요?'")
             String question,
             ToolContext toolContext) {
+        Collection<FaqHit> sources = ChatToolContext.faqSources(toolContext);
+        ChatToolContext.cards(toolContext, TOOL_NAME).called(TOOL_NAME);
         metrics.toolCall(TOOL_NAME);
         List<FaqHit> hits = searchService.search(question);
-        ChatToolContext.faqSources(toolContext).addAll(hits);
+        sources.addAll(hits);
         return hits;
     }
 }
