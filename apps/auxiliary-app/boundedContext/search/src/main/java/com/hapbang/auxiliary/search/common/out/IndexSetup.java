@@ -64,7 +64,7 @@ public class IndexSetup {
             try {
                 syncSynonyms();
             } catch (SynonymsRejectedException e) {
-                // 쓰기는 동의어와 상관없다. ES의 지난 묶음으로 검색은 그대로 되고, 재색인 확인이 10분마다 ERROR로 알린다(PR #845 재리뷰)
+                // 쓰기는 동의어와 상관없다. ES의 지난 묶음으로 검색은 그대로 되고, 동의어 확인(SynonymsCheck)이 10분마다 ERROR로 알린다(PR #845 재리뷰, #895)
                 log.warn("검색 동의어 묶음을 ES가 거절해 지난 묶음으로 문서 쓰기를 계속한다", e);
             }
             // 처음 적재 전에는 이벤트마다 여기에 오므로 alias만 가볍게 본다(index 전체 조회 없음)
