@@ -36,7 +36,8 @@ import co.elastic.clients.json.JsonData;
  * 평점을 옛 값으로 되돌리지 못하게 한다.
  * <p>
  * 숨김(tombstone): 판매 중이 아닌 강의({@code onSale=false}: 판매 중지·검수 전·삭제)는 문서를 지우지 않고 {@code hidden=true}·
- * {@code hiddenAt}·version을 남긴다. 지우면 늦게 온 옛 이벤트가 문서를 되살린다. 7일 뒤 정리한다. 판매자 정지는 숨김이 아니라
+ * {@code hiddenAt}·version을 남긴다. 지우면 늦게 온 옛 이벤트가 문서를 되살린다. 7일 뒤 정리한다. 이미 숨긴 문서에 더 새 숨김 이벤트가 와도
+ * {@code hiddenAt}을 다시 찍는다(인플루언서와 같음). 정리 기준이 마지막 숨김 이벤트에서 7일이 되어 그 사이 늦게 온 옛 이벤트를 막는다(PR #906 리뷰). 판매자 정지는 숨김이 아니라
  * {@code sellerActive}로 나타낸다(Q2, 정지가 길어도 정리가 지우지 않는다).
  */
 @Component
