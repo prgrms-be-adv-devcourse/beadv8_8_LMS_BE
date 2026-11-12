@@ -43,9 +43,9 @@
 
 ## Swagger
 
-- 주소(#498): 앱마다 자기 모듈 경로 아래에 둔다. `/api/v1/<모듈>/swagger-ui.html`(화면), `/api/v1/<모듈>/v3/api-docs`(명세). 모듈 경로는 member `/api/v1/members`, lecture `/api/v1/lectures`, appearance `/api/v1/appearances`, billing `/api/v1/wallets`, chat `/api/v1/chats`, customer-support `/api/v1/inquiries`다. Gateway가 모듈 경로만 앱으로 보내므로 루트 `/swagger-ui`·`/v3/api-docs`는 쓰지 않는다. 모든 프로필에서 같다.
-- 설정은 앱의 `swagger.yml`에 있다. `application.yaml`과 모듈 테스트 설정(`hapbang-module-test.yaml`)이 함께 import하므로 앱의 `*SwaggerPublicTest`가 실제 경로·운영 값을 검사한다. 경로를 바꾸면 `SecurityConfig`의 Swagger permitAll도 바꾼다.
-- 운영은 누구나 볼 수 있다. 상단 목록에서 6개 앱 명세를 고른다(같은 도메인이라 가능).
+- 주소(#498): 앱마다 자기 모듈 경로 아래에 둔다. `/api/v1/<모듈>/swagger-ui.html`(화면), `/api/v1/<모듈>/v3/api-docs`(명세). 모듈 경로는 member `/api/v1/members`, lecture `/api/v1/lectures`, appearance `/api/v1/appearances`, billing `/api/v1/wallets`, chat `/api/v1/chats`, customer-support `/api/v1/inquiries`다. auxiliary-app은 검색·챗봇·알림 모듈이 명세 하나를 함께 쓰므로 어느 모듈 경로도 아닌 앱 경로 `/api/v1/auxiliary` 아래에 둔다. Gateway가 모듈 경로(auxiliary-app은 앱 경로)만 앱으로 보내므로 루트 `/swagger-ui`·`/v3/api-docs`는 쓰지 않는다. 모든 프로필에서 같다.
+- 설정은 앱의 `swagger.yml`에 있다(auxiliary-app은 `global/src/main/resources/swagger.yml`). `application.yaml`과 모듈 테스트 설정(`hapbang-module-test.yaml`)이 함께 import하므로 앱의 `*SwaggerPublicTest`가 실제 경로·운영 값을 검사한다. auxiliary-app의 `AuxiliarySwaggerPublicTest`는 `global`에 있고, 운영 설정으로 앱 전체를 띄울 수 없어(DB·OpenAI 환경 변수, ES 인증서 파일) MVC 계층과 springdoc만 띄워 운영 목록을 검사한다. 경로를 바꾸면 `SecurityConfig`의 Swagger permitAll도 바꾼다.
+- 운영은 누구나 볼 수 있다. 상단 목록에서 7개 앱 명세를 고른다(같은 도메인이라 가능, #894). 목록은 앱마다 `swagger.yml`의 `urls`에 7개를 모두 적고 자기 앱을 기본(`urls-primary-name`)으로 둔다. 앱을 더하면 모든 앱의 `swagger.yml`과 `*SwaggerPublicTest`를 함께 고친다. 목록 이름은 모듈 이름이고, auxiliary-app은 `검색·챗봇·알림`이다.
 - Authorize 버튼(`hapbang.swagger.bearer-auth.enabled`): 운영(true)은 access token을 `bearerAuth`에 넣는다. 토큰은 구글 로그인 뒤 `POST /api/v1/members/auth/refresh`를 실행해 응답의 `data.accessToken`으로 받는다(회원 명세 설명). 로컬(false)은 앱 포트로 열고 `X-User-Id`·`X-User-Role` 값을 넣는다(로컬 Envoy를 거치면 지워진다, [로컬 실행](../dev/local.md#로그인과-사용자-헤더)). 운영에는 헤더 방식을 두지 않는다(Envoy가 외부의 `X-User-*`를 지운다). 토큰은 브라우저 저장소에 남기지 않는다(`persistAuthorization` 끔).
 - enum 설명(springdoc 3.1.1, OAS 3.1): 상수별 설명은 지원되지 않는다. enum 타입의 `@Schema(description)`이 필드에 인라인되지만, 필드에 `description`이 있으면 덮어쓴다.
 - 쿼리 파라미터는 Swagger UI가 스키마 설명을 보여 주지 않으므로 Spec의 `@Parameter(description)`에 둔다 (#112).
