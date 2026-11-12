@@ -29,6 +29,9 @@ hapbang:
     # 고객센터 알림 소비자(N7)도 같은 이유로 끄고, 그 시험 클래스만 켠다
     customersupport-events:
       enabled: false
+    # 채팅 알림 소비자(N9)도 같은 이유로 끄고, 그 시험 클래스만 켠다
+    chat-events:
+      enabled: false
     # 실시간 전달(웹소켓·Redis)도 운영 기본값은 켜짐이다. 대부분의 테스트에는 Redis가 없으므로 끄고, 실시간 시험(@NotificationRealtimeTest)만 켠다
     realtime:
       enabled: false
