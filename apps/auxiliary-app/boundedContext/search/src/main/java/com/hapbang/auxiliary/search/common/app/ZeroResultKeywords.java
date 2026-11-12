@@ -8,8 +8,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import org.springframework.stereotype.Component;
-
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -24,10 +22,11 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>검색어는 앞뒤·연속 공백을 정리하고 소문자로 바꿔 센다. 한 주기에 서로 다른 검색어는 {@value #MAX_KEYWORDS}개까지 세고 넘치면 수만 센다.
  *     로그에는 많이 나온 순서로 {@value #MAX_LOGGED}개까지 남긴다.</li>
  *     <li>pod마다 따로 센다. 앱이 내려가면 아직 찍지 않은 주기분은 사라진다(지표 {@code hapbang.search.zero.results}는 남는다).</li>
+ *     <li>대상(인플루언서·강의)마다 따로 센다(#883 Q4). 어느 검색에서 실패한 말인지 알 수 있고, 한 대상의 검색어가 상한을 차지해 다른 대상의
+ *     검색어를 밀어내지 않는다. 대상은 생성자만 둔 얇은 하위 클래스로 빈을 만든다(예: {@code InfluencerZeroResultKeywords}).</li>
  * </ul>
  */
 @Slf4j
-@Component
 public class ZeroResultKeywords {
 
     static final int MAX_KEYWORDS = 1_000;
@@ -38,9 +37,18 @@ public class ZeroResultKeywords {
     /** 연락처 모양: 이메일(@), URL(://, www.), 숫자 8개 이상(전화번호·계좌 등) */
     private static final Pattern CONTACT_LIKE = Pattern.compile("@|://|www\\.|(\\d[\\s-]*){8,}");
 
+    private final String target;
+
     /** 한 주기의 검색어별 기록. 0건 요청만 지나가므로 락 하나로 충분하다(주기 교체와 겹친 1건을 잃지 않게) */
     private final Map<String, Tally> tallies = new HashMap<>();
     private long dropped;
+
+    /**
+     * @param target 로그의 대상 값(지표의 {@code target} 태그와 같다, 예: {@code influencer})
+     */
+    public ZeroResultKeywords(String target) {
+        this.target = target;
+    }
 
     /**
      * 회원이 찾은 0건 검색어 하나를 센다.
@@ -99,8 +107,8 @@ public class ZeroResultKeywords {
                 .limit(MAX_LOGGED)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
         if (!top.isEmpty()) {
-            log.info("여러 회원이 찾았지만 결과가 없던 검색어를 모았다 keywords={}, distinct={}, dropped={}", top, distinct,
-                    droppedCount);
+            log.info("여러 검색자가 찾았지만 결과가 없던 검색어를 모았다 target={}, keywords={}, distinct={}, dropped={}", target, top,
+                    distinct, droppedCount);
         }
         return top;
     }

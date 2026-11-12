@@ -13,7 +13,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
-import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
@@ -29,7 +28,7 @@ import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher.SearchResu
  *     전체 수도 그만큼까지만 센다.</li>
  *     <li>ES에 닿지 못하면 503 {@code SEARCH_UNAVAILABLE}이다. 회원 앱의 인플루언서 목록({@code GET /api/v1/members/influencers})은
  *     그대로 쓸 수 있다.</li>
- *     <li>필터 없이 검색어만으로 0건이면 검색어를 모은다({@link ZeroResultKeywords}). 필터가 좁아 0건인 것은 사전·동의어 문제가 아니라 세지 않는다.</li>
+ *     <li>필터 없이 검색어만으로 0건이면 검색어를 모은다({@link InfluencerZeroResultKeywords}). 필터가 좁아 0건인 것은 사전·동의어 문제가 아니라 세지 않는다.</li>
  * </ul>
  */
 @Service
@@ -41,10 +40,10 @@ public class InfluencerSearchFacade {
     private final InfluencerSearcher searcher;
     private final RatingBaseline ratingBaseline;
     private final SearchMetrics.Target metrics;
-    private final ZeroResultKeywords zeroResultKeywords;
+    private final InfluencerZeroResultKeywords zeroResultKeywords;
 
     public InfluencerSearchFacade(InfluencerSearcher searcher, RatingBaseline ratingBaseline, SearchMetrics metrics,
-            ZeroResultKeywords zeroResultKeywords) {
+            InfluencerZeroResultKeywords zeroResultKeywords) {
         this.searcher = searcher;
         this.ratingBaseline = ratingBaseline;
         this.metrics = metrics.forTarget(InfluencerIndexDefinition.METRIC_TARGET);
