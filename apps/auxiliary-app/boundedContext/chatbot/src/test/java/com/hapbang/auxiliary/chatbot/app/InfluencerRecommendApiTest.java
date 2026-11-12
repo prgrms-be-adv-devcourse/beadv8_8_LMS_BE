@@ -167,7 +167,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         String longInterest = "요".repeat(150);
 
         callback.call("{\"interest\": \"" + longInterest + "\"}",
-                new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
+                new ToolContext(ChatToolContext.of(1L, List.of())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(100)));
     }
@@ -180,7 +180,7 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         String interest = "요".repeat(99) + emoji + "요".repeat(10);
 
         callback.call("{\"interest\": \"" + interest + "\"}",
-                new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
+                new ToolContext(ChatToolContext.of(1L, List.of())));
 
         assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(99) + emoji));
     }
@@ -226,14 +226,14 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         assertThat(callback.getToolDefinition().name()).isEqualTo("recommendInfluencers");
         assertThat(schema).contains("interest").doesNotContainIgnoringCase("userId").doesNotContainIgnoringCase("memberId");
         // 다른 값만 있고 회원 ID가 없는 ToolContext(빈 ToolContext는 Spring AI가 먼저 거절한다)
-        assertThatThrownBy(() -> callback.call("{}", new ToolContext(Map.of("faqSources", List.of()))))
+        assertThatThrownBy(() -> callback.call("{}", new ToolContext(Map.of(ChatToolContext.FAQ_SOURCES, List.of()))))
                 .hasRootCauseInstanceOf(IllegalStateException.class);
 
         // 설명 글에 줄 합치기로 생긴 연속 공백이 없다(모델 프롬프트로 그대로 나간다)
         assertThat(callback.getToolDefinition().description()).doesNotContain("  ");
 
         double before = requests();
-        String result = callback.call("{}", new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
+        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of())));
         assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false")
                 .doesNotContain(SECRET_BIO);
         // Tool 경로도 API와 같은 사용 지표로 센다

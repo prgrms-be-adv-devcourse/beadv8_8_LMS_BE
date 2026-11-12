@@ -15,7 +15,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 모델이 부르는 강의 추천 Tool (#718). 자유 질문 대화(#720)가 Tool 목록에 넣는다.
  * <ul>
- *     <li><b>회원 ID는 요청마다 넘긴 {@link ToolContext}({@link #MEMBER_ID})에서만 꺼낸다.</b> Tool 인자로 받지 않는다
+ *     <li><b>회원 ID는 요청마다 넘긴 {@link ToolContext}({@link ChatToolContext#MEMBER_ID})에서만 꺼낸다.</b> Tool 인자로 받지 않는다
  *     ({@code ToolContext} 인자는 모델에게 보이는 인자 스키마에서 빠진다). 없으면 호출 쪽 잘못이라 거절한다.</li>
  *     <li>후보는 코드가 정한다({@link LectureRecommendUseCase}). 이유는 정해진 문장이다. 답 문장은 바깥 대화 LLM이 이 결과로 쓴다.
  *     화면의 추천 카드는 LLM 글이 아니라 이 결과로 그린다(#720).</li>
@@ -30,9 +30,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LectureRecommendTools {
 
-    /** ToolContext의 요청 회원 ID 키. 값은 {@link Long} */
-    public static final String MEMBER_ID = "memberId";
-
     private final LectureRecommendUseCase recommendUseCase;
 
     @Tool(name = "recommendLectures", description = """
@@ -44,20 +41,13 @@ public class LectureRecommendTools {
             @ToolParam(required = false, description = "사용자가 말한 관심 분야나 배우고 싶은 것을 한 문장으로. 예: '데이터 분석 입문', "
                     + "'유튜브 영상 편집'. 사용자가 말하지 않았으면 비운다") @Nullable String interest,
             ToolContext toolContext) {
-        long memberId = memberId(toolContext);
+        long memberId = ChatToolContext.memberId(toolContext, "recommendLectures");
         LectureRecommendation recommendation = recommendUseCase.recommend(memberId, truncate(
                 LectureRecommendUseCase.normalizeInterest(interest)));
         List<Item> items = recommendation.items().stream()
                 .map(item -> new Item(item.lectureId(), item.title(), item.reason(), item.reason().sentence(null)))
                 .toList();
         return new Result(items, recommendation.needsInterest(), recommendation.personalized());
-    }
-
-    private static long memberId(@Nullable ToolContext toolContext) {
-        if (toolContext != null && toolContext.getContext().get(MEMBER_ID) instanceof Long memberId) {
-            return memberId;
-        }
-        throw new IllegalStateException("ToolContext에 " + MEMBER_ID + "가 없어 강의 추천을 거절한다");
     }
 
     // 코드포인트로 센다(TextCut): API 검사(정규식의 .)와 같은 기준이다

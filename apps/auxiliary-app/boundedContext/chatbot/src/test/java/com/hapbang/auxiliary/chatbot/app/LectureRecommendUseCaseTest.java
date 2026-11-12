@@ -10,7 +10,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.SequencedMap;
 
 import org.junit.jupiter.api.AfterEach;
@@ -125,7 +124,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         lecture(61, 200, "추천 강의", FakeEmbeddingModel.withCosine(2, 3, 0.95));
         data.purchase(60, 6, 60, "OWNED", RecommendRows.AT);
         indexAll(60, 61);
-        ToolContext context = new ToolContext(Map.of(LectureRecommendTools.MEMBER_ID, 6L));
+        ToolContext context = new ToolContext(ChatToolContext.of(6L, List.of()));
 
         LectureRecommendation forScreen = useCase.recommend(6, null);
         LectureRecommendTools.Result forTool = tools.recommendLectures(null, context);

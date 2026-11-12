@@ -73,7 +73,7 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     void usesToolContextMemberId() {
         ToolCallback callback = ToolCallbacks.from(tools)[0];
 
-        String result = callback.call("{}", new ToolContext(Map.of(LectureRecommendTools.MEMBER_ID, 1L)));
+        String result = callback.call("{}", new ToolContext(ChatToolContext.of(1L, List.of())));
 
         assertThat(result).contains("\"lectureId\":10", "\"lectureId\":11", "\"needsInterest\":true", "\"personalized\":false",
                 "요즘 많이 듣는 강의예요.");
@@ -89,7 +89,7 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
         assertThatThrownBy(() -> callback.call("{}", new ToolContext(Map.of("other", 1L))))
                 .isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> tools.recommendLectures(null, new ToolContext(Map.of())))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining(LectureRecommendTools.MEMBER_ID);
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining(ChatToolContext.MEMBER_ID);
     }
 
     @Test
@@ -112,17 +112,20 @@ class LectureRecommendToolsTest extends ChatbotIntegrationTestBase {
     @Test
     @DisplayName("버튼 경로 프롬프트에는 후보 강의의 제목·소개와 근거 설명만 있고 회원 ID·회원이 산 강의는 없다")
     void explainPromptHasNoMemberInfo() {
+        // 회원 ID는 프롬프트의 다른 숫자와 겹치지 않는 값으로 둔다
+        long member = 90017;
+        data.member(member);
         data.lecture(12, 100, "회원이 산 강의", "비밀", List.of(), true, false, false);
-        data.purchase(2, 1, 12, "OWNED", RecommendRows.AT);
+        data.purchase(2, member, 12, "OWNED", RecommendRows.AT);
         chatModel.reply("[]");
 
-        explainUseCase.recommend(1, null);
+        explainUseCase.recommend(member, null);
 
         String prompt = chatModel.lastPrompt().getInstructions().stream().map(Message::getText)
                 .reduce("", (a, b) -> a + "\n" + b);
         assertThat(prompt).contains("강의 ID: 10", "스프링 입문", "스프링 부트로 웹 서비스를 만든다",
                 LectureRecommendReason.POPULAR.description());
-        assertThat(prompt).doesNotContain("회원이 산 강의").doesNotContain("회원 ID");
+        assertThat(prompt).doesNotContain("회원이 산 강의", "회원 ID", String.valueOf(member));
     }
 
     @Test
