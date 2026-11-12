@@ -22,9 +22,9 @@
 | 앱 | `auxiliary-app`의 `search` 모듈(#684, #714), database `auxiliary`의 schema `search`. `search`는 검색 index(`search-*`)만 소유한다. 같은 앱의 챗봇은 `chatbot-*` index를 따로 소유하며, 둘은 물리 cluster만 공유하고 API key도 따로다 |
 | 입력 | [1장](kafka.md) Kafka의 integration event. 강의 등록·수정·삭제·판매 상태 변경, 모집글 등록·수정·마감, 인플루언서 프로필 변경 등. 발행하는 모듈은 검색의 존재를 모른다 |
 | 진실의 원천 | 각 모듈의 PostgreSQL. ES index는 언제든 원본에서 다시 만들 수 있는 projection이다 |
-| API | 대상별 경로(#767 Q14): `GET /api/v1/search/influencers`(#771), 강의·모집은 `/search/lectures`·`/search/recruits`로 더한다. 통합 검색은 강의 색인과 FE 화면이 정해지면. 자동완성·추천은 범위 밖 |
+| API | 대상별 경로(#767 Q14): `GET /api/v1/search/influencers`(#771), `GET /api/v1/search/lectures`(#883, 비회원 포함), 모집은 `/search/recruits`로 더한다. 통합 검색은 강의 색인과 FE 화면이 정해지면. 자동완성·추천은 범위 밖 |
 | 멱등 | document ID = 원본 ID, 원본 version을 문서 필드에 두고 painless 조건부 쓰기로 더 큰 version만 반영한다. ES external versioning은 쓰지 않는다: 주기 통계 부분 갱신이 문서 버전을 올려 다음 원본 이벤트를 거절하게 만든다(#771 시험). 숨김은 삭제 대신 tombstone이다. 같은 이벤트를 두 번 받아도 결과가 같다 |
-| 공개 범위 | 판매 중인 강의, 공개된 모집글, 정상 인플루언서의 공개 프로필처럼 서비스에서 보이는 것만 색인한다. 검색 API는 policy.md를 따른다(인플루언서 검색은 로그인 회원만). 연락처 같은 개인 정보와 HP 금액은 넣지 않는다 |
+| 공개 범위 | 판매 중인 강의, 공개된 모집글, 정상 인플루언서의 공개 프로필처럼 서비스에서 보이는 것만 색인한다. 검색 API는 policy.md를 따른다(인플루언서 검색은 로그인 회원만, 강의 검색은 강의 목록처럼 비회원도 쓰고 회원·client IP별 호출 제한을 둔다). 연락처 같은 개인 정보와 HP 금액은 넣지 않는다 |
 
 ## 한국어 분석
 
@@ -65,7 +65,7 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 
 ## 결정 필요
 
-- 강의·모집 검색의 색인 필드, 기존 모듈 `keyword` 검색을 검색 모듈로 옮길지 남길지(프론트 공지 필요). 인플루언서는 #771에서 정했다
+- 모집 검색의 색인 필드, 기존 모집 `keyword` 검색을 검색 모듈로 옮길지 남길지(프론트 공지 필요). 인플루언서는 #771, 강의는 #881(색인 필드 #882, API #883)에서 정했다. 강의 목록 `GET /api/v1/lectures?keyword=`는 그대로 두고, 없앨지는 FE 전환 뒤 강의 담당과 정한다(L1)
 - 서비스 검색과 RAG 동시 부하에서 Elasticsearch memory·disk 한도
 
 ## 완료 증거
