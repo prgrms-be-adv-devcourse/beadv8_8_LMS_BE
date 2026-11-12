@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,8 +40,8 @@ import com.hapbang.shared.coupon.event.CouponIssueRequested;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-// 접수 입력(시각)과 Lua 결과의 응답 변환, 접수 직후 전송, 매진 캐시 분기를 본다. 결과 해석(fromLua)·캐시 TTL 판정은 도메인 테스트,
-// 판정·만료 계산·표식 쓰기는 Lua 테스트가 본다. 접수 경로는 DB를 읽지 않는다: 의존은 Redis 발급 저장소·Kafka 전송·매진 캐시·설정·지표·시계뿐이다
+// 접수 입력(시각)과 Lua 결과의 응답 변환, 접수 직후 전송(ACK를 기다리지 않음), 매진 캐시 분기를 본다. 결과 해석(fromLua)·캐시 TTL 판정은 도메인 테스트,
+// 판정·만료 계산은 Lua 테스트가 본다. 접수 경로는 DB를 읽지 않는다: 의존은 Redis 발급 저장소·Kafka 전송·매진 캐시·지표·시계뿐이다
 class CouponIssueRequestUseCaseTest {
 
     private static final String REQUEST_ID = "req-1";
@@ -64,8 +65,8 @@ class CouponIssueRequestUseCaseTest {
         // 고정 시계에 맞춰 매진 캐시의 만료 시계도 멈춘다
         useCase = new CouponIssueRequestUseCase(issueStore, publisher,
                 new CouponSoldOutCache(issueStore, properties, CouponSoldOutCacheProperties.defaults(), clock, meterRegistry,
-                        () -> 0L, Runnable::run), properties, registry(meterRegistry), clock);
-        when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
+                        () -> 0L, Runnable::run), registry(meterRegistry), clock);
+        when(publisher.send(any())).thenReturn(CompletableFuture.completedFuture(PublishResult.ACKED));
     }
 
     @Test
@@ -74,37 +75,41 @@ class CouponIssueRequestUseCaseTest {
 
         assertThat(constructors).hasSize(1);
         assertThat(constructors[0].getParameterTypes()).containsExactly(CouponIssueStore.class,
-                CouponIssueEventPublisher.class, CouponSoldOutCache.class, CouponIssueDeliveryProperties.class,
-                ObjectProvider.class, Clock.class);
+                CouponIssueEventPublisher.class, CouponSoldOutCache.class, ObjectProvider.class, Clock.class);
     }
 
     @Test
-    void 접수하면_밀리초로_자른_접수_시각과_Lua의_만료_시각과_epoch로_보내고_ACK면_PUBLISHED_표식을_붙인다() {
+    void 접수하면_밀리초로_자른_접수_시각과_Lua의_만료_시각과_epoch로_보내고_ACK를_기다리지_않고_ACCEPTED다() {
         when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(1, EXPIRES_AT, EPOCH));
+        CompletableFuture<PublishResult> pending = new CompletableFuture<>();
+        when(publisher.send(any())).thenReturn(pending);
 
         var result = useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID);
 
+        assertThat(pending).isNotDone();
         assertThat(result.result()).isEqualTo(IssueResponseCode.ACCEPTED);
         assertThat(result.issueRequestId()).isEqualTo(REQUEST_ID);
         assertThat(result.couponId()).isEqualTo(COUPON_ID);
         assertThat(result.expiresAt()).isEqualTo(EXPIRES_AT);
         verify(issueStore).tryIssue(new IssueAttempt(COUPON_ID, MEMBER_ID, REQUEST_ID, ISSUED_AT));
-        verify(publisher).publish(EVENT, Duration.ofSeconds(1));
-        verify(issueStore).markPublished(COUPON_ID, REQUEST_ID);
+        verify(publisher).send(EVENT);
+
+        pending.complete(PublishResult.ACKED);
         assertThat(meterRegistry.find(CouponIssueRequestUseCase.PUBLISH_FAILURE_METRIC).counter()).isNull();
     }
 
     @ParameterizedTest
     @EnumSource(value = PublishResult.class, names = {"FAILED", "TIMED_OUT"})
-    void 전송이_실패하거나_시간이_지나도_ACCEPTED이고_재고를_되돌리지_않으며_표식_없이_지표만_남긴다(PublishResult failure) {
+    void 응답_뒤에_전송이_실패하거나_시간이_지나면_지표만_남기고_재고와_접수_기록을_건드리지_않는다(PublishResult failure) {
         when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(1, EXPIRES_AT, EPOCH));
-        when(publisher.publish(any(), any())).thenReturn(failure);
+        CompletableFuture<PublishResult> pending = new CompletableFuture<>();
+        when(publisher.send(any())).thenReturn(pending);
 
         var result = useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID);
+        pending.complete(failure);
 
         assertThat(result.result()).isEqualTo(IssueResponseCode.ACCEPTED);
-        assertThat(result.expiresAt()).isEqualTo(EXPIRES_AT);
-        // 저장소 호출은 매진 확인과 접수뿐이다: 재고를 되돌리거나 기록을 지우는 호출이 없다
+        // 저장소 호출은 매진 확인과 접수뿐이다: 전송 결과로 재고를 되돌리거나 기록을 쓰는 호출이 없다
         verify(issueStore).isSoldOut(COUPON_ID);
         verify(issueStore).tryIssue(any());
         verifyNoMoreInteractions(issueStore);
@@ -113,21 +118,13 @@ class CouponIssueRequestUseCaseTest {
     }
 
     @Test
-    void 전송_포트가_예외를_던져도_ACCEPTED다() {
+    void 전송_포트가_예외를_던져도_ACCEPTED이고_실패로_센다() {
         when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(1, EXPIRES_AT, EPOCH));
-        when(publisher.publish(any(), any())).thenThrow(new IllegalStateException("broker"));
+        when(publisher.send(any())).thenThrow(new IllegalStateException("broker"));
 
         assertThat(useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID).result()).isEqualTo(IssueResponseCode.ACCEPTED);
-        verify(issueStore, never()).markPublished(anyLong(), anyString());
-    }
-
-    @Test
-    void 표식을_남기지_못해도_ACCEPTED다() {
-        when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(1, EXPIRES_AT, EPOCH));
-        when(issueStore.markPublished(anyLong(), anyString()))
-                .thenThrow(new CouponIssueStoreUnavailableException("redis", null));
-
-        assertThat(useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID).result()).isEqualTo(IssueResponseCode.ACCEPTED);
+        assertThat(meterRegistry.get(CouponIssueRequestUseCase.PUBLISH_FAILURE_METRIC).tag("result", "failed").counter()
+                .count()).isEqualTo(1);
     }
 
     @Test

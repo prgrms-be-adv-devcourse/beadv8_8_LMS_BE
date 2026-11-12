@@ -35,7 +35,6 @@ public class RedisCouponIssueStore implements CouponIssueStore {
 
     /** 테스트가 key를 바꿔 직접 실행할 수 있게 패키지 안에 연다(쓰기 실패 되돌리기 확인) */
     static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
-    private static final RedisScript<Long> MARK_PUBLISHED = CouponRedisLuaSupport.longLuaScript("lua/mark-published.lua");
     private static final RedisScript<Long> PREPARE = CouponRedisLuaSupport.longLuaScript("lua/prepare.lua");
     private static final RedisScript<Long> ALLOW_ISSUE = CouponRedisLuaSupport.longLuaScript("lua/allow-issue.lua");
     private static final RedisScript<Long> BLOCK = CouponRedisLuaSupport.longLuaScript("lua/block.lua");
@@ -189,19 +188,6 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         }
         IssueRequestRecord record = parseRecord(couponId, value.toString());
         return Optional.of(new IssueReceipt(record.memberId(), record.acceptedAt()));
-    }
-
-    @Override
-    public PublishMark markPublished(long couponId, String issueRequestId) {
-        long result = run("전송 표식 기록", () -> CouponRedisLuaSupport.runForLong(redisTemplate, MARK_PUBLISHED,
-                List.of(CouponRedisKeys.requests(couponId)), issueRequestId));
-        return switch ((int) result) {
-            case 1 -> PublishMark.MARKED;
-            case 2 -> PublishMark.ALREADY_MARKED;
-            case 0 -> PublishMark.SKIPPED;
-            default -> throw new CouponIssueStoreUnavailableException(
-                    "전송 표식을 쓰지 못했다 couponId=" + couponId + ", result=" + result, null);
-        };
     }
 
     @Override
