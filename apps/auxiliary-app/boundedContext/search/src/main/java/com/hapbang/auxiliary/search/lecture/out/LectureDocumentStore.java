@@ -26,9 +26,9 @@ import co.elastic.clients.json.JsonData;
  * <p>
  * 칸마다 출처가 하나다(Q2). 쓰는 곳도 출처마다 나뉜다.
  * <ul>
- *     <li>강의 칸(제목·소개·콘텐츠 제목·판매자 ID·숨김): 강의 이벤트({@link #writeLecture}). <b>강의 version 조건부 쓰기</b>로, 문서의
- *     {@code lectureVersion}보다 클 때만 반영한다. 순서가 뒤바뀐 이벤트·같은 이벤트 두 번·삭제 뒤 늦게 온 옛 이벤트는 noop이다. ES external
- *     versioning은 쓰지 않는다(판매자·평점 부분 갱신이 ES 문서 버전을 올려 다음 강의 이벤트를 거절하게 만든다, 인플루언서 #771과 같은 이유).</li>
+ *     <li>강의 칸(제목·소개·콘텐츠 제목·가격·판매자 ID·숨김): 강의 이벤트({@link #writeLecture}). <b>강의 version 조건부 쓰기</b>로, 문서의
+ *     {@code lectureVersion}보다 클 때만 반영한다(가격 칸만 같은 version에도 맞춘다, {@link #LECTURE_SCRIPT}). 순서가 뒤바뀐 이벤트·
+ *     같은 이벤트 두 번·삭제 뒤 늦게 온 옛 이벤트는 noop이다. ES external versioning은 쓰지 않는다(판매자·평점 부분 갱신이 ES 문서 버전을 올려 다음 강의 이벤트를 거절하게 만든다, 인플루언서 #771과 같은 이유).</li>
  *     <li>판매자 칸(닉네임·정상 여부): 회원 사본({@link #updateSeller}, {@link #writeSeller}).</li>
  *     <li>평점 칸(평균·리뷰 수): 리뷰 사본 집계({@link #writeRating}).</li>
  * </ul>
@@ -46,10 +46,25 @@ public class LectureDocumentStore {
     /**
      * 강의 이벤트 반영 script(scripted upsert). 문서가 없으면 {@code ctx._source}가 빈 문서다. {@code lectureId}가 없으면 새 문서로 보고 판매자·
      * 평점 칸도 채운다.
+     * <p>
+     * 가격 칸(#909): 넘긴 가격이 없으면(가격 필드가 생기기 전의 옛 메시지·응답) 문서 가격을 그대로 둔다. <b>같은 version</b>이면 다른 칸은 noop이고
+     * 넘긴 가격이 있고 문서와 다를 때만 가격 칸 하나를 고친다. 같은 강의 ID·version은 이벤트와 동기화 API가 같은 값이라
+     * ({@code docs/api/internal-lecture-sync.md}) 맞는 값이다. 가격을 모르는 옛 pod(롤링 배포 중)가 쓴 문서도 재발행·보정이 고친다.
      */
     static final String LECTURE_SCRIPT = """
             def current = ctx._source.lectureVersion;
-            if (current != null && ((Number) current).longValue() >= params.version) { ctx.op = 'noop'; return; }
+            if (current != null) {
+              long currentVersion = ((Number) current).longValue();
+              if (currentVersion > params.version) { ctx.op = 'noop'; return; }
+              if (currentVersion == params.version) {
+                if (params.priceHp != null && ctx._source.priceHp != params.priceHp) {
+                  ctx._source.priceHp = params.priceHp;
+                } else {
+                  ctx.op = 'noop';
+                }
+                return;
+              }
+            }
             boolean created = ctx._source.lectureId == null;
             ctx._source.lectureId = params.lectureId;
             ctx._source.lectureVersion = params.version;
@@ -57,6 +72,9 @@ public class LectureDocumentStore {
             ctx._source.title = params.title;
             ctx._source.description = params.description;
             ctx._source.contentTitles = params.contentTitles;
+            if (params.priceHp != null) {
+              ctx._source.priceHp = params.priceHp;
+            }
             if (params.visible) {
               ctx._source.hidden = false;
               ctx._source.remove('hiddenAt');
@@ -121,7 +139,8 @@ public class LectureDocumentStore {
      * @param seller 판매자 정보. 회원 사본에 아직 없으면 {@code null}(닉네임 없이, 정상 판매자로 넣고 회원 이벤트가 채운다)
      * @param rating 리뷰 사본의 평균·리뷰 수
      * @param now    숨긴 시각(7일 뒤 정리 기준)
-     * @return 새로 만들었으면 {@link WriteOutcome#CREATED}, 반영했으면 {@link WriteOutcome#UPDATED}, 옛 version이면 {@link WriteOutcome#NOOP}
+     * @return 새로 만들었으면 {@link WriteOutcome#CREATED}, 반영했으면(같은 version의 가격만 고친 경우 포함) {@link WriteOutcome#UPDATED},
+     *         옛 version이거나 같은 version에 고칠 가격이 없으면 {@link WriteOutcome#NOOP}
      * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
      * @throws DocumentRejectedException ES가 그 강의의 값 때문에 거절한 경우(다시 써도 같다)
      * @throws IllegalStateException     그 밖에 쓰지 못한 경우
@@ -228,6 +247,7 @@ public class LectureDocumentStore {
         params.put("title", JsonData.of(lecture.title()));
         putIfPresent(params, "description", lecture.description());
         params.put("contentTitles", JsonData.of(lecture.contents().stream().map(LectureContentSyncDto::title).toList()));
+        putIfPresent(params, "priceHp", lecture.priceHp());
         params.put("visible", JsonData.of(lecture.onSale()));
         params.put("now", JsonData.of(now.toEpochMilli()));
         putIfPresent(params, "sellerNickname", seller == null ? null : seller.nickname());
