@@ -5,8 +5,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import com.hapbang.auxiliary.search.influencer.out.SyncCursor;
-import com.hapbang.auxiliary.search.influencer.out.SyncCursorStore;
+import com.hapbang.auxiliary.search.out.SyncCursor;
+import com.hapbang.auxiliary.search.out.SyncCursorStore;
 
 /** DB 없이 커서를 메모리에 두는 가짜(#772). SQL은 {@code SyncCursorStoreTest}가 본다 */
 public class InMemorySyncCursorStore extends SyncCursorStore {

@@ -21,7 +21,15 @@ public enum SearchJob implements JobLockKey {
     /** 동의어 묶음 확인(10분마다, 모든 대상 공통 한 곳, #895) */
     SYNONYMS_CHECK(895_001L, "search-synonyms-check"),
     /** 강의 index의 7일 지난 tombstone 정리(하루 1번, #882). 대상마다 키를 따로 둔다(같은 키면 한 대상이 건너뛴다) */
-    LECTURE_TOMBSTONE_CLEANUP(882_001L, "search-lecture-tombstone-cleanup");
+    LECTURE_TOMBSTONE_CLEANUP(882_001L, "search-lecture-tombstone-cleanup"),
+    /** 강의 보정: 강의 동기화 API 전체 읽기(10분마다, #884). 강의 재색인 뒤 따라잡기도 같은 락이다 */
+    LECTURE_RECONCILE(884_001L, "search-lecture-reconcile"),
+    /** 리뷰 보정: 리뷰 동기화 API 전체 읽기와 판매자·평점 칸 맞추기(1시간마다, #884) */
+    LECTURE_REVIEW_RECONCILE(884_002L, "search-lecture-review-reconcile"),
+    /** 강의 판매자 사본의 회원 변경분 증분 보정(10분마다, #884) */
+    SELLER_RECONCILE(884_003L, "search-seller-reconcile"),
+    /** 강의 index 처음 적재·재색인(시작 때와 10분마다 확인, #884). 인플루언서 {@link #REINDEX}와 따로 잡는다 */
+    LECTURE_REINDEX(884_004L, "search-lecture-reindex");
 
     private final long lockKey;
     private final String tag;
