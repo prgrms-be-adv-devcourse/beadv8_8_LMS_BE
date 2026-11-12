@@ -57,11 +57,11 @@
 | M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 완료 | #818(PR #827, dev `1f2f353b`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
 | N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 완료 | #862(PR #879, dev `c503d46e`). 정책 ND-082~ND-087·ND-096 |
 | M3 | P1 | 출연 새 이벤트 12종 | 출연 | N0 | 완료 | #871. 12종 모두 `@Externalized`. 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 1장 |
-| M4 | P1 | 강의 새 이벤트 7종 | 강의 | N0 | 미착수 | 2026-11-06 조사: 7종 레코드가 없다(`LectureObjectionFiledEvent` 없음, `LectureObjectionFiledDto`만 있음). #712 `LectureChangedEvent`·`LecturePurchaseChangedEvent`는 부분 재사용 후보다(제목·금액·검수 상태·사유가 부족). 구매 확정 전이는 동기화 이벤트도 없다(`apps/lecture-app/src/main/java/com/hapbang/lecture/app/LectureSyncEvents.java:59`). 부분 4, 미충족 3 |
+| M4 | P1 | 강의 새 이벤트 7종 | 강의 | N0 | 완료 | #872. 7종 모두 `@Externalized`. 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
 | M5 | P1 | 지갑 새 이벤트 4종, 지급 이벤트 제목(ND-040) | 지갑 | N0 | 완료 | #873(PR #886, dev `69240da8`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 3장 |
 | M6 | P1 | 회원 새 이벤트 3종(반려 2종, 채널 인증 승인) | 회원 | N0 | 미착수 | 2026-11-06 조사: 반려 2종은 발행하지 않는다(미충족). 채널 인증 승인은 새 이벤트(ND-042), 승급 승인은 `UserModifiedEvent` 역할 비교(ND-016) |
 | M7 | P1 | 고객센터 새 이벤트 3종 | 고객센터 | N0 | 미착수 | 2026-11-06 조사: 3종 모두 발행하지 않는다(미충족) |
-| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908(정책 ND-110~ND-113, 구현·테스트 완료, dev 병합 뒤 NR-061, PR 전) |
+| N7 | P1 | M3~M7 이벤트 소비(모듈별) | 알림 | 해당 M, N2 | 진행 중 | 모듈별 Issue(ND-105). 지갑 4종 #907 완료(PR #912, 정책 ND-105~ND-109). 출연 10종 #908(정책 ND-110~ND-113, 구현·테스트 완료, dev 병합 뒤 NR-061, PR 전). 강의 7종 #910(정책 ND-114~ND-117) |
 | N8 | P1 | 강의 지급 하루 묶음 | 알림 | N2 | 완료 | #890(PR #903, dev `81a7347e`). 정책 ND-097~ND-104 |
 | M8 | P2 | 채팅: 단체방 이벤트 3종, `chat.events.v1` 토픽 | 채팅 | N0 | 미착수 | shared에 `Group*Event` 없음, 코드·설정에 `chat.events.v1` 없음. ND-043·ND-044 |
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 미착수 | 코드 없음 |
@@ -76,8 +76,8 @@
 | ID | 결정 주체 | 막는 작업 |
 | --- | --- | --- |
 | U2 (T3) | 알림 담당 + 강의 담당 | 작업 계획 확정 |
-| U3 | 알림 담당(+ FE) | 각 종류를 소비하는 작업(N6 이후. N5는 ND-075) |
-| U5 | 알림 담당 | 이벤트 소비(N6·N7. N5는 ND-073) |
+| U3 | 알림 담당(+ FE) | 각 종류를 소비하는 작업(N7의 남은 묶음. N5는 ND-075, N6는 ND-085, N7 강의는 ND-117) |
+| U5 | 알림 담당 | 이벤트 소비(N7의 남은 묶음. N5는 ND-073, N6는 ND-083, N7 강의는 ND-115) |
 | U6 (T5) | 팀 | N10 |
 | U11 | 알림 담당 (ND-099) | 규칙 밖 종류 코드를 쓰는 생성(N10. 승급 승인은 ND-071, 하루 묶음은 ND-098) |
 | U12 | 팀 + FE | 화면 표시(FE). 서버 생성은 막지 않는다 |

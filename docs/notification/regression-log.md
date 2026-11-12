@@ -86,6 +86,72 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-065 · 2026-11-12 · 통과 (N7 강의 #910 origin/dev 병합 뒤, 1차 실패 → 시험 격리 수정 뒤 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-065 |
+| 실행 날짜 | 1차 2026-11-12 15:27~15:31, 2차 15:33~15:44 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree `beadv8_8_LMS_BE-n7-lecture`) |
+| 커밋 | `6d738b9f`(origin/dev `b38a267f` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(지갑 #907 PR #912, 강의 #913, 검색 #914, 출연 #908 PR #916) 병합. 충돌 9파일(`NotificationTemplates`와 알림 문서 8개)은 dev 내용을 두고 강의 변경을 더해 풀었다. 지갑·출연이 먼저 병합돼 강의 결정을 ND-114~ND-117, 실행 기록을 NR-063·NR-064로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 지갑 4종 + 출연 10종 + 강의 7종) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-19, NT-GEN-20, NT-GEN-21, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차 실패(종료 코드 1, `:notification:test` 287개 중 6개 실패). 2차 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | 2차: `:notification` 287(dev 268 + 강의 19), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | F-TEST(시험 격리). `NotificationLectureProgressAlertTest`와 `NotificationAppearanceProgressAlertTest`가 둘 다 회원 ID를 800_000부터 만들어, 같은 DB에서 `pk_notification_user` 기본 키가 겹쳤다(`Key (id)=(800001) already exists`). 두 클래스만 함께 돌리면 순서에 따라 어느 한쪽 6개가 실패했다 |
+| 수정 내용 | 강의 Kafka 시험의 회원 ID 대역을 2_200_000으로 옮겼다(운영 코드 변경 없음). 두 클래스만 함께 돌려 통과를 확인한 뒤 2차 실행 |
+| 재실행 결과 | 2차 통과 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-064 · 2026-11-12 · 통과 (N7 강의 #910 자체 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-064 |
+| 실행 날짜 | 2026-11-12 14:18~14:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-063 + S6 리뷰 반영: `NotificationTemplates` 긴 줄 나눔, `module.md` 변경 이력 문장 |
+| 대상 기능 | NR-063과 같다 |
+| 관련 NT ID | NR-063과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0) |
+| 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13, `verifyModuleStructure`. `:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(새 실행 아님, NR-063 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-063 · 2026-11-12 · 통과 (N7 강의 #910, M4 7종 소비)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-063 |
+| 실행 날짜 | 2026-11-12 14:02~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | `LectureProgressAlerts`·`LectureProgressTemplates` 추가, `NotificationTemplates` 등록, `NotificationLectureEventListener`에 M4 7종(이전 형식 판별 없음). 앞선 TDD 실행: RED 1 단위 시험 컴파일 오류(클래스 없음), RED 2 단위 11 통과·Kafka 6 실패(리스너가 7종을 건너뛰어 0행·DLT 없음), GREEN 새 시험 19와 이의 제기 회귀(`NotificationCancelRequestAndObjectionAlertTest` 14, `LectureObjectionAlertsTest` 6) 통과 |
+| 대상 기능 | N7 강의 알림 7종, ND-114~ND-117 |
+| 관련 NT ID | NT-GEN-21, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 1차는 모든 시험 태스크를 새로 실행했으나 출력 파이프가 도구 시간 제한으로 끊겨, 같은 명령을 다시 돌려 종료 코드 0을 확인했다(2차는 모두 UP-TO-DATE, 새 실행 아님) |
+| 건수 | 1차 새로 실행: `:notification` 250, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
 #### NR-062 · 2026-11-12 · 통과 (N7 출연 #908 Bot 리뷰 반영: 상대 닉네임 읽는 순서 시험)
 
 | 항목 | 값 |
