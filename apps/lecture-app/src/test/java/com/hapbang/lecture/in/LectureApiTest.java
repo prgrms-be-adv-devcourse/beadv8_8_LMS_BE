@@ -265,6 +265,27 @@ class LectureApiTest {
     }
 
     @Test
+    void 썸네일_일괄_조회는_삭제한_강의_반려된_강의_볼_수_없는_썸네일_파일이면_null이다() throws Exception {
+        Long deletedLecture = register(SELLER_ID, uploadedThumbnail(SELLER_ID).getId());
+        approve(deletedLecture);
+        deleteLecture(deletedLecture);
+        Long rejected = register(SELLER_ID, uploadedThumbnail(SELLER_ID).getId());
+        reject(rejected);
+        FileResource deletedThumbnail = uploadedThumbnail(SELLER_ID);
+        Long onSaleWithDeletedFile = register(SELLER_ID, deletedThumbnail.getId());
+        approve(onSaleWithDeletedFile);
+        fileResourceRepository.save(deleted(deletedThumbnail));
+
+        mockMvc.perform(get("/api/v1/lectures/thumbnails")
+                        .param("ids", "%d,%d,%d".formatted(deletedLecture, rejected, onSaleWithDeletedFile)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.data['%d']".formatted(deletedLecture)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(rejected)).value(nullValue()))
+                .andExpect(jsonPath("$.data['%d']".formatted(onSaleWithDeletedFile)).value(nullValue()));
+    }
+
+    @Test
     void 썸네일_일괄_조회는_ids가_0개이거나_100개를_넘거나_숫자가_아니면_400이다() throws Exception {
         String hundredOne = String.join(",", Collections.nCopies(ApiV1LectureThumbnailSpec.MAX_IDS + 1, "1"));
 

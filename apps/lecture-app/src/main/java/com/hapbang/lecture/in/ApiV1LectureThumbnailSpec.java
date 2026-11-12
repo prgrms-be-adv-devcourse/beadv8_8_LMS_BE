@@ -36,7 +36,9 @@ public interface ApiV1LectureThumbnailSpec {
             description = "비회원도 조회할 수 있다. 강의 검색 결과처럼 강의 ID만 아는 화면이 썸네일을 채울 때 부른다 (#885). "
                     + "data는 {강의 ID: 썸네일 조회 URL}이고 요청한 ID마다 키가 있다(중복은 한 번). "
                     + "판매 중(ON_SALE)인 강의만 URL을 주고, 없는 강의·판매 중이 아닌 강의(검수 대기·반려·삭제)·썸네일이 없거나 "
-                    + "볼 수 없는 강의는 null이다. URL은 1시간 동안 쓸 수 있고(강의 목록과 같음) 만료되면 다시 조회한다. "
+                    + "볼 수 없는 강의는 null이다. URL은 대개 1시간 쓸 수 있다(강의 목록과 같음). 서버 자격 증명이 바뀌는 짧은 동안은 "
+                    + "더 짧을 수 있어, 만료되거나 불러오지 못하면 다시 조회한다. 응답 모양은 회원 프로필 사진 일괄 조회와 같지만 "
+                    + "주소를 캐시하지 않아 부를 때마다 URL이 달라진다. "
                     + "ids가 0개이거나 100개를 넘으면(중복 포함) 400 INVALID_REQUEST.")
     @ApiResponse(responseCode = "200", description = "강의 ID별 썸네일 조회 URL",
             content = @Content(mediaType = "application/json", examples = @ExampleObject(value = EXAMPLE)))

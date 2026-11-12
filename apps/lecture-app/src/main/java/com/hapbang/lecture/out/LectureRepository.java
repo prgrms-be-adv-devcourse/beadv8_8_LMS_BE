@@ -1,5 +1,6 @@
 package com.hapbang.lecture.out;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
@@ -28,6 +29,15 @@ public interface LectureRepository extends JpaRepository<Lecture, Long> {
                                                                             Pageable pageable);
 
     Page<Lecture> findBySellerUserId(Long sellerUserId, Pageable pageable);
+
+    /**
+     * 썸네일 일괄 조회(#885): 주어진 ID 중 판매 중인 강의(목록과 같은 조건: {@code ON_SALE}, 삭제 전)의 썸네일 파일 ID만 읽는다.
+     * 없는 강의·판매 중이 아닌 강의는 빠진다
+     */
+    @Query("select new com.hapbang.lecture.out.LectureThumbnailRef(l.id, l.thumbnailFileId) from Lecture l "
+            + "where l.id in :lectureIds and l.status = com.hapbang.lecture.domain.LectureStatus.ON_SALE "
+            + "and l.deletedAt is null")
+    List<LectureThumbnailRef> findOnSaleThumbnailRefs(@Param("lectureIds") Collection<Long> lectureIds);
 
     /**
      * 강의 동기화 내부 API(#712): {@code afterId}보다 큰 강의를 ID 오름차순으로 {@code limit}개. 모든 상태(검수 대기·반려·삭제 포함)다.
