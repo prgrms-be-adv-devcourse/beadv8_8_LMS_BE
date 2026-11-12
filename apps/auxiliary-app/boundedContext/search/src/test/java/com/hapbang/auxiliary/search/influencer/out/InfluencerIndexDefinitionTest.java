@@ -14,7 +14,7 @@ class InfluencerIndexDefinitionTest {
      * 운영 index 이름(#895 배포 뒤. 그 전은 {@code search-influencers-d656dfa35eee}). 사용자 사전·{@code influencers/index.json}·동의어 묶음
      * 이름을 바꾸면 이 값이 바뀌고 배포 때 재색인이 한 번 돈다. 그때는 PR 본문 "병합 전 확인"에 적고 이 값을 함께 고친다
      */
-    private static final String PRODUCTION_INDEX = "search-influencers-7e488ae0226e";
+    private static final String PRODUCTION_INDEX = "search-influencers-df33405ee9ab";
 
     @Test
     @DisplayName("레포 파일로 index 이름(search-influencers-해시 12자)과 본문을 만들고, 사용자 사전과 동의어 묶음 이름을 채운다")
