@@ -22,7 +22,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 출연·지갑·강의 알림 소비자를 첫 회원 복제본 Backfill 뒤에 시작한다(ND-078, 강의는 ND-087). 기존 회원의 알림이 복제본이 없어 DLT로 빠지지 않게 한다.
+ * 출연·지갑·강의·채팅 알림 소비자를 첫 회원 복제본 Backfill 뒤에 시작한다(ND-078, 강의는 ND-087, 채팅은 ND-127). 기존 회원의 알림이 복제본이 없어 DLT로 빠지지 않게 한다.
  * <ul>
  *     <li>앱이 뜬 뒤({@link ApplicationReadyEvent}) 별도 스레드에서 돈다. 앱 기동, 회원 복제본 리스너(가입 환영·승급 승인 포함,
  *     ND-080), 챗봇·검색, REST·WebSocket은 기다리지 않는다.</li>
@@ -43,7 +43,8 @@ public class NotificationAlertListenerStarter implements DisposableBean {
     public static final String WAITING_METRIC = "hapbang.notification.alert.listeners.waiting";
     /** Backfill 뒤에 시작하는 컨테이너 */
     static final List<String> ALERT_LISTENERS = List.of(NotificationAppearanceEventListener.LISTENER_ID,
-            NotificationBillingEventListener.LISTENER_ID, NotificationLectureEventListener.LISTENER_ID);
+            NotificationBillingEventListener.LISTENER_ID, NotificationLectureEventListener.LISTENER_ID,
+            NotificationChatEventListener.LISTENER_ID);
 
     private final NotificationUserBackfillService backfill;
     private final KafkaListenerEndpointRegistry registry;
@@ -70,7 +71,7 @@ public class NotificationAlertListenerStarter implements DisposableBean {
         this.retryMaxInterval = retryMaxInterval;
         this.stallAlertAfter = stallAlertAfter;
         meterRegistry.ifAvailable(meters -> Gauge.builder(WAITING_METRIC, waiting, AtomicInteger::get)
-                .description("출연·지갑·강의 알림 소비자가 기동 Backfill을 기다리는 중이면 1(pod마다)")
+                .description("출연·지갑·강의·채팅 알림 소비자가 기동 Backfill을 기다리는 중이면 1(pod마다)")
                 .register(meters));
     }
 
