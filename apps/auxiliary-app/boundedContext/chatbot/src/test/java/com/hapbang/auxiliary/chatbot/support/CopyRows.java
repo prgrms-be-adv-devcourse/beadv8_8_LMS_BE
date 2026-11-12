@@ -45,6 +45,11 @@ public record CopyRows(JdbcTemplate jdbc) {
         return jdbc.queryForObject("SELECT categories::text FROM chatbot.member_copy WHERE id = ?", String.class, id);
     }
 
+    /** 마스킹한 회원. 회원 사본은 건드리지 않는다(탈퇴 이벤트가 늦어 {@code ACTIVE}인 채 마스킹만 반영된 경우도 이것으로 만든다) */
+    public void masked(long userId) {
+        jdbc.update("INSERT INTO chatbot.masked_member (user_id, masked_at) VALUES (?, ?)", userId, SCHEDULED_AT);
+    }
+
     public List<Long> maskedMembers() {
         return jdbc.queryForList("SELECT user_id FROM chatbot.masked_member ORDER BY user_id", Long.class);
     }

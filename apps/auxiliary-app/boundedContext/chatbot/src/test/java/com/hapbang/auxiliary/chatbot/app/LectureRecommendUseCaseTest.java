@@ -81,10 +81,13 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("제외: 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·탈퇴 판매자·사본 없는 판매자는 가까워도 빠진다")
+    @DisplayName("제외: 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·탈퇴 판매자·사본 없는 판매자·"
+            + "마스킹 판매자(상태는 ACTIVE)는 가까워도 빠진다")
     void exclusions() {
         data.member(1);
         data.member(600, "WITHDRAWN");
+        data.member(650);
+        rows.masked(650);
         lecture(1, 100, "스프링 입문", FakeEmbeddingModel.axis(0));
         lecture(2, 100, "스프링 결제중", FakeEmbeddingModel.withCosine(0, 1, 0.99));
         lecture(3, 100, "스프링 장바구니", FakeEmbeddingModel.withCosine(0, 2, 0.9));
@@ -98,10 +101,11 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         lecture(8, 600, "스프링 탈퇴판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         lecture(9, 700, "스프링 사본없는판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         lecture(10, 200, "스프링 추천", FakeEmbeddingModel.withCosine(0, 1, 0.95));
+        lecture(11, 650, "스프링 마스킹판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         data.purchase(1, 1, 1, "OWNED", RecommendRows.AT);
         data.purchase(2, 1, 2, "PENDING", RecommendRows.AT);
         data.cart(1, 1, 3, false, RecommendRows.AT);
-        indexAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        indexAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
 
         LectureRecommendation result = useCase.recommend(1, null);
 
@@ -314,6 +318,20 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     void hiddenRequesterGetsNothing() {
         data.member(9, "WITHDRAWN");
         data.lecture(90, 100, "강의 90");
+
+        LectureRecommendation result = useCase.recommend(9, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.needsInterest()).isFalse();
+    }
+
+    @Test
+    @DisplayName("요청 회원이 마스킹이면 사본 상태가 ACTIVE여도 빈 결과(인기순도 주지 않는다)")
+    void maskedRequesterGetsNothing() {
+        data.member(9);
+        rows.masked(9);
+        data.lecture(90, 100, "강의 90");
+        owned(90, 3);
 
         LectureRecommendation result = useCase.recommend(9, null);
 

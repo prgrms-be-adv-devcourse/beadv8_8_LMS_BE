@@ -160,6 +160,32 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("요청 회원이 마스킹이면 사본 상태가 ACTIVE여도 빈 결과(탈퇴 이벤트가 늦게 와 마스킹만 반영된 경우)")
+    void maskedRequester() {
+        rows.masked(1L);
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.needsInterest()).isFalse();
+        assertThat(result.requesterHidden()).isTrue();
+    }
+
+    @Test
+    @DisplayName("마스킹된 인플루언서는 사본 상태가 ACTIVE여도 맞춤 후보에서도, 인기순 채우기에서도 빠진다")
+    void maskedCandidates() {
+        // 7·8은 프로필이 비어 인기순 채우기로만 들어온다
+        member(7L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        member(8L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        rows.masked(2L);
+        rows.masked(8L);
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(result.items()).extracting(Candidate::memberId).containsExactly(4L, 3L, 7L);
+    }
+
+    @Test
     @DisplayName("index가 없으면(첫 색인 전·ES 오류로 검색 실패) 인기순으로 채운다. needsInterest는 false(입력이 없는 것이 아니다)")
     void searchFailsWithoutIndex() throws Exception {
         member(7L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
