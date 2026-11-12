@@ -1,9 +1,14 @@
 package com.hapbang.auxiliary.search.lecture.out;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -46,15 +51,31 @@ public class SearchMemberCopyStore {
             WHERE id = :id
             """;
 
+    private static final String FIND_ALL = """
+            SELECT id, nickname, status, version FROM search.member_copy WHERE id IN (:ids)
+            """;
+
+    /** 한 행을 판매자 정보로 */
+    private static final RowMapper<Seller> SELLER_ROW = (rs, rowNum) -> new Seller(
+            rs.getLong("id"),
+            rs.getString("nickname"),
+            isActive(rs.getString("status")),
+            rs.getObject("version", Long.class));
+
     private final NamedParameterJdbcTemplate jdbc;
 
     /** 판매자 정보. 회원 사본에 없으면(그 회원 이벤트를 아직 받지 못함) 비어 있다 */
     public Optional<Seller> findSeller(long userId) {
-        return jdbc.query(FIND, new MapSqlParameterSource("id", userId), (rs, rowNum) -> new Seller(
-                rs.getLong("id"),
-                rs.getString("nickname"),
-                isActive(rs.getString("status")),
-                rs.getObject("version", Long.class))).stream().findFirst();
+        return jdbc.query(FIND, new MapSqlParameterSource("id", userId), SELLER_ROW).stream().findFirst();
+    }
+
+    /** 판매자 여러 명을 한 번에 읽는다(#884 처음 적재·따라잡기). 회원 사본에 없는 회원은 결과에 없다 */
+    public Map<Long, Seller> findSellers(Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return jdbc.query(FIND_ALL, new MapSqlParameterSource("ids", userIds), SELLER_ROW).stream()
+                .collect(Collectors.toMap(Seller::userId, Function.identity()));
     }
 
     /**

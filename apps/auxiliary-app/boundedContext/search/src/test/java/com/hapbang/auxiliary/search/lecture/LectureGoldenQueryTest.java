@@ -146,7 +146,7 @@ class LectureGoldenQueryTest {
                 contents.add(new LectureContentSyncDto((long) i + 1, doc.contents().get(i), i + 1));
             }
             long sellerUserId = 1_000 + doc.id();
-            store.writeLecture(new LectureSyncDto(doc.id(), sellerUserId, doc.title(), doc.description(), doc.onSale(),
+            store.writeLecture(new LectureSyncDto(doc.id(), sellerUserId, doc.title(), doc.description(), 10_000L, doc.onSale(),
                             false, contents, 1L),
                     new Seller(sellerUserId, doc.seller(), doc.sellerActive()),
                     doc.rating() == null ? LectureRating.NONE : new LectureRating(doc.rating(), doc.reviews()), NOW);

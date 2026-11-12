@@ -342,7 +342,7 @@ class LectureApiClientTest {
     void 강의_동기화_목록은_afterId와_size를_쿼리로_보내고_페이지를_돌려준다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"강의 동기화 목록을 조회했습니다.","data":{
-                  "items":[{"id":11,"sellerUserId":3,"title":"방송 장비 세팅","onSale":true,"deleted":false,
+                  "items":[{"id":11,"sellerUserId":3,"title":"방송 장비 세팅","priceHp":10000,"onSale":true,"deleted":false,
                     "contents":[{"id":21,"title":"1강","sequence":1},{"id":22,"title":"2강","sequence":2}],
                     "version":4}],
                   "nextAfterId":11}}""");
@@ -353,7 +353,7 @@ class LectureApiClientTest {
                 "/api/v1/internal/lectures/sync/lectures?afterId=10&size=1 key=" + API_KEY);
         assertThat(methods).containsExactly("GET");
         // 응답에서 빠진 소개는 null이다
-        assertThat(page.items()).containsExactly(new LectureSyncDto(11L, 3L, "방송 장비 세팅", null, true, false,
+        assertThat(page.items()).containsExactly(new LectureSyncDto(11L, 3L, "방송 장비 세팅", null, 10_000L, true, false,
                 List.of(new LectureContentSyncDto(21L, "1강", 1), new LectureContentSyncDto(22L, "2강", 2)), 4L));
         assertThat(page.nextAfterId()).isEqualTo(11L);
     }

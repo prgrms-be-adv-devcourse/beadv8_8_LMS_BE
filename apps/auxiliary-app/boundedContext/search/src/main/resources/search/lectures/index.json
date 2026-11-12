@@ -41,6 +41,7 @@
       "title": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "description": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "contentTitles": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "priceHp": { "type": "long" },
       "sellerUserId": { "type": "long" },
       "sellerNickname": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "sellerActive": { "type": "boolean" },

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
 import com.hapbang.shared.lecture.dto.LectureSyncDto;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
 
 /**
  * 강의 검색 쿼리(#883): 보일 강의 조건, 검색 필드, 정렬, highlights(HTML escape), 평점 반올림, 평균 C. nori ES 컨테이너로 돈다.
@@ -91,6 +93,47 @@ class LectureSearcherTest {
         List<LectureSearchItem> items = searcher.search(new LectureSearchCondition(null, LectureSort.RATING, 0, 20),
                 baseline, 1_000).items();
         assertThat(ids(items)).containsExactly(2L, 1L, 3L, 4L);
+    }
+
+    @Test
+    @DisplayName("가격순은 오름·내림이고 같은 가격은 강의 ID 내림차순, 가격 없는 강의는 어느 쪽이든 맨 뒤다. 응답에 가격을 싣는다(#909)")
+    void priceSort() throws Exception {
+        writePriced(1L, 30_000L);
+        writePriced(2L, 10_000L);
+        writePriced(3L, null);
+        writePriced(4L, 10_000L);
+        writePriced(5L, 50_000L);
+        refresh();
+
+        List<LectureSearchItem> ascending = search(null, LectureSort.PRICE_ASC);
+        assertThat(ids(ascending)).containsExactly(4L, 2L, 1L, 5L, 3L);
+        assertThat(ascending).extracting(LectureSearchItem::priceHp)
+                .containsExactly(10_000L, 10_000L, 30_000L, 50_000L, null);
+        assertThat(ids(search("강의", LectureSort.PRICE_DESC))).containsExactly(5L, 1L, 4L, 2L, 3L);
+    }
+
+    @Test
+    @DisplayName("alias가 가격 mapping이 없는 옛 index를 가리켜도(재색인이 옮기기 전) 가격순은 거절되지 않고 최신순으로 나온다(#909)")
+    void priceSortOnIndexWithoutPriceMapping() throws Exception {
+        SearchElasticsearch.reset(client);
+        String old = LectureIndexDefinition.INDEX_PREFIX + "old000000000";
+        client.indices().create(c -> c.index(old).mappings(m -> m.dynamic(DynamicMapping.Strict)
+                .properties("lectureId", p -> p.long_(l -> l))
+                .properties("hidden", p -> p.boolean_(b -> b))
+                .properties("sellerActive", p -> p.boolean_(b -> b))
+                .properties("title", p -> p.text(t -> t))));
+        client.indices().putAlias(a -> a.index(old).name(LectureIndexDefinition.ALIAS));
+        for (long id = 1; id <= 2; id++) {
+            long lectureId = id;
+            client.index(i -> i.index(old).id(String.valueOf(lectureId)).document(Map.of("lectureId", lectureId,
+                    "hidden", false, "sellerActive", true, "title", "강의 " + lectureId)));
+        }
+        refresh();
+
+        List<LectureSearchItem> items = search(null, LectureSort.PRICE_ASC);
+
+        assertThat(ids(items)).containsExactly(2L, 1L);
+        assertThat(items).extracting(LectureSearchItem::priceHp).containsOnlyNulls();
     }
 
     @Test
@@ -206,8 +249,13 @@ class LectureSearcherTest {
             contents.add(new LectureContentSyncDto((long) i + 1, contentTitles.get(i), i + 1));
         }
         long sellerUserId = seller == null ? 99L : seller.userId();
-        store.writeLecture(new LectureSyncDto(id, sellerUserId, title, description, onSale, false, contents, 1L), seller,
+        store.writeLecture(new LectureSyncDto(id, sellerUserId, title, description, 10_000L, onSale, false, contents, 1L), seller,
                 rating == null ? LectureRating.NONE : rating, NOW);
+    }
+
+    private void writePriced(long id, Long priceHp) {
+        store.writeLecture(new LectureSyncDto(id, 7L, "강의 " + id, "소개", priceHp, true, false, List.of(), 1L),
+                seller(7L, "편집장", true), LectureRating.NONE, NOW);
     }
 
     private static Seller seller(long userId, String nickname, boolean active) {

@@ -21,9 +21,9 @@ import com.hapbang.auxiliary.search.common.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.influencer.out.IndexedMember;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
-import com.hapbang.auxiliary.search.influencer.out.MemberChangeSource;
-import com.hapbang.auxiliary.search.influencer.out.SyncCursor;
-import com.hapbang.auxiliary.search.influencer.out.SyncCursorStore;
+import com.hapbang.auxiliary.search.out.MemberChangeSource;
+import com.hapbang.auxiliary.search.out.SyncCursor;
+import com.hapbang.auxiliary.search.out.SyncCursorStore;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
 import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.UserDto;
@@ -160,7 +160,7 @@ public class MemberChangeReconciler implements IndexCatchUp {
         MemberChangePageDto page;
         do {
             page = source.changes(afterUpdatedAt, afterId, PAGE_SIZE);
-            requireNextCursor(page);
+            MemberChangeSource.requireNextCursor(page);
             applyPage(page, counts);
             pages++;
             read += page.items().size();
@@ -196,20 +196,6 @@ public class MemberChangeReconciler implements IndexCatchUp {
             return new SyncCursor(CURSOR, now, SyncCursor.READ_FROM_ID, null);
         });
         return cursor.readFrom(OVERLAP);
-    }
-
-    /**
-     * 다음 커서가 빠진 응답을 거절한다(#769 계약: 항목이 있으면 커서를 주고, 빈 페이지는 hasNext=false). 받아들이면 같은 커서로 끝없이 다시 부르거나
-     * 커서를 저장하지 못한다.
-     */
-    private static void requireNextCursor(MemberChangePageDto page) {
-        boolean noCursor = page.nextAfterUpdatedAt() == null || page.nextAfterId() == null;
-        boolean partialCursor = (page.nextAfterUpdatedAt() == null) != (page.nextAfterId() == null);
-        if (partialCursor || (noCursor && (page.hasNext() || !page.items().isEmpty()))) {
-            throw new IllegalStateException("회원 변경분 응답에 다음 커서가 없습니다 items=" + page.items().size()
-                    + ", hasNext=" + page.hasNext() + ", nextAfterUpdatedAt=" + page.nextAfterUpdatedAt()
-                    + ", nextAfterId=" + page.nextAfterId());
-        }
     }
 
     private void applyPage(MemberChangePageDto page, Map<ReconcileKind, Long> counts) {
