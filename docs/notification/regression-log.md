@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-052 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-052 |
+| 실행 날짜 | 2026-11-12 10:30~10:38 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `5c6ca07c`(`5be856f4` Feat, `2ab396cf` Docs + origin/dev `b02e727c` 병합) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 세 태스크 모두 새로 실행) |
+| 건수 | 모두 새로 실행: `:notification` 229, `:auxiliary-app` 13, `:auxiliary-global` 109, `:chatbot` 245, `:search` 168. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(사용자 결정, CI에 맡김) |
+| 관련 변경 | #890 |
+
 #### NR-051 · 2026-11-12 · 통과 (N8 #890 자체 리뷰 반영 뒤)
 
 | 항목 | 값 |
