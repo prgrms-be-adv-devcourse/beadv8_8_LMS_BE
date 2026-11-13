@@ -137,6 +137,38 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - 기준값은 공급자마다 다르다(코사인 유사도). 운영(OpenAI) 값은 평가 전이라 "임시값"으로 표시한다.
 - 로컬 Ollama는 호출이 되는지 보는 개발용이고 품질은 운영 공급자로 본다. 2026-11-09 Ollama 평가는 hit@1 0.169, hit@3 0.399였고, 기준값 0.30~0.70 어디서도 범위 밖 질문 7개를 하나도 거르지 못했다(0.76에서 2개). `nomic-embed-text`가 영어 위주로 학습되어 한국어 문장의 뜻을 잘 가르지 못하는 것이 원인으로 보인다. 로컬에서 품질까지 보려면 다국어 임베딩 모델로 바꾸고 차원·index 이름을 함께 바꾼다.
 
+#### 추천 가중치 평가 (#867)
+
+추천 가중치(신호 가중·α·β·인플루언서 상대 가중·인기 식)를 더미 데이터로 재서 정한다. 평가 코드는 `src/test/.../llm/recommend/`에 있고, CI에서 돌지 않는다(`@Tag("llm")`).
+
+- **보정 루프**: 값 바꾸기 → 평가(80명) → 결과 표 기록 → 채택 또는 되돌림을 여러 번 돈다. 다 정하면 확인용 20명으로 한 번만 재고 `application-prod.yaml`에 값과 근거 주석을 넣는다. 이 루프를 비용 없이 여러 번 돌리려고 아래 두 가지를 둔다.
+  - **임베딩 캐시**: 처음 한 번만 임베딩 API를 부르고 벡터를 `~/.hapbang/recommend-eval-cache/`(환경 변수 `RECOMMEND_EVAL_CACHE_DIR`로 바꿀 수 있다)에 남긴다. 가중치를 바꾼 회차는 캐시만 읽는다. 레포 밖에 두는 것은 작업 폴더를 지운 뒤에도 같은 벡터로 다시 재기 위해서다(코드를 바꾼 뒤 기준선을 다시 잴 때 차이가 벡터가 아니라 코드에서만 나오게). 파일은 모델마다 따로이고 열쇠는 보낸 글의 해시라, 더미 글이 바뀌면 그 글만 다시 임베딩한다. 커밋하지 않는다.
+  - **운영 코드를 그대로 부른다**: 조합마다 설정 record를 새로 만들어 운영 추천 UseCase를 직접 만든다(앱을 다시 띄우지 않는다). 추천을 부르는 곳은 `app/RecommendEvalAccess` 하나다.
+- **더미 데이터**(`src/test/resources/chatbot/recommend-eval/dataset.json`): 시드 867로 만든다(`RecommendEvalDataGenerator`, 규칙은 클래스 주석). 분야 8개, 강의 120개(판매자 24명), 강의 회원 100명(취향 분야 1~2개, 신호의 20%는 취향 밖 잡음, 관심사 문장 하나), 인플루언서 100명(함께 출연을 마친 상대 2~8명). 이름·이메일은 없다. 생성기를 고치면 `$env:RECOMMEND_EVAL_REGENERATE = "yes"`를 켜고 `./gradlew :chatbot:test --tests '*RecommendEvalDataGeneratorTest' --rerun`으로 파일을 다시 만든 뒤 환경 변수를 지운다(`--rerun`이 없으면 Gradle이 환경 변수만 바뀐 실행을 건너뛴다).
+- **정답과 지표**: 강의는 회원마다 구매 하나, 인플루언서는 함께 완료한 상대 하나를 숨긴다(신호와 제외 목록 양쪽에서 뺀다). 회원마다 결과 수 5와 20으로 불러 hit@5·nDCG@5(사용자가 보는 5개)와 풀 recall@20(20개 중 맞춤 후보만, 인기순 채움 제외), 상위 5개의 서로 다른 항목 수(쏠림)를 찍는다. 강의는 "신호만"과 "신호+관심사" 두 줄이다(α는 관심사가 있을 때만 쓰인다).
+- **조합 주는 법**: `RECOMMEND_EVAL_GRID`에 바꿔 볼 값(`키=값,값;키=값,값`, 키 1~2개, 키마다 값 5개까지), `RECOMMEND_EVAL_BASE`에 채택해 고정할 값을 준다. 키는 `hapbang.chatbot.recommend.` 뒤의 이름이다(예: `lecture.popularity-weight`, `lecture.weights.cart`, `influencer.popularity.prior-reviews`). 둘 다 없으면 지금 설정값으로 기준선을 잰다. 바꾼 키가 강의뿐이면 강의만 돈다.
+
+```powershell
+# Docker Desktop을 켠다(PostgreSQL·ES Testcontainers). 앱은 띄우지 않는다
+$env:OPENAI_API_KEY = "<키>"
+
+# 조정용 80명: 기준선
+./gradlew :chatbot:llmTest --tests '*RecommendEvaluationOpenAiTest' --rerun
+# 조정용 80명: 격자(채택한 값은 BASE로 고정)
+$env:RECOMMEND_EVAL_GRID = "lecture.popularity-weight=0,0.05,0.1,0.2,0.3"
+$env:RECOMMEND_EVAL_BASE = "lecture.interest-weight=0.3"
+./gradlew :chatbot:llmTest --tests '*RecommendEvaluationOpenAiTest' --rerun
+
+# 확인용 20명(마지막에 한 번). 이 값이 켜지면 80명 실행은 꺼지고 BASE 한 줄만 잰다(GRID가 남아 있으면 실패한다)
+Remove-Item Env:RECOMMEND_EVAL_GRID
+$env:RECOMMEND_EVAL_BASE = "lecture.popularity-weight=0.1;lecture.interest-weight=0.3"
+$env:RECOMMEND_EVAL_HOLDOUT = "yes"
+./gradlew :chatbot:llmTest --tests '*RecommendEvaluationOpenAiTest' --rerun
+Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
+```
+
+- 평가 코드가 도는지는 가짜 임베딩으로 본다: `./gradlew :chatbot:llmTest --tests '*RecommendEvaluationFakeTest'`(키 필요 없음. 숫자는 의미가 없고, 정답이 신호·제외 목록에 없는지, 두 번째 실행이 모델을 부르지 않는지, 같은 입력이면 같은 숫자인지를 확인한다). 지표·정답 숨기기·캐시·조합 해석의 단위 테스트는 CI에서 돈다.
+
 ## 챗봇 추천 색인·LLM 공통 (#718)
 
 강의 추천(#718)·인플루언서 추천(#719)·자유 질문(#720)이 함께 쓰는 기반이다.
