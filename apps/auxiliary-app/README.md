@@ -130,6 +130,7 @@ docker compose -f apps/auxiliary-app/compose.yaml exec ollama ollama pull nomic-
 curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' -H 'X-User-Role: USER'   -H 'Content-Type: application/json' -d '{"message":"HP 충전은 어떻게 해요?"}'
 ```
 
+- 확인 화면(#720): 앱을 local 프로필로 띄운 뒤 `http://localhost:8087/local/chatbot/index.html`을 연다. 시작 버튼 4개와 자유 질문(스트림·한 번에)을 눌러 보고 응답·걸린 시간(ms)을 본다. 회원 ID·역할을 화면에서 정해 사용자 헤더로 싣는다. local 프로필에서만 서빙하고(`ChatbotLocalPageConfig`) 보안 설정도 local에서만 `/local/**`을 연다.
 - 루트 `.env`(Git에 올리지 않음, `.gitignore`)는 값에 따옴표를 쓰지 않는다. Spring은 `.env`를 properties로 읽어 따옴표까지 값으로 쓴다. 로컬 챗봇에는 OpenAI 키가 필요 없다.
 - 운영 모델은 OpenAI(chat `gpt-4o-mini`, 임베딩 `text-embedding-3-small`)이고 키는 Secret `OPENAI_API_KEY`로만 받는다.
 

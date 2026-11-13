@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.global.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -20,8 +21,10 @@ import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 @EnableMethodSecurity
 public class SecurityConfig {
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, Environment environment)
             throws Exception {
+        // 로컬 확인 화면(챗봇 #720, local 프로필에서만 서빙)은 local 프로필에서만 연다. 운영 규칙에는 들어가지 않는다
+        boolean local = environment.matchesProfiles("local");
         http
                 // Gateway가 넘긴 사용자 헤더로 인증한다(다른 앱과 같은 방식). 프론트는 access token을
                 // Authorization: Bearer로 보내고, 브라우저가 자동으로 싣는 쿠키로 인증하지 않으므로 CSRF 대상이 아니다
@@ -31,7 +34,12 @@ public class SecurityConfig {
                 .securityContext(context -> context
                         .securityContextRepository(new RequestAttributeSecurityContextRepository()))
                 .addFilterBefore(new GatewayUserHeaderFilter(), AbstractPreAuthenticatedProcessingFilter.class)
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(auth -> {
+                    if (local) {
+                        // 정적 화면만 연다. 화면이 부르는 API는 화면이 사용자 헤더를 직접 실어 보낸다(로컬에는 Gateway가 없다)
+                        auth.requestMatchers(HttpMethod.GET, "/local/**").permitAll();
+                    }
+                    auth
                         // Swagger는 모듈 경로 아래에 있다 (swagger.yml). 운영에서도 누구나 본다
                         .requestMatchers(HttpMethod.GET, "/api/v1/auxiliary/swagger-ui.html",
                                 "/api/v1/auxiliary/swagger-ui/**", "/api/v1/auxiliary/v3/api-docs/**").permitAll()
@@ -49,8 +57,8 @@ public class SecurityConfig {
                         // 강의 검색은 비회원도 쓴다(policy.md 강의 목록 비회원 O, #883). 회원이면 헤더로 인증되어 회원 한도로 센다
                         .requestMatchers(HttpMethod.GET, "/api/v1/search/lectures").permitAll()
                         // 업무 API는 비회원에게 열지 않는다. 역할 검사는 각 모듈 Facade의 @PreAuthorize로 한다(챗봇은 로그인 회원 전체)
-                        .anyRequest().authenticated()
-                )
+                        .anyRequest().authenticated();
+                })
                 // 로그인·로그아웃은 회원 앱의 책임이다. 비로그인 요청은 401
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
