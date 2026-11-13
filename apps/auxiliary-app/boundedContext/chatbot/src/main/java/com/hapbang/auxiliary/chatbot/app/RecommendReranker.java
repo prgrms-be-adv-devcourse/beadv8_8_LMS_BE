@@ -43,7 +43,7 @@ public class RecommendReranker {
     static final String SYSTEM_PROMPT = """
             너는 합방 서비스의 추천 카드에 들어갈 후보를 고르고 추천 이유를 쓴다. 항상 한국어로 쓴다.
             규칙:
-            - 주어진 후보 중에서 사용자에게 가장 알맞은 후보를 최대 %d개 골라 좋은 순서대로 쓴다.
+            - %s
             - 후보마다 candidate(후보 번호)와 reason(추천 이유 한두 문장)을 쓴다.
             - 후보 목록에 있는 사실만 근거로 쓴다. 가격·할인·수강생 수처럼 주어지지 않은 사실은 지어내지 않는다.
             - 추천 근거는 왜 후보가 되었는지다. 문장의 방향을 잡는 데만 쓰고 근거 이름을 그대로 쓰지 않는다.
@@ -80,7 +80,10 @@ public class RecommendReranker {
         }
         ChatbotRecommendLlmProperties.Rerank rerank = properties.rerank();
         List<String> shown = rerank.enabled() ? candidates : candidates.subList(0, Math.min(pick, candidates.size()));
-        String system = SYSTEM_PROMPT.formatted(pick, rerank.reasonMaxLength());
+        // 끄면 고르지 않고 보여 준 후보 모두에 이유만 받는다(순서는 코드가 정한다)
+        String task = rerank.enabled() ? "주어진 후보 중에서 사용자에게 가장 알맞은 후보를 최대 %d개 골라 좋은 순서대로 쓴다.".formatted(pick)
+                : "주어진 후보를 하나도 빼지 말고 모두, 주어진 순서대로 쓴다.";
+        String system = SYSTEM_PROMPT.formatted(task, rerank.reasonMaxLength());
         String user = prompt(subject, shown);
         LlmCallGuard.Result<Picks> result = llm.call(chatClient != null, rerank.timeout(), () -> {
             ChatClient.ChatClientRequestSpec request = chatClient.prompt().system(system).user(user)

@@ -52,6 +52,7 @@ class RecommendRerankerTest {
         assertThat(result.chosenThenRest(IDS).subList(0, 5)).containsExactly("a", "b", "c", "d", "e");
         assertThat(result.reasonsById(IDS)).containsOnlyKeys("b", "d").containsEntry("d", "넷째");
         assertThat(chatModel.lastPrompt().getUserMessage().getText()).contains("후보 5 |").doesNotContain("후보 6 |");
+        assertThat(chatModel.lastPrompt().getSystemMessage().getText()).contains("모두, 주어진 순서대로").doesNotContain("골라");
     }
 
     @Test

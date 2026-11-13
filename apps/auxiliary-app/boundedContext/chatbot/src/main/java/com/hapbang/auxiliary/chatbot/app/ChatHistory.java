@@ -11,6 +11,8 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * FE가 보낸 이전 대화 (#720, 11/09 결정: 서버는 대화를 저장하지 않는다).
  * <ul>
@@ -29,7 +31,9 @@ public final class ChatHistory {
     }
 
     /** 대화 하나 */
-    public record Entry(Role role, String content) {
+    public record Entry(
+            @Schema(description = "USER(사용자 메시지), ASSISTANT(챗봇 답변). 그 밖의 값은 400") Role role,
+            @Schema(description = "내용. USER 1~500자, ASSISTANT 1~2,000자(서버 설정 기본값)") String content) {
     }
 
     /** 대화의 역할 */

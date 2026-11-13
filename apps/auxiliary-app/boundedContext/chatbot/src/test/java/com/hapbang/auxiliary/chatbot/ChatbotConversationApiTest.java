@@ -209,13 +209,18 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("FAQ와 함께 쓰는 호출 제한(분당 10회)을 넘으면 429. 스트림은 SSE를 열지 않는다. history 400은 한도를 쓰지 않는다")
+    @DisplayName("FAQ 대화와 함께 쓰는 호출 제한(분당 10회)을 넘으면 429. 스트림은 SSE를 열지 않는다. history 400은 한도를 쓰지 않는다")
     void rateLimitBeforeStream() throws Exception {
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(message(PATH, "질문", List.of(Map.of("role", "USER", "content", " "))))
                     .andExpect(status().isBadRequest());
         }
-        for (int i = 0; i < 10; i++) {
+        // FAQ 대화(#715)로 5번, 자유 질문으로 5번: 같은 limiter라 합쳐 10번이다
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/v1/chatbot/chat/faq").with(login(member)).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"message\":\"FAQ 질문\"}")).andExpect(status().isOk());
+        }
+        for (int i = 0; i < 5; i++) {
             mockMvc.perform(message(PATH, "질문 " + i, List.of())).andExpect(status().isOk());
         }
 

@@ -251,7 +251,7 @@ public class ChatbotConversationService {
     private static void logFailure(Feature feature, @Nullable FallbackReason reason, @Nullable Throwable error) {
         if (reason != null && reason.attempted()) {
             log.warn("자유 질문 LLM이 실패해 정해진 답으로 대신한다 feature={} reason={} error={}", feature.tag(), reason.tag(),
-                    error == null ? null : error.getClass().getSimpleName());
+                    error == null ? null : error.getClass().getName());
         }
     }
 

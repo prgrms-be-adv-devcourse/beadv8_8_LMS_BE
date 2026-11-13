@@ -52,7 +52,7 @@
 | 50개까지 보낼 수 있다 | 400 `INVALID_CHAT_HISTORY` |
 | Tool 결과·추천 카드는 보내지 않는다 | 받는 필드가 없다 |
 
-응답(`RsData<ChatAnswer>`): `answer`(설명 글), `sources`(근거 FAQ), `cards`(`{lectures?: {basis, items}, influencers?: {basis, items}}`, 이번 요청에서 추천 Tool을 부른 종류만), `fallback`.
+응답(`RsData<ChatAnswerResDto>`): `answer`(설명 글), `sources`(근거 FAQ), `cards`(`{lectures?: {basis, items}, influencers?: {basis, items}}`, 이번 요청에서 추천 Tool을 부른 종류만), `fallback`.
 
 - **카드는 `cards`만 그린다.** `answer`는 설명이다. 스트림 글에서는 후보 ID를 검사할 수 없기 때문이다.
 - 강의 카드는 위젯 응답과 같은 `items` 모양이다. 다만 `reasonText`에 기준 강의 제목을 넣지 않는다("구매하신 강의와 비슷해요.").

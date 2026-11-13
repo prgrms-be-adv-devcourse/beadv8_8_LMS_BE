@@ -54,14 +54,15 @@ public class LectureRecommendTools {
         cards.called(TOOL_NAME);
         LectureRecommendation recommendation = recommendUseCase.recommend(memberId, truncate(
                 RecommendInterest.normalize(interest)));
-        List<Item> items = recommendation.items().stream()
-                .map(item -> new Item(item.lectureId(), item.title(), item.reason(), item.reason().sentence(null)))
-                .toList();
-        // 카드도 기준 강의 제목 없는 문장을 쓴다(대화 화면에 그대로 나가고, LLM 글과 같은 근거를 보이게)
-        cards.lectures(new ChatCardsResDto.LectureCards(recommendation.basis(), recommendation.items().stream()
+        // 카드와 Tool 결과 모두 기준 강의 제목 없는 문장을 쓴다(대화 화면에 그대로 나가고, LLM 글과 같은 근거를 보이게)
+        List<LectureRecommendResDto.Item> cardItems = recommendation.items().stream()
                 .map(item -> new LectureRecommendResDto.Item(item.lectureId(), item.title(), item.score(), item.reason(),
                         item.reason().sentence(null)))
-                .toList()));
+                .toList();
+        cards.lectures(new ChatCardsResDto.LectureCards(recommendation.basis(), cardItems));
+        List<Item> items = cardItems.stream()
+                .map(card -> new Item(card.lectureId(), card.title(), card.reason(), card.reasonText()))
+                .toList();
         return new Result(items, recommendation.needsInterest(), recommendation.basis(),
                 RecommendGuide.of(recommendation.basis()),
                 recommendation.requesterHidden() ? LectureRecommendResDto.REQUESTER_HIDDEN_NOTICE : null);

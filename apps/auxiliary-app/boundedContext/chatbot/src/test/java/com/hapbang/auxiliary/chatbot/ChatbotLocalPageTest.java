@@ -15,9 +15,12 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
+import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
+import com.hapbang.shared.member.domain.Role;
 
 /**
- * 로컬 확인 화면 (#720). local 프로필에서만 로그인 없이 열리고, 다른 프로필에서는 경로도 열리지도 않는다.
+ * 로컬 확인 화면 (#720). local 프로필에서만 로그인 없이 열린다. 다른 프로필에서는 보안 규칙이 열지 않아 401이고, 로그인해도
+ * 리소스 핸들러가 없어 404다.
  */
 class ChatbotLocalPageTest {
 
@@ -51,9 +54,11 @@ class ChatbotLocalPageTest {
         private MockMvc mockMvc;
 
         @Test
-        @DisplayName("보안 규칙이 열지 않는다(로그인 없으면 401)")
+        @DisplayName("보안 규칙이 열지 않는다(로그인 없으면 401). 로그인해도 화면을 서빙하지 않는다(404)")
         void notOpened() throws Exception {
             mockMvc.perform(get(PAGE)).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(PAGE).header(GatewayUserHeaderFilter.USER_ID, "1")
+                    .header(GatewayUserHeaderFilter.USER_ROLE, Role.USER.name())).andExpect(status().isNotFound());
         }
     }
 }

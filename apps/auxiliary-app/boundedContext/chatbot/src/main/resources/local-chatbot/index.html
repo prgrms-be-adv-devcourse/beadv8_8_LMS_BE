@@ -97,7 +97,8 @@
             return;
         }
         input.value = '';
-        const body = { message, history };
+        // 이전 대화만 보낸다. 배열을 복사해 두지 않으면 아래 push가 보낼 본문까지 바꿔 지금 질문이 history에 한 번 더 들어간다
+        const body = { message, history: [...history] };
         history.push({ role: 'USER', content: message });
         render();
         const answer = document.getElementById('useStream').checked ? await askStream(body) : await askOnce(body);
