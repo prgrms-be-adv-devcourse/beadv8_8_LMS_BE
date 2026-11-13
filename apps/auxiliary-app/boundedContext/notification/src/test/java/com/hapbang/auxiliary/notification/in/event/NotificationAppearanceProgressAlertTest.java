@@ -292,16 +292,34 @@ class NotificationAppearanceProgressAlertTest {
     // 행동한 상대 닉네임을 읽는 순서(ND-113, NotificationAlertService.createMentioning)
 
     @Test
-    void 받을_수_없는_호스트의_요청_수락은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
+    void 받을_수_없는_호스트의_요청_수락이라도_게스트는_방송_임박의_받는_사람이라_게스트_복제본이_없으면_DLT로_보낸다() {
+        // N7 출연 때는 게스트가 언급 회원일 뿐이라 건너뛰었다. N10부터 게스트는 예약의 받는 사람이다(ND-146)
         long host = withdrawnMember();
         long guestWithoutReplica = nextId();
 
         kafka.send(APPEARANCE_TOPIC, "mention:withdrawn",
                 new AppearanceRequestAcceptedEvent(request(host, guestWithoutReplica, "탈퇴 합방"), nextId(), AT));
+
+        new MemberEventKafka(bootstrapServers, APPEARANCE_TOPIC).awaitDeadLetter(APPEARANCE_DLT, "mention:withdrawn");
+        assertThat(rows(host)).isEmpty();
+    }
+
+    @Test
+    void 호스트와_게스트가_모두_받을_수_없는_회원이면_요청_수락은_예약도_알림도_없이_DLT_없이_건너뛴다() {
+        // ND-146 예외: 레코드의 받는 사람이 모두 수신 제외면 DLT로 보내지 않는다
+        long host = withdrawnMember();
+        long guest = withdrawnMember();
+        long appearanceId = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "both:withdrawn",
+                new AppearanceRequestAcceptedEvent(request(host, guest, "모두 탈퇴 합방"), appearanceId, AT));
         awaitProcessed();
 
         assertThat(rows(host)).isEmpty();
-        assertThat(deadLetterKeys()).doesNotContain("mention:withdrawn");
+        assertThat(rows(guest)).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from notification.notification_schedule where target_id = ?",
+                Long.class, appearanceId)).isZero();
+        assertThat(deadLetterKeys()).doesNotContain("both:withdrawn");
     }
 
     @Test

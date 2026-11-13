@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
  * {@link LectureObjectionTemplates}, ND-085), 하루 묶음({@link PayoutDailyTemplate}, ND-100), N7 지갑 4종({@link WalletAlertTemplates}, ND-108),
  * N7 출연 10종({@link AppearanceProgressTemplates}, ND-113), N7 강의 7종({@link LectureProgressTemplates}, ND-117),
  * N7 회원 3종({@link MemberReviewTemplates}, ND-121), N7 고객센터 2종({@link CustomerSupportAlertTemplates}, ND-126),
- * N9 채팅 3종({@link GroupRoomAlertTemplates}, ND-132)과 빈으로 더한 템플릿을 함께 둔다. 같은 종류가 둘이면 기동에 실패한다
+ * N9 채팅 3종({@link GroupRoomAlertTemplates}, ND-132), N10 예약 5종({@link ScheduleAlertTemplates}, ND-140)과 빈으로 더한 템플릿을
+ * 함께 둔다. 같은 종류가 둘이면 기동에 실패한다
  */
 @Component
 public class NotificationTemplates {
@@ -26,7 +27,8 @@ public class NotificationTemplates {
                 AppearanceCancelRequestTemplates.values(), AppearanceProgressTemplates.values(),
                 GroupRoomAlertTemplates.values(),
                 LectureObjectionTemplates.values(), LectureProgressTemplates.values(), PayoutDailyTemplate.values(),
-                WalletAlertTemplates.values(), MemberReviewTemplates.values(), CustomerSupportAlertTemplates.values())
+                WalletAlertTemplates.values(), MemberReviewTemplates.values(), CustomerSupportAlertTemplates.values(),
+                ScheduleAlertTemplates.values())
                 .flatMap(Arrays::stream);
         this.byKind = Stream.concat(builtIn, templates.orderedStream())
                 .collect(Collectors.toUnmodifiableMap(NotificationTemplate::kind, t -> t));
