@@ -48,6 +48,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.lecture.domain.LectureConfirmationType;
 import com.hapbang.shared.lecture.dto.LectureOrderItemDto;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemCanceledEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
@@ -279,6 +280,32 @@ class NotificationScheduleInputTest {
         assertThat(rows("LECTURE_ORDER_ITEM_CONFIRMING", itemId, buyer)).singleElement()
                 .satisfies(row -> assertThat(row).containsEntry("status", "CANCELED"));
         assertThat(kinds(buyer)).containsExactly("LECTURE_ORDER_PAID");
+    }
+
+    // ND-149: 이의 제기 접수가 구매 취소 마감 임박을 취소한다(순서와 관계없이)
+
+    @Test
+    void 이의_제기_접수는_구매_취소_마감_임박을_취소하고_먼저_와도_늦게_온_구매_완료가_예약을_만들지_않는다() {
+        long buyer = member();
+        long seller = member();
+        long afterPaid = nextId();
+        long beforePaid = nextId();
+        OffsetDateTime paidAt = OffsetDateTime.now();
+
+        kafka.send(LECTURE_TOPIC, "order:" + afterPaid, new LectureOrderPaidEvent(nextId(), buyer, List.of(
+                new LectureOrderItemDto(afterPaid, 1L, "자바", 1_000L)), paidAt));
+        kafka.send(LECTURE_TOPIC, "order-item:" + afterPaid, new LectureObjectionFiledEvent(nextId(), afterPaid,
+                buyer, seller, "자바", paidAt.plusMinutes(1)));
+        kafka.send(LECTURE_TOPIC, "order-item:" + beforePaid, new LectureObjectionFiledEvent(nextId(), beforePaid,
+                buyer, seller, "스프링", paidAt.plusMinutes(1)));
+        kafka.send(LECTURE_TOPIC, "order:" + beforePaid, new LectureOrderPaidEvent(nextId(), buyer, List.of(
+                new LectureOrderItemDto(beforePaid, 2L, "스프링", 1_000L)), paidAt));
+        awaitLectureProcessed();
+
+        assertThat(status("LECTURE_ORDER_ITEM_CONFIRMING", afterPaid, buyer)).isEqualTo("CANCELED");
+        assertThat(status("LECTURE_ORDER_ITEM_CONFIRMING", beforePaid, buyer)).isEqualTo("CANCELED");
+        // 이의 제기 접수 알림은 구매자·판매자에게 그대로 만든다
+        assertThat(kinds(seller)).containsExactly("LECTURE_OBJECTION_FILED", "LECTURE_OBJECTION_FILED");
     }
 
     private void awaitAppearanceProcessed() {

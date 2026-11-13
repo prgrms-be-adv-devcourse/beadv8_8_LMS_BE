@@ -33,6 +33,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.lecture.dto.LectureOrderItemDto;
 import com.hapbang.shared.lecture.domain.LectureConfirmationType;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemCanceledEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
 import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
@@ -189,6 +190,18 @@ class ScheduleInputsTest {
                 LectureConfirmationType.DIRECT, at)))
                 .containsExactly(new ScheduleCommand.Cancel(ScheduleKind.LECTURE_ORDER_ITEM_CONFIRMING, 101L, 7L,
                         ScheduleTimes.orderItemFallbackDeadline(at)));
+    }
+
+    // ND-149: 이의 제기 중에는 구매 취소가 불가능하다
+
+    @Test
+    void 이의_제기_접수는_접수_시각_대체_기한으로_구매_취소_마감_임박을_취소한다() {
+        OffsetDateTime filedAt = OffsetDateTime.parse("2026-11-16T09:00:00+09:00");
+
+        assertThat(ScheduleInputs.objectionFiled(new LectureObjectionFiledEvent(500L, 101L, 7L, 8L, "강의 A",
+                filedAt)))
+                .containsExactly(new ScheduleCommand.Cancel(ScheduleKind.LECTURE_ORDER_ITEM_CONFIRMING, 101L, 7L,
+                        ScheduleTimes.orderItemFallbackDeadline(filedAt)));
     }
 
     @Test

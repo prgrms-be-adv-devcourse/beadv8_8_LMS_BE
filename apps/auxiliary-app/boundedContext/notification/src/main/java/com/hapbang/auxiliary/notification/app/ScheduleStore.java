@@ -32,8 +32,18 @@ public interface ScheduleStore {
      */
     boolean cancel(ScheduleCommand.Cancel command, Instant now);
 
-    /** 보낼 시각이 지난 "예약" 행 ID를 보낼 시각 순으로 최대 {@code limit}개 */
+    /**
+     * 보낼 시각이 지났고 업무 기한은 아직 지나지 않은 "예약" 행 ID를 보낼 시각 순으로 최대 {@code limit}개. 기한이 지난 예약이 앞자리를
+     * 차지해 유효한 예약이 밀리지 않게 한다
+     */
     List<Long> findDueIds(Instant now, int limit);
+
+    /**
+     * 업무 기한이 지난(ND-144) "예약" 행을 최대 {@code limit}개 "건너뜀"으로 끝낸다(ND-135). 다른 트랜잭션이 쥔 행은 건너뛴다
+     *
+     * @return 끝낸 행 수
+     */
+    int skipExpired(Instant now, int limit);
 
     /** 행을 잠그고 읽는다(보내기 직전 재확인, ND-029). 없으면(정리됨) 빈 값 */
     Optional<Due> lockById(long id);

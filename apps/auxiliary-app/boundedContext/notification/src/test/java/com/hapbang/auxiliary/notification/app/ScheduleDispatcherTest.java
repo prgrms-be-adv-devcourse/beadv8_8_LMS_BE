@@ -2,7 +2,11 @@ package com.hapbang.auxiliary.notification.app;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,7 +73,7 @@ class ScheduleDispatcherTest {
                 deadlinePayload("합방"));
 
         long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, due, receiver);
-        assertThat(dispatcher.dispatchOne(id, NOW)).isEqualTo(ScheduleDispatcher.Outcome.SENT);
+        assertThat(dispatcher.dispatchOne(id, at(NOW))).isEqualTo(ScheduleDispatcher.Outcome.SENT);
 
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, due, receiver)).isEqualTo("SENT");
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, later, receiver)).isEqualTo("SCHEDULED");
@@ -94,17 +98,48 @@ class ScheduleDispatcherTest {
             long other = NEXT_ID.incrementAndGet();
             create(ScheduleKind.APPEARANCE_RECRUIT_CLOSING, other, receiver, NOW.minusSeconds(3_600 - i),
                     NOW.plusSeconds(86_400), deadlinePayload("모집" + i));
-            dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_RECRUIT_CLOSING, other, receiver), NOW);
+            dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_RECRUIT_CLOSING, other, receiver), at(NOW));
         }
         create(ScheduleKind.APPEARANCE_STARTING, target, receiver, NOW.minusSeconds(86_400), NOW.plusSeconds(86_400),
                 deadlinePayload("합방"));
 
-        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver), sentAt);
+        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver), at(sentAt));
 
         assertThat(jdbc.queryForObject("""
                 select deleted_at is null from notification.notification
                 where receiver_user_id = ? and kind = 'APPEARANCE_STARTING'
                 """, Boolean.class, receiver)).isTrue();
+    }
+
+    // ND-148·ND-135 (#929 리뷰 3): 회차 시작 시각이 아니라 행을 잠근 뒤의 시각으로 판정하고 그 시각을 발생 시각으로 쓴다
+
+    @Test
+    void 회차_시작에는_기한_전이었어도_행을_잠근_뒤_기한이_지났으면_건너뛴다() {
+        long receiver = member();
+        long target = NEXT_ID.incrementAndGet();
+        Instant selectedAt = Instant.parse("2004-01-01T00:00:00Z");
+        create(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver, selectedAt.minusSeconds(60),
+                selectedAt.plusSeconds(1), deadlinePayload("요청"));
+
+        dispatcher.runOnce(stepping(selectedAt, selectedAt.plusSeconds(2)));
+
+        assertThat(status(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver)).isEqualTo("SKIPPED");
+        assertThat(alertsOf(receiver)).isEmpty();
+    }
+
+    @Test
+    void 예약_알림의_발생_시각은_회차_시작이_아니라_보낸_시각이다() {
+        long receiver = member();
+        long target = NEXT_ID.incrementAndGet();
+        Instant selectedAt = Instant.parse("2004-02-01T00:00:00Z");
+        Instant sentAt = selectedAt.plusSeconds(5);
+        create(ScheduleKind.APPEARANCE_STARTING, target, receiver, selectedAt.minusSeconds(60),
+                selectedAt.plusSeconds(86_400), deadlinePayload("합방"));
+
+        dispatcher.runOnce(stepping(selectedAt, sentAt));
+
+        assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SENT");
+        assertThat(occurredAtOf(receiver)).isEqualTo(sentAt);
     }
 
     // ND-147: 같은 예약이 계속 실패하면
@@ -119,22 +154,22 @@ class ScheduleDispatcherTest {
                 Map.of("v", 1, "title", "합방"));
         long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver);
 
-        dispatcher.runOnce(now);
+        dispatcher.runOnce(at(now));
         assertThat(failureCount(id)).isEqualTo(1);
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
 
-        dispatcher.runOnce(now.plusSeconds(60));
+        dispatcher.runOnce(at(now.plusSeconds(60)));
         assertThat(failureCount(id)).isEqualTo(2);
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
 
-        ScheduleDispatcher.RunResult third = dispatcher.runOnce(now.plusSeconds(120));
+        ScheduleDispatcher.RunResult third = dispatcher.runOnce(at(now.plusSeconds(120)));
         assertThat(failureCount(id)).isEqualTo(3);
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SKIPPED");
         assertThat(third.failed()).isGreaterThanOrEqualTo(1);
         assertThat(alertsOf(receiver)).isEmpty();
 
         // 끝난 예약은 다음 회차가 다시 고르지 않는다
-        dispatcher.runOnce(now.plusSeconds(180));
+        dispatcher.runOnce(at(now.plusSeconds(180)));
         assertThat(failureCount(id)).isEqualTo(3);
     }
 
@@ -147,8 +182,8 @@ class ScheduleDispatcherTest {
         create(ScheduleKind.APPEARANCE_CONFIRM_PERIOD_ENDING, appearance, host, NOW.minusSeconds(1),
                 NOW.plusSeconds(86_400), deadlinePayload("합방"));
 
-        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, appearance, host), NOW);
-        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_CONFIRM_PERIOD_ENDING, appearance, host), NOW);
+        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, appearance, host), at(NOW));
+        dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_CONFIRM_PERIOD_ENDING, appearance, host), at(NOW));
 
         assertThat(alertsOf(host)).extracting(alert -> alert.get("kind"))
                 .containsExactlyInAnyOrder("APPEARANCE_STARTING", "APPEARANCE_CONFIRM_PERIOD_ENDING");
@@ -164,7 +199,7 @@ class ScheduleDispatcherTest {
                 NOW.plusSeconds(1), deadlinePayload("요청"));
         long id = scheduleId(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver);
 
-        assertThat(dispatcher.dispatchOne(id, NOW.plusSeconds(1))).isEqualTo(ScheduleDispatcher.Outcome.SKIPPED);
+        assertThat(dispatcher.dispatchOne(id, at(NOW.plusSeconds(1)))).isEqualTo(ScheduleDispatcher.Outcome.SKIPPED);
 
         assertThat(status(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver)).isEqualTo("SKIPPED");
         assertThat(alertsOf(receiver)).isEmpty();
@@ -177,7 +212,7 @@ class ScheduleDispatcherTest {
         create(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver, NOW.minusSeconds(3_600),
                 NOW.plusSeconds(1), deadlinePayload("요청"));
 
-        assertThat(dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver), NOW))
+        assertThat(dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_REQUEST_EXPIRING, target, receiver), at(NOW)))
                 .isEqualTo(ScheduleDispatcher.Outcome.SENT);
     }
 
@@ -189,7 +224,7 @@ class ScheduleDispatcherTest {
                 deadlinePayload("합방"));
         userSync.syncModified(new UserDto(receiver, "회원" + receiver, Role.INFLUENCER, UserStatus.WITHDRAWN, 1L));
 
-        assertThat(dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver), NOW))
+        assertThat(dispatcher.dispatchOne(scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver), at(NOW)))
                 .isEqualTo(ScheduleDispatcher.Outcome.SKIPPED);
 
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SKIPPED");
@@ -209,7 +244,7 @@ class ScheduleDispatcherTest {
         schedules.cancel(new ScheduleCommand.Cancel(ScheduleKind.APPEARANCE_STARTING, target, receiver,
                 NOW.plusSeconds(86_400)), NOW);
 
-        assertThat(dispatcher.dispatchOne(id, NOW)).isEqualTo(ScheduleDispatcher.Outcome.NOT_SCHEDULED);
+        assertThat(dispatcher.dispatchOne(id, at(NOW))).isEqualTo(ScheduleDispatcher.Outcome.NOT_SCHEDULED);
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("CANCELED");
         assertThat(alertsOf(receiver)).isEmpty();
     }
@@ -232,7 +267,7 @@ class ScheduleDispatcherTest {
                 await(commit);
             }));
             assertThat(canceledNotCommitted.await(10, TimeUnit.SECONDS)).isTrue();
-            Future<ScheduleDispatcher.Outcome> dispatch = pool.submit(() -> dispatcher.dispatchOne(id, NOW));
+            Future<ScheduleDispatcher.Outcome> dispatch = pool.submit(() -> dispatcher.dispatchOne(id, at(NOW)));
             // 배치는 행 잠금에서 기다린다
             assertThatThrownBy(() -> dispatch.get(500, TimeUnit.MILLISECONDS))
                     .isInstanceOf(java.util.concurrent.TimeoutException.class);
@@ -261,7 +296,7 @@ class ScheduleDispatcherTest {
         try {
             // 배치와 같은 처리(dispatchOne)를 바깥 트랜잭션 안에서 해 커밋을 붙잡는다
             Future<ScheduleDispatcher.Outcome> dispatch = pool.submit(() -> transaction.execute(status -> {
-                ScheduleDispatcher.Outcome outcome = dispatcher.dispatchOne(id, NOW);
+                ScheduleDispatcher.Outcome outcome = dispatcher.dispatchOne(id, at(NOW));
                 dispatchedNotCommitted.countDown();
                 await(commit);
                 return outcome;
@@ -295,7 +330,7 @@ class ScheduleDispatcherTest {
                 Map.of("v", 1, "title", "합방"));
         long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver);
 
-        assertThatThrownBy(() -> dispatcher.dispatchOne(id, NOW)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> dispatcher.dispatchOne(id, at(NOW))).isInstanceOf(RuntimeException.class);
 
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
         assertThat(alertsOf(receiver)).isEmpty();
@@ -310,7 +345,7 @@ class ScheduleDispatcherTest {
         long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver);
         failSentUpdateOf(target);
         try {
-            assertThatThrownBy(() -> dispatcher.dispatchOne(id, NOW)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> dispatcher.dispatchOne(id, at(NOW))).isInstanceOf(RuntimeException.class);
 
             assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
             assertThat(alertsOf(receiver)).isEmpty();
@@ -318,7 +353,7 @@ class ScheduleDispatcherTest {
             dropFailTrigger();
         }
 
-        assertThat(dispatcher.dispatchOne(id, NOW)).isEqualTo(ScheduleDispatcher.Outcome.SENT);
+        assertThat(dispatcher.dispatchOne(id, at(NOW))).isEqualTo(ScheduleDispatcher.Outcome.SENT);
         assertThat(alertsOf(receiver)).hasSize(1);
     }
 
@@ -329,10 +364,10 @@ class ScheduleDispatcherTest {
         create(ScheduleKind.APPEARANCE_STARTING, target, receiver, NOW.minusSeconds(1), NOW.plusSeconds(86_400),
                 deadlinePayload("합방"));
         long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver);
-        dispatcher.dispatchOne(id, NOW);
+        dispatcher.dispatchOne(id, at(NOW));
         jdbc.update("update notification.notification_schedule set status = 'SCHEDULED' where id = ?", id);
 
-        assertThat(dispatcher.dispatchOne(id, NOW)).isEqualTo(ScheduleDispatcher.Outcome.SENT);
+        assertThat(dispatcher.dispatchOne(id, at(NOW))).isEqualTo(ScheduleDispatcher.Outcome.SENT);
 
         assertThat(alertsOf(receiver)).hasSize(1);
     }
@@ -348,7 +383,7 @@ class ScheduleDispatcherTest {
         create(ScheduleKind.APPEARANCE_RECRUIT_CLOSING, good, receiver, now.minusSeconds(1), now.plusSeconds(86_400),
                 deadlinePayload("모집"));
 
-        ScheduleDispatcher.RunResult result = dispatcher.runOnce(now);
+        ScheduleDispatcher.RunResult result = dispatcher.runOnce(at(now));
 
         assertThat(result.ran()).isTrue();
         assertThat(result.failed()).isGreaterThanOrEqualTo(1);
@@ -367,7 +402,7 @@ class ScheduleDispatcherTest {
         Optional<JobLock.Lease> held = jobLock.tryAcquire(NotificationJob.SCHEDULE_DISPATCH);
         assertThat(held).isPresent();
         try (JobLock.Lease ignored = held.get()) {
-            assertThat(dispatcher.runOnce(now).ran()).isFalse();
+            assertThat(dispatcher.runOnce(at(now)).ran()).isFalse();
         }
 
         assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
@@ -468,6 +503,35 @@ class ScheduleDispatcherTest {
                 select kind, source_event_type, source_target_id, target_type, target_id, message
                 from notification.notification where receiver_user_id = ?
                 """, receiver);
+    }
+
+    /** 늘 같은 시각을 주는 시계 */
+    private static Clock at(Instant instant) {
+        return Clock.fixed(instant, ZoneOffset.UTC);
+    }
+
+    /**
+     * 처음 부를 때(회차의 예약 선택)는 {@code first}, 그 뒤(행 잠금 뒤 판정)는 {@code later}를 주는 시계. {@code runOnce}가 회차 시작에
+     * 한 번 읽고 예약마다 잠근 뒤 다시 읽는 순서에 기대므로, 그 순서를 바꾸면 이 시계를 쓰는 시험도 함께 고친다
+     */
+    private static Clock stepping(Instant first, Instant later) {
+        AtomicInteger calls = new AtomicInteger();
+        return new Clock() {
+            @Override
+            public ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return calls.getAndIncrement() == 0 ? first : later;
+            }
+        };
     }
 
     private Instant occurredAtOf(long receiver) {

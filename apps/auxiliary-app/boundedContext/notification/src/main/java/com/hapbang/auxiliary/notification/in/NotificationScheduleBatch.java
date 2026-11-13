@@ -1,6 +1,6 @@
 package com.hapbang.auxiliary.notification.in;
 
-import java.time.Instant;
+import java.time.Clock;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -27,7 +27,7 @@ class NotificationScheduleBatch {
     @Scheduled(cron = "${hapbang.notification.schedule.cron:35 * * * * *}", zone = "Asia/Seoul")
     void run() {
         try {
-            dispatcher.runOnce(Instant.now());
+            dispatcher.runOnce(Clock.systemUTC());
         } catch (JobLockException e) {
             log.warn("예약 배치 잠금을 시도하지 못해 이번 회차를 건너뛰었다", e);
         } catch (RuntimeException e) {

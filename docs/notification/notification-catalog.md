@@ -369,7 +369,7 @@
 | `APPEARANCE_RECRUIT_CLOSING` | 모집 마감 임박 | 호스트 | 모집 마감 일시 − 24시간 | 모집 마감 일시 `recruit.recruitDeadline` | `AppearanceRecruitOpenedEvent` | `AppearanceRecruitClosedEvent`(조기 마감 포함), `AppearanceRecruitCanceledEvent`(ND-041) | `recruit.recruitId` / `APPEARANCE_RECRUIT` | ND-029, ND-041 |
 | `APPEARANCE_STARTING` | 방송 임박 | 호스트, 게스트 | 방송 예정 일시 − 24시간 | 방송 예정 일시 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceCancelRequestAcceptedEvent`(합의 취소), `AppearanceCanceledByHostEvent` | 출연 ID / `APPEARANCE` | ND-029 |
 | `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 확인 부탁 | 호스트 | 자동 확인 시각 − 3×24시간 (= 방송 예정 일시 + 4×24시간) | 자동 확인 시각(방송 예정 일시 + 7×24시간) | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceConfirmedEvent`(호스트·자동), `AppearanceAbsentEvent`, `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` | 출연 ID / `APPEARANCE` | ND-029, ND-030 |
-| `LECTURE_ORDER_ITEM_CONFIRMING` | 구매 취소 마감 임박 | 구매자 | (구매일 + 7일) 09:00 | 자동 구매 확정 (구매일 + 8일) 00:00. "취소" 먼저 행은 대체 기한(ND-143) | `LectureOrderPaidEvent`(주문 항목마다, 구매일은 `paidAt`의 KST 날짜) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent`(직접·첫 재생·자동) | `orderItemId` / `LECTURE_ORDER_ITEM` | ND-029, ND-031, ND-143 |
+| `LECTURE_ORDER_ITEM_CONFIRMING` | 구매 취소 마감 임박 | 구매자 | (구매일 + 7일) 09:00 | 자동 구매 확정 (구매일 + 8일) 00:00. "취소" 먼저 행은 대체 기한(ND-143) | `LectureOrderPaidEvent`(주문 항목마다, 구매일은 `paidAt`의 KST 날짜) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent`(직접·첫 재생·자동), `LectureObjectionFiledEvent`(ND-149, 철회돼도 되살리지 않음) | `orderItemId` / `LECTURE_ORDER_ITEM` | ND-029, ND-031, ND-143, ND-149 |
 
 - 문구는 0.13(ND-140)이다.
 - **운영 시간**: EC2가 꺼진 시간에 보낼 시각이 든 예약은 기동 뒤 첫 배치가 보낸다. 09:00도 그대로다(ND-134, 팀 확인 대기 U6).

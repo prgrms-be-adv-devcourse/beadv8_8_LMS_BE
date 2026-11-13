@@ -77,10 +77,28 @@ class JdbcScheduleStore implements ScheduleStore {
     public List<Long> findDueIds(Instant now, int limit) {
         return jdbc.queryForList("""
                 select id from notification.notification_schedule
-                where status = 'SCHEDULED' and send_at <= ?
+                where status = 'SCHEDULED' and send_at <= ? and business_deadline > ?
                 order by send_at, id
                 limit ?
-                """, Long.class, Timestamp.from(now), limit);
+                """, Long.class, Timestamp.from(now), Timestamp.from(now), limit);
+    }
+
+    /**
+     * 기한이 지난 "예약"을 한 문장으로 건너뜀으로 끝낸다. 배치 항목마다 트랜잭션을 나누는 규칙({@code ConditionalOnSchedulingEnabled})의
+     * 예외다: 알림 저장·외부 호출 없이 상태만 바꾸고, 보내거나 취소하는 중인(잠긴) 행은 {@code SKIP LOCKED}로 건너뛰며, 바깥 조건으로
+     * 다시 "예약"인지 본다. 받는 사람 확인은 하지 않는다(어차피 보내지 않는다)
+     */
+    @Override
+    public int skipExpired(Instant now, int limit) {
+        return jdbc.update("""
+                update notification.notification_schedule set status = 'SKIPPED', processed_at = ?, updated_at = ?
+                where status = 'SCHEDULED' and id in (
+                    select id from notification.notification_schedule
+                    where status = 'SCHEDULED' and business_deadline <= ?
+                    order by business_deadline, id
+                    limit ?
+                    for update skip locked)
+                """, Timestamp.from(now), LocalDateTime.now(), Timestamp.from(now), limit);
     }
 
     @Override

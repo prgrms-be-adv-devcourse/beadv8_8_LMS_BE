@@ -86,6 +86,51 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-082 · 2026-11-13 · 통과 (N10 #928 PR #929 Bot 리뷰 반영 뒤 S6 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-082 |
+| 실행 날짜 | 2026-11-13 11:17~11:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `66f0af45`) |
+| 작업 트리 변경 | NR-081 목록 + `notification/PROGRESS.md`, `docs/notification/regression-log.md`, `domain/ScheduleTimes.java`(대체 기한 인자 이름), Flyway `V202611131000__create_notification_schedule.sql`(부분 인덱스 `ix_notification_schedule_expiring`, 아직 병합 전 파일). S6 재리뷰 반영: `JdbcScheduleStore.skipExpired` 바깥 `status='SCHEDULED'` 조건과 항목별 트랜잭션 규칙의 예외 근거, 시험 주석(공유 DB 시각 창, 시계 호출 순서), `module.md` |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~21, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 396, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928, PR #929 |
+
+#### NR-081 · 2026-11-13 · 통과 (N10 예약 알림 #928 PR #929 Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-081 |
+| 실행 날짜 | 2026-11-13 11:09~11:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `66f0af45`) |
+| 작업 트리 변경 | 수정: `notification/AGENTS.md`, `app/ScheduleDispatcher.java`, `app/ScheduleInputs.java`, `app/ScheduleStore.java`, `in/NotificationScheduleBatch.java`, `in/event/NotificationLectureEventListener.java`, `out/JdbcScheduleStore.java`(이상 `apps/auxiliary-app/boundedContext/notification/src/main/java/com/hapbang/auxiliary/notification/` 아래), 시험 `app/ScheduleDispatcherTest.java`·`app/ScheduleInputsTest.java`·`in/event/NotificationScheduleInputTest.java`, 문서 `docs/notification/{decisions,event-contracts,module,notification-catalog,test-spec}.md`. 새 파일: 시험 `app/ScheduleDispatcherSelectionTest.java`. 내용: 이의 제기 접수가 구매 취소 마감 임박 취소(ND-149), 기한 지난 예약 먼저 건너뜀·기한 남은 예약만 선택, 잠근 뒤 시각으로 판정·발생 시각(`runOnce(Clock)`), `runOnce` 선택 시험, NT-SCH-17 선행 조건 |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~21, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 396, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928, PR #929 |
+| 정정(NR-078~NR-080, 1.1-7) | 세 기록은 미커밋 작업 트리에서 실행했는데 파일 목록을 적지 않았다. 세 실행의 코드·시험은 커밋 `55990379`의 24개 파일과 같다(NR-078은 그중 ND-145·ND-146 반영 전, NR-079는 S6 리뷰 반영 전 상태). 문서는 `66f0af45`의 11개 파일이 실행 중에 함께 바뀌었다. 지난 기록은 고치지 않는다(1.1-3) |
+
 #### NR-080 · 2026-11-13 · 통과 (N10 예약 알림 #928 S6 리뷰 반영)
 
 | 항목 | 값 |

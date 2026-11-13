@@ -67,11 +67,13 @@ public record ScheduleTimes(Instant sendAt, Instant businessDeadline) {
     }
 
     /**
-     * 구매일을 모르는 "취소" 먼저 행의 대체 기한: (취소·확정 시각의 KST 날짜 + 8일) 00:00(ND-143). 취소·확정 시각은 구매 시각 이후라
-     * (이벤트 계약 2장 불변식) 실제 기한보다 이르지 않다
+     * 구매일을 모르는 "취소" 먼저 행의 대체 기한: (끝낸 사건 시각의 KST 날짜 + 8일) 00:00(ND-143·ND-149). 구매 취소·구매 확정·이의
+     * 제기 접수 시각은 구매 시각 이후라(이벤트 계약 2장 불변식) 실제 기한보다 이르지 않다
+     *
+     * @param endedAt 예약을 끝낸 사건 시각(`canceledAt`·`confirmedAt`·`filedAt`)
      */
-    public static Instant orderItemFallbackDeadline(OffsetDateTime canceledOrConfirmedAt) {
-        return autoConfirmAt(kstDate(canceledOrConfirmedAt));
+    public static Instant orderItemFallbackDeadline(OffsetDateTime endedAt) {
+        return autoConfirmAt(kstDate(endedAt));
     }
 
     /** 업무 기한이 지났는지. 같은 시각이면 지났다(ND-144) */

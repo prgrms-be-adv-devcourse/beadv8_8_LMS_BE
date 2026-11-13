@@ -66,7 +66,8 @@ import tools.jackson.databind.json.JsonMapper;
  *     보낸다. 직접·첫 재생 구매 확정은 알림 없이 커밋한다.</li>
  *     <li>컨테이너는 첫 회원 복제본 Backfill이 끝나면 시작하고(ND-078), 알림 시작 시각 전 사건은 저장하지 않는다(ND-076).</li>
  *     <li>저장 실패(복제본 없음, DB 장애)는 블로킹 재시도 뒤 DLT로 간다(ND-010·ND-035).</li>
- *     <li>N10 예약 알림: 구매 완료가 주문 항목마다 구매 취소 마감 임박을 예약하고, 구매 취소·확정(직접·첫 재생 포함)이 취소한다
+ *     <li>N10 예약 알림: 구매 완료가 주문 항목마다 구매 취소 마감 임박을 예약하고, 구매 취소·확정(직접·첫 재생 포함)·이의 제기
+ *     접수(ND-149)가 취소한다
  *     ({@link ScheduleInputs}, ND-133). 예약 처리가 있는 레코드는 예약과 즉시 알림을 한 트랜잭션으로 처리하고 예약을 먼저 쓴다
  *     ({@link ScheduleService#applyWith}). 예약 처리가 없는 레코드는 지금처럼 알림마다 저장한다.</li>
  * </ul>
@@ -168,6 +169,7 @@ public class NotificationLectureEventListener {
                 case LectureOrderPaidEvent paid -> ScheduleInputs.orderPaid(paid);
                 case LectureOrderItemCanceledEvent canceled -> ScheduleInputs.orderItemCanceled(canceled);
                 case LectureOrderItemConfirmedEvent confirmed -> ScheduleInputs.orderItemConfirmed(confirmed);
+                case LectureObjectionFiledEvent filed -> ScheduleInputs.objectionFiled(filed);
                 default -> List.of();
             };
         } catch (IllegalArgumentException e) {

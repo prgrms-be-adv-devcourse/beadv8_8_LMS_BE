@@ -28,6 +28,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.lecture.dto.LectureOrderItemDto;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemCanceledEvent;
 import com.hapbang.shared.lecture.event.LectureOrderItemConfirmedEvent;
 import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
@@ -164,6 +165,14 @@ public final class ScheduleInputs {
     /** 구매 확정(직접·첫 재생·자동 모두): 구매 취소 마감 임박 취소(대체 기한, ND-143) */
     public static List<ScheduleCommand> orderItemConfirmed(LectureOrderItemConfirmedEvent event) {
         return orderItemEnded(event.orderItemId(), event.buyerUserId(), event.confirmedAt());
+    }
+
+    /**
+     * 이의 제기 접수: 이의 제기 중에는 구매 취소가 불가능하므로 구매 취소 마감 임박을 취소한다(대체 기한, ND-149). 철회돼도 되살리지
+     * 않는다
+     */
+    public static List<ScheduleCommand> objectionFiled(LectureObjectionFiledEvent event) {
+        return orderItemEnded(event.orderItemId(), event.buyerUserId(), event.filedAt());
     }
 
     private static List<ScheduleCommand> requestEnded(AppearanceRequestDto request) {

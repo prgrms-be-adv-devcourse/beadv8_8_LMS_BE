@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1~N9 완료, N10 진행 중(#928) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5부터 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-080 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-082 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
@@ -65,7 +65,7 @@
 | N8 | P1 | 강의 지급 하루 묶음 | 알림 | N2 | 완료 | #890(PR #903, dev `81a7347e`). 정책 ND-097~ND-104 |
 | M8 | P2 | 채팅: 단체방 이벤트 3종, `chat.events.v1` 토픽 | 채팅 | N0 | 완료 | #897(PR #904, dev `973ccbe5`). 3종 모두 `@Externalized`(key 방 ID). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 6장 |
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 완료 | #921(PR #927, dev `c95d732d`). 정책 ND-129~ND-132, 새 group `auxiliary-app.notification-chat-alert` |
-| N10 | P2 | 예약 배치와 예약 알림 5종 | 알림 | N2(종류별 N5·M3·M4) | 진행 중 | #928. 정책 ND-133~ND-148. 구현·테스트 완료(NR-080), PR 전. U6 팀 확인 대기(구현은 ND-134) |
+| N10 | P2 | 예약 배치와 예약 알림 5종 | 알림 | N2(종류별 N5·M3·M4) | 진행 중 | #928(PR #929). 정책 ND-133~ND-149. 구현·테스트 완료(NR-082), Bot 리뷰 반영 중. U6 팀 확인 대기(구현은 ND-134) |
 
 - P0 완료 기준(“P0만으로 완료 증거 시연 가능”)은 구매 완료 알림이 P1(M4)에 걸려 성립하지 않는다. U2(T3)로 정할 때까지 P0 범위를 바꾸지 않는다.
 

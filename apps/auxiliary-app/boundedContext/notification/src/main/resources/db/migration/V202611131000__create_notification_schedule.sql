@@ -36,6 +36,11 @@ CREATE INDEX ix_notification_schedule_due
     ON notification.notification_schedule (send_at, id)
     WHERE status = 'SCHEDULED';
 
+-- 기한이 지난 "예약"을 건너뜀으로 끝낸다(ND-135, 회차마다 먼저)
+CREATE INDEX ix_notification_schedule_expiring
+    ON notification.notification_schedule (business_deadline, id)
+    WHERE status = 'SCHEDULED';
+
 -- 끝 상태 행 정리(ND-142). "예약" 행은 들지 않는다
 CREATE INDEX ix_notification_schedule_finished
     ON notification.notification_schedule (business_deadline, id)

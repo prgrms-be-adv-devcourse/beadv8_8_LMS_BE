@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.notification.app;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,7 +30,8 @@ import lombok.extern.slf4j.Slf4j;
  *     알림 저장과 상태 변경 중 하나가 실패하면 둘 다 되돌아간다.</li>
  *     <li>잠금 순서는 예약 행 → 받는 사람 행(저장 서비스)이다. 리스너도 예약 행을 먼저 쓴다({@link ScheduleService#applyWith}).</li>
  *     <li>알림의 원본 이벤트 종류는 예약 종류 코드, 원본 대상 ID는 대상 ID다(ND-139). 같은 출연의 방송 임박과 출연 확인 부탁이 따로
- *     알림이 된다. 발생 시각은 보낸 시각(회차 시각)이다(ND-148).</li>
+ *     알림이 된다. 업무 기한 판정과 발생 시각은 행을 잠근 뒤 읽은 시각(보낸 시각)이다(ND-135·ND-148).</li>
+ *     <li>회차마다 먼저 기한이 지난 "예약"을 건너뜀으로 끝내고, 보낼 예약은 기한이 남은 것만 고른다.</li>
  *     <li>실패한 예약은 분리된 트랜잭션에서 실패 횟수를 세고, 3번 연속이면 건너뜀으로 끝내며 ERROR를 남긴다(ND-147).</li>
  *     <li>발송 뒤 끝 상태이고 업무 기한 + 보존 일수가 지난 예약을 정한 건수만큼 지운다(ND-142).</li>
  * </ul>
@@ -89,21 +91,29 @@ public class ScheduleDispatcher {
         this.retentionDays = retentionDays;
     }
 
-    /** 한 회차. 잠금을 잡지 못하면 실행하지 않는다 */
-    public RunResult runOnce(Instant now) {
+    /**
+     * 한 회차. 잠금을 잡지 못하면 실행하지 않는다. 회차 시작 시각으로 기한이 지난 "예약"을 건너뜀으로 끝내고 보낼 예약을 고른 뒤,
+     * 예약마다 행을 잠근 뒤의 시각으로 다시 판정한다(#929 리뷰 2·3)
+     *
+     * @param clock 지금 시각. 운영은 시스템 시계, 시험은 정한 시계
+     */
+    public RunResult runOnce(Clock clock) {
         Optional<JobLock.Lease> lease = jobLock.tryAcquire(NotificationJob.SCHEDULE_DISPATCH);
         if (lease.isEmpty()) {
             log.debug("다른 실행이 예약 배치 잠금을 쥐고 있어 이번 회차를 건너뛰었다");
             return RunResult.notRun();
         }
         try (JobLock.Lease ignored = lease.get()) {
+            Instant selectedAt = clock.instant();
+            // 기한이 지난 예약이 보낼 예약 고르기의 앞자리를 차지하지 않게 먼저 끝낸다(ND-135·ND-144)
+            Integer expired = transaction.execute(status -> store.skipExpired(selectedAt, batchSize));
             int sent = 0;
-            int skipped = 0;
+            int skipped = expired == null ? 0 : expired;
             int failed = 0;
-            List<Long> due = store.findDueIds(now, batchSize);
+            List<Long> due = store.findDueIds(selectedAt, batchSize);
             for (long id : due) {
                 try {
-                    switch (dispatchOne(id, now)) {
+                    switch (dispatchOne(id, clock)) {
                         case SENT -> sent++;
                         case SKIPPED -> skipped++;
                         case NOT_SCHEDULED -> {
@@ -111,11 +121,11 @@ public class ScheduleDispatcher {
                     }
                 } catch (RuntimeException e) {
                     failed++;
-                    recordFailure(id, now, e);
+                    recordFailure(id, clock.instant(), e);
                 }
             }
-            int deleted = cleanUp(now);
-            if (!due.isEmpty() || deleted > 0) {
+            int deleted = cleanUp(clock.instant());
+            if (!due.isEmpty() || skipped > 0 || deleted > 0) {
                 log.info("예약 배치를 실행했다 due={}, sent={}, skipped={}, failed={}, deleted={}", due.size(), sent,
                         skipped, failed, deleted);
             }
@@ -126,10 +136,10 @@ public class ScheduleDispatcher {
     /**
      * 예약 하나를 한 트랜잭션에서 처리한다. 실패하면 알림과 상태 변경이 함께 되돌아가고 예외를 던진다
      *
-     * @param now 업무 기한을 비교할 지금 시각
+     * @param clock 행을 잠근 뒤 이 시계로 지금 시각을 읽어 업무 기한을 판정하고 발생 시각으로 쓴다(ND-135·ND-148)
      */
-    public Outcome dispatchOne(long scheduleId, Instant now) {
-        return transaction.execute(status -> dispatchLocked(scheduleId, now));
+    public Outcome dispatchOne(long scheduleId, Clock clock) {
+        return transaction.execute(status -> dispatchLocked(scheduleId, clock));
     }
 
     /**
@@ -166,12 +176,14 @@ public class ScheduleDispatcher {
         return deleted == null ? 0 : deleted;
     }
 
-    private Outcome dispatchLocked(long scheduleId, Instant now) {
+    private Outcome dispatchLocked(long scheduleId, Clock clock) {
         Optional<ScheduleStore.Due> found = store.lockById(scheduleId);
         if (found.isEmpty() || found.get().status() != ScheduleStore.Status.SCHEDULED) {
             log.debug("이미 끝났거나 없는 예약이라 보내지 않았다 scheduleId={}", scheduleId);
             return Outcome.NOT_SCHEDULED;
         }
+        // 잠금을 기다린 뒤의 시각으로 판정하고 그 시각에 보낸다
+        Instant now = clock.instant();
         ScheduleStore.Due due = found.get();
         if (ScheduleTimes.isPast(due.businessDeadline(), now)) {
             store.finish(scheduleId, ScheduleStore.Status.SKIPPED, now);
