@@ -102,6 +102,8 @@ class RecommendEvalDataGeneratorTest {
                     .isNotEmpty();
         }
         assertThat(data.influencerAnswers()).hasSize(100);
+        assertThat(before.values()).as("README: 함께 출연을 마친 상대 2~8명")
+                .allSatisfy(partners -> assertThat(partners.size()).isBetween(2, 8));
     }
 
     @Test

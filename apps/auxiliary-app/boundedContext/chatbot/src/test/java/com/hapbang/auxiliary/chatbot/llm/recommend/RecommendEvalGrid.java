@@ -38,6 +38,9 @@ final class RecommendEvalGrid {
     static final String LECTURE = "lecture.";
     static final String INFLUENCER = "influencer.";
 
+    /** 키마다 줄 수 있는 값 수. 값 3~5개로 넓게 본 뒤 좋은 값 근처를 다시 본다 */
+    static final int MAX_VALUES = 5;
+
     /** 보정 대상 키(이슈 #867 "가중치 보정"의 대상) */
     static final Set<String> KEYS = Set.of(
             "lecture.weights.owned", "lecture.weights.cart", "lecture.weights.rating1", "lecture.weights.rating2",
@@ -59,12 +62,26 @@ final class RecommendEvalGrid {
     /**
      * 조합 하나.
      *
-     * @param label     표에 찍을 바꾼 값(기준선이면 "기준선")
-     * @param overrides 키 → 값(BASE와 이 조합의 GRID 값)
-     * @param lecture   강의 평가를 돌릴지
+     * @param label      조합 이름. 격자가 없으면 "기준선"(고정값도 없음) 또는 "고정값"
+     * @param fixed      고정값(BASE) 키 → 값
+     * @param changes    이 조합에서 바꾼 값(GRID) 키 → 값
+     * @param lecture    강의 평가를 돌릴지
      * @param influencer 인플루언서 평가를 돌릴지
      */
-    record Combo(String label, Map<String, String> overrides, boolean lecture, boolean influencer) {
+    record Combo(
+            String label,
+            Map<String, String> fixed,
+            Map<String, String> changes,
+            boolean lecture,
+            boolean influencer
+    ) {
+
+        /** 설정에 덮을 값(고정값 위에 바꾼 값) */
+        Map<String, String> overrides() {
+            Map<String, String> overrides = new LinkedHashMap<>(fixed);
+            overrides.putAll(changes);
+            return overrides;
+        }
     }
 
     /**
@@ -85,7 +102,7 @@ final class RecommendEvalGrid {
             throw new IllegalArgumentException(GRID_ENV + "는 한 번에 키 1~2개만 바꿉니다(한두 값씩 보정)");
         }
         if (axes.isEmpty()) {
-            return List.of(new Combo(fixed.isEmpty() ? "기준선" : "고정값", fixed, true, true));
+            return List.of(new Combo(fixed.isEmpty() ? "기준선" : "고정값", fixed, Map.of(), true, true));
         }
         boolean lecture = false;
         boolean influencer = false;
@@ -101,13 +118,11 @@ final class RecommendEvalGrid {
     private static void combine(List<Map.Entry<String, List<String>>> axes, int index, Map<String, String> chosen,
             Map<String, String> fixed, boolean lecture, boolean influencer, List<Combo> combos) {
         if (index == axes.size()) {
-            Map<String, String> overrides = new LinkedHashMap<>(fixed);
-            overrides.putAll(chosen);
             List<String> label = new ArrayList<>();
             for (Map.Entry<String, String> entry : chosen.entrySet()) {
                 label.add(entry.getKey() + "=" + entry.getValue());
             }
-            combos.add(new Combo(String.join(", ", label), overrides, lecture, influencer));
+            combos.add(new Combo(String.join(", ", label), fixed, new LinkedHashMap<>(chosen), lecture, influencer));
             return;
         }
         Map.Entry<String, List<String>> axis = axes.get(index);
@@ -144,6 +159,10 @@ final class RecommendEvalGrid {
             if (values.isEmpty() || parsed.containsKey(key)) {
                 throw new IllegalArgumentException(name + "의 키에 값이 없거나 키가 겹칩니다: " + key);
             }
+            if (values.size() > MAX_VALUES) {
+                throw new IllegalArgumentException(name + "는 키마다 값을 " + MAX_VALUES + "개까지 줍니다(넓게 본 뒤 좋은 값 근처를 다시 본다): "
+                        + key);
+            }
             parsed.put(key, values);
         }
         return parsed;
@@ -157,6 +176,49 @@ final class RecommendEvalGrid {
     /** 이 조합의 인플루언서 설정. 결과 수는 {@code size} */
     ChatbotInfluencerRecommendProperties influencer(Combo combo, int size) {
         return bind(combo, "influencer", "influencer.size", size, ChatbotInfluencerRecommendProperties.class);
+    }
+
+    /**
+     * 표의 "바꾼 값 (전 → 후)". 전은 고정값까지 적용한 지금 설정값이다.
+     *
+     * @return 예: {@code lecture.popularity-weight: 0.05 → 0.1}. 바꾼 값이 없으면 조합 이름
+     */
+    String change(Combo combo) {
+        if (combo.changes().isEmpty()) {
+            return combo.label();
+        }
+        Combo before = new Combo(combo.label(), combo.fixed(), Map.of(), combo.lecture(), combo.influencer());
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, String> entry : combo.changes().entrySet()) {
+            String key = entry.getKey();
+            Object properties = key.startsWith(LECTURE) ? lecture(before, RecommendMetrics.TOP)
+                    : influencer(before, RecommendMetrics.TOP);
+            parts.add(key + ": " + valueAt(properties, key.substring(key.indexOf('.') + 1)) + " → " + entry.getValue());
+        }
+        return String.join(", ", parts);
+    }
+
+    // 설정 record에서 키 경로(kebab-case, 점으로 구분)의 값을 읽는다. 예: popularity.prior-reviews
+    private static Object valueAt(Object properties, String path) {
+        Object value = properties;
+        for (String segment : path.split("\\.")) {
+            StringBuilder accessor = new StringBuilder();
+            boolean upper = false;
+            for (char c : segment.toCharArray()) {
+                if (c == '-') {
+                    upper = true;
+                } else {
+                    accessor.append(upper ? Character.toUpperCase(c) : c);
+                    upper = false;
+                }
+            }
+            try {
+                value = value.getClass().getMethod(accessor.toString()).invoke(value);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("설정 값을 읽지 못했습니다: " + path, e);
+            }
+        }
+        return value;
     }
 
     private <T> T bind(Combo combo, String name, String sizeKey, int size, Class<T> type) {

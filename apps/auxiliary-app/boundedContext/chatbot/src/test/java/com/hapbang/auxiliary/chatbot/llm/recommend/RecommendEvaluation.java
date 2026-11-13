@@ -118,12 +118,24 @@ abstract class RecommendEvaluation {
         }
     }
 
-    /** 표 한 줄 */
-    record Row(String target, String combo, String input, int members, double hitAt5, double ndcgAt5, double recallAt20,
-               int distinctTop5) {
+    /**
+     * 표 한 줄.
+     *
+     * @param change 바꾼 값(전 → 후). 격자 없이 돌렸으면 "기준선" 또는 "고정값"
+     */
+    record Row(
+            String target,
+            String change,
+            String input,
+            int members,
+            double hitAt5,
+            double ndcgAt5,
+            double recallAt20,
+            int distinctTop5
+    ) {
 
-        static Row of(String target, String combo, String input, Tally tally) {
-            return new Row(target, combo, input, tally.members(), tally.hitAt5(), tally.ndcgAt5(), tally.recallAt20(),
+        static Row of(String target, String change, String input, Tally tally) {
+            return new Row(target, change, input, tally.members(), tally.hitAt5(), tally.ndcgAt5(), tally.recallAt20(),
                     tally.distinctTop5());
         }
     }
@@ -141,6 +153,11 @@ abstract class RecommendEvaluation {
         loader.copies(RecommendEvalHoldout.hide(data));
         loader.vectors(data);
         grid = new RecommendEvalGrid(ConfigurationPropertySources.get(environment));
+    }
+
+    /** 다른 임베딩 모델로 벡터만 다시 넣는다(캐시 확인용) */
+    void reloadVectors(EmbeddingModel model) {
+        new RecommendEvalLoader(new RecommendRows(jdbc), new RecommendEvalAccess(context, model)).vectors(data);
     }
 
     @AfterAll
@@ -165,6 +182,7 @@ abstract class RecommendEvaluation {
         }
         List<Row> rows = new ArrayList<>();
         for (Combo combo : combos) {
+            String change = grid.change(combo);
             if (combo.lecture()) {
                 ChatbotLectureRecommendProperties top = grid.lecture(combo, RecommendMetrics.TOP);
                 ChatbotLectureRecommendProperties pool = grid.lecture(combo, RecommendMetrics.POOL);
@@ -176,7 +194,7 @@ abstract class RecommendEvaluation {
                         List<Pick> poolPicks = access.lecture(pool, memberId, interest);
                         tally.add(lectureAnswers.get(memberId), topPicks, poolPicks);
                     }
-                    rows.add(Row.of("강의", combo.label(), input.description(), tally));
+                    rows.add(Row.of("강의", change, input.description(), tally));
                 }
             }
             if (combo.influencer()) {
@@ -187,13 +205,13 @@ abstract class RecommendEvaluation {
                     tally.add(influencerAnswers.get(memberId), access.influencer(top, memberId),
                             access.influencer(pool, memberId));
                 }
-                rows.add(Row.of("인플루언서", combo.label(), LectureInput.SIGNAL.description(), tally));
+                rows.add(Row.of("인플루언서", change, LectureInput.SIGNAL.description(), tally));
             }
         }
         return rows;
     }
 
-    // 가이드 기록 표(6-2·6-3)에 옮기기 쉬운 마크다운 표
+    // 보정 기록 표에 그대로 옮기는 마크다운 표. 회차·가설·판단·메모는 사람이 채운다. 대상·입력·회원·서로 다른 수는 뒤에 붙인다
     private String table(Group group, List<Combo> combos, @Nullable String base, List<Row> rows) {
         Combo baseline = RecommendEvalGrid.combos(null, base).getFirst();
         StringBuilder out = new StringBuilder();
@@ -213,11 +231,14 @@ abstract class RecommendEvaluation {
             out.append(String.format(Locale.ROOT, "인플루언서 기준값: partner-weight=%s, popularity-weight(β)=%s, popularity=%s%n",
                     influencer.partnerWeight(), influencer.popularityWeight(), influencer.popularity()));
         }
-        out.append("| 대상 | 바꾼 값 | 입력 | 회원 | hit@5 | nDCG@5 | recall@20 | 상위 5개의 서로 다른 수 |\n");
-        out.append("|---|---|---|---|---|---|---|---|\n");
+        out.append("| 회차 | 날짜 | 가설 | 바꾼 값 (전 → 후) | hit@5 | nDCG@5 | recall@20 | 판단 | 메모 | 대상 | 입력 | 회원 | "
+                + "상위 5개의 서로 다른 수 |\n");
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+        String today = LocalDate.now().toString();
         for (Row row : rows) {
-            out.append(String.format(Locale.ROOT, "| %s | %s | %s | %d | %.3f | %.3f | %.3f | %d |%n", row.target(), row.combo(),
-                    row.input(), row.members(), row.hitAt5(), row.ndcgAt5(), row.recallAt20(), row.distinctTop5()));
+            out.append(String.format(Locale.ROOT, "|  | %s |  | %s | %.3f | %.3f | %.3f |  |  | %s | %s | %d | %d |%n", today,
+                    row.change(), row.hitAt5(), row.ndcgAt5(), row.recallAt20(), row.target(), row.input(), row.members(),
+                    row.distinctTop5()));
         }
         return out.toString();
     }

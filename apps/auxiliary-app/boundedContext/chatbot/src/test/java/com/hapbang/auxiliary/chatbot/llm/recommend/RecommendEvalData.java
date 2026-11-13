@@ -52,7 +52,14 @@ public record RecommendEvalData(
     public record Field(String code, String name) {
     }
 
-    public record Lecture(long id, long sellerId, String field, String title, String description, List<String> contentTitles) {
+    public record Lecture(
+            long id,
+            long sellerId,
+            String field,
+            String title,
+            String description,
+            List<String> contentTitles
+    ) {
     }
 
     /**
@@ -67,7 +74,13 @@ public record RecommendEvalData(
      *
      * @param taste 취향 분야에서 고른 신호인지(false면 잡음). 추천 계산에는 쓰지 않고 생성 규칙 확인용이다
      */
-    public record Activity(long id, long memberId, long lectureId, boolean taste, LocalDateTime at) {
+    public record Activity(
+            long id,
+            long memberId,
+            long lectureId,
+            boolean taste,
+            LocalDateTime at
+    ) {
     }
 
     public record Rating(long id, long memberId, long lectureId, int rating) {
@@ -89,6 +102,14 @@ public record RecommendEvalData(
     }
 
     public record Split(List<Long> tuning, List<Long> holdout) {
+    }
+
+    /** 함께 출연한 두 회원(순서 없음: 작은 ID가 앞) */
+    record Partners(long low, long high) {
+
+        static Partners of(long a, long b) {
+            return new Partners(Math.min(a, b), Math.max(a, b));
+        }
     }
 
     public static RecommendEvalData read() {

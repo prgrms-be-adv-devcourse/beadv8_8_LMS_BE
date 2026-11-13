@@ -19,6 +19,7 @@ import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Field;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Influencer;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Lecture;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Member;
+import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Partners;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Rating;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Split;
 
@@ -59,7 +60,8 @@ final class RecommendEvalDataGenerator {
 
     private static final int MAX_PARTNERS = 8;
     private static final LocalDateTime START = LocalDateTime.of(2026, 8, 1, 0, 0);
-    private static final int MINUTES = 90 * 24 * 60;
+    /** 신호 시각을 뽑는 구간(기준일부터 90일, 분 단위) */
+    private static final int WINDOW_MINUTES = 90 * 24 * 60;
 
     /** 분야와 무관한 방송 방식 문장. 같은 분야 인플루언서의 자기소개가 똑같아지지 않게 하나씩 붙인다 */
     private static final List<String> STYLES = List.of("주로 평일 저녁에 방송합니다.", "주말 오후에 길게 방송합니다.",
@@ -67,17 +69,19 @@ final class RecommendEvalDataGenerator {
             "새벽 시간대 방송을 자주 합니다.", "초보 시청자도 이해하기 쉽게 설명합니다.", "다른 크리에이터와 협업을 자주 합니다.",
             "방송 일정은 채널 공지로 알립니다.", "꾸준히 매일 방송하는 것이 목표입니다.");
 
+    private final long seed;
     private final Random random;
 
     private RecommendEvalDataGenerator(long seed) {
+        this.seed = seed;
         this.random = new Random(seed);
     }
 
     static RecommendEvalData generate(long seed) {
-        return new RecommendEvalDataGenerator(seed).build(seed);
+        return new RecommendEvalDataGenerator(seed).build();
     }
 
-    private RecommendEvalData build(long seed) {
+    private RecommendEvalData build() {
         List<Field> fields = new ArrayList<>();
         for (FieldText text : FieldText.ALL) {
             fields.add(new Field(text.code(), text.name()));
@@ -203,7 +207,7 @@ final class RecommendEvalDataGenerator {
         String field = pool.get(random.nextInt(pool.size()));
         long lectureId = weightedPick(lecturesByField.get(field), popularity, used);
         used.add(lectureId);
-        LocalDateTime at = START.plusMinutes(random.nextInt(MINUTES));
+        LocalDateTime at = START.plusMinutes(random.nextInt(WINDOW_MINUTES));
         return new Activity(id, memberId, lectureId, tasteSignal, at);
     }
 
@@ -269,13 +273,13 @@ final class RecommendEvalDataGenerator {
         for (Map.Entry<Long, Set<Long>> entry : partners.entrySet()) {
             remaining.put(entry.getKey(), entry.getValue().size());
         }
-        Set<String> hidden = new HashSet<>();
+        Set<Partners> hidden = new HashSet<>();
         List<Answer> answers = new ArrayList<>();
         for (Influencer influencer : influencers) {
             long id = influencer.id();
             List<Long> candidates = new ArrayList<>();
             for (long partner : partners.get(id)) {
-                if (hidden.contains(pairKey(id, partner)) || remaining.get(id) >= 2 && remaining.get(partner) >= 2) {
+                if (hidden.contains(Partners.of(id, partner)) || remaining.get(id) >= 2 && remaining.get(partner) >= 2) {
                     candidates.add(partner);
                 }
             }
@@ -283,17 +287,13 @@ final class RecommendEvalDataGenerator {
                 throw new IllegalStateException("숨길 상대를 고를 수 없습니다 influencer=" + id + ". 생성 규칙이나 시드를 바꾼다");
             }
             long answer = candidates.get(random.nextInt(candidates.size()));
-            if (hidden.add(pairKey(id, answer))) {
+            if (hidden.add(Partners.of(id, answer))) {
                 remaining.merge(id, -1, Integer::sum);
                 remaining.merge(answer, -1, Integer::sum);
             }
             answers.add(new Answer(id, answer));
         }
         return answers;
-    }
-
-    static String pairKey(long a, long b) {
-        return Math.min(a, b) + "-" + Math.max(a, b);
     }
 
     private Split split(List<Long> ids) {

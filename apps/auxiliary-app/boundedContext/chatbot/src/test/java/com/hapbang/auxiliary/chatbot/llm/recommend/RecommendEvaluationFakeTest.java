@@ -10,15 +10,10 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
-import com.hapbang.auxiliary.chatbot.app.RecommendEvalAccess;
-import com.hapbang.auxiliary.chatbot.domain.InfluencerProfileText;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
-import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Answer;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Influencer;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Lecture;
@@ -28,7 +23,6 @@ import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
-import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -53,12 +47,6 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
     private FakeEmbeddingModel fakeModel;
 
     @Autowired
-    private ApplicationContext context;
-
-    @Autowired
-    private JdbcTemplate jdbc;
-
-    @Autowired
     private LectureRecommendStore lectureStore;
 
     @Autowired
@@ -80,13 +68,10 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
         Map<String, String> names = data.fieldNames();
         List<String> codes = data.fields().stream().map(RecommendEvalData.Field::code).toList();
         for (Lecture lecture : data.lectures()) {
-            LectureSnapshot snapshot = new LectureSnapshot(lecture.id(), lecture.sellerId(), lecture.title(),
-                    lecture.description(), lecture.contentTitles(), true, false, false);
-            fakeModel.put(snapshot.indexText(), vector(codes.indexOf(lecture.field()), lecture.id()));
+            fakeModel.put(RecommendEvalLoader.snapshot(lecture).indexText(), vector(codes.indexOf(lecture.field()), lecture.id()));
         }
         for (Influencer influencer : data.influencers()) {
-            List<String> categoryNames = influencer.fields().stream().map(names::get).toList();
-            fakeModel.put(InfluencerProfileText.of(categoryNames, influencer.bio()).text(),
+            fakeModel.put(RecommendEvalLoader.profileText(influencer, names).text(),
                     vector(codes.indexOf(influencer.fields().getFirst()), influencer.id()));
         }
         for (Member member : data.members()) {
@@ -131,7 +116,7 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
         int embedded = fakeModel.embeddedTexts();
 
         CachingEmbeddingModel again = new CachingEmbeddingModel(fakeModel, modelName(), FakeEmbeddingModel.DIMENSIONS, cacheDir);
-        new RecommendEvalLoader(new RecommendRows(jdbc), new RecommendEvalAccess(context, again)).vectors(data);
+        reloadVectors(again);
 
         assertThat(again.delegateTexts()).isZero();
         assertThat(fakeModel.embeddedTexts()).isEqualTo(embedded);

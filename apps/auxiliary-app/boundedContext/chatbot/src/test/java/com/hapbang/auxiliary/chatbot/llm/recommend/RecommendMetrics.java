@@ -41,19 +41,17 @@ public final class RecommendMetrics {
     }
 
     static double ndcgAt5(long answer, List<Pick> top) {
-        int rank = rank(answer, top, TOP);
+        return gain(rank(answer, top, TOP));
+    }
+
+    // 정답이 rank위(1부터)일 때 nDCG. 순위 밖(0)이면 0
+    private static double gain(int rank) {
         return rank == 0 ? 0 : 1 / (Math.log(rank + 1) / Math.log(2));
     }
 
     static boolean recallAt20(long answer, List<Pick> pool) {
-        int size = Math.min(POOL, pool.size());
-        for (int i = 0; i < size; i++) {
-            Pick pick = pool.get(i);
-            if (pick.personalized() && pick.id() == answer) {
-                return true;
-            }
-        }
-        return false;
+        int rank = rank(answer, pool, POOL);
+        return rank > 0 && pool.get(rank - 1).personalized();
     }
 
     /** 여러 회원의 결과를 모은다 */
@@ -71,10 +69,11 @@ public final class RecommendMetrics {
          */
         void add(long answer, List<Pick> top, List<Pick> pool) {
             members++;
-            if (rank(answer, top, TOP) > 0) {
+            int rank = rank(answer, top, TOP);
+            if (rank > 0) {
                 hits++;
             }
-            ndcg += RecommendMetrics.ndcgAt5(answer, top);
+            ndcg += gain(rank);
             if (RecommendMetrics.recallAt20(answer, pool)) {
                 recalled++;
             }

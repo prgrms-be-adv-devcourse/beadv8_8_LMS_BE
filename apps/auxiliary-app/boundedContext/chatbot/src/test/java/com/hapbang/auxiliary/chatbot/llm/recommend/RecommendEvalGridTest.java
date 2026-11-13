@@ -81,6 +81,25 @@ class RecommendEvalGridTest {
     }
 
     @Test
+    void changeShowsBeforeAndAfter() {
+        List<Combo> combos = RecommendEvalGrid.combos("lecture.popularity-weight=0.1;influencer.popularity.prior-reviews=10",
+                "lecture.popularity-weight=0.2");
+
+        assertThat(grid.change(combos.getFirst()))
+                .as("전은 고정값까지 적용한 값")
+                .isEqualTo("lecture.popularity-weight: 0.2 → 0.1, influencer.popularity.prior-reviews: 5.0 → 10");
+        assertThat(grid.change(RecommendEvalGrid.combos(null, null).getFirst())).isEqualTo("기준선");
+        assertThat(grid.change(RecommendEvalGrid.combos(null, "lecture.popularity-weight=0.2").getFirst())).isEqualTo("고정값");
+    }
+
+    @Test
+    void rejectsMoreThanFiveValues() {
+        assertThat(RecommendEvalGrid.combos("lecture.popularity-weight=0,0.05,0.1,0.2,0.3", null)).hasSize(5);
+        assertThatThrownBy(() -> RecommendEvalGrid.combos("lecture.popularity-weight=0,0.05,0.1,0.2,0.3,0.4", null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("5개까지");
+    }
+
+    @Test
     void rejectsOutOfRangeValue() {
         Combo combo = RecommendEvalGrid.combos("lecture.popularity-weight=1.5", null).getFirst();
 

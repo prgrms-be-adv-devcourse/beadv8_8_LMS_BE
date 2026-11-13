@@ -146,7 +146,7 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
   - **운영 코드를 그대로 부른다**: 조합마다 설정 record를 새로 만들어 운영 추천 UseCase를 직접 만든다(앱을 다시 띄우지 않는다). 추천을 부르는 곳은 `app/RecommendEvalAccess` 하나다.
 - **더미 데이터**(`src/test/resources/chatbot/recommend-eval/dataset.json`): 시드 867로 만든다(`RecommendEvalDataGenerator`, 규칙은 클래스 주석). 분야 8개, 강의 120개(판매자 24명), 강의 회원 100명(취향 분야 1~2개, 신호의 20%는 취향 밖 잡음, 관심사 문장 하나), 인플루언서 100명(함께 출연을 마친 상대 2~8명). 이름·이메일은 없다. 생성기를 고치면 `RECOMMEND_EVAL_REGENERATE=yes`로 `RecommendEvalDataGeneratorTest`를 돌려 파일을 다시 만든다.
 - **정답과 지표**: 강의는 회원마다 구매 하나, 인플루언서는 함께 완료한 상대 하나를 숨긴다(신호와 제외 목록 양쪽에서 뺀다). 회원마다 결과 수 5와 20으로 불러 hit@5·nDCG@5(사용자가 보는 5개)와 풀 recall@20(20개 중 맞춤 후보만, 인기순 채움 제외), 상위 5개의 서로 다른 항목 수(쏠림)를 찍는다. 강의는 "신호만"과 "신호+관심사" 두 줄이다(α는 관심사가 있을 때만 쓰인다).
-- **조합 주는 법**: `RECOMMEND_EVAL_GRID`에 바꿔 볼 값(`키=값,값;키=값,값`, 키 1~2개), `RECOMMEND_EVAL_BASE`에 채택해 고정할 값을 준다. 키는 `hapbang.chatbot.recommend.` 뒤의 이름이다(예: `lecture.popularity-weight`, `lecture.weights.cart`, `influencer.popularity.prior-reviews`). 둘 다 없으면 지금 설정값으로 기준선을 잰다. 바꾼 키가 강의뿐이면 강의만 돈다.
+- **조합 주는 법**: `RECOMMEND_EVAL_GRID`에 바꿔 볼 값(`키=값,값;키=값,값`, 키 1~2개, 키마다 값 5개까지), `RECOMMEND_EVAL_BASE`에 채택해 고정할 값을 준다. 키는 `hapbang.chatbot.recommend.` 뒤의 이름이다(예: `lecture.popularity-weight`, `lecture.weights.cart`, `influencer.popularity.prior-reviews`). 둘 다 없으면 지금 설정값으로 기준선을 잰다. 바꾼 키가 강의뿐이면 강의만 돈다.
 
 ```powershell
 # Docker Desktop을 켠다(PostgreSQL·ES Testcontainers). 앱은 띄우지 않는다
@@ -159,7 +159,7 @@ $env:RECOMMEND_EVAL_GRID = "lecture.popularity-weight=0,0.05,0.1,0.2,0.3"
 $env:RECOMMEND_EVAL_BASE = "lecture.interest-weight=0.3"
 ./gradlew :chatbot:llmTest --tests '*RecommendEvaluationOpenAiTest' --rerun
 
-# 확인용 20명(마지막에 한 번). 이 값이 켜지면 80명 실행은 꺼지고, 격자는 무시하고 BASE 한 줄만 잰다
+# 확인용 20명(마지막에 한 번). 이 값이 켜지면 80명 실행은 꺼지고 BASE 한 줄만 잰다(GRID가 남아 있으면 실패한다)
 Remove-Item Env:RECOMMEND_EVAL_GRID
 $env:RECOMMEND_EVAL_BASE = "lecture.popularity-weight=0.1;lecture.interest-weight=0.3"
 $env:RECOMMEND_EVAL_HOLDOUT = "yes"

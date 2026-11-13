@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Activity;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Answer;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Appearance;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.AppearanceReview;
+import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Partners;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Rating;
 
 /**
@@ -27,48 +29,38 @@ final class RecommendEvalHoldout {
 
     /** 정답 행을 뺀 데이터 */
     static RecommendEvalData hide(RecommendEvalData data) {
-        Set<String> lecturePairs = new HashSet<>();
-        for (Answer answer : data.lectureAnswers()) {
-            lecturePairs.add(answer.requesterId() + ":" + answer.answerId());
-        }
-        List<Activity> purchases = new ArrayList<>();
-        for (Activity purchase : data.purchases()) {
-            if (!lecturePairs.contains(purchase.memberId() + ":" + purchase.lectureId())) {
-                purchases.add(purchase);
-            }
-        }
-        List<Activity> carts = new ArrayList<>();
-        for (Activity cart : data.carts()) {
-            if (!lecturePairs.contains(cart.memberId() + ":" + cart.lectureId())) {
-                carts.add(cart);
-            }
-        }
-        List<Rating> reviews = new ArrayList<>();
-        for (Rating review : data.lectureReviews()) {
-            if (!lecturePairs.contains(review.memberId() + ":" + review.lectureId())) {
-                reviews.add(review);
-            }
-        }
+        // (회원, 정답 강의). Answer 값 자체를 열쇠로 쓴다
+        Set<Answer> lectureAnswers = new HashSet<>(data.lectureAnswers());
+        List<Activity> purchases = keep(data.purchases(),
+                purchase -> !lectureAnswers.contains(new Answer(purchase.memberId(), purchase.lectureId())));
+        List<Activity> carts = keep(data.carts(),
+                cart -> !lectureAnswers.contains(new Answer(cart.memberId(), cart.lectureId())));
+        List<Rating> reviews = keep(data.lectureReviews(),
+                review -> !lectureAnswers.contains(new Answer(review.memberId(), review.lectureId())));
 
-        Set<String> partnerPairs = new HashSet<>();
+        Set<Partners> hiddenPairs = new HashSet<>();
         for (Answer answer : data.influencerAnswers()) {
-            partnerPairs.add(RecommendEvalDataGenerator.pairKey(answer.requesterId(), answer.answerId()));
+            hiddenPairs.add(Partners.of(answer.requesterId(), answer.answerId()));
         }
-        List<Appearance> appearances = new ArrayList<>();
         Set<Long> removed = new HashSet<>();
         for (Appearance appearance : data.appearances()) {
-            if (partnerPairs.contains(RecommendEvalDataGenerator.pairKey(appearance.hostId(), appearance.guestId()))) {
+            if (hiddenPairs.contains(Partners.of(appearance.hostId(), appearance.guestId()))) {
                 removed.add(appearance.id());
-            } else {
-                appearances.add(appearance);
             }
         }
-        List<AppearanceReview> appearanceReviews = new ArrayList<>();
-        for (AppearanceReview review : data.appearanceReviews()) {
-            if (!removed.contains(review.appearanceId())) {
-                appearanceReviews.add(review);
-            }
-        }
+        List<Appearance> appearances = keep(data.appearances(), appearance -> !removed.contains(appearance.id()));
+        List<AppearanceReview> appearanceReviews = keep(data.appearanceReviews(),
+                review -> !removed.contains(review.appearanceId()));
         return data.withRows(purchases, carts, reviews, appearances, appearanceReviews);
+    }
+
+    private static <T> List<T> keep(List<T> rows, Predicate<T> condition) {
+        List<T> kept = new ArrayList<>();
+        for (T row : rows) {
+            if (condition.test(row)) {
+                kept.add(row);
+            }
+        }
+        return kept;
     }
 }

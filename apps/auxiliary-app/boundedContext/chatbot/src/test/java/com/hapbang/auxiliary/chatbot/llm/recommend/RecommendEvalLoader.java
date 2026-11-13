@@ -75,8 +75,7 @@ final class RecommendEvalLoader {
         List<LectureSnapshot> lectures = new ArrayList<>();
         List<String> lectureTexts = new ArrayList<>();
         for (Lecture lecture : data.lectures()) {
-            LectureSnapshot snapshot = new LectureSnapshot(lecture.id(), lecture.sellerId(), lecture.title(),
-                    lecture.description(), lecture.contentTitles(), true, false, false);
+            LectureSnapshot snapshot = snapshot(lecture);
             lectures.add(snapshot);
             lectureTexts.add(snapshot.indexText());
         }
@@ -90,11 +89,7 @@ final class RecommendEvalLoader {
         List<InfluencerProfileText> texts = new ArrayList<>();
         List<String> influencerTexts = new ArrayList<>();
         for (Influencer influencer : data.influencers()) {
-            List<String> categoryNames = new ArrayList<>();
-            for (String code : influencer.fields()) {
-                categoryNames.add(names.get(code));
-            }
-            InfluencerProfileText text = InfluencerProfileText.of(categoryNames, influencer.bio());
+            InfluencerProfileText text = profileText(influencer, names);
             profiles.add(new InfluencerProfile(influencer.id(), Role.INFLUENCER, UserStatus.ACTIVE, influencer.fields(),
                     influencer.bio(), false));
             texts.add(text);
@@ -105,5 +100,20 @@ final class RecommendEvalLoader {
             access.upsertInfluencer(profiles.get(i), texts.get(i), influencerVectors.get(i));
         }
         access.refresh();
+    }
+
+    /** 판매 중인 강의 사본. 임베딩하는 글은 운영과 같은 {@link LectureSnapshot#indexText()} */
+    static LectureSnapshot snapshot(Lecture lecture) {
+        return new LectureSnapshot(lecture.id(), lecture.sellerId(), lecture.title(), lecture.description(),
+                lecture.contentTitles(), true, false, false);
+    }
+
+    /** 운영과 같은 인플루언서 임베딩 글(분야 이름 + 자기소개) */
+    static InfluencerProfileText profileText(Influencer influencer, Map<String, String> fieldNames) {
+        List<String> categoryNames = new ArrayList<>();
+        for (String code : influencer.fields()) {
+            categoryNames.add(fieldNames.get(code));
+        }
+        return InfluencerProfileText.of(categoryNames, influencer.bio());
     }
 }

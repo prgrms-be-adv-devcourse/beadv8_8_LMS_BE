@@ -18,7 +18,7 @@ import com.hapbang.testsupport.IntegrationTest;
  * <ul>
  *     <li>{@link #tuning()}: 조정용 80명. {@value RecommendEvalGrid#GRID_ENV}·{@value RecommendEvalGrid#BASE_ENV}로 조합을 준다.</li>
  *     <li>{@link #holdout()}: 확인용 20명. {@value RecommendEvaluation#HOLDOUT_ENV}{@code =yes}일 때만 돌고, 그때는 {@link #tuning()}이 꺼진다.
- *     격자는 무시하고 고정값 한 줄만 잰다(20명에 맞춰 값을 고르지 않게, 마지막에 한 번).</li>
+ *     고정값 한 줄만 재고, 격자를 주면 실패한다(20명에 맞춰 값을 고르지 않게, 마지막에 한 번).</li>
  * </ul>
  */
 @Tag("llm")
@@ -58,6 +58,11 @@ class RecommendEvaluationOpenAiTest extends RecommendEvaluation {
     @Test
     @EnabledIfEnvironmentVariable(named = HOLDOUT_ENV, matches = "yes")
     void holdout() {
+        String grid = System.getenv(RecommendEvalGrid.GRID_ENV);
+        if (grid != null && !grid.isBlank()) {
+            throw new IllegalStateException("확인용 20명은 격자 없이 고정값 한 줄만 잽니다. " + RecommendEvalGrid.GRID_ENV
+                    + "를 지우고 정한 값을 " + RecommendEvalGrid.BASE_ENV + "로 주세요");
+        }
         String base = System.getenv(RecommendEvalGrid.BASE_ENV);
         evaluateAndPrint(Group.HOLDOUT, RecommendEvalGrid.combos(null, base), base);
     }
