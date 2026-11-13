@@ -8,6 +8,7 @@
 > - 구현 상태(2026-11-09): 🆕는 발행되지 않고, 🟡는 JVM 안에서만 발행된다. ⚠️와 "기존 변경"은 이미 Kafka로 나가지만 요청한 값이 아직 없다. 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
 >
 > 변경 이력
+> - 2026-11-13 N10 예약 알림 결정(#928, 알림 담당): 0.3 끝 문단에 짝 키 확인 결과(ND-138)를 적고, 2장에 구매 취소 마감 임박 예약이 기대는 강의 이벤트 시각 불변식(ND-143)을 더했다. 강의 담당 확인은 PR 리뷰에서 받는다.
 > - 2026-11-09 처음 작성: 원천 설계 [notification.md 7장](../architecture/infrastructure/notification.md)의 요청(알림 종류 문서 1.1~6.1에 있던 표)을 옮기고, ND-038 공통 값과 ND-040·ND-041·ND-042·ND-044를 반영했다.
 > - 2026-11-09 확정: 발행 앱 코드를 조사해(7장) 사건 ID·key·필드를 정하고 ND-045(회차 번호)를 반영했다. 모든 이벤트를 "확정"으로 바꿨다.
 > - 2026-11-09 PR 리뷰 반영(#794): 구현 상태 서술을 이미 발행 중인 ⚠️·기존 변경 이벤트에 맞게 고쳤다. 0.3 예약 짝 키를 새로 두었다(U16 계약 쪽). 3장에 ND-040의 지급 요청 변경 범위를 적고 7장에 근거 행을 더했다.
@@ -57,7 +58,7 @@
 | `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 ID | 호스트 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceConfirmedEvent`, `AppearanceAbsentEvent`, `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` |
 | `LECTURE_ORDER_ITEM_CONFIRMING` | 주문 항목 ID | 구매자 | `LectureOrderPaidEvent`(주문 항목마다) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent` |
 
-1장·2장 표의 "담을 값"은 위 대상 ID와 받는 사람 ID를 모두 담는다. 발행 구현 뒤 실제 이벤트가 이 값을 주는지 확인하는 일은 소비 작업에 남는다(U16).
+1장·2장 표의 "담을 값"은 위 대상 ID와 받는 사람 ID를 모두 담는다. 2026-11-13 `common/shared` 레코드로 5종 모두 생성·취소 이벤트가 이 값을 주는 것을 확인했다(ND-138, #928).
 
 ## 1. 출연 (`appearance.events.v1`, M1·M3)
 
@@ -113,6 +114,10 @@
   - 이의 제기 접수 `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `filedAt`.
   - 주문·구매의 `lectureTitle`은 구매 때 저장한 제목이다. 사건 시각은 강의에 저장한 시각이고, 결제 실패만 저장 칸이 없어 결제 실패를 기록한 시각이다.
   - 결제 실패는 보류 거절·보류 무효화·쿠폰 예약 거절·관리자 실패 확정 모두에서 주문마다 한 번 나간다. 구매 확정은 직접 확정·재생 동의·자동 확정 모두에서 항목마다 한 번, 이의 제기 접수는 처음 처리한 접수 명령에서만 나간다.
+- **예약 기한 불변식(ND-143, #928, 강의 담당 확인은 #928 PR 리뷰)**: 알림의 구매 취소 마감 임박 예약은 아래를 전제로 한다. 강의가 이 관계를 바꾸면 알림 담당과 먼저 협의한다.
+  - `LectureOrderPaidEvent.paidAt`은 주문 항목의 구매 시각과 같다(`LectureOrder.markPaid`가 같은 시각으로 `OrderItem.markPurchased`를 부른다). 구매일은 그 KST 날짜이고 자동 구매 확정 시각은 (구매일 + 8일) 00:00이다(policy.md "기한 계산").
+  - `LectureOrderItemCanceledEvent.canceledAt`과 `LectureOrderItemConfirmedEvent.confirmedAt`은 그 항목의 구매 시각 이후다.
+  - `confirmedAt`은 자동 구매 확정 시각 이하다(`OrderItem.confirmFirstOf`). `canceledAt`은 반환 완료 시각(`OrderItem.completeCancel`)이라 자동 구매 확정 시각을 넘을 수 있다.
 - 검수 회차는 강의가 검수 신청(`requestInspection`)될 때마다 1씩 늘어나는 값이다. 반환 지연 회차는 같은 문의에서 반환 지연 이벤트가 날 때마다 1씩 늘어나는 값이다. 강의는 등록을 1회차로 센다(`lecture.inspection_count`, 기존 강의는 1).
 - `LectureObjectionReturnActionRequiredEvent`는 강의 토픽 이벤트지만 알림은 알림 종류 5장(고객센터)에 있다.
 

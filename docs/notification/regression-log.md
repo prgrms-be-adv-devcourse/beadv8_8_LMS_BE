@@ -86,6 +86,72 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-080 · 2026-11-13 · 통과 (N10 예약 알림 #928 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-080 |
+| 실행 날짜 | 2026-11-13 10:33~10:37 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | S6 리뷰 반영: 실패 횟수(`failure_count`, `REQUIRES_NEW`로 분리 기록, 3번 연속이면 건너뜀 + ERROR, ND-147), 예약 알림 발생 시각 = 보낸 시각(ND-148), 배치 실패 WARN, `NotificationJobTest`(락 번호), KST 상수 중복 제거, 배치가 먼저 잠근 경우의 동시성 시험 |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~19, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 390, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928 |
+
+#### NR-079 · 2026-11-13 · 통과 (N10 예약 알림 #928)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-079 |
+| 실행 날짜 | 2026-11-13 10:04~10:14 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | NR-078의 회귀 수정: 예약 생성에 알림 시작 시각(ND-145), 예약 받는 사람 복제본 없음은 DLT·모두 수신 제외면 DLT 없음(ND-146). `ScheduleCommand.Create`에 사건 시각. `NotificationAppearanceProgressAlertTest`의 "받을 수 없는 호스트 + 게스트 복제본 없음" 기대를 DLT로 바꾸고, "호스트·게스트 모두 받을 수 없음" 시험을 더했다 |
+| 대상 기능 | N10 예약 배치와 예약 알림 5종 전체 |
+| 관련 NT ID | NT-SCH-01~18, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0, Testcontainers) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 모두 새로 실행(UP-TO-DATE 아님) |
+| 건수 | `:notification` 386, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동 뒤 밀린 예약 발송(NT-SCH-10)은 같은 처리 경로의 통합 시험만 했다 |
+| 관련 변경 | #928 |
+
+#### NR-078 · 2026-11-13 · 실패 (N10 예약 알림 #928 첫 3명령)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-078 |
+| 실행 날짜 | 2026-11-13 09:58~10:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | N10 구현(Flyway `V202611131000`, 예약 시각·종류·명령·저장소·서비스·배치·문구, 출연·강의 리스너 연결)과 시험 |
+| 대상 기능 | N10 |
+| 관련 NT ID | NT-SCH-01~16 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 실패. `:notification:test` 383 중 2 실패로 멈춰 `verifyModuleStructure`·`:auxiliary-app:check`는 실행되지 않았다 |
+| 건수 | `:notification` 383, 실패 2 |
+| 실패 원인 분류 | 회귀(구현 결함 아님, 정책 공백). `NotificationAppearanceProgressAlertTest` 2건: 요청 수락에서 게스트 복제본이 없고 호스트가 받을 수 없거나 사건이 알림 시작 시각 전이면 DLT 없이 넘겨야 하는데, 게스트가 방송 임박 예약의 받는 사람이 되어 예약 생성이 `RECEIVER_NOT_REPLICATED`로 실패했다. 탐침(복제본 없으면 넘김)으로 원인을 확인하고 되돌렸다 |
+| 수정 내용 | 알림 담당 결정 ND-145·ND-146대로 고쳤다(NR-079) |
+| 재실행 결과 | NR-079 통과 |
+| 미검증 항목 | — |
+| 관련 변경 | #928 |
+
 #### NR-077 · 2026-11-12 · 통과 (N9 채팅 #921 PR 리뷰 반영)
 
 | 항목 | 값 |

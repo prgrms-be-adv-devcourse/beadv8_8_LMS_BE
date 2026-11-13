@@ -27,7 +27,7 @@
 | 명세 상태 | 아래 1.3. 실행 결과가 아니다 |
 
 - 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-050). N5 11종은 [알림 종류](notification-catalog.md) 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126)이고 나머지는 미결(U3)이다. 생성 항목은 "문구가 비어 있지 않다"까지만 보고, 문구 내용은 NT-GEN-10이 본다.
-- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름 중 예약 5종은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). 역할 비교 승급 승인은 ND-071, 하루 묶음 `PAYOUT_COMPLETED_DAILY`는 ND-098로 정해졌다. `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
+- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름은 역할 비교 승급 승인 ND-071, 하루 묶음 `PAYOUT_COMPLETED_DAILY` ND-098, 예약 5종 ND-137로 정해졌다(NT-GEN-12). `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
 - consumer group 이름은 ND-047(`auxiliary-app.notification-<목적>`)이다. 그룹 이름을 단언하는 항목은 NT-KAF-06, NT-ERR-03이고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
 
 ### 1.2 테스트 종류 (제안)
@@ -67,13 +67,13 @@
 | NT-GEN-03 | 출연 원천 지급 알림 | 게스트 회원 | `PayoutCompletedEvent` `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE`, `payoutType` `NORMAL`·`PENALTY` | 지급마다 `PAYOUT_COMPLETED` 1건(묶지 않는다). 같은 이벤트로 사건 알림이 따로 있어도 지급 알림은 별개로 생긴다 | `LECTURE_ORDER_ITEM` 원천은 이 종류로 만들지 않는다(→ BUN) | ND-013 | Kafka `billing.events.v1`, 카탈로그 `PAYOUT_COMPLETED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-04 | 조건부 발송 | M3·M4 | `AppearanceRecruitClosedEvent`(`closeType`), `AppearanceConfirmedEvent`(`confirmType`), `LectureOrderItemConfirmedEvent`(`confirmationType`) | `DEADLINE`·`AUTO`일 때만 알림 1건. 조기 마감·직접 확인·직접 구매 확정은 알림 0이고 offset은 커밋(DLT 아님) | — | ND-011 | 카탈로그 `APPEARANCE_RECRUIT_CLOSED`, `APPEARANCE_CONFIRMED`, `LECTURE_ORDER_ITEM_CONFIRMED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-05 | 받는 사람이 여럿인 알림 | 호스트·게스트, 구매자·판매자 복제본. M2·M3·M4 | `AppearanceRequestExpiredEvent`, `LectureObjectionFiledEvent`, `LectureObjectionResolvedEvent` | 받는 사람마다 1건씩(만료: 호스트·게스트, 이의 제기: 구매자·판매자). `accepted`에 따라 값이 달라진다 | 받는 사람 중 한 명이 탈퇴면 나머지만(NT-USR-03) | ND-011, ND-015 | 카탈로그 `APPEARANCE_REQUEST_EXPIRED`, `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_RESOLVED` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-06 | 역할 비교로 만드는 승인 알림 | 복제본 역할 유저(또는 인플루언서), 버전 n | `member.events.v1` `UserModifiedEvent` 버전 n+1 | 인플루언서 → 인증된 인플루언서: 승급 승인 1건. 유저 → 인플루언서 역할 변경만으로는 채널 인증 승인 알림을 만들지 않는다(ND-042, NT-GEN-14). 역할이 그대로인 수정은 알림 0. 비교 기준은 반영 전 복제본의 역할 | 자동·관리자 승인을 구분하지 않고 같은 종류·같은 값. 늦은 버전 이벤트는 비교하지 않는다(NT-USR-02). 승급 승인 코드 이름은 U11 | ND-016, ND-018, ND-042 | Kafka `member.events.v1`, 카탈로그 승급 승인 | Integration(PG+Kafka) | 유효 |
+| NT-GEN-06 | 역할 비교로 만드는 승인 알림 | 복제본 역할 유저(또는 인플루언서), 버전 n | `member.events.v1` `UserModifiedEvent` 버전 n+1 | 인플루언서 → 인증된 인플루언서: 승급 승인 1건. 유저 → 인플루언서 역할 변경만으로는 채널 인증 승인 알림을 만들지 않는다(ND-042, NT-GEN-14). 역할이 그대로인 수정은 알림 0. 비교 기준은 반영 전 복제본의 역할 | 자동·관리자 승인을 구분하지 않고 같은 종류·같은 값. 늦은 버전 이벤트는 비교하지 않는다(NT-USR-02). 승급 승인 코드 이름은 ND-071 | ND-016, ND-018, ND-042 | Kafka `member.events.v1`, 카탈로그 승급 승인 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-07 | 보내지 않는 것 | 관리자 회원, 일반 회원 | 관리자 `UserJoinedEvent`, 같은 토픽의 알림 대상 아닌 이벤트(예: `AppearanceReviewPublishedEvent`, `AppearanceChangedEvent`), 정지·탈퇴·로그아웃 이벤트 | 알림 0, 예약 0. offset 커밋, DLT 0. 관리자는 어떤 알림도 받지 않는다 | 카탈로그의 "보내지 않는 것" 목록 전체를 대상으로 한다 | ND-002, ND-003, ND-011 | 카탈로그 "보내지 않는 것" | Integration(PG+Kafka) | 유효 |
 | NT-GEN-08 | 단체방 알림 3종의 받는 사람 | M8(`chat.events.v1`) | `GroupMembersInvitedEvent`, `GroupMemberKickedEvent`, `GroupRoomClosedEvent` | 초대: 이번 초대로 실제 참여한 회원마다 1건. 강퇴: 강퇴된 회원 1건. 폐쇄: 남은 참여자마다 1건, 폐쇄한 호스트 제외 | 종류 코드는 채팅 안내와 이름이 같지만 뜻·받는 사람이 다르다(ND-043) | ND-011, ND-043 | Kafka `chat.events.v1`, 카탈로그 단체방 3종 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-09 | 이의 제기 접수 한 번만 | M4, M7 | 바로 접수된 `LectureObjectionFiledEvent` / 재시도 배치 접수의 `LectureObjectionFiledEvent` / `LectureObjectionFileRejectedEvent` | 접수는 경로와 무관하게 이벤트 하나로 구매자·판매자 각 1건. 접수 불가는 재시도 배치가 끝낼 때만 구매자 1건 | 바로 거절된 접수는 알림 0(이벤트가 없다) | ND-015 | 카탈로그 `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_FILE_REJECTED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-10 | 종류별 문구 | 그 종류를 소비하는 작업에서 문구 확정(ND-050). N5 11종은 카탈로그 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132) | 종류마다 대표 이벤트(전부 환불·일부 환불, `NORMAL`·`PENALTY`처럼 문구가 갈리는 값은 각각) | 저장된 문구가 확정된 문구와 같다(금액 쉼표, 시각 KST) | 문구가 아직 없는 종류(U3)는 그 소비 작업에서 더한다 | ND-020, ND-039, ND-050, ND-075 | 카탈로그 0.5, 각 소비 작업의 문구 코드 | Unit | 유효 |
 | NT-GEN-11 | 지급 알림의 출연·강의 제목 | M5(`PayoutCompletedEvent.sourceTitle`, ND-040) | `PayoutCompletedEvent` | 지급 알림(`PAYOUT_COMPLETED`, 하루 묶음)에 이벤트의 `sourceTitle`이 제목으로 들어 있다 | 지금 이벤트에 `sourceTitle`이 없다(M5 전에는 실행할 수 없다) | ND-014, ND-040 | Kafka `billing.events.v1` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(승급 승인 `INFLUENCER_UPGRADE_REQUEST_APPROVED`(ND-071), `PAYOUT_COMPLETED_DAILY`(ND-098), 예약 5종) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08). 예약 5종 이름은 U11 | ND-012, ND-071, ND-098, **U11** | 카탈로그 | Unit | 미결 (U11) |
+| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(승급 승인 `INFLUENCER_UPGRADE_REQUEST_APPROVED`(ND-071), `PAYOUT_COMPLETED_DAILY`(ND-098), 예약 5종(ND-137)) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08). 예약 5종 이름은 ND-137 | ND-012, ND-071, ND-098, ND-137 | 카탈로그 | Unit | 유효 |
 | NT-GEN-13 | 값 저장과 문구 재생성 | 아무 알림 | 알림 생성 | 값(`jsonb`)에 형식 버전 `v`가 있고, 저장된 값만으로 같은 문구를 다시 만들 수 있다 | — | ND-020, ND-025 | 테이블 `notification` | Unit, Integration(PG) | 유효 |
 | NT-GEN-14 | 채널 인증 승인 알림의 회원 코드 불일치 경우 | M6(`InfluencerChannelApprovedEvent`, ND-042). 복제본 역할 유저 또는 인플루언서 | (1) 관리자 인플루언서 지정(#724)으로 나는 `UserModifiedEvent`(유저 → 인플루언서) (2) 이미 인플루언서인 회원의 `InfluencerChannelApprovedEvent` | (1) 채널 인증 승인 알림을 만들지 않는다 (2) 채널 인증 승인 알림 1건 | (1) 역할 비교(ND-016)로는 채널 인증 승인과 구분되지 않았다 (2) 역할이 바뀌지 않아 `UserModifiedEvent`가 나가지 않았다. 승급 승인(인플루언서 → 인증된 인플루언서)은 해당 없음(NT-GEN-06) | ND-016, ND-042 | Kafka `member.events.v1`(`InfluencerChannelApprovedEvent`), 카탈로그 채널 인증 승인 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-15 | 이동 대상 | N5 11종, N7 지갑 4종(ND-107), N7 출연 10종(ND-112), N7 강의 7종(ND-116), N7 회원 3종(ND-120), N7 고객센터 2종(ND-125), N9 채팅 3종(ND-131) | 종류마다 대표 이벤트 | 저장된 `targetType`·`targetId`가 카탈로그 행의 이동 대상과 같다(가입 환영·승급 승인·N7 회원 3종·단체방 강퇴는 둘 다 비어 있다) | 지급 완료의 원천별 값 | ND-074 | 카탈로그 이동 대상 칸, [API 문서](../api/notification.md) | Unit, Integration(PG+Kafka) | 유효 |
@@ -161,17 +161,25 @@
 
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NT-SCH-01 | 출연 요청 만료 임박 예약 | 게스트 복제본 | `AppearanceRequestSentEvent` | 게스트에게 `APPEARANCE_REQUEST_EXPIRING` 예약 1건, 보낼 시각 = 수락 기한 − 12시간, 상태 예약 | 이미 보낼 시각이 지난 예약을 만들지는 정하지 않았다(만들면 다음 배치에서 바로 나간다) | ND-029 | Kafka `appearance.events.v1`, 테이블 `notification_schedule` | Integration(PG+Kafka) | 유효 |
+| NT-SCH-01 | 출연 요청 만료 임박 예약 | 게스트 복제본 | `AppearanceRequestSentEvent` | 게스트에게 `APPEARANCE_REQUEST_EXPIRING` 예약 1건, 보낼 시각 = 수락 기한 − 12시간, 상태 예약 | 보낼 시각이 이미 지났어도 업무 기한 전이면 예약을 만들고 다음 배치에서 보낸다. 업무 기한이 지났으면 NT-SCH-13 | ND-029, ND-135 | Kafka `appearance.events.v1`, 테이블 `notification_schedule` | Integration(PG+Kafka) | 유효 |
 | NT-SCH-02 | 방송 임박·출연 확인 부탁 예약 | M3 | 요청 수락 / 지원 수락 이벤트 | `APPEARANCE_STARTING` 호스트·게스트 각 1건(방송 예정 일시 − 24시간), `APPEARANCE_CONFIRM_PERIOD_ENDING` 호스트 1건(방송 예정 일시 + 4×24시간 = 자동 확인 시각 − 3×24시간) | 출연은 시각 기준 | ND-029, ND-030 | 카탈로그 예약 종류 | Unit, Integration(PG+Kafka) | 유효 |
 | NT-SCH-03 | 모집 마감 임박 예약 | M3 | `AppearanceRecruitOpenedEvent` | 호스트에게 `APPEARANCE_RECRUIT_CLOSING` 1건, 모집 마감 일시 − 24시간 | — | ND-029 | 카탈로그 | Integration(PG+Kafka) | 유효 |
 | NT-SCH-04 | 구매 취소 마감 임박 예약 | M4 | `LectureOrderPaidEvent`(주문 항목 2개) | 항목마다 구매자에게 `LECTURE_ORDER_ITEM_CONFIRMING` 1건, (구매일 + 7일) 09:00 KST. 구매일은 KST 날짜 | 구매 시각 KST 23:59:59와 00:00:00 경계. 09:00과 운영 시간 충돌은 NT-SCH-10 | ND-029, ND-031 | 카탈로그 | Unit, Integration(PG+Kafka) | 유효 |
 | NT-SCH-05 | 취소 이벤트로 예약 취소 | 예약 종류별 예약 | N 4장 표의 취소 이벤트(요청 수락·거절·응답 전 취소, 모집 마감, 합의 취소, 호스트 일방 취소, 출연 확인, 불참, 구매 취소, 구매 확정) | 해당 예약 상태가 취소, 배치가 보내지 않는다. 다른 받는 사람·다른 대상의 예약은 그대로 | 모집 전체 취소 이벤트는 NT-SCH-11 | ND-029 | 카탈로그 예약 취소 이벤트 | Integration(PG+Kafka) | 유효 |
-| NT-SCH-06 | 취소 이벤트가 예약 생성보다 먼저 도착 | 예약 없음. 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는 예약 알림(예약 알림별 계약 검증은 U16) | 취소 이벤트를 먼저, 생성 이벤트를 나중에 소비 | 취소 상태 예약 행이 먼저 남고, 늦게 온 생성 이벤트는 유일 키에 걸려 예약을 만들지 않는다. 예약 알림이 나가지 않는다 | 다른 key·Modulith 전송으로 순서가 바뀔 수 있다(kafka.md) | ND-029, ND-034, **U16** | `notification_schedule` 유일 (종류, 대상 ID, 받는 사람) | Integration(PG+Kafka) | 미결 (U16) |
-| NT-SCH-07 | 보내기 직전 상태 재확인 | 보낼 시각이 지난 예약 | 배치가 대상을 읽은 뒤 보내기 전에 취소가 커밋 | 취소된 예약은 보내지 않는다. 이미 보낸 예약은 다시 보내지 않는다(알림 중복 없음) | 예약 뒤 받는 사람이 탈퇴한 경우는 정하지 않았다(NT-USR-03 참고) | ND-029 | — | Integration(PG) | 유효 |
+| NT-SCH-06 | 취소 이벤트가 예약 생성보다 먼저 도착 | 예약 없음. 5종 모두(짝 키 확인 ND-138) | 취소 이벤트를 먼저, 생성 이벤트를 나중에 소비 | 취소 상태 예약 행이 먼저 남고, 늦게 온 생성 이벤트는 유일 키에 걸려 예약을 만들지 않는다. 예약 알림이 나가지 않는다 | 다른 key·Modulith 전송으로 순서가 바뀔 수 있다(kafka.md) | ND-029, ND-034, ND-138 | `notification_schedule` 유일 (종류, 대상 ID, 받는 사람), [이벤트 계약 요청](event-contracts.md) 0.3 | Integration(PG+Kafka) | 유효 |
+| NT-SCH-07 | 보내기 직전 상태 재확인 | 보낼 시각이 지난 예약 | 배치가 대상을 읽은 뒤 보내기 전에 취소가 커밋 | 취소된 예약은 보내지 않는다. 이미 보낸 예약은 다시 보내지 않는다(알림 중복 없음) | 업무 기한 경과·받는 사람 탈퇴·정지는 NT-SCH-12 | ND-029, ND-135 | — | Integration(PG) | 유효 |
 | NT-SCH-08 | 1분 배치 처리 | 보낼 시각 전·후 예약 | 예약 배치 실행 | 보낼 시각이 지난 "예약" 상태만 알림을 만들고 상태를 "보냄"으로 바꾼다. 만든 알림에는 보존(20개)·실시간 규칙이 같이 적용된다. 보낼 시각 전 예약은 그대로 | — | ND-029, ND-022, ND-027 | — | Integration(PG) | 유효 |
 | NT-SCH-09 | 예약 중복 방지 | — | 같은 생성 이벤트 두 번 | 예약 1건 | — | ND-019, ND-025 | `notification_schedule` 유일 키 | Integration(PG+Kafka) | 유효 |
-| NT-SCH-10 | EC2 운영 시간과 예약 | 운영 시간 정책 확정 | 중지 시간대에 보낼 시각이 있는 예약, 09:00 예약 | 중지 시간 예약·기동 직후 예약을 결정대로 보낸다 | 중지 시간에는 `@Scheduled`가 돌지 않는다 | ND-029, ND-031, **U6** | — | E2E | 미결 (U6) |
+| NT-SCH-10 | EC2 운영 시간과 예약 | 서버가 꺼진 동안 보낼 시각이 지난 예약 | 기동 뒤 첫 예약 배치 | 밀린 예약 중 업무 기한 전인 것을 보낸다. 09:00 예약은 기동 직후 나간다. 업무 기한이 지난 것은 건너뜀(NT-SCH-12) | 중지 시간에는 `@Scheduled`가 돌지 않는다. 팀 확인은 U6(구현 기준은 ND-134) | ND-029, ND-031, ND-134 | — | Integration(PG) | 유효 |
 | NT-SCH-11 | 모집 전체 취소의 예약 취소 | M3(`AppearanceRecruitCanceledEvent`, ND-041) | `AppearanceRecruitCanceledEvent` | 모집 마감 임박 예약이 취소되고 알림은 만들지 않는다 | 모집 전체 취소 자체의 알림 종류는 없다(ND-017) | ND-017, ND-041 | `appearance.events.v1` | Integration(PG+Kafka) | 유효 |
+| NT-SCH-12 | 보내기 직전 업무 기한·받는 사람 확인 | 보낼 시각이 지난 예약 | (1) 업무 기한이 지난 예약 (2) 예약 뒤 받는 사람이 탈퇴·정지 | 알림을 만들지 않고 상태를 "건너뜀"으로 바꾼다. 같은 배치의 다른 예약은 그대로 보낸다 | 업무 기한과 같은 시각이면 지난 것으로 본다(ND-144). 기한 1초 전은 보낸다 | ND-018, ND-072, ND-135, ND-144 | `notification_user` 상태 | Integration(PG) | 유효 |
+| NT-SCH-13 | 업무 기한이 지난 뒤 온 생성 이벤트 | 예약 없음 | 업무 기한이 지난 생성 이벤트, 같은 이벤트 재전달 | "건너뜀" 예약 행 1건, 알림 0. 재전달해도 행 1건 | — | ND-025, ND-136 | `notification_schedule` 유일 키 | Integration(PG+Kafka) | 유효 |
+| NT-SCH-14 | 끝난 예약 행 정리 | 보냄·취소·건너뜀·예약 행, 업무 기한 + 7일 전·후 | 예약 배치 실행 | 최종 상태(보냄·취소·건너뜀)이고 업무 기한 + 7일이 지난 행만 정한 건수 이하로 지운다. "예약" 행은 기한이 지나도 남는다. 업무 기한 + 7일 전 행은 남는다 | 생성 시각·발송 시각이 오래돼도 업무 기한이 기준이다 | ND-142 | — | Integration(PG) | 유효 |
+| NT-SCH-15 | 구매 취소 마감 임박 "취소" 먼저 행의 대체 기한 | 예약 없음 | `LectureOrderItemCanceledEvent` 또는 `LectureOrderItemConfirmedEvent` 먼저 | "취소" 행의 업무 기한 = (이벤트 시각의 KST 날짜 + 8일) 00:00이며 실제 기한((구매일 + 8일) 00:00) 이상이다. 취소 시각이 실제 기한을 넘어도 행이 일찍 지워지지 않는다(삭제가 늦어지기만) | KST 23:59:59·00:00:00 경계. 강의 이벤트 시각 불변식이 전제다 | ND-143 | [이벤트 계약 요청](event-contracts.md) 2장 불변식 | Unit | 유효 |
+| NT-SCH-16 | 예약 알림의 값 | 보낼 예약 5종 | 예약 배치 발송 | 종류 코드(ND-137), 원본 대상 ID·이동 대상(ND-139), 기한 시각 문구([알림 종류](notification-catalog.md) 0.13)가 맞다. 발생 시각은 보낸 시각이라 늦게 보낸 알림도 20개 보존에서 바로 밀려나지 않는다(ND-148). 같은 예약을 다시 처리해도 알림 1건 | 문구의 제목은 예약을 만든 이벤트 값이다 | ND-137, ND-139, ND-140, ND-148 | 카탈로그 7장·0.13 | Unit, Integration(PG) | 유효 |
+| NT-SCH-17 | 예약과 알림 시작 시각 | 받는 사람 복제본 없음 | 알림 시작 시각보다 이른 생성 이벤트, 시작 시각과 같은 생성 이벤트 | 이른 사건은 예약 0, 실패·DLT 없음. 같은 시각은 예약 1건 | 출연 요청 발송은 레코드 timestamp로 본다(ND-081). 취소는 시작 시각과 관계없이 처리한다 | ND-145 | — | Integration(PG+Kafka) | 유효 |
+| NT-SCH-18 | 예약 받는 사람 복제본 없음 | 요청 수락: (1) 호스트 받을 수 없음 + 게스트 복제본 없음 (2) 호스트·게스트 모두 받을 수 없음 | 요청 수락 이벤트 | (1) 재시도 뒤 DLT, 예약·알림 0 (2) 예약·알림 0, DLT 없음 | 같은 레코드의 예약과 즉시 알림은 한 트랜잭션이라 함께 DLT로 미뤄진다(ND-133) | ND-035, ND-146 | DLT `<토픽>.<그룹>.DLT` | Integration(PG+Kafka) | 유효 |
+| NT-SCH-19 | 계속 실패하는 예약 | 보낼 때마다 알림 저장이 실패하는 예약 | 예약 배치 3회 | 1·2회: 실패 횟수 1·2, "예약" 유지, 알림 0. 3회: 실패 횟수 3, "건너뜀", ERROR `[NOTIFICATION_SCHEDULE_FAILED]`. 그 뒤 회차는 고르지 않는다 | 실패 횟수는 실패한 저장 트랜잭션과 분리해 기록한다(롤백돼도 남는다) | ND-147 | `notification_schedule.failure_count` | Integration(PG) | 유효 |
 
 ### 2.9 USR — 회원 복제본·탈퇴
 
@@ -179,7 +187,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-USR-01 | 복제본 생성·갱신 | — | `UserJoinedEvent`, `UserModifiedEvent` | `notification_user`에 회원 ID·닉네임·역할·상태·버전이 생기고 변경 이벤트로 갱신된다. 복제본이 없을 때 온 변경 이벤트는 그 정보로 복제본을 만들고(DLT 아님), 그 뒤 늦게 온 가입은 건너뛴다(ND-049) | 같은 이벤트 두 번은 결과 같음 | ND-018, ND-049 | Kafka `member.events.v1`, 테이블 `notification_user` | Integration(PG+Kafka) | 유효 |
 | NT-USR-02 | 복제본 버전 역전 | 복제본 버전 3 | 버전 2 `UserModifiedEvent`(늦게 도착), 버전 3 재수신 | 복제본은 버전 3 그대로, 승인 알림(NT-GEN-06)도 만들지 않는다. 커밋, DLT 아님 | 멱등 키는 (회원 ID, 원본 버전)(kafka.md "소비") | ND-018, ND-016 | `user.version` | Integration(PG+Kafka) | 유효 |
-| NT-USR-03 | 탈퇴 회원 제외 | 복제본 상태 탈퇴인 회원 W, 정상 회원 A | W가 받는 사람인 이벤트, W·A가 함께 받는 이벤트, W의 예약 생성 이벤트 | W에게는 알림·예약 0, A에게만 1건. 커밋, DLT 아님 | 예약을 만든 뒤 탈퇴한 경우 보낼 때 다시 확인할지는 정하지 않았다 | ND-018 | `notification_user` 상태 | Integration(PG+Kafka) | 유효 |
+| NT-USR-03 | 탈퇴 회원 제외 | 복제본 상태 탈퇴인 회원 W, 정상 회원 A | W가 받는 사람인 이벤트, W·A가 함께 받는 이벤트, W의 예약 생성 이벤트 | W에게는 알림·예약 0, A에게만 1건. 커밋, DLT 아님 | 예약을 만든 뒤 탈퇴한 경우는 보낼 때 다시 확인한다(ND-135, NT-SCH-12) | ND-018, ND-135 | `notification_user` 상태 | Integration(PG+Kafka) | 유효 |
 | NT-USR-04 | 복제본이 아직 없는 받는 사람 | 받는 사람 복제본 없음(가입 이벤트가 늦게 옴) | 알림 대상 이벤트 | 알림을 만들지 않고 처리가 실패해 블로킹 재시도된다. 재시도 중 복제본이 생기면 알림이 만들어지고, 끝까지 없으면 그 그룹의 DLT로 간다. DLT로 간 메시지를 kafka.md "DLT 재처리 runbook"으로 다시 넣으면 알림이 한 번만 만들어진다(ND-019) | 복제본 없이 만들면 탈퇴 확인(ND-018)을 할 수 없다. 첫 배포 때 기존 회원은 NT-USR-06 | ND-018, ND-035 | `member.events.v1` | Integration(PG+Kafka) | 유효 |
 | NT-USR-05 | 정지 회원 | 복제본 상태 정지(`SUSPENDED`) | 정지 회원이 받는 사람인 이벤트 | 알림 0, offset 커밋(DLT 아님) | 회원 앱은 지금 정지 상태를 만들지 않으므로 복제본을 직접 정지로 두고 본다 | ND-018, ND-072 | `notification_user` 상태 | Integration(PG+Kafka) | 유효 |
 | NT-USR-06 | 첫 배포 때 이미 가입한 회원의 복제본 | Kafka 보존(72시간)보다 먼저 가입해 `UserJoinedEvent`가 토픽에 없는 회원. 회원 목록 내부 API가 여러 페이지 | 앱 기동(Backfill), 그 뒤 그 회원이 받는 사람인 알림 대상 이벤트 | 마지막 페이지까지 읽어 모든 회원의 복제본이 생기고, 알림 소비자는 Backfill이 끝난 뒤 시작해 알림이 만들어진다(DLT 0) | 페이지 경계(size 배수), 빈 목록 | ND-018, ND-077, ND-078 | `docs/api/internal-members.md` 1장, 테이블 `notification_user` | Integration(PG + 회원 API stub), E2E | 유효 |
@@ -256,21 +264,21 @@
 
 | 영역 | 항목 수 | 유효 | 미결 (Uxx) | 미결 (결정 없음) | 폐기·대체됨 |
 | --- | --- | --- | --- | --- | --- |
-| GEN 알림 생성·발생 조건 | 24 | 23 | 1 (U11) | 0 | 0 |
+| GEN 알림 생성·발생 조건 | 24 | 24 | 0 | 0 | 0 |
 | KAF 이벤트 소비 | 10 | 10 | 0 | 0 | 0 |
 | IDEM 중복 | 6 | 6 | 0 | 0 | 0 |
 | QRY 조회·접근 | 4 | 4 | 0 | 0 | 0 |
 | READ 읽음 | 6 | 6 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 5 | 5 | 0 | 0 | 0 |
 | BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
-| SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
+| SCH 예약 | 19 | 19 | 0 | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
 | RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **109** | **102** | **7** | **0** | **0** |
+| **합계** | **117** | **112** | **4** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -308,7 +316,14 @@
 | NT-GEN-10·15·23 (N7 고객센터) | `app.CustomerSupportAlertsTest`(2종의 받는 사람, 원본 대상 ID, 이동 대상, 발생 시각, 값 키는 문구에 쓰는 값만, 문구 0.11, 같은 문의 두 번째 답변의 원본 대상 ID, 필수 값 거절, 빈·공백 제목 거절과 정상 제목 그대로(ND-127)) | 변환·문구 |
 | NT-GEN-23, NT-KAF-10 (N7 고객센터) | `in.event.NotificationCustomerSupportAlertTest`(2종 저장과 문구, 답변 재전송은 1건·다른 답변은 1건 더, 접수 불가 재전송 1건, 시작 시각 전·탈퇴·정지·이의 제기 명령 2종은 알림·DLT 없음, 제목 없음·공백 제목·사건 시각 없음은 DLT), `in.event.NotificationAlertListenerStarterTest`(고객센터 컨테이너도 Backfill 뒤 시작) | 전부. 그룹 이름 단언(NT-KAF-06)은 회원 복제본만 |
 | NT-GEN-24·08, NT-GEN-10·15, NT-KAF-06 (N9 채팅, #921) | `app.GroupRoomAlertsTest`(3종 받는 사람·원본 대상 ID·이동 대상·발생 시각·문구 0.12, 초대 여러 명이 같은 사건 ID, 재강퇴는 다른 사건 ID, 폐쇄 호스트 제외·호스트만이면 빈 목록, 필수 값 거절), `in.event.NotificationChatAlertTest`(3종 저장과 문구, 같은 사건 재전송 1건·다음 초대 요청·재강퇴는 새 알림, 시작 시각 전·탈퇴·정지 건너뜀 DLT 없음, 받는 사람 한 명 복제본이 늦으면 재시도로 회복하고 먼저 저장한 사람은 1건, 계속 없으면 재시도 뒤 DLT(`NotificationException`)·다시 넣으면 빠진 사람만 생성, 필수 값 누락은 재시도 없이 DLT(`RejectedEventException`), 목록 null 본문·신뢰 밖 타입 DLT), `in.event.NotificationAlertListenerStarterTest`(Backfill 전 채팅 컨테이너 멈춤, 뒤에 시작) | 전부. 실시간 전달은 같은 저장 경로(NT-RT) |
-| NT-USR-03 | `app.NotificationWriterTest`(탈퇴 받는 사람 제외) | 저장 서비스 수준. 함께 받는 사람·예약은 N5·N10 |
+| NT-USR-03 | `app.NotificationWriterTest`(탈퇴 받는 사람 제외), `app.ScheduleServiceTest`(탈퇴·정지 회원 예약 없음), `app.ScheduleDispatcherTest`(예약 뒤 탈퇴는 건너뜀) | 저장 서비스·예약 수준 |
+| NT-SCH-01~04 (N10) | `domain.ScheduleTimesTest`(보낼 시각·업무 기한, KST 경계), `app.ScheduleInputsTest`(이벤트 → 예약 명령), `in.event.NotificationScheduleInputTest`(Kafka 경로) | 전부 |
+| NT-SCH-05·06·09·13 (N10) | `app.ScheduleServiceTest`(5종 취소 먼저, 동시 생성·취소 20회, 재전달, 끝 상태 유지, 기한 지난 생성), `in.event.NotificationScheduleInputTest`(합의 취소 먼저, 구매 확정 먼저) | 전부 |
+| NT-SCH-07·08·10·12·14·16·19 (N10) | `app.ScheduleDispatcherTest`(취소 커밋 뒤·행 잠금 대기(취소가 먼저, 배치가 먼저), 발생 시각 = 보낸 시각·20개 보존, 3번 연속 실패, 알림 저장 실패·상태 변경 실패 롤백, 중복, 한 예약 실패, 잠금 건너뜀, 경계, 정리), `app.ScheduleAlertTemplatesTest` | NT-SCH-10은 기동 뒤 첫 회차와 같은 경로(밀린 예약 처리)만 본다. 실제 EC2 중지·기동은 보지 않는다 |
+| NT-SCH-11 (N10) | `in.event.NotificationScheduleInputTest`(모집 전체 취소) | 전부 |
+| NT-SCH-15 (N10) | `domain.ScheduleTimesTest`(대체 기한, 기한 넘는 취소 시각), `app.ScheduleInputsTest` | 전부 |
+| NT-SCH-17·18 (N10) | `app.ScheduleServiceTest`(시작 시각 전·같은 시각), `in.event.NotificationAppearanceProgressAlertTest`(받을 수 없는 호스트 + 게스트 복제본 없음은 DLT, 모두 받을 수 없음은 DLT 없음), `in.event.NotificationScheduleInputTest`(게스트 복제본 없음 → 예약·알림 0) | 전부 |
+| NT-GEN-12 (N10) | `app.ScheduleAlertTemplatesTest`(5종 종류 코드), `app.ScheduleDispatcherTest`(저장된 `kind`) | 전부 |
 | NT-USR-07 | `app.NotificationConcurrencyTest`(보존 정리와 파기의 겹침, B·C 두 파기의 겹침), `app.NotificationMaskingServiceTest`(저장된 알림·밀려난 알림, 파기 상태 복제본, 파기 뒤 옛 닉네임 초안 저장, 복제본 없는 회원의 파기와 저장 동시 처리), `in.event.NotificationMemberEventListenerTest`(파기 이벤트, 변경 이벤트와 순서, 재수신), `domain.NotificationUserTest`·`app.NotificationUserSyncServiceTest`(파기된 복제본은 가입·변경으로 바뀌지 않음) | 전부(ND-051·ND-054) |
 | NT-RT-01·02·03 | `in.NotificationRealtimeIntegrationTest`(commit 뒤 받는 사람에게 알림+안 읽은 수, commit 전 프레임 없음, 롤백 시 없음, 다른 회원 연결로 안 감) | 전부. 저장 서비스 수준(Kafka 소비로 만드는 알림은 N5 이후) |
 | NT-RT-04 | `in.NotificationRealtimeIntegrationTest`(Redis를 멈춘 채 저장: CREATED·행 유지·저장이 Redis를 기다리지 않음, 재접속 뒤 REST 목록) | 전부 |
@@ -342,6 +357,7 @@
 - 2026-11-12 #908 Bot 리뷰 반영: 4장 연결 표의 N6 B단계·N7 출연 행에 상대 닉네임을 읽는 순서(시작 시각·받는 사람을 먼저 보고 건너뜀, 상대 복제본 없음 DLT) 시험을 더했다. 항목·집계는 그대로다.
 - 2026-11-12 decisions.md ND-110~ND-113 반영(N7 출연 묶음, #908): NT-GEN-20(출연 10종)을 더하고, NT-GEN-10·15의 범위와 NT-KAF-09의 입력에 N7 출연을 더했다. 집계 103 → 104, 유효 97, 미결 7. 지갑 묶음(#907) 병합 뒤 결정 번호를 ND-110~ND-113으로 고쳤다.
 - 2026-11-12 decisions.md ND-105~ND-108 반영(N7 지갑 묶음, #907): NT-GEN-19(지갑 4종)를 더하고, NT-GEN-10·15의 범위에 N7 지갑을 더했다. 집계 102 → 103, 유효 96, 미결 7.
+- 2026-11-13 decisions.md ND-133~ND-143 반영(N10 사전 결정, #928): NT-GEN-12(ND-137)·NT-SCH-06(ND-138)·NT-SCH-10(ND-134, 팀 확인은 U6)을 유효로 바꿨다. NT-SCH-01·07·NT-USR-03의 미정 비고를 ND-135로 고쳤다. NT-SCH-12(보내기 직전 업무 기한·받는 사람)·13(기한 지난 생성)·14(예약 행 정리)·15(대체 기한)·16(예약 알림 값)을 더했다. 집계 109 → 114, 유효 102 → 109, 미결 7 → 4. 구현 중 ND-144(NT-SCH-12 경계)·ND-145(NT-SCH-17)·ND-146(NT-SCH-18)을 반영해 집계 114 → 116, 유효 109 → 111. 4장 연결 테스트 표에 N10 행을 더했다. S6 리뷰 뒤 ND-147(NT-SCH-19)·ND-148(NT-SCH-16 발생 시각)을 반영해 집계 116 → 117, 유효 111 → 112.
 - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): NT-BUN-04에 발생 시각(ND-101)을, NT-BUN-05를 되살림(ND-097)으로 고쳐 유효로 바꿨고, ND-097의 경합 테스트 NT-BUN-06~08을 더했다. NT-GEN-12에 ND-098을 반영했다(예약 5종 U11 남음). 집계 98 → 101, 유효 94, 미결 7. 구현 뒤 4장 연결 테스트 표에 NT-BUN-01~08을 더하고 NT-BND-03 범위를 N8까지로 고쳤다(상태·집계 그대로). PR 리뷰 뒤 NT-BUN-09(전체 읽음과 겹침)를 더했다(집계 101 → 102, 유효 95).
 - 2026-11-11 decisions.md ND-069~ND-079 반영(N5 사전 결정, #859): NT-GEN-10(ND-075)·NT-KAF-04(ND-076)·NT-IDEM-05(ND-073)·NT-USR-05(ND-072)·NT-USR-06(ND-077·ND-078)을 유효로, NT-GEN-12에 ND-071을 반영했다(U11 남음). NT-GEN-15(이동 대상, ND-074), NT-USR-08~10(Backfill 버전·파기·동시성, 실패·건너뜀·잠금, 재실행 API), ④ 계획 검토 뒤 NT-KAF-07(대체 시각, ND-081)·NT-GEN-16(회원 알림은 복제본 리스너 안, ND-080)을 더했다. 집계 87 → 93, 유효 85, 미결 8. 구현 뒤 NT-KAF-04에 잘못된 값 기동 실패(ND-088)를, NT-USR-10에 503(ND-089)을 더했다. ND-095 뒤 NT-KAF-04를 설정이 없을 때의 첫 기동 기록으로 고쳤다. PR 리뷰 뒤 NT-USR-10을 비동기 시작·조회·Redis 상태 일치(ND-092)로, NT-USR-09에 대기 게이지(ND-093)를 더했다.
 - 2026-11-11 decisions.md ND-082~ND-087 반영(N6 사전 결정, #862): NT-GEN-17·18, NT-KAF-08·09, NT-IDEM-06을 더하고 4장 집계를 고쳤다. NT-GEN-15·16, NT-KAF-07은 N5(#859)가 쓰는 번호라 비워 두었다.
