@@ -21,6 +21,9 @@ import org.springframework.util.ClassUtils;
 import com.hapbang.auxiliary.notification.app.LectureObjectionAlerts;
 import com.hapbang.auxiliary.notification.app.LectureProgressAlerts;
 import com.hapbang.auxiliary.notification.app.NotificationAlertService;
+import com.hapbang.auxiliary.notification.app.ScheduleCommand;
+import com.hapbang.auxiliary.notification.app.ScheduleInputs;
+import com.hapbang.auxiliary.notification.app.ScheduleService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
@@ -63,6 +66,9 @@ import tools.jackson.databind.json.JsonMapper;
  *     보낸다. 직접·첫 재생 구매 확정은 알림 없이 커밋한다.</li>
  *     <li>컨테이너는 첫 회원 복제본 Backfill이 끝나면 시작하고(ND-078), 알림 시작 시각 전 사건은 저장하지 않는다(ND-076).</li>
  *     <li>저장 실패(복제본 없음, DB 장애)는 블로킹 재시도 뒤 DLT로 간다(ND-010·ND-035).</li>
+ *     <li>N10 예약 알림: 구매 완료가 주문 항목마다 구매 취소 마감 임박을 예약하고, 구매 취소·확정(직접·첫 재생 포함)이 취소한다
+ *     ({@link ScheduleInputs}, ND-133). 예약 처리가 있는 레코드는 예약과 즉시 알림을 한 트랜잭션으로 처리하고 예약을 먼저 쓴다
+ *     ({@link ScheduleService#applyWith}). 예약 처리가 없는 레코드는 지금처럼 알림마다 저장한다.</li>
  * </ul>
  */
 @Slf4j
@@ -92,16 +98,18 @@ public class NotificationLectureEventListener {
             .collect(Collectors.toUnmodifiableMap(Class::getName, Function.identity()));
 
     private final NotificationAlertService alerts;
+    private final ScheduleService schedules;
     private final NotificationKafkaConsumerSettings settings;
     private final SkippedEventLog skippedLog = new SkippedEventLog(log);
     private final ObjectProvider<MeterRegistry> meters;
     /** #818 이전 형식 종류별 누적(4종뿐이라 크기가 정해져 있다) */
     private final Map<Class<?>, AtomicLong> legacyCounts = new ConcurrentHashMap<>();
 
-    public NotificationLectureEventListener(NotificationAlertService alerts,
+    public NotificationLectureEventListener(NotificationAlertService alerts, ScheduleService schedules,
             @Qualifier(NotificationKafkaConfig.LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings,
             ObjectProvider<MeterRegistry> meters) {
         this.alerts = alerts;
+        this.schedules = schedules;
         this.settings = settings;
         this.meters = meters;
     }
@@ -144,7 +152,27 @@ public class NotificationLectureEventListener {
      * 만든다. 받는 사람마다 따로 커밋하면 DLT 레코드가 절반만 처리된 상태가 되어 재처리 기준이 흐려지므로 나누지 않는다
      */
     private void handle(Object event) {
-        drafts(event).forEach(alerts::create);
+        List<NotificationDraft> drafts = drafts(event);
+        List<ScheduleCommand> commands = scheduleCommands(event);
+        if (commands.isEmpty()) {
+            drafts.forEach(alerts::create);
+            return;
+        }
+        schedules.applyWith(commands, () -> drafts.forEach(alerts::create));
+    }
+
+    /** 예약 명령으로 바꾼다(N10). 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다 */
+    private static List<ScheduleCommand> scheduleCommands(Object event) {
+        try {
+            return switch (event) {
+                case LectureOrderPaidEvent paid -> ScheduleInputs.orderPaid(paid);
+                case LectureOrderItemCanceledEvent canceled -> ScheduleInputs.orderItemCanceled(canceled);
+                case LectureOrderItemConfirmedEvent confirmed -> ScheduleInputs.orderItemConfirmed(confirmed);
+                default -> List.of();
+            };
+        } catch (IllegalArgumentException e) {
+            throw new RejectedEventException("예약을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(), e);
+        }
     }
 
     /**
