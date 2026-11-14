@@ -45,6 +45,10 @@ public record RecommendEvalData(
 
     /** 클래스패스 위치 */
     public static final String RESOURCE = "chatbot/recommend-eval/dataset.json";
+    /** 가정을 뒤집은 변형 데이터({@link RecommendEvalDataGenerator.Variant#FLIPPED}) */
+    public static final String FLIPPED_RESOURCE = "chatbot/recommend-eval/dataset-flipped.json";
+    /** 평가에서 쓸 데이터를 고르는 환경 변수(값 {@code base}·{@code flipped}, 없으면 base) */
+    public static final String DATASET_ENV = "RECOMMEND_EVAL_DATASET";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -112,8 +116,27 @@ public record RecommendEvalData(
         }
     }
 
+    /** 기본 데이터. {@link #DATASET_ENV}가 없으면 이것을 읽는다 */
     public static RecommendEvalData read() {
-        try (InputStream in = new ClassPathResource(RESOURCE).getInputStream()) {
+        return read(RecommendEvalDataGenerator.Variant.BASE);
+    }
+
+    /** 평가에서 쓸 데이터. {@value #DATASET_ENV}={@code flipped}면 가정을 뒤집은 변형 데이터 */
+    public static RecommendEvalDataGenerator.Variant selectedVariant() {
+        String value = System.getenv(DATASET_ENV);
+        if (value == null || value.isBlank()) {
+            return RecommendEvalDataGenerator.Variant.BASE;
+        }
+        for (RecommendEvalDataGenerator.Variant variant : RecommendEvalDataGenerator.Variant.values()) {
+            if (variant.key().equals(value.strip())) {
+                return variant;
+            }
+        }
+        throw new IllegalArgumentException(DATASET_ENV + "는 base 또는 flipped입니다: " + value);
+    }
+
+    public static RecommendEvalData read(RecommendEvalDataGenerator.Variant variant) {
+        try (InputStream in = new ClassPathResource(variant.resource()).getInputStream()) {
             return JSON.readValue(in, RecommendEvalData.class);
         } catch (IOException e) {
             throw new UncheckedIOException(e);

@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -66,6 +67,7 @@ abstract class RecommendEvaluation {
     @Autowired
     private EmbeddingModel embeddingModel;
 
+    protected RecommendEvalDataGenerator.Variant variant;
     protected RecommendEvalData data;
     protected RecommendEvalAccess access;
     protected CachingEmbeddingModel cache;
@@ -122,6 +124,8 @@ abstract class RecommendEvaluation {
      * 표 한 줄.
      *
      * @param change 바꾼 값(전 → 후). 격자 없이 돌렸으면 "기준선" 또는 "고정값"
+     * @param top5   회원 ID → 추천 5개(순서대로). 조합 사이에 추천이 바뀐 회원을 센다
+     * @param top20  회원 ID → 추천 20개(순서대로)
      */
     record Row(
             String target,
@@ -131,20 +135,45 @@ abstract class RecommendEvaluation {
             double hitAt5,
             double ndcgAt5,
             double recallAt20,
-            int distinctTop5
+            int distinctTop5,
+            Map<Long, List<Long>> top5,
+            Map<Long, List<Long>> top20
     ) {
 
-        static Row of(String target, String change, String input, Tally tally) {
+        static Row of(String target, String change, String input, Tally tally, Map<Long, List<Long>> top5,
+                Map<Long, List<Long>> top20) {
             return new Row(target, change, input, tally.members(), tally.hitAt5(), tally.ndcgAt5(), tally.recallAt20(),
-                    tally.distinctTop5());
+                    tally.distinctTop5(), top5, top20);
         }
+
+        /** 같은 대상·입력의 다른 조합과 비교해 추천이 달라진 회원(ID 순) */
+        List<Long> changedMembers(Row other, boolean top20Lists) {
+            Map<Long, List<Long>> mine = top20Lists ? top20 : top5;
+            Map<Long, List<Long>> theirs = top20Lists ? other.top20 : other.top5;
+            List<Long> changed = new ArrayList<>();
+            for (Map.Entry<Long, List<Long>> entry : new TreeMap<>(mine).entrySet()) {
+                if (!entry.getValue().equals(theirs.get(entry.getKey()))) {
+                    changed.add(entry.getKey());
+                }
+            }
+            return changed;
+        }
+    }
+
+    private static List<Long> ids(List<Pick> picks) {
+        List<Long> ids = new ArrayList<>();
+        for (Pick pick : picks) {
+            ids.add(pick.id());
+        }
+        return ids;
     }
 
     @BeforeAll
     void load() throws Exception {
         deleteIndexes();
         new CopyRows(jdbc).clear();
-        data = RecommendEvalData.read();
+        variant = RecommendEvalData.selectedVariant();
+        data = RecommendEvalData.read(variant);
         beforeLoad(data);
         cache = new CachingEmbeddingModel(embeddingModel, modelName(), context.getBean(ChatbotIndexProperties.class).dimensions(),
                 cacheDir());
@@ -168,6 +197,9 @@ abstract class RecommendEvaluation {
 
     /** 조합마다 평가하고 표를 콘솔에 찍는다 */
     List<Row> evaluateAndPrint(Group group, List<Combo> combos, @Nullable String base) {
+        if (group == Group.HOLDOUT && variant != RecommendEvalDataGenerator.Variant.BASE) {
+            throw new IllegalStateException("확인용 20명은 기본 데이터로만 잰다. " + RecommendEvalData.DATASET_ENV + "를 지운다");
+        }
         List<Row> rows = evaluate(group, combos);
         System.out.println(table(group, combos, base, rows));
         return rows;
@@ -188,24 +220,33 @@ abstract class RecommendEvaluation {
                 ChatbotLectureRecommendProperties pool = grid.lecture(combo, RecommendMetrics.POOL);
                 for (LectureInput input : LectureInput.values()) {
                     Tally tally = new Tally();
+                    Map<Long, List<Long>> top5 = new HashMap<>();
+                    Map<Long, List<Long>> top20 = new HashMap<>();
                     for (long memberId : group.of(data.lectureSplit())) {
                         String interest = input == LectureInput.SIGNAL ? null : interests.get(memberId);
                         List<Pick> topPicks = access.lecture(top, memberId, interest);
                         List<Pick> poolPicks = access.lecture(pool, memberId, interest);
                         tally.add(lectureAnswers.get(memberId), topPicks, poolPicks);
+                        top5.put(memberId, ids(topPicks));
+                        top20.put(memberId, ids(poolPicks));
                     }
-                    rows.add(Row.of("강의", change, input.description(), tally));
+                    rows.add(Row.of("강의", change, input.description(), tally, top5, top20));
                 }
             }
             if (combo.influencer()) {
                 ChatbotInfluencerRecommendProperties top = grid.influencer(combo, RecommendMetrics.TOP);
                 ChatbotInfluencerRecommendProperties pool = grid.influencer(combo, RecommendMetrics.POOL);
                 Tally tally = new Tally();
+                Map<Long, List<Long>> top5 = new HashMap<>();
+                Map<Long, List<Long>> top20 = new HashMap<>();
                 for (long memberId : group.of(data.influencerSplit())) {
-                    tally.add(influencerAnswers.get(memberId), access.influencer(top, memberId),
-                            access.influencer(pool, memberId));
+                    List<Pick> topPicks = access.influencer(top, memberId);
+                    List<Pick> poolPicks = access.influencer(pool, memberId);
+                    tally.add(influencerAnswers.get(memberId), topPicks, poolPicks);
+                    top5.put(memberId, ids(topPicks));
+                    top20.put(memberId, ids(poolPicks));
                 }
-                rows.add(Row.of("인플루언서", change, LectureInput.SIGNAL.description(), tally));
+                rows.add(Row.of("인플루언서", change, LectureInput.SIGNAL.description(), tally, top5, top20));
             }
         }
         return rows;
@@ -217,6 +258,7 @@ abstract class RecommendEvaluation {
         StringBuilder out = new StringBuilder();
         out.append("\n=== 추천 가중치 평가: ").append(modelName()).append(" / ").append(group.description()).append(" / ")
                 .append(LocalDate.now()).append(" ===\n");
+        out.append("데이터: ").append(variant.key()).append(" (").append(variant.resource()).append(")\n");
         out.append("고정값(").append(RecommendEvalGrid.BASE_ENV).append("): ").append(base == null || base.isBlank() ? "없음" : base)
                 .append('\n');
         out.append("임베딩 API로 보낸 글: ").append(cache.delegateTexts()).append("건(0이면 모두 캐시)\n");
@@ -240,7 +282,58 @@ abstract class RecommendEvaluation {
                     row.change(), row.hitAt5(), row.ndcgAt5(), row.recallAt20(), row.target(), row.input(), row.members(),
                     row.distinctTop5()));
         }
+        out.append(changes(rows));
         return out.toString();
+    }
+
+    // 숫자가 같아도 추천 자체가 바뀌었는지 본다. 각 줄을 같은 대상·입력의 첫 조합과 비교한다(첫 조합 줄은 뺀다)
+    private String changes(List<Row> rows) {
+        Map<Long, String> fields = new HashMap<>();
+        for (RecommendEvalData.Lecture lecture : data.lectures()) {
+            fields.put(lecture.id(), lecture.field());
+        }
+        Map<Long, Member> members = new HashMap<>();
+        for (Member member : data.members()) {
+            members.put(member.id(), member);
+        }
+        Map<Long, Long> answers = RecommendEvalData.byRequester(data.lectureAnswers());
+        Map<String, Row> firsts = new HashMap<>();
+        StringBuilder out = new StringBuilder();
+        for (Row row : rows) {
+            String key = row.target() + "/" + row.input();
+            Row first = firsts.putIfAbsent(key, row);
+            if (first == null) {
+                continue;
+            }
+            if (out.isEmpty()) {
+                out.append("\n추천이 바뀐 회원 수 (같은 대상·입력의 첫 조합 \"").append(first.change()).append("\"과 비교)\n");
+            }
+            List<Long> changed5 = row.changedMembers(first, false);
+            List<Long> changed20 = row.changedMembers(first, true);
+            out.append(String.format(Locale.ROOT, "- %s / %s / %s: 상위 5개 %d명, 상위 20개 %d명%s%n", row.change(), row.target(),
+                    row.input(), changed5.size(), changed20.size(),
+                    changed5.isEmpty() ? "" : " (상위 5개가 바뀐 회원 ID: " + changed5.subList(0, Math.min(10, changed5.size()))
+                            + (changed5.size() > 10 ? " 외" : "") + ")"));
+            // 강의는 바뀐 회원의 추천 5개를 분야로 보여 준다(취향 분야 쪽으로 옮겨 갔는지 보려고). 10명까지
+            if (row.target().equals("강의")) {
+                for (long memberId : changed5.subList(0, Math.min(10, changed5.size()))) {
+                    Member member = members.get(memberId);
+                    long answer = answers.get(memberId);
+                    out.append(String.format(Locale.ROOT, "    회원 %d (취향 %s, 정답 %d %s): %s → %s%n", memberId,
+                            member.tasteFields(), answer, fields.get(answer), fieldsOf(first.top5().get(memberId), fields),
+                            fieldsOf(row.top5().get(memberId), fields)));
+                }
+            }
+        }
+        return out.toString();
+    }
+
+    private static List<String> fieldsOf(List<Long> lectureIds, Map<Long, String> fields) {
+        List<String> names = new ArrayList<>();
+        for (long id : lectureIds) {
+            names.add(id + ":" + fields.get(id));
+        }
+        return names;
     }
 
     private void deleteIndexes() throws Exception {

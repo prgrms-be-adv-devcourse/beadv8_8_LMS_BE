@@ -69,16 +69,57 @@ final class RecommendEvalDataGenerator {
             "새벽 시간대 방송을 자주 합니다.", "초보 시청자도 이해하기 쉽게 설명합니다.", "다른 크리에이터와 협업을 자주 합니다.",
             "방송 일정은 채널 공지로 알립니다.", "꾸준히 매일 방송하는 것이 목표입니다.");
 
+    /**
+     * 데이터 가정. β(인기 비율)는 "인기가 정답과 얼마나 관련 있나"라는 데이터 가정에 크게 기댄다. 그래서 가정을 뒤집은 변형으로도 재서,
+     * 두 가정 모두에서 괜찮은 값을 고른다(11/14 상근님 결정). 변형은 β가 흔들리는지 보는 데만 쓰고, 확인용 20명은 기본으로만 잰다.
+     * <ul>
+     *     <li>{@link #BASE}: 강의는 분야 안 인기({@code 1/√순위})에 비례해 산다. 출연 상대는 평판과 무관하게 고른다.</li>
+     *     <li>{@link #FLIPPED}: 강의는 분야 안에서 인기와 무관하게 고르게 산다. 출연 상대는 평판(별점을 정하는 품질)이 좋을수록 자주 고른다.</li>
+     * </ul>
+     * 두 변형은 글(강의·관심사·자기소개)을 다 만든 뒤 출연 상대를 고를 때부터 난수가 갈린다. 그래서 글이 같아 임베딩 캐시를 그대로 쓴다
+     * (강의 구매도 고를 때 난수를 한 번 쓰는 것은 같다).
+     */
+    enum Variant {
+
+        BASE("base", RecommendEvalData.RESOURCE),
+        FLIPPED("flipped", RecommendEvalData.FLIPPED_RESOURCE);
+
+        private final String key;
+        private final String resource;
+
+        Variant(String key, String resource) {
+            this.key = key;
+            this.resource = resource;
+        }
+
+        String key() {
+            return key;
+        }
+
+        String resource() {
+            return resource;
+        }
+    }
+
+    /** FLIPPED에서 상대를 고르는 가중 = 품질(0~1)^이 값 + 0.01. 평판이 좋은 소수가 상대로 훨씬 자주 뽑힌다 */
+    static final double PARTNER_QUALITY_POWER = 3;
+
     private final long seed;
+    private final Variant variant;
     private final Random random;
 
-    private RecommendEvalDataGenerator(long seed) {
+    private RecommendEvalDataGenerator(long seed, Variant variant) {
         this.seed = seed;
+        this.variant = variant;
         this.random = new Random(seed);
     }
 
     static RecommendEvalData generate(long seed) {
-        return new RecommendEvalDataGenerator(seed).build();
+        return generate(seed, Variant.BASE);
+    }
+
+    static RecommendEvalData generate(long seed, Variant variant) {
+        return new RecommendEvalDataGenerator(seed, variant).build();
     }
 
     private RecommendEvalData build() {
@@ -106,7 +147,7 @@ final class RecommendEvalDataGenerator {
                 Lecture lecture = new Lecture(id, sellerId, text.code(), text.titles().get(i), description,
                         pickDistinct(text.contents(), 3));
                 inField.add(lecture);
-                popularity.put(id, 1 / Math.sqrt(ranks.get(i) + 1));
+                popularity.put(id, variant == Variant.FLIPPED ? 1.0 : 1 / Math.sqrt(ranks.get(i) + 1));
             }
             lectures.addAll(inField);
             lecturesByField.put(text.code(), inField);
@@ -166,7 +207,7 @@ final class RecommendEvalDataGenerator {
         for (Influencer influencer : influencers) {
             int target = 2 + random.nextInt(5);
             while (partners.get(influencer.id()).size() < target) {
-                Long partner = pickPartner(influencer, influencers, partners);
+                Long partner = pickPartner(influencer, influencers, partners, quality);
                 if (partner == null) {
                     break;
                 }
@@ -247,8 +288,9 @@ final class RecommendEvalDataGenerator {
         return (int) Math.max(1, Math.min(5, rating));
     }
 
-    // 75%는 분야가 겹치는 인플루언서, 아니면 아무나. 상대가 꽉 찼으면 다른 쪽에서 찾는다
-    private Long pickPartner(Influencer influencer, List<Influencer> influencers, Map<Long, Set<Long>> partners) {
+    // 75%는 분야가 겹치는 인플루언서, 아니면 아무나. 상대가 꽉 찼으면 다른 쪽에서 찾는다. FLIPPED는 평판이 좋을수록 자주 고른다
+    private Long pickPartner(Influencer influencer, List<Influencer> influencers, Map<Long, Set<Long>> partners,
+            Map<Long, Double> quality) {
         boolean sameField = random.nextDouble() < SAME_FIELD_PARTNER;
         List<Long> preferred = new ArrayList<>();
         List<Long> others = new ArrayList<>();
@@ -264,7 +306,28 @@ final class RecommendEvalDataGenerator {
             }
         }
         List<Long> pool = preferred.isEmpty() ? others : preferred;
-        return pool.isEmpty() ? null : pool.get(random.nextInt(pool.size()));
+        if (pool.isEmpty()) {
+            return null;
+        }
+        if (variant == Variant.BASE) {
+            return pool.get(random.nextInt(pool.size()));
+        }
+        double total = 0;
+        for (long id : pool) {
+            total += partnerWeight(quality.get(id));
+        }
+        double point = random.nextDouble() * total;
+        for (long id : pool) {
+            point -= partnerWeight(quality.get(id));
+            if (point < 0) {
+                return id;
+            }
+        }
+        return pool.getLast();
+    }
+
+    private static double partnerWeight(double quality) {
+        return Math.pow(quality, PARTNER_QUALITY_POWER) + 0.01;
     }
 
     // 인플루언서마다 상대 하나. 이미 숨긴 쌍이면 더 잃는 것이 없다. 아니면 양쪽 모두 숨긴 뒤 상대가 하나 이상 남는 쌍만 고른다
