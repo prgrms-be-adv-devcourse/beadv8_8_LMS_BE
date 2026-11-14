@@ -250,6 +250,21 @@
 | NT-RES-02 | 배치 스레드 공유 | 스레드 수 확정(지금 2) | 1분 예약 배치와 챗봇 배치가 겹침 | 예약 배치 지연이 정한 범위 안이다 | — | ND-029, **U13** | 위와 같음 | 부하 | 미결 (U13) |
 | NT-RES-03 | 메모리 | 예산 확정(지금 limit 704Mi, `-Xmx256m`) | STOMP 연결 여럿 + 소비 + 챗봇 | OOMKilled 없이 정한 예산 안이다 | — | **U13** | 위와 같음 | 부하, E2E | 미결 (U13) |
 
+### 2.15 OBS — 계측
+
+| 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| NT-OBS-01 | 처리 실패 시도와 DLT 전송 성공 | — | 계속 실패하는 레코드(재시도 n번 뒤 DLT) | `consume.failures`가 처음 + 재시도 수만큼, `exception`은 원인 클래스. `dead_letter{published}` 증가 수가 DLT 토픽에 실제로 들어간 레코드 수와 같다 | 리스너가 감싼 예외는 벗긴다 | ND-159 | kafka.md "재시도와 DLT" | 단위, 통합(Kafka) | 유효 |
+| NT-OBS-02 | DLT 발행 실패 | DLT가 없고 브로커 자동 생성이 꺼짐 | DLT로 보내야 하는 레코드 + 뒤의 정상 레코드 | `dead_letter{failed}`가 오르고 `published`는 오르지 않는다. 커밋 offset이 실패 레코드를 넘지 않고 다시 처리된다. DLT를 만들면 `published`가 1 오르고 offset이 넘어가 다음 레코드를 처리한다 | 복구기 결과 대기를 포기한 뒤 늦은 성공(둘 다 오름)은 재현하지 않음 | ND-159 | 위와 같음 | 통합(Kafka 전용 브로커) | 유효 |
+| NT-OBS-03 | 역직렬화 실패 집계 | — | 깨진 본문, 신뢰 밖 타입 | 각각 `consume.failures{exception=DeserializationException}` 1, 재시도 없이 DLT(`published` 1) | 리스너를 부르지 않는 실패도 오류 처리기 경로로 센다 | ND-159 | 위와 같음 | 단위, 통합(Kafka) | 유효 |
+| NT-OBS-04 | 저장 결과 집계 | 소비 문맥 | 새 알림, 같은 사건 재전송, 정지 회원, 하루 묶음 첫 지급·두 번째 지급, 저장 뒤 같은 트랜잭션 실패 → 재시도 commit | `consume.outcomes`가 `created`·`duplicate`·`skipped_receiver`·`updated`로 하나씩. 롤백된 시도는 세지 않고 재시도로 commit되면 한 번만 센다. 예약 배치 저장은 세지 않는다 | 결과 수는 알림 행 수와 다를 수 있다 | ND-160 | — | 단위, 통합(Kafka) | 유효 |
+| NT-OBS-05 | commit 뒤 집계 실패 | 지표 저장소가 실패 | 정상 레코드 | 처리는 한 번에 끝나고(실패 시도 0, DLT 없음) 알림 1건, offset이 넘어간다 | — | ND-160 | — | 단위, 통합(Kafka) | 유효 |
+| NT-OBS-06 | 소비 지연 | — | 성공 레코드, timestamp 미설정, 미래 timestamp, 실패 시도 | 성공 레코드마다 한 번, timestamp부터 처리 완료까지. 미설정은 재지 않고, 미래는 0, 실패 시도는 재지 않는다 | 시계 차이는 지연을 작게 보이게 한다 | ND-161 | — | 단위, 통합(Kafka) | 유효 |
+| NT-OBS-07 | 실시간 전달 구간 | 연결이 있는 받는 사람 | 알림 저장, Redis 발행 실패, outbound 처리 예외, 수신 시각 헤더 없는 메시지 | 전달 한 건마다 `realtime.publish.latency`(commit 뒤 → Redis 발행 완료)와 `realtime.send.latency`(Redis 수신 → outbound 처리 완료) 한 번씩. 발행 실패·버린 프레임·처리 예외·헤더 없는 메시지는 재지 않는다 | 두 값의 합은 부분 구간 근사치(소켓 쓰기·클라이언트 수신 없음) | ND-162 | — | 단위, 통합(실시간) | 유효 |
+| NT-OBS-08 | 계약 무변경 | — | 알림 저장 | FE가 받는 MESSAGE 프레임 헤더는 `destination`·`content-type`·`subscription`·`message-id`·`content-length`뿐이고 본문은 `notification`·`unreadCount`다. Redis 실시간 메시지 본문은 `receiverUserId`·`frame`뿐이다 | 내부 수신 시각 헤더가 STOMP native 헤더로 새지 않는다 | ND-162, ND-059 | [API 계약](../api/notification.md) | 통합(실시간) | 유효 |
+| NT-OBS-09 | 열린 연결 수 | — | 연결, 종료 | `realtime.sessions`가 연결하면 1 늘고 닫으면 1 준다 | — | ND-162 | — | 통합(실시간) | 유효 |
+| NT-OBS-10 | 지표 없는 환경·client 지표 | — | MeterRegistry 없음, 알림 소비자 팩토리 | 지표 저장소가 없어도 소비·전달·집계가 예외 없이 돈다. 알림 소비자 팩토리에 Kafka client 지표 listener가 붙어 consumer lag가 나온다 | 운영 Prometheus 수집 여부는 배포 뒤 확인 | ND-159~ND-162 | `observability.md` | 단위, 통합 | 유효 |
+
 ## 3. 완료 증거 매핑
 
 [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거 6개(원문 그대로)와 이를 판정하는 NT 항목이다. 증거를 시연·실행한 결과는 [regression-log.md](regression-log.md)에 남긴다. 여기 연결은 실행 기록이 아니다.
@@ -283,7 +298,8 @@
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **122** | **117** | **4** | **0** | **0** |
+| OBS 계측 | 10 | 10 | 0 | 0 | 0 |
+| **합계** | **132** | **127** | **4** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -349,6 +365,12 @@
 | NT-READ-05 | `in.NotificationRealtimeIntegrationTest`(프레임의 안 읽은 수 1→2) | 실시간 부분 |
 | NT-RET-02·NT-IDEM-01 (실시간) | `in.NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 프레임 없음, 20개 유지) | 실시간 부분 |
 | (보안) | `in.NotificationRealtimeIntegrationTest`(클라이언트 SEND로 다른 회원 목적지 주입 불가, 자기 목적지 말고는 구독 불가), `in.websocket.NotificationStompInterceptorTest`(결합 안 된 CONNECT·다른 사용자 CONNECT 거절, 끝에 / 붙인 목적지 거절, 결합한 연결의 UNSUBSCRIBE·ACK 통과) | test-spec 항목 없음(ND-026·ND-027 보강) |
+| NT-OBS-01·03·06 (N12) | `in.event.kafka.NotificationKafkaMetricsTest`(원인 클래스로 시도마다, 역직렬화 실패 이름, producer 응답별 `published`·`failed`, 지연 정상·미설정·미래·실패), `in.event.NotificationKafkaMetricsIntegrationTest`(처음 + 재시도 수, `published` = DLT 실제 건수, 깨진 본문·신뢰 밖 타입, 성공 레코드마다 지연 한 번) | 전부 |
+| NT-OBS-02 (N12) | `in.event.NotificationDeadLetterFailureMetricsTest`(자동 생성을 끈 전용 브로커, DLT 없음 → `failed`·offset 미진행·다음 레코드 막힘, DLT 생성 → `published` 1·offset 진행) | 늦은 성공 경우 제외. NT-ERR-04의 통합 수준 |
+| NT-OBS-04·05 (N12) | `app.NotificationOutcomeRecorderTest`(문맥 없음, 4종, commit 뒤만, 롤백 0, 집계 실패를 밖으로 내지 않음), `app.NotificationOutcomeRecorderIntegrationTest`(실제 트랜잭션: 집계를 건 뒤 롤백 0, 다시 commit 1), `in.event.NotificationKafkaMetricsIntegrationTest`(4종, 저장 뒤 실패 → 재시도 commit 한 번, 집계 실패에도 한 번에 처리) | 전부 |
+| NT-OBS-07 (N12) | `app.NotificationRealtimeRelayTest`(발행 구간: 성공만, 실패·버림 없음), `in.websocket.NotificationOutboundLatencyInterceptorTest`(처리 완료만, 예외·헤더 없음 제외, native 헤더 아님), `in.NotificationRealtimeMetricsTest`(전달 한 건에 두 구간 한 번씩) | 전부 |
+| NT-OBS-08·09 (N12) | `in.NotificationRealtimeMetricsTest`(MESSAGE 헤더 다섯 개·본문, Redis 메시지 본문, 연결 수 증감) | 전부 |
+| NT-OBS-10 (N12) | `in.event.kafka.NotificationKafkaMetricsTest`(지표 저장소 없음), `in.event.NotificationKafkaMetricsIntegrationTest`(소비자 팩토리의 Kafka client 지표 listener) | 운영 수집은 배포 뒤 확인 |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
 - 작성 때 발행되지 않던 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. M1~M8은 모두 완료됐다(PROGRESS 3장).
 
@@ -360,6 +382,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-14 decisions.md ND-159~ND-162 반영(N12 계측, #944): 2.15 OBS(NT-OBS-01~10)를 더하고 4장 연결 표에 N12 테스트를 더했다. 집계 122 → 132, 유효 127.
 - 2026-11-14 decisions.md ND-150·ND-151 반영(N11, #937): NT-SCH-22(예약 결과 지표)·NT-SCH-23(회차 결과 지표)·NT-SCH-24(alert 규칙)를 더했다. 집계 119 → 122, 유효 117.
 - 2026-11-14 문서 정리(#931): 3장 완료 증거 1번 메모를 고쳤다(구매 완료 알림은 M4·N7 강의로 만든다, U2 해소). PR 리뷰 뒤 머리말 현재 상태, NT-GEN-02 선행 조건·예외 칸, 4장 연결 테스트 표 제목과 M 작업 메모를 고쳤다. 항목·집계는 그대로다.
 - 2026-11-12 decisions.md ND-129~ND-132 반영(N9 채팅 단체방, #921): NT-GEN-24(채팅 3종)를 더하고 NT-GEN-10·15의 범위에 N9 채팅을 더했다. 받는 사람은 기존 NT-GEN-08, group 이름은 NT-KAF-06이 이미 다룬다. 집계 108 → 109, 유효 102, 미결 7(회원 #915·고객센터 #918 병합 뒤 기준). 구현 뒤 4장 연결 표에 채팅 행을 더했다.

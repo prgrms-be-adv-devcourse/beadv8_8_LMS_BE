@@ -86,6 +86,53 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-088 · 2026-11-14 · 통과 (N12 #944 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-088 |
+| 실행 날짜 | 2026-11-14 19:51~19:56 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-944` |
+| 커밋 | 미커밋 작업 트리(기준 `c0414dbd`) |
+| 작업 트리 변경 | NR-087 목록 + 연결 수 Gauge 등록 실패 격리, histogram 경계를 바꿀 수 없는 `List`로, `NotificationKafkaErrorHandlerConfig` 필드 위치, 테스트 import 정리, 새 `app.NotificationOutcomeRecorderIntegrationTest` |
+| 대상 기능 | N12 |
+| 관련 NT ID | NT-OBS-01~10, 회귀 전체 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --rerun-tasks -x :chatbot:test -x :search:test` |
+| 실행 환경 | NR-087과 같다 |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행 |
+| 건수 | `:notification` 441(NR-087 + 1), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 새 통합 시험은 집계를 commit 뒤로 걸지 않게 바꾼 뮤테이션에서 "expected 0.0 but was 1.0"으로 실패, 되돌린 뒤 통과. 뮤테이션 표식이 남지 않았음을 grep으로 확인 |
+| 미검증 항목 | NR-087과 같다(전체 check, 늦은 DLT 성공, 운영 수집) |
+| 관련 변경 | #944 |
+
+#### NR-087 · 2026-11-14 · 통과 (N12 #944 계측 보강 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-087 |
+| 실행 날짜 | 2026-11-14 19:37~19:42 (KST). RED·뮤테이션 확인은 그 전 19:2x~19:35 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-944` |
+| 커밋 | 미커밋 작업 트리(기준 `c0414dbd`) |
+| 작업 트리 변경 | 새 코드 `NotificationKafkaMetrics`·`NotificationOutcomeRecorder`·`NotificationOutboundLatencyInterceptor`, 수정 `NotificationKafkaConfig`·`NotificationKafkaErrorHandlerConfig`·`NotificationWriter`·`NotificationRealtimeRelay`·`NotificationRealtimeRedisListener`·`NotificationWebSocketConfig`·`NotificationWebSocketSessions`. 새 테스트 6개 클래스와 기존 테스트 4개(생성자 인자·발행 구간 2건) |
+| 대상 기능 | N12 |
+| 관련 NT ID | NT-OBS-01~10, 회귀 NT-KAF·NT-ERR·NT-IDEM·NT-RT 전부 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --rerun-tasks -x :chatbot:test -x :search:test` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0). OBS-02는 자동 생성을 끈 전용 Kafka 컨테이너(`apache/kafka:4.2.1`) |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행(`--rerun-tasks`) |
+| 건수 | `:notification` 440(기존 408 + 새 32), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | (1) OBS-08 계약 2건은 구현 전 코드에서 통과(계약 고정), 지표 2건은 기대대로 실패. (2) 새 클래스 3개가 없어 테스트 컴파일 실패. (3) 구현 뒤 뮤테이션 4개(`RetryListener` 제거, DLT 지표 listener 제거, 저장 결과 집계 제거, 수신 시각을 일반 Map 헤더로 넘김)로 통합 12건 중 7건이 기대한 이유로 실패. 마지막 뮤테이션은 계약 시험이 FE 프레임에 `notificationReceivedAt` 헤더가 새는 것을 잡았다. 뮤테이션은 되돌리고 표식이 남지 않았음을 grep으로 확인 |
+| 확인한 사실 | 역직렬화 실패도 `RetryListener.failedDelivery`로 온다(OBS-03, 대체 경로 불필요). DLT 발행이 실패하면 커밋 offset이 넘어가지 않고 DLT를 만들면 넘어간다(OBS-02) |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 복구기 대기 포기 뒤 브로커 늦은 성공(ND-159 한계) 재현 안 함. 운영 Prometheus 수집(배포 뒤) |
+| 관련 변경 | #944 |
+
 #### NR-086 · 2026-11-14 · 통과 (N11 #937 S6 재리뷰 반영)
 
 | 항목 | 값 |
