@@ -5,9 +5,12 @@
 > - 알림 모듈이 소비할 발행 모듈 이벤트의 계약(이벤트 이름, 토픽·key, 담을 값)을 모은 **요청 원본**이다. 알림 담당이 정하고, 발행 담당은 이 문서를 Issue로 받아 `common/shared` 이벤트와 발행을 구현한다([ND-037](decisions.md)).
 > - 실제로 구현된 계약의 원본은 `common/shared` 코드와 [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표다. 이 문서는 요청과 그 진행 상태만 맡는다.
 > - 알림 종류별 명세(받는 사람, 발생 조건, 보내지 않는 경우)는 [알림 종류](notification-catalog.md)가 원본이다. 이 문서는 종류 코드로만 가리킨다.
-> - 구현 상태(2026-11-09): 🆕는 발행되지 않고, 🟡는 JVM 안에서만 발행된다. ⚠️와 "기존 변경"은 이미 Kafka로 나가지만 요청한 값이 아직 없다. 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
+> - 구현 상태(2026-11-14): M1~M8이 모두 구현돼 요청한 이벤트·값이 Kafka로 나간다(8장). 아래 표시는 2026-11-09 작성 때 상태다: 🆕는 발행되지 않았고, 🟡는 JVM 안에서만 발행됐다. ⚠️와 "기존 변경"은 Kafka로 나갔지만 요청한 값이 없었다. 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
 >
 > 변경 이력
+> - 2026-11-14 문서 정리(#931): 머리말 구현 상태를 M1~M8 완료에 맞추고 표시는 작성 때 상태임을 적었다. PR 리뷰 뒤 7장 채팅 3종 행에 발행 결과 주석을 덧붙였다.
+> - 2026-11-13 #929 Bot 리뷰(알림 담당, ND-149): 0.3 구매 취소 마감 임박의 취소 이벤트와 2장 예약 기한 불변식에 이의 제기 접수(`filedAt`)를 더했다.
+> - 2026-11-13 N10 예약 알림 결정(#928, 알림 담당): 0.3 끝 문단에 짝 키 확인 결과(ND-138)를 적고, 2장에 구매 취소 마감 임박 예약이 기대는 강의 이벤트 시각 불변식(ND-143)을 더했다. 강의 담당 확인은 PR 리뷰에서 받는다.
 > - 2026-11-09 처음 작성: 원천 설계 [notification.md 7장](../architecture/infrastructure/notification.md)의 요청(알림 종류 문서 1.1~6.1에 있던 표)을 옮기고, ND-038 공통 값과 ND-040·ND-041·ND-042·ND-044를 반영했다.
 > - 2026-11-09 확정: 발행 앱 코드를 조사해(7장) 사건 ID·key·필드를 정하고 ND-045(회차 번호)를 반영했다. 모든 이벤트를 "확정"으로 바꿨다.
 > - 2026-11-09 PR 리뷰 반영(#794): 구현 상태 서술을 이미 발행 중인 ⚠️·기존 변경 이벤트에 맞게 고쳤다. 0.3 예약 짝 키를 새로 두었다(U16 계약 쪽). 3장에 ND-040의 지급 요청 변경 범위를 적고 7장에 근거 행을 더했다.
@@ -15,8 +18,10 @@
 > - 2026-11-10 M2 구현(#818, 강의 담당): 이의 제기 4종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 8장 M2 행에 Issue를 적었다.
 > - 2026-11-10 M1 구현(#817, 출연 담당): 취소 요청 3종의 계약 상태를 "구현됨"으로 바꾸고 1장에 구현된 필드 이름을 적었다. 8장 M1 행에 Issue를 적었다.
 > - 2026-11-11 M6 구현(#874, 회원 담당): 회원 3종의 계약 상태를 "구현됨"으로 바꾸고 4장에 구현된 필드 이름을 적었다. 심사 회차 문장을 등록 때 자동 승인을 포함하도록 고쳤다(#874 댓글에서 알림 담당 동의). 8장 M6 행에 Issue를 적었다.
+> - 2026-11-12 N9 알림 소비 결정(#921, 알림 담당): 8장 M8 행에 소비 작업을 적었다.
 > - 2026-11-12 M8 구현(#897, 채팅 담당): 채팅 3종의 계약 상태를 "구현됨"으로 바꾸고 6장에 구현된 필드 이름과 초대 요청 ID의 발번 방식을 적었다. 8장 M8 행에 Issue를 적었다.
 > - 2026-11-12 M7 구현(#875, 고객센터 담당): `InquiryAnsweredEvent`·`LectureObjectionFileRejectedEvent`의 계약 상태를 "구현됨"으로 바꾸고 5장에 구현된 필드 이름을 적었다. `InquiryReplyEditedEvent`는 고객센터 담당 결정으로 "발행하지 않음"으로 바꿨다. 답변 이벤트는 이의 제기 판단 안내 답변에서 내지 않는다고 적었다. 8장 M7 행에 Issue를 적었다.
+> - 2026-11-12 N7 고객센터 묶음(#918, 알림 담당): 5장 `InquiryReplyEditedEvent` 행의 쓰는 알림에 폐기(ND-123)를 표시하고, 8장 M7 행에 알림 소비 Issue를 적었다. 계약은 바꾸지 않았다.
 > - 2026-11-11 M4 구현(#872, 강의 담당): 강의 새 이벤트 7종의 계약 상태를 "구현됨"으로 바꾸고 2장에 구현된 필드 이름을 적었다. 강의가 지급 요청에 구매 때 강의 제목을 넘기는 것(ND-040)을 3장에 적었다. 8장 M4 행에 Issue를 적었다.
 
 ## 0. 읽는 법
@@ -53,9 +58,9 @@
 | `APPEARANCE_RECRUIT_CLOSING` | 모집글 ID | 호스트 | `AppearanceRecruitOpenedEvent` | `AppearanceRecruitClosed`·`CanceledEvent` |
 | `APPEARANCE_STARTING` | 출연 ID | 호스트, 게스트 각각 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` |
 | `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 ID | 호스트 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceConfirmedEvent`, `AppearanceAbsentEvent`, `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` |
-| `LECTURE_ORDER_ITEM_CONFIRMING` | 주문 항목 ID | 구매자 | `LectureOrderPaidEvent`(주문 항목마다) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent` |
+| `LECTURE_ORDER_ITEM_CONFIRMING` | 주문 항목 ID | 구매자 | `LectureOrderPaidEvent`(주문 항목마다) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent`, `LectureObjectionFiledEvent`(ND-149) |
 
-1장·2장 표의 "담을 값"은 위 대상 ID와 받는 사람 ID를 모두 담는다. 발행 구현 뒤 실제 이벤트가 이 값을 주는지 확인하는 일은 소비 작업에 남는다(U16).
+1장·2장 표의 "담을 값"은 위 대상 ID와 받는 사람 ID를 모두 담는다. 2026-11-13 `common/shared` 레코드로 5종 모두 생성·취소 이벤트가 이 값을 주는 것을 확인했다(ND-138, #928).
 
 ## 1. 출연 (`appearance.events.v1`, M1·M3)
 
@@ -111,6 +116,10 @@
   - 이의 제기 접수 `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `filedAt`.
   - 주문·구매의 `lectureTitle`은 구매 때 저장한 제목이다. 사건 시각은 강의에 저장한 시각이고, 결제 실패만 저장 칸이 없어 결제 실패를 기록한 시각이다.
   - 결제 실패는 보류 거절·보류 무효화·쿠폰 예약 거절·관리자 실패 확정 모두에서 주문마다 한 번 나간다. 구매 확정은 직접 확정·재생 동의·자동 확정 모두에서 항목마다 한 번, 이의 제기 접수는 처음 처리한 접수 명령에서만 나간다.
+- **예약 기한 불변식(ND-143, #928, 강의 담당 확인은 #928 PR 리뷰)**: 알림의 구매 취소 마감 임박 예약은 아래를 전제로 한다. 강의가 이 관계를 바꾸면 알림 담당과 먼저 협의한다.
+  - `LectureOrderPaidEvent.paidAt`은 주문 항목의 구매 시각과 같다(`LectureOrder.markPaid`가 같은 시각으로 `OrderItem.markPurchased`를 부른다). 구매일은 그 KST 날짜이고 자동 구매 확정 시각은 (구매일 + 8일) 00:00이다(policy.md "기한 계산").
+  - `LectureOrderItemCanceledEvent.canceledAt`, `LectureOrderItemConfirmedEvent.confirmedAt`, `LectureObjectionFiledEvent.filedAt`(ND-149, 접수는 구매 상태에서만 된다 `OrderItem.fileObjection`)은 그 항목의 구매 시각 이후다.
+  - `confirmedAt`은 자동 구매 확정 시각 이하다(`OrderItem.confirmFirstOf`). `canceledAt`은 반환 완료 시각(`OrderItem.completeCancel`)이라 자동 구매 확정 시각을 넘을 수 있다.
 - 검수 회차는 강의가 검수 신청(`requestInspection`)될 때마다 1씩 늘어나는 값이다. 반환 지연 회차는 같은 문의에서 반환 지연 이벤트가 날 때마다 1씩 늘어나는 값이다. 강의는 등록을 1회차로 센다(`lecture.inspection_count`, 기존 강의는 1).
 - `LectureObjectionReturnActionRequiredEvent`는 강의 토픽 이벤트지만 알림은 알림 종류 5장(고객센터)에 있다.
 
@@ -156,7 +165,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `InquiryAnsweredEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 답변 시각 (구현: `inquiryId`, `replyId`, `userId`, `title`, `category`, `answeredAt`). 관리자가 직접 단 답변에서만 낸다. 이의 제기 판단 안내 답변은 내지 않는다(판단 알림은 `LectureObjectionResolvedEvent`) | `replyId` | `answeredAt` | 문의한 회원(`userId`) | `INQUIRY_ANSWERED` | 구현됨(#875) |
-| `InquiryReplyEditedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 수정 회차, 수정 시각 | `<답변 ID>:<수정 회차>`(ND-045) | 수정 시각 | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 발행하지 않음(#875, 고객센터 담당 결정. 답변 수정은 대부분 오타 고치기라 알릴 일이 아니고, 내용을 바로잡을 때는 새 답변을 달면 답변 도착 알림이 간다. 수정 회차 칸도 두지 않는다) |
+| `InquiryReplyEditedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 수정 회차, 수정 시각 | `<답변 ID>:<수정 회차>`(ND-045) | 수정 시각 | 문의한 회원 | ~~`INQUIRY_REPLY_EDITED`~~(폐기, ND-123) | 발행하지 않음(#875, 고객센터 담당 결정. 답변 수정은 대부분 오타 고치기라 알릴 일이 아니고, 내용을 바로잡을 때는 새 답변을 달면 답변 도착 알림이 간다. 수정 회차 칸도 두지 않는다) |
 | `LectureObjectionFileRejectedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 구매자 ID, 주문 항목 ID, 접수 불가 시각 (구현: `inquiryId`, `orderItemId`, `buyerUserId`, `fileRejectedAt`) | `inquiryId` | `fileRejectedAt` | 구매자(`buyerUserId`) | `LECTURE_OBJECTION_FILE_REJECTED`(ND-015) | 구현됨(#875) |
 
 문의 하나에 답변이 여러 개 달릴 수 있어 답변 이벤트의 사건 ID는 답변 ID다.
@@ -202,7 +211,7 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | 승급 반려 | `InfluencerUpgradeRequest`는 신청 1건이 1행이다 | 승급 신청 ID |
 | 답변 2종 | 문의(`Inquiry`) 하나에 답변이 여러 개 달린다. `InquiryReply.edit`는 횟수 제한·이력이 없다 | 답변 ID. 답변 수정은 발행하지 않아 수정 회차를 두지 않는다(#875, 5장) |
 | 접수 불가 | 문의마다 한 번이다 | 문의 ID |
-| 채팅 3종 | 단체방은 `ChatRoom`(Long id). 초대 요청 기록은 방별 `requestId`가 유일하나 보존 기간 뒤 재사용 가능. 강퇴 기록 ID는 없고 재초대 뒤 다시 강퇴될 수 있다(`participationVersion`). 폐쇄는 한 번이고 안내 대상에 호스트가 포함된다. Kafka 발행 코드가 없다 | 위 6장 |
+| 채팅 3종 | 단체방은 `ChatRoom`(Long id). 초대 요청 기록은 방별 `requestId`가 유일하나 보존 기간 뒤 재사용 가능. 강퇴 기록 ID는 없고 재초대 뒤 다시 강퇴될 수 있다(`participationVersion`). 폐쇄는 한 번이고 안내 대상에 호스트가 포함된다. Kafka 발행 코드가 없다(2026-11-09 조사 때. M8 #897로 3종 모두 `@Externalized` 발행, 8장) | 위 6장 |
 
 ## 8. 발행 Issue 현황
 
@@ -214,5 +223,5 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 고객센터 이벤트의 시각 �
 | M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | #872 | 구현됨. 알림 소비는 N7 강의(#910, ND-114) |
 | M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | #873 | 구현됨(PR #886, 지갑 결정 BD-162·BD-163). 출연·강의가 제목을 넘기는 일은 M3·M4 |
 | M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | #874 | 구현됨. 알림 소비는 N7 회원(#915, ND-118) |
-| M7 | 고객센터 | 고객센터 🆕 2종(답변 도착·이의 제기 접수 불가). 답변 수정은 발행하지 않음(5장) | #875 | 구현됨 |
-| M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | #897 | 구현됨 |
+| M7 | 고객센터 | 고객센터 🆕 2종(답변 도착·이의 제기 접수 불가). 답변 수정은 발행하지 않음(5장) | #875 | 구현됨. 알림 소비는 N7 고객센터(#918) |
+| M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | #897 | 구현됨. 알림 소비는 N9(#921, ND-129) |

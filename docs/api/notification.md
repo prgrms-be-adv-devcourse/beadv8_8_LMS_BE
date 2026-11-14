@@ -2,7 +2,7 @@
 
 > 문서 탐색: [알림 문서 INDEX](../notification/INDEX.md)
 
-> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 #853). 이벤트 소비·Backfill 재실행 API는 N5(#859) 확정 To-Be**([모듈 문서](../notification/module.md) 2장).
+> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 #853), Backfill 재실행·실행 조회 API 구현(N5 #859, dev 병합 #865)**([모듈 문서](../notification/module.md) 2장).
 > - 원천: [알림 설계](../architecture/infrastructure/notification.md) 6.3, 결정 [ND-026](../notification/decisions.md)·ND-023·ND-027·ND-028. 이 문서는 원천에 있는 사실만 옮긴다. 원천에 없는 값은 "미정(구현 때 정함)"으로 둔다.
 > - 공통 규칙: 성공 응답 `RsData`, 오류 `ProblemDetail`(+ `code`)은 [API 규칙](conventions.md)을 따른다. 모듈은 `@RestControllerAdvice`를 만들지 않는다.
 > - 개념(알림, 읽음, 안 읽은 수, 연결 티켓)은 [도메인 개념](../notification/CONTEXT.md)에 있다.
@@ -42,22 +42,24 @@
 | 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
 
-### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-112·ND-116·ND-120)
+### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-112·ND-116·ND-120·ND-125·ND-131·ND-139)
 
-목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)·N7 출연(ND-112)·N7 강의(ND-116)·N7 회원(ND-120)에서 쓰는 값은 아래와 같다.
+목록 항목의 `targetType`·`targetId`는 알림을 눌렀을 때 갈 업무 자원이다. 둘 다 `null`이면 이동할 곳이 없다. 종류별 값은 [알림 종류](../notification/notification-catalog.md) 각 행의 "이동 대상" 칸이 원본이다. N5(ND-074)·N6(ND-084)·N7 지갑(ND-107)·N7 출연(ND-112)·N7 강의(ND-116)·N7 회원(ND-120)·N7 고객센터(ND-125)·N9 채팅(ND-131)·N10 예약(ND-139)에서 쓰는 값은 아래와 같다.
 
 | `targetType` | `targetId` | 쓰는 종류 |
 | --- | --- | --- |
-| `APPEARANCE_REQUEST` | 출연 요청 ID | 출연 요청 도착, 요청 거절·응답 전 취소·만료 |
-| `APPEARANCE_RECRUIT` | 모집글 ID | 모집 지원 도착, 미선정, 모집 마감 |
+| `APPEARANCE_REQUEST` | 출연 요청 ID | 출연 요청 도착, 요청 거절·응답 전 취소·만료, 출연 요청 만료 임박(예약) |
+| `APPEARANCE_RECRUIT` | 모집글 ID | 모집 지원 도착, 미선정, 모집 마감, 모집 마감 임박(예약) |
 | `CHARGE` | 충전 ID | 충전 완료·실패 |
 | `REFUND_REQUEST` | 환불 요청 ID | 환불 완료·실패·운영자 확인 필요 |
 | `EXCHANGE` | 환전 ID | 환전 승인·거절·송금 완료·송금 실패·최종 실패 |
-| `APPEARANCE` | 출연 ID(지급 완료는 `sourceId`, 원천이 요청이든 모집이든. 출연 취소 요청 3종은 `cancelRequest.appearanceId`, 요청 수락·지원 선정은 이벤트의 `appearanceId`) | 지급 완료, 출연 취소 요청 도착·수락·거절, 요청 수락, 지원 선정, 호스트 일방 취소, 자동 확인, 불참 |
+| `APPEARANCE` | 출연 ID(지급 완료는 `sourceId`, 원천이 요청이든 모집이든. 출연 취소 요청 3종은 `cancelRequest.appearanceId`, 요청 수락·지원 선정은 이벤트의 `appearanceId`) | 지급 완료, 출연 취소 요청 도착·수락·거절, 요청 수락, 지원 선정, 호스트 일방 취소, 자동 확인, 불참, 방송 임박·출연 확인 부탁(예약) |
 | `LECTURE` | 강의 ID(`lectureId`) | 강의 검수 승인·반려 |
 | `LECTURE_ORDER` | 주문 ID(`orderId`) | 구매 완료, 결제 실패 |
-| `LECTURE_ORDER_ITEM` | 주문 항목 ID(`orderItemId`) | 이의 제기 판단·반환 완료·철회·반환 지연(구매자·판매자 같은 값), 이의 제기 접수(구매자·판매자 같은 값), 구매 취소, 자동 구매 확정 |
-| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102), 채널 인증 승인·반려, 승급 반려(ND-120) |
+| `LECTURE_ORDER_ITEM` | 주문 항목 ID(`orderItemId`) | 이의 제기 판단·반환 완료·철회·반환 지연(구매자·판매자 같은 값), 이의 제기 접수(구매자·판매자 같은 값), 구매 취소, 자동 구매 확정, 구매 취소 마감 임박(예약) |
+| `INQUIRY` | 문의 ID(`inquiryId`, 고객센터 문의 상세 `GET /api/v1/inquiries/{inquiryId}`) | 문의 답변 도착, 이의 제기 접수 불가 |
+| `CHAT_ROOM` | 단체방 ID(`chatRoomId`) | 단체방 초대, 단체방 폐쇄 |
+| `null` | `null` | 가입 환영, 승급 승인, 강의 지급 하루 묶음(ND-102), 채널 인증 승인·반려, 승급 반려(ND-120), 단체방 강퇴(ND-131) |
 
 ## 3. 실시간 연결
 
@@ -89,3 +91,7 @@
 | 2026-11-12 | ND-112 반영(N7 출연 사전 결정, #908): 2.2 이동 대상의 쓰는 종류에 출연 10종을 더했다(새 `targetType` 없음) |
 | 2026-11-12 | ND-116 반영(N7 강의 사전 결정, #910): 2.2 이동 대상에 새 `targetType` `LECTURE`·`LECTURE_ORDER`를 더하고 `LECTURE_ORDER_ITEM`의 쓰는 종류에 강의 3종을 더했다 |
 | 2026-11-12 | ND-120 반영(N7 회원 사전 결정, #915): 2.2 `null` 행에 채널 인증 승인·반려, 승급 반려를 더했다 |
+| 2026-11-12 | ND-125 반영(N7 고객센터 사전 결정, #918): 2.2 이동 대상에 새 `targetType` `INQUIRY`(문의 답변 도착·이의 제기 접수 불가)를 더했다 |
+| 2026-11-12 | ND-131 반영(N9 채팅 사전 결정, #921): 2.2 이동 대상에 새 `targetType` `CHAT_ROOM`을 더하고 `null` 행에 단체방 강퇴를 더했다 |
+| 2026-11-13 | ND-139 반영(N10 사전 결정, #928): 2.2 이동 대상의 쓰는 종류에 예약 5종을 더했다(새 `targetType` 없음) |
+| 2026-11-14 | 문서 정리(#931): 머리말 구현 상태에 Backfill 재실행·실행 조회 API 구현(N5, #865)을 적었다 |

@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.notification.in.event;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -16,6 +17,9 @@ import org.springframework.stereotype.Component;
 import com.hapbang.auxiliary.notification.app.AppearanceCancelRequestAlerts;
 import com.hapbang.auxiliary.notification.app.AppearanceProgressAlerts;
 import com.hapbang.auxiliary.notification.app.NotificationAlertService;
+import com.hapbang.auxiliary.notification.app.ScheduleCommand;
+import com.hapbang.auxiliary.notification.app.ScheduleInputs;
+import com.hapbang.auxiliary.notification.app.ScheduleService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
@@ -32,7 +36,9 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCanceledByHostEvent;
 import com.hapbang.shared.appearance.event.AppearanceConfirmedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitCanceledEvent;
 import com.hapbang.shared.appearance.event.AppearanceRecruitClosedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRecruitOpenedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
@@ -52,8 +58,10 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>출연 취소 요청 3종은 필수 값이 비면 다시 처리해도 같으므로 재시도 없이 DLT로 보낸다. #817 전에는 Kafka로 나간 적이 없어
  *     이전 형식이 없다(ND-086).</li>
  *     <li>N7 출연 10종도 필수 값이 비면 재시도 없이 DLT로 보낸다. M3(#871)는 처음부터 이 형식으로 나가 이전 형식이 없다.</li>
- *     <li>알림 대상이 아닌 출연 이벤트(리뷰 공개, 출연 변경, 예약 입력 전용인 모집 시작·모집 전체 취소(ND-041) 등)는 로그만 남기고
- *     넘긴다.</li>
+ *     <li>N10 예약 알림: 요청 발송·수락·거절·응답 전 취소, 모집 시작·마감·전체 취소, 지원 선정, 합의 취소, 호스트 일방 취소, 출연 확인,
+ *     불참이 예약을 만들거나 취소한다({@link ScheduleInputs}, ND-133). 한 레코드의 예약 처리와 즉시 알림은 한 트랜잭션이고 예약을 먼저
+ *     쓴다({@link ScheduleService#applyWith}). 모집 시작·모집 전체 취소는 예약 입력 전용이라 알림을 만들지 않는다(ND-041).</li>
+ *     <li>알림·예약 대상이 아닌 출연 이벤트(리뷰 공개, 출연 변경 등)는 로그만 남기고 넘긴다.</li>
  * </ul>
  */
 @Slf4j
@@ -67,18 +75,22 @@ public class NotificationAppearanceEventListener {
     public static final String LISTENER_ID = "notification-appearance-events";
 
     private final NotificationAlertService alerts;
+    private final ScheduleService schedules;
     private final NotificationKafkaConsumerSettings settings;
     private final SkippedEventLog skippedLog = new SkippedEventLog(log);
 
-    public NotificationAppearanceEventListener(NotificationAlertService alerts,
+    public NotificationAppearanceEventListener(NotificationAlertService alerts, ScheduleService schedules,
             @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
         this.alerts = alerts;
+        this.schedules = schedules;
         this.settings = settings;
     }
 
     @KafkaHandler
     public void on(AppearanceRequestSentEvent event, @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp) {
-        alerts.requestSent(event, Instant.ofEpochMilli(timestamp));
+        Instant recordTime = Instant.ofEpochMilli(timestamp);
+        schedules.applyWith(commands(() -> ScheduleInputs.requestSent(event, recordTime)),
+                () -> alerts.requestSent(event, recordTime));
     }
 
     @KafkaHandler
@@ -93,7 +105,8 @@ public class NotificationAppearanceEventListener {
 
     @KafkaHandler
     public void on(AppearanceCancelRequestAcceptedEvent event) {
-        alerts.create(valid(() -> AppearanceCancelRequestAlerts.accepted(event)));
+        NotificationDraft draft = valid(() -> AppearanceCancelRequestAlerts.accepted(event));
+        schedules.applyWith(commands(() -> ScheduleInputs.cancelRequestAccepted(event)), () -> alerts.create(draft));
     }
 
     @KafkaHandler
@@ -105,20 +118,26 @@ public class NotificationAppearanceEventListener {
 
     @KafkaHandler
     public void on(AppearanceRequestAcceptedEvent event) {
-        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestAccepted(event, null)),
-                event.request().guestId(), nickname -> AppearanceProgressAlerts.requestAccepted(event, nickname));
+        NotificationDraft checked = valid(() -> AppearanceProgressAlerts.requestAccepted(event, null));
+        schedules.applyWith(commands(() -> ScheduleInputs.requestAccepted(event)),
+                () -> alerts.createMentioning(checked, event.request().guestId(),
+                        nickname -> AppearanceProgressAlerts.requestAccepted(event, nickname)));
     }
 
     @KafkaHandler
     public void on(AppearanceRequestRejectedEvent event) {
-        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestRejected(event, null)),
-                event.request().guestId(), nickname -> AppearanceProgressAlerts.requestRejected(event, nickname));
+        NotificationDraft checked = valid(() -> AppearanceProgressAlerts.requestRejected(event, null));
+        schedules.applyWith(commands(() -> ScheduleInputs.requestRejected(event)),
+                () -> alerts.createMentioning(checked, event.request().guestId(),
+                        nickname -> AppearanceProgressAlerts.requestRejected(event, nickname)));
     }
 
     @KafkaHandler
     public void on(AppearanceRequestCanceledEvent event) {
-        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.requestCanceled(event, null)),
-                event.request().hostId(), nickname -> AppearanceProgressAlerts.requestCanceled(event, nickname));
+        NotificationDraft checked = valid(() -> AppearanceProgressAlerts.requestCanceled(event, null));
+        schedules.applyWith(commands(() -> ScheduleInputs.requestCanceled(event)),
+                () -> alerts.createMentioning(checked, event.request().hostId(),
+                        nickname -> AppearanceProgressAlerts.requestCanceled(event, nickname)));
     }
 
     /** 요청 만료는 호스트·게스트에게 한 건씩. 두 초안을 먼저 모두 바꿔 필수 값을 본다 */
@@ -133,9 +152,10 @@ public class NotificationAppearanceEventListener {
 
     @KafkaHandler
     public void on(AppearanceApplicationSelectedEvent event) {
-        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.applicationSelected(event, null)),
-                event.application().hostId(),
-                nickname -> AppearanceProgressAlerts.applicationSelected(event, nickname));
+        NotificationDraft checked = valid(() -> AppearanceProgressAlerts.applicationSelected(event, null));
+        schedules.applyWith(commands(() -> ScheduleInputs.applicationSelected(event)),
+                () -> alerts.createMentioning(checked, event.application().hostId(),
+                        nickname -> AppearanceProgressAlerts.applicationSelected(event, nickname)));
     }
 
     @KafkaHandler
@@ -146,28 +166,49 @@ public class NotificationAppearanceEventListener {
     /** 모집 마감은 마감 일시 마감({@code DEADLINE})만 알린다. 조기 마감은 호스트 본인 행동이다 */
     @KafkaHandler
     public void on(AppearanceRecruitClosedEvent event) {
-        validOptional(() -> AppearanceProgressAlerts.recruitClosed(event)).ifPresentOrElse(alerts::create,
-                () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 recruitId={}, closeType={}",
-                        event.recruit().recruitId(), event.closeType()));
+        Optional<NotificationDraft> draft = validOptional(() -> AppearanceProgressAlerts.recruitClosed(event));
+        schedules.applyWith(commands(() -> ScheduleInputs.recruitClosed(event)),
+                () -> draft.ifPresentOrElse(alerts::create,
+                        () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 recruitId={}, closeType={}",
+                                event.recruit().recruitId(), event.closeType())));
+    }
+
+    /** 모집 시작: 예약 입력 전용(ND-041). 알림을 만들지 않는다 */
+    @KafkaHandler
+    public void on(AppearanceRecruitOpenedEvent event) {
+        schedules.applyWith(commands(() -> ScheduleInputs.recruitOpened(event)), () -> {
+        });
+    }
+
+    /** 모집 전체 취소: 예약 입력 전용(ND-041). 알림을 만들지 않는다 */
+    @KafkaHandler
+    public void on(AppearanceRecruitCanceledEvent event) {
+        schedules.applyWith(commands(() -> ScheduleInputs.recruitCanceled(event)), () -> {
+        });
     }
 
     @KafkaHandler
     public void on(AppearanceCanceledByHostEvent event) {
-        alerts.createMentioning(valid(() -> AppearanceProgressAlerts.canceledByHost(event, null)),
-                event.appearance().hostId(), nickname -> AppearanceProgressAlerts.canceledByHost(event, nickname));
+        NotificationDraft checked = valid(() -> AppearanceProgressAlerts.canceledByHost(event, null));
+        schedules.applyWith(commands(() -> ScheduleInputs.canceledByHost(event)),
+                () -> alerts.createMentioning(checked, event.appearance().hostId(),
+                        nickname -> AppearanceProgressAlerts.canceledByHost(event, nickname)));
     }
 
     /** 출연 확인은 자동 확인({@code AUTO})만 알린다. 호스트 확인은 호스트 본인 행동이다 */
     @KafkaHandler
     public void on(AppearanceConfirmedEvent event) {
-        validOptional(() -> AppearanceProgressAlerts.confirmed(event)).ifPresentOrElse(alerts::create,
-                () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 appearanceId={}, confirmType={}",
-                        event.appearance().appearanceId(), event.confirmType()));
+        Optional<NotificationDraft> draft = validOptional(() -> AppearanceProgressAlerts.confirmed(event));
+        schedules.applyWith(commands(() -> ScheduleInputs.confirmed(event)),
+                () -> draft.ifPresentOrElse(alerts::create,
+                        () -> log.debug("호스트 본인 행동이라 알림을 만들지 않았다 appearanceId={}, confirmType={}",
+                                event.appearance().appearanceId(), event.confirmType())));
     }
 
     @KafkaHandler
     public void on(AppearanceAbsentEvent event) {
-        alerts.create(valid(() -> AppearanceProgressAlerts.absent(event)));
+        NotificationDraft draft = valid(() -> AppearanceProgressAlerts.absent(event));
+        schedules.applyWith(commands(() -> ScheduleInputs.absent(event)), () -> alerts.create(draft));
     }
 
     /** 처리기가 없는 레코드를 건너뛴다. 신뢰 패키지 밖 타입은 재시도 없이 DLT로 보낸다({@link SkippablePayloads}) */
@@ -186,6 +227,15 @@ public class NotificationAppearanceEventListener {
             return convert.get();
         } catch (IllegalArgumentException e) {
             throw new RejectedEventException("알림을 만들 수 없는 출연 이벤트입니다.", e);
+        }
+    }
+
+    /** 예약 명령으로 바꾼다. 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다 */
+    private static List<ScheduleCommand> commands(Supplier<List<ScheduleCommand>> convert) {
+        try {
+            return convert.get();
+        } catch (IllegalArgumentException e) {
+            throw new RejectedEventException("예약을 만들 수 없는 출연 이벤트입니다.", e);
         }
     }
 

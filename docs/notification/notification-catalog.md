@@ -2,13 +2,15 @@
 
 > 문서 탐색: [알림 문서 INDEX](INDEX.md)
 
-> - 이 문서는 알림센터 알림 종류별 명세의 **유일한 원본**이다. 즉시 알림 49종, 예약 알림 5종, 하루 묶음 알림의 종류 코드·받는 사람·원본 이벤트·발생 조건·보내지 않는 경우를 둔다([ND-011](decisions.md#4-알림-종류와-받는-사람): "notification.md 3·4장 표가 원본이다(3.4단계에서 알림 종류 문서로 옮긴다)").
+> - 이 문서는 알림센터 알림 종류별 명세의 **유일한 원본**이다. 즉시 알림 48종, 예약 알림 5종, 하루 묶음 알림의 종류 코드·받는 사람·원본 이벤트·발생 조건·보내지 않는 경우를 둔다([ND-011](decisions.md#4-알림-종류와-받는-사람): "notification.md 3·4장 표가 원본이다(3.4단계에서 알림 종류 문서로 옮긴다)". 고객센터 답변 수정을 뺀 수는 ND-123).
 > - 원천은 [알림 설계](../architecture/infrastructure/notification.md)(이하 N, #710) 3장(알림 종류), 4장(예약 알림), 5장(하루 묶음 알림), 7장(발행 모듈에 요청할 이벤트)이다. 알림 이름·받는 사람·종류 코드·이벤트 이름은 원문 그대로 옮겼고, 원문에 없는 값은 "미정"으로 두었다(관련 미결이 있으면 U 번호).
 > - 정책 결정과 그 이유는 [결정 기록](decisions.md)의 `ND-*`가 원본이다. 이 문서는 ND 번호로 참조만 한다.
 > - 채팅 방 안 안내(`SYSTEM` 메시지)와 채팅 `NotificationKind` 계약은 채팅 소유라 넣지 않는다([결정 기록 12장](decisions.md#12-채팅-알림과의-경계), [`notification-data.md`](../../apps/chat-app/docs/contracts/notification-data.md)).
-> - **구현 상태**: 2026-11-06 기준 알림 모듈 코드는 없다. 이 문서의 내용은 정책 명세이고 구현·테스트 상태가 아니다.
+> - **구현 상태**: 이 문서의 내용은 정책 명세이고 구현·테스트 상태가 아니다. 구현 범위는 [module.md](module.md) 2장 As-Is에 있다.
 >
 > 변경 이력
+> - 2026-11-14 문서 정리(#931): 9장에서 해소된 U19 행을 지웠다(decisions.md 10장 U19). 머리말 구현 상태 문장을 고쳤다. PR 리뷰 뒤 `LECTURE_ORDER_PAID` 행의 U2 참조를 고쳤다.
+> - 2026-11-13 decisions.md ND-133~ND-143 반영(N10 사전 결정, #928): 0.13 예약 5종 문구(ND-140)를 더했다. 7장 표를 확정 설계(업무 기한, 실제 생성·취소 이벤트, 원본 대상 ID·이동 대상)로 고치고, 2026-11-06 계약 판정과 U6·U11·U16 미결 서술을 ND-134~ND-143 참조로 바꿨다. 0.2 종류 코드 칸과 9장에서 U11·U16을 지웠다.
 > - 2026-11-06 처음 작성: N 3·4·5·7장의 표를 옮겼다. 이벤트 계약 상태를 `common/shared` 코드로 다시 확인해 덧붙였다.
 > - 2026-11-06 계약 판정 추가: 발행 앱 코드(dev) 조사로 행마다 충족·부분 충족·미충족과 근거, 재사용 후보(`AppearanceChangedEvent`·`LectureChangedEvent`·`LecturePurchaseChangedEvent`·`UserModifiedEvent`)의 한계를 이벤트 계약 상태 칸에 덧붙였다. 출연 절에 `AppearanceChangedEvent` 박스, 0.3에 U17, 7장에 U16, 채널 인증 승인 행에 U18을 표시했다. 원본 이벤트 이름·받는 사람·정책은 바꾸지 않았다.
 > - 2026-11-06 미결 목록에 U19(닉네임 파기)를 더했다.
@@ -23,7 +25,9 @@
 > - 2026-11-12 decisions.md ND-097~ND-102 반영(N8 사전 결정, #890): 1.1 종류 코드 칸, `PAYOUT_COMPLETED_DAILY` 행의 이동 대상(ND-102)·관련 ND·미결 칸, 8장(발생 시각·밀려난 묶음·문구·종류 코드 행), 9장 U11 행을 고쳤다. 2026-11-06 판정은 그대로 둔다. 같은 날 N8 구현 때 8장에 확정 문구와 저장 행(ND-103)을 더했다.
 > - 2026-11-12 decisions.md ND-114~ND-117 반영(N7 강의 묶음, #910): 강의 7종 행의 이동 대상(ND-116)·원본 대상 ID(ND-115)·관련 ND를 채웠다(2026-11-06 판정과 #872 구현 표시는 그대로 둔다). 결제 실패 행의 "보류 거절만 알릴지" 미결을 ND-114으로 바꿨다. 0.9에 강의 7종 문구(ND-117)를 더했다.
 > - 2026-11-12 decisions.md ND-105~ND-108 반영(N7 지갑 묶음, #907): 지갑 4종 행의 이동 대상(ND-107)·원본 대상 ID(ND-106)·관련 ND를 채우고 #873 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.7에 지갑 4종 문구(ND-108)를 더했다.
+> - 2026-11-12 decisions.md ND-129~ND-132 반영(N9 채팅 단체방, #921): 채팅 3종 행의 이동 대상(ND-131)·원본 대상 ID(ND-130)·관련 ND를 채우고 #897 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 6장 머리의 토픽 서술을 고쳤다. 0.12에 채팅 3종 문구(ND-132)를 더했다. 0.12는 회원 #915(0.10)·고객센터 #918(0.11) 다음 번호다. 결정 번호는 처음 ND-127~ND-130으로 적었다가 dev 다음 번호로 고쳤다.
 > - 2026-11-12 decisions.md ND-110~ND-113 반영(N7 출연 묶음, #908): 출연 10종 행의 이동 대상(ND-112)·원본 대상 ID(ND-111)·관련 ND를 채우고 #871 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.8에 출연 10종 문구(ND-113)를 더했다.
+> - 2026-11-12 decisions.md ND-122~ND-126 반영(N7 고객센터 묶음, #918): 고객센터 2종 행의 이동 대상(ND-125)·원본 대상 ID(ND-124)·관련 ND를 채우고 #875 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). `INQUIRY_REPLY_EDITED` 행에 폐기(ND-123)를 표시하고 머리말·0.4 집계를 즉시 48종(고객센터 3)으로 고쳤다. 0.11에 고객센터 2종 문구(ND-126)를 더했다. S6 리뷰 뒤 문의 답변 도착 행의 관련 ND에 ND-127(빈 제목은 DLT)을 더했다.
 > - 2026-11-12 decisions.md ND-118~ND-121 반영(N7 회원 묶음, #915): 회원 반려 2종과 채널 인증 승인 행의 이동 대상(ND-120)·원본 대상 ID(ND-119)·관련 ND를 채우고 #874 발행 사실을 덧붙였다(2026-11-06 판정은 그대로 둔다). 0.10에 회원 3종 문구(ND-121)를 더했다.
 
 ## 0. 읽는 법
@@ -56,7 +60,7 @@
 
 | 칸 | 뜻 |
 | --- | --- |
-| 종류 코드 | 알림 `kind`. 규칙은 ND-012(원본 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE). 규칙 밖의 코드는 승급 승인 ND-071, 하루 묶음 ND-098, 나머지(예약 5종)는 U11 |
+| 종류 코드 | 알림 `kind`. 규칙은 ND-012(원본 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE). 규칙 밖의 코드는 승급 승인 ND-071, 하루 묶음 ND-098, 예약 5종 ND-137 |
 | 알림 | N 3장의 알림 이름 |
 | 받는 사람 | N 3장의 받는 사람 |
 | 원본 이벤트 | 알림을 만드는 shared integration event |
@@ -74,7 +78,7 @@
 - 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본은 회원 목록 내부 API Backfill로 채우고, 알림을 만드는 소비자는 첫 Backfill 뒤 시작한다(ND-077·ND-078, `NT-USR-06`).
 - 업무 시각이 알림 시작 시각보다 이른 사건은 알림을 만들지 않는다(ND-076, `NT-KAF-04`). 운영의 알림 시작 시각은 앱이 처음 뜬 시각이다(ND-095).
 - 같은 이벤트를 다시 받아도 한 번만 만든다(ND-019).
-- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
+- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
 - 다른 회원의 닉네임이 들어간 문구·값은 그 회원이 파기되면 바꾼다(ND-036, `NT-USR-07`). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구를 다시 만든다(ND-051).
 - 목록은 이벤트의 업무 시각으로 정렬한다(ND-021). 사건 시각 필드가 없는 `AppearanceRequestSentEvent`·`UserJoinedEvent`·`UserModifiedEvent`는 Kafka 레코드 timestamp를 대체 시각으로 쓰며, 원래 사건 시각과 같다고 보장하지 않는다(ND-081).
 - 관리자는 알림센터 알림을 받지 않는다(ND-003).
@@ -87,12 +91,12 @@
 | 즉시 | 강의 | 11 | [2](#2-강의-11종) |
 | 즉시 | 지갑·정산 | 11 | [3](#3-지갑정산-11종) |
 | 즉시 | 회원 | 5 | [4](#4-회원-5종) |
-| 즉시 | 고객센터 | 4 | [5](#5-고객센터-4종) |
+| 즉시 | 고객센터 | 3 | [5](#5-고객센터-3종) |
 | 즉시 | 채팅 | 3 | [6](#6-채팅-3종) |
-| **즉시 합계** | | **49** | |
+| **즉시 합계** | | **48** | |
 | 예약 | 출연 4, 강의 1 | **5** | [7](#7-예약-알림-5종) |
 
-`PAYOUT_COMPLETED_DAILY`(하루 묶음, [8장](#8-하루-묶음-알림))는 강의 11종 안에 센다.
+`PAYOUT_COMPLETED_DAILY`(하루 묶음, [8장](#8-하루-묶음-알림))는 강의 11종 안에 센다. 폐기한 `INQUIRY_REPLY_EDITED`(ND-123)는 세지 않는다.
 
 ### 0.5 문구 (N5 11종, ND-075)
 
@@ -177,6 +181,37 @@
 | `INFLUENCER_CHANNEL_REJECTED` | 채널 인증이 반려되었습니다. 사유: {반려 사유} (`rejectionReason`) |
 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 인증된 인플루언서 승급 신청이 반려되었습니다. 사유: {반려 사유} (`rejectionReason`) |
 
+### 0.11 문구 (N7 고객센터 2종, ND-126)
+
+작은따옴표(`'…'`) 안은 문의 제목(`title`)이다(0.5와 같은 따옴표). 문의 유형(`category`)은 넣지 않는다. 이의 제기 접수 불가 이벤트에는 강의 제목이 없어 넣지 않는다. 다른 회원의 닉네임은 넣지 않는다.
+
+| 종류 코드 | 받는 사람 | 문구 |
+| --- | --- | --- |
+| `INQUIRY_ANSWERED` | 문의한 회원 | '{문의 제목}' 문의에 답변이 등록되었습니다. |
+| `LECTURE_OBJECTION_FILE_REJECTED` | 구매자 | 강의 내용 다름 이의 제기를 접수하지 못했습니다. 문의 내용을 확인해 주세요. |
+
+### 0.12 문구 (N9 채팅 3종, ND-132)
+
+작은따옴표(`'…'`) 안은 모집글 제목(`title`)이다. 방이 가진 사본이라 출연 앱의 지금 제목과 다를 수 있다([이벤트 계약 요청](event-contracts.md) 6장). 따옴표는 0.5와 같다. 호스트 닉네임과 폐쇄 방의 기록 조회 기한은 넣지 않는다.
+
+| 종류 코드 | 받는 사람 | 문구 |
+| --- | --- | --- |
+| `GROUP_MEMBERS_INVITED` | 이번 초대로 참여한 회원 | '{모집글 제목}' 단체방에 초대되었습니다. |
+| `GROUP_MEMBER_KICKED` | 강퇴된 회원 | '{모집글 제목}' 단체방에서 내보내졌습니다. |
+| `GROUP_ROOM_CLOSED` | 남은 참여자(폐쇄한 호스트 제외) | '{모집글 제목}' 단체방이 닫혔습니다. 새 메시지는 보낼 수 없습니다. |
+
+### 0.13 문구 (N10 예약 5종, ND-140)
+
+남은 시간이 아니라 기한 시각을 적는다. 운영 시간(ND-134)이나 배치 지연으로 늦게 나가도 틀린 말이 되지 않는다. 작은따옴표(`'…'`) 안 제목과 기한은 예약을 만든 이벤트의 값을 예약 행에 저장해 쓴다: 출연 요청·방송·출연 확인은 요청서 제목(`request.title`) 또는 모집글 제목(`application.recruitTitle`), 모집은 `recruit.title`, 강의는 `lectureTitle`이다. 시각은 KST `M월 d일 HH:mm`, 날짜는 `M월 d일`이다. 다른 회원의 닉네임은 넣지 않는다.
+
+| 종류 코드 | 받는 사람 | 문구 |
+| --- | --- | --- |
+| `APPEARANCE_REQUEST_EXPIRING` | 게스트 | '{제목}' 출연 요청의 수락 기한은 {수락 기한}입니다. |
+| `APPEARANCE_RECRUIT_CLOSING` | 호스트 | '{제목}' 모집이 {모집 마감 일시}에 마감됩니다. |
+| `APPEARANCE_STARTING` | 호스트, 게스트 | '{제목}' 방송이 {방송 예정 일시}에 시작됩니다. |
+| `APPEARANCE_CONFIRM_PERIOD_ENDING` | 호스트 | '{제목}' 출연을 확인해 주세요. {자동 확인 시각}에 자동으로 확인됩니다. |
+| `LECTURE_ORDER_ITEM_CONFIRMING` | 구매자 | '{강의 제목}' 구매 취소는 {구매일 + 7일}까지 할 수 있습니다. |
+
 ## 1. 출연 (15종)
 
 토픽 `appearance.events.v1`.
@@ -226,7 +261,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `LECTURE_APPROVED` | 강의 검수 승인 | 판매자 | `LectureApprovedEvent` | 강의 검수 승인 | — | `LECTURE` / `lectureId`(ND-116) | `<lectureId>:<inspectionSequence>`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LectureChangedEvent`(#712, `LectureSyncDto`: 제목·`sellerUserId` 있음). 검수 상태·발생 시각이 없고 `onSale`만 있어 검수 승인 사건으로 보려면 해석이 필요하다 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 요청 값 2.1 |
 | `LECTURE_REJECTED` | 강의 검수 반려 (사유) | 판매자 | `LectureRejectedEvent` | 강의 검수 반려 | — | `LECTURE` / `lectureId`(ND-116) | `<lectureId>:<inspectionSequence>`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — `LectureChangedEvent`에 검수 상태·반려 사유가 없어 반려를 식별할 수 없다 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 요청 값 2.1 |
-| `LECTURE_ORDER_PAID` | 구매 완료 | 구매자 | `LectureOrderPaidEvent` | 주문 결제(구매) 완료 | — | `LECTURE_ORDER` / `orderId`(ND-116) | `orderId`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(#712, `LecturePurchaseSyncDto`: `buyerUserId`·`purchasedAt`, 결과 `OWNED`). 주문 항목 단위이고 제목·금액·주문 ID 없음 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 예약 `LECTURE_ORDER_ITEM_CONFIRMING`도 이 이벤트로 만든다(주문 항목마다). U2(P0 완료 증거). 요청 값 2.1 |
+| `LECTURE_ORDER_PAID` | 구매 완료 | 구매자 | `LectureOrderPaidEvent` | 주문 결제(구매) 완료 | — | `LECTURE_ORDER` / `orderId`(ND-116) | `orderId`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(#712, `LecturePurchaseSyncDto`: `buyerUserId`·`purchasedAt`, 결과 `OWNED`). 주문 항목 단위이고 제목·금액·주문 ID 없음 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 예약 `LECTURE_ORDER_ITEM_CONFIRMING`도 이 이벤트로 만든다(주문 항목마다). 완료 증거 1번(test-spec 3장). 요청 값 2.1 |
 | `LECTURE_ORDER_HOLD_FAILED` | 결제 실패 (보류 거절) | 구매자 | `LectureOrderHoldFailedEvent` | 주문 보류 거절로 결제 실패 | — | `LECTURE_ORDER` / `orderId`(ND-116) | `orderId`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `FAILED`). 제목·금액 없음, 항목 단위 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장). 강의는 주문이 결제 실패가 되는 모든 경로(보류 거절, 보류 무효화, 쿠폰 예약 거절·응답 불일치, 관리자 실패 확정)에서 이 이벤트를 내고 실패 원인은 담지 않는다(강의 D85 (5)). 알림은 모든 경로에 원인 없는 문구로 보낸다(ND-114) | ND-114~ND-117 | 요청 값 2.1 |
 | `LECTURE_ORDER_ITEM_CANCELED` | 구매 취소 완료 (반환 끝) | 구매자 | `LectureOrderItemCanceledEvent` | 구매 취소의 반환이 끝남 | — | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-116) | `orderItemId`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 부분 충족** — 대체 후보 `LecturePurchaseChangedEvent`(결과 `CANCELED`). 제목·반환 금액 없음 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 요청 값 2.1 |
 | `LECTURE_ORDER_ITEM_CONFIRMED` | 자동 구매 확정 | 구매자 | `LectureOrderItemConfirmedEvent` | 자동 구매 확정 | `confirmationType`이 `AUTO`가 아닐 때. `AUTO`일 때만 보낸다 | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-116) | `orderItemId`(ND-115) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 구매 확정·지급 전이는 동기화 이벤트도 보내지 않는다(`LectureSyncEvents.java` 59행 근처). 예약 `LECTURE_ORDER_ITEM_CONFIRMING` 취소에도 필요 / **2026-11-11 #872: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-114~ND-117 | 요청 값 2.1 |
@@ -288,15 +323,15 @@
 
 [이벤트 계약 요청](event-contracts.md) 4장이 원본이다(ND-037). 채널 인증 승인 이벤트(ND-042)도 그 장에 있다.
 
-## 5. 고객센터 (4종)
+## 5. 고객센터 (3종)
 
 토픽 `customersupport.events.v1`(`LECTURE_OBJECTION_RETURN_ACTION_REQUIRED`만 `lecture.events.v1`).
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `INQUIRY_ANSWERED` | 문의 답변 도착 | 문의한 회원 | `InquiryAnsweredEvent` | 문의 답변 도착 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) | — | 요청 값 5.1 |
-| `INQUIRY_REPLY_EDITED` | 답변 수정 | 문의한 회원 | `InquiryReplyEditedEvent` | 답변 수정 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) | — | 요청 값 5.1 |
-| `LECTURE_OBJECTION_FILE_REJECTED` | 이의 제기 접수 불가 (재시도 뒤) | 구매자 | `LectureObjectionFileRejectedEvent` (고객센터 발행) | 고객센터 재시도 배치가 이의 제기를 접수 불가로 끝낼 때 | 바로 거절된 접수(화면에서 바로 보인다). 재시도 배치가 접수 불가로 끝낼 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`LectureObjectionFiler` 108~124행 근처). 재시도 배치 경로는 `delete=false`로 식별 가능 | ND-015 | 접수 성공은 2장 `LECTURE_OBJECTION_FILED`. 요청 값 5.1 |
+| `INQUIRY_ANSWERED` | 문의 답변 도착 | 문의한 회원(`userId`) | `InquiryAnsweredEvent` | 관리자가 문의에 답변을 달 때(이의 제기 판단 안내 답변은 이벤트가 없다) | — | `INQUIRY` / `inquiryId`(ND-125) | `replyId`(ND-124) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) / **2026-11-12 #875: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 5장) | ND-122, ND-124~ND-127 | 요청 값 5.1 |
+| ~~`INQUIRY_REPLY_EDITED`~~ | 답변 수정 | 문의한 회원 | `InquiryReplyEditedEvent` | 답변 수정 | — | — | — | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) / **#875: 발행하지 않음**(고객센터 담당 결정) | ND-123 | **폐기(ND-123)**: 이 종류는 두지 않고 집계에서 뺀다 |
+| `LECTURE_OBJECTION_FILE_REJECTED` | 이의 제기 접수 불가 (재시도 뒤) | 구매자(`buyerUserId`) | `LectureObjectionFileRejectedEvent` (고객센터 발행) | 고객센터 재시도 배치가 이의 제기를 접수 불가로 끝낼 때 | 바로 거절된 접수(화면에서 바로 보인다). 재시도 배치가 접수 불가로 끝낼 때만 보낸다 | `INQUIRY` / `inquiryId`(ND-125) | `inquiryId`(ND-124) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`LectureObjectionFiler` 108~124행 근처). 재시도 배치 경로는 `delete=false`로 식별 가능 / **2026-11-12 #875: 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 5장) | ND-015, ND-122, ND-124~ND-126 | 접수 성공은 2장 `LECTURE_OBJECTION_FILED`. 요청 값 5.1 |
 | `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 반환 지연 | 구매자 | `LectureObjectionReturnActionRequiredEvent` | 이의 제기 반환 지연 | — | `LECTURE_ORDER_ITEM` / `orderItemId`(ND-084) | `<inquiryId>:<returnDelaySequence>`(ND-083, ND-045) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(`lecture.events.v1`, key `order-item:<주문 항목 ID>`), 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`returnDelaySequence`·`occurredAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | ND-082~ND-086 | 값 추가 요청(M2, 2.1) |
 
 **보내지 않는 것**: 새 문의 도착(관리자), 답변 삭제, FAQ 등록·수정.
@@ -307,15 +342,15 @@
 
 ## 6. 채팅 (3종)
 
-토픽 `chat.events.v1`(새 토픽, [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표에 아직 없다).
+토픽 `chat.events.v1`(#897에서 새로 둔 토픽, key 방 ID, [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표). 알림은 consumer group `auxiliary-app.notification-chat-alert`로 읽는다(ND-129).
 
 > **이름 주의(ND-043)**: 아래 `GROUP_*` 코드는 채팅 방 안 안내(`NotificationKind`)와 이름이 같지만 **뜻과 받는 사람이 다르다**(예: 강퇴 — 채팅은 남은 참여자, 알림센터는 강퇴된 회원). 이름은 그대로 쓰고 이 차이를 여기와 CONTEXT에 적는다(ND-043). 이 표는 알림센터 측 알림만 다룬다. 알림 3종 자체(받는 사람·조건)는 ND-011로 유효다.
 
 | 종류 코드 | 알림 | 받는 사람 | 원본 이벤트 | 발생 조건 | 보내지 않는 경우 | 이동 대상 | 원본 대상 ID | 이벤트 계약 상태 | 관련 ND | 비고 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `GROUP_MEMBERS_INVITED` | 단체방 초대 | 이번 초대 요청으로 실제 참여한 회원 | `GroupMembersInvitedEvent` | 단체방 초대 | 이번 초대 요청으로 실제 참여하지 않은 회원 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) | ND-004, ND-043 | U12. 요청 값 6.1 |
-| `GROUP_MEMBER_KICKED` | 단체방 강퇴 | 강퇴된 회원 | `GroupMemberKickedEvent` | 단체방 강퇴 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) | ND-004, ND-043 | 채팅은 남은 참여자에게 안내(ND-043). U12. 요청 값 6.1 |
-| `GROUP_ROOM_CLOSED` | 단체방 폐쇄 | 남은 참여자 (폐쇄한 호스트 제외) | `GroupRoomClosedEvent` | 단체방 폐쇄 | 폐쇄한 호스트 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) | ND-004, ND-043 | U12. 요청 값 6.1 |
+| `GROUP_MEMBERS_INVITED` | 단체방 초대 | 이번 초대 요청으로 실제 참여한 회원 | `GroupMembersInvitedEvent` | 단체방 초대 | 이번 초대 요청으로 실제 참여하지 않은 회원 | `CHAT_ROOM` / `chatRoomId`(ND-131) | `<chatRoomId>:<inviteRequestId>`(ND-130) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) / **2026-11-12 #897(M8): 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 6장) | ND-004, ND-043, ND-129~ND-132 | U12. 요청 값 6.1 |
+| `GROUP_MEMBER_KICKED` | 단체방 강퇴 | 강퇴된 회원 | `GroupMemberKickedEvent` | 단체방 강퇴 | — | 없음(`null`, ND-131) | `<chatRoomId>:<kickedUserId>:<participationVersion>`(ND-130) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) / **2026-11-12 #897(M8): 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 6장) | ND-004, ND-043, ND-129~ND-132 | 채팅은 남은 참여자에게 안내(ND-043). U12. 요청 값 6.1 |
+| `GROUP_ROOM_CLOSED` | 단체방 폐쇄 | 남은 참여자 (폐쇄한 호스트 제외) | `GroupRoomClosedEvent` | 단체방 폐쇄 | 폐쇄한 호스트 | `CHAT_ROOM` / `chatRoomId`(ND-131) | `chatRoomId`(ND-130) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 레코드 없음(2026-11-06 계약 조사 범위 밖, 대체 후보 미확인) / **2026-11-12 #897(M8): 구현됨** (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 6장) | ND-004, ND-043, ND-129~ND-132 | U12. 요청 값 6.1 |
 
 - 채팅은 방 안 시스템 메시지(`notifyRule: NONE`)를 바꾸지 않고, 같은 시점에 이벤트를 더 발행한다. 초대된 회원과 강퇴된 회원은 방을 열지 않으면 알 방법이 없어 알림센터로 알린다(N 3.6).
 
@@ -327,25 +362,27 @@
 
 ## 7. 예약 알림 (5종)
 
-알림 모듈이 이벤트를 받아 예약을 만들고, 취소 이벤트가 오면 취소한다. 발행 모듈은 예약을 모른다. 예약 배치는 1분마다 보낼 시각이 지난 예약을 처리하고 보내기 직전에 상태를 다시 확인한다(ND-029). 출연은 시각 기준, 강의는 날짜 기준이다([정책](../policy.md) "기한 계산"). 예약 5종의 종류 코드는 이벤트 이름 규칙 밖이다(U11). 받는 사람이 탈퇴 회원이면 예약을 만들지 않는다(ND-018).
+알림 모듈이 이벤트를 받아 예약을 만들고, 취소 이벤트가 오면 취소한다. 발행 모듈은 예약을 모른다. 예약 배치는 1분마다 보낼 시각이 지난 예약을 처리하고 보내기 직전에 다시 확인한다(ND-029, 확인 항목은 ND-135). 출연은 시각 기준, 강의는 날짜 기준이다([정책](../policy.md) "기한 계산"). 종류 코드는 이벤트 이름 규칙 밖이며 ND-137로 정했다. 받는 사람이 탈퇴·정지 회원이거나 관리자면 예약을 만들지 않는다(ND-018·ND-072). 범위와 입력 리스너는 ND-133이다.
 
-| 종류 코드 | 알림 | 받는 사람 | 보낼 시각 | 예약을 만드는 이벤트 | 예약을 취소하는 이벤트 | 관련 ND | 비고 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `APPEARANCE_REQUEST_EXPIRING` | 출연 요청 만료 임박 | 게스트 | 수락 기한 − 12시간 | `AppearanceRequestSentEvent` | 요청 수락·거절·응답 전 취소 | ND-029 | U6 |
-| `APPEARANCE_RECRUIT_CLOSING` | 모집 마감 임박 | 호스트 | 모집 마감 일시 − 24시간 | 🆕 `AppearanceRecruitOpenedEvent` | 모집 마감(조기 마감 포함), 모집 전체 취소 | ND-029, ND-041 | U6. 모집 전체 취소는 `AppearanceRecruitCanceledEvent`로 받는다(ND-041) |
-| `APPEARANCE_STARTING` | 방송 임박 | 호스트, 게스트 | 방송 예정 일시 − 24시간 | 요청 수락, 지원 수락 | 합의 취소, 호스트 일방 취소 | ND-029 | U6 |
-| `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 확인 부탁 | 호스트 | 자동 확인 시각 − 3×24시간 (= 방송 예정 일시 + 4×24시간) | 요청 수락, 지원 수락 | 출연 확인(호스트·자동), 불참, 합의 취소, 호스트 일방 취소 | ND-029, ND-030 | U6 |
-| `LECTURE_ORDER_ITEM_CONFIRMING` | 구매 취소 마감 임박 | 구매자 | (구매일 + 7일) 09:00 | `LectureOrderPaidEvent` (주문 항목마다) | 구매 취소, 구매 확정(직접·첫 재생·자동) | ND-029, ND-031 | U6(09:00이 EC2 기동 시각과 겹친다) |
+| 종류 코드 | 알림 | 받는 사람 | 보낼 시각 | 업무 기한(ND-135) | 예약을 만드는 이벤트 | 예약을 취소하는 이벤트 | 원본 대상 ID·이동 대상(ND-139) | 관련 ND |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `APPEARANCE_REQUEST_EXPIRING` | 출연 요청 만료 임박 | 게스트 | 수락 기한 − 12시간 | 수락 기한 `request.acceptDeadline` | `AppearanceRequestSentEvent` | `AppearanceRequestAccepted`·`Rejected`·`CanceledEvent` | `request.requestId` / `APPEARANCE_REQUEST` | ND-029 |
+| `APPEARANCE_RECRUIT_CLOSING` | 모집 마감 임박 | 호스트 | 모집 마감 일시 − 24시간 | 모집 마감 일시 `recruit.recruitDeadline` | `AppearanceRecruitOpenedEvent` | `AppearanceRecruitClosedEvent`(조기 마감 포함), `AppearanceRecruitCanceledEvent`(ND-041) | `recruit.recruitId` / `APPEARANCE_RECRUIT` | ND-029, ND-041 |
+| `APPEARANCE_STARTING` | 방송 임박 | 호스트, 게스트 | 방송 예정 일시 − 24시간 | 방송 예정 일시 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceCancelRequestAcceptedEvent`(합의 취소), `AppearanceCanceledByHostEvent` | 출연 ID / `APPEARANCE` | ND-029 |
+| `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 확인 부탁 | 호스트 | 자동 확인 시각 − 3×24시간 (= 방송 예정 일시 + 4×24시간) | 자동 확인 시각(방송 예정 일시 + 7×24시간) | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceConfirmedEvent`(호스트·자동), `AppearanceAbsentEvent`, `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` | 출연 ID / `APPEARANCE` | ND-029, ND-030 |
+| `LECTURE_ORDER_ITEM_CONFIRMING` | 구매 취소 마감 임박 | 구매자 | (구매일 + 7일) 09:00 | 자동 구매 확정 (구매일 + 8일) 00:00. "취소" 먼저 행은 대체 기한(ND-143) | `LectureOrderPaidEvent`(주문 항목마다, 구매일은 `paidAt`의 KST 날짜) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent`(직접·첫 재생·자동), `LectureObjectionFiledEvent`(ND-149, 철회돼도 되살리지 않음) | `orderItemId` / `LECTURE_ORDER_ITEM` | ND-029, ND-031, ND-143, ND-149 |
 
-- "예약을 만드는/취소하는 이벤트" 칸은 N 4장 원문 그대로다. 원문이 사건 이름(예: "요청 수락")으로 적은 칸의 이벤트 이름은 원문에 없어 옮기지 않았다.
-- 이벤트 계약 상태(2026-11-06 재확인): `AppearanceRequestSentEvent`는 ✅(1장), `AppearanceRecruitOpenedEvent`·`AppearanceRecruitCanceledEvent`·`LectureOrderPaidEvent`는 레코드 없음(🆕).
-- 2026-11-06 계약 판정(예약 생성·취소 입력):
-  - `APPEARANCE_REQUEST_EXPIRING`: 생성 충족(`AppearanceRequestSentEvent`). 취소는 요청 수락만 부분 충족(`AppearanceChangedEvent`), 거절·응답 전 취소는 미충족(1장).
-  - `APPEARANCE_RECRUIT_CLOSING`: 생성 미충족(모집 열림 발행 없음, `AppearanceRecruitHoldUseCase.markRecruiting` 79행 근처). 취소(모집 마감·모집 전체 취소)도 미충족.
-  - `APPEARANCE_STARTING`·`APPEARANCE_CONFIRM_PERIOD_ENDING`: 생성·취소 모두 부분 충족. `AppearanceChangedEvent`에 받는 사람 ID·`scheduledAt`·결과가 있지만 요청 수락/지원 수락, 합의/일방 취소, 호스트/자동 확인을 구분하지 못한다(1장 박스). 예약 판단 보조로 쓸 수 있는지는 추측이며 검증하지 않았다.
-  - `LECTURE_ORDER_ITEM_CONFIRMING`: 생성 부분 충족(`LecturePurchaseChangedEvent` `OWNED`, 항목 단위·`purchasedAt` 있음). 취소는 구매 취소만 부분 충족(`CANCELED`), 구매 확정은 미충족(확정 전이는 동기화 이벤트도 없음, `LectureSyncEvents.java` 59행 근처).
-- **예약보다 먼저 온 취소**: ND-034를 따른다(`NT-SCH-06`). 생성·취소 이벤트는 key·토픽이 다를 수 있고 Modulith 전송은 같은 key도 순서가 바뀔 수 있다. `AppearanceChangedEvent`를 쓰더라도 순서 보장이 없다. 예약 알림별 짝 키(대상 ID, 받는 사람)는 [이벤트 계약 요청](event-contracts.md) 0.3에 정했다. 발행 구현 뒤 실제 이벤트가 그 값을 주는지는 확인하지 않았다(**U16**). 확인 전인 예약 알림에는 ND-034를 적용하지 않는다.
-- 예약의 중복 방지 키는 `notification_schedule`의 (종류, 대상 ID, 받는 사람)이다(ND-025). 종류별 대상 ID는 미정(U5).
+- 문구는 0.13(ND-140)이다.
+- **운영 시간**: EC2가 꺼진 시간에 보낼 시각이 든 예약은 기동 뒤 첫 배치가 보낸다. 09:00도 그대로다(ND-134, 팀 확인 대기 U6).
+- **보내기 직전 확인**: 취소, 업무 기한 경과, 받는 사람 탈퇴·정지·관리자 중 하나라도 걸리면 알림 없이 "건너뜀"이다. 생성 때 보낼 시각이 지났어도 업무 기한 전이면 다음 배치에서 보낸다(ND-135). 업무 기한이 지난 뒤 온 생성 이벤트는 "건너뜀" 행만 남긴다(ND-136).
+- **예약보다 먼저 온 취소**: 5종 모두 ND-034를 따른다(`NT-SCH-06`). 짝 키(대상 ID, 받는 사람)는 [이벤트 계약 요청](event-contracts.md) 0.3이고, 2026-11-13 shared 레코드로 5종 모두 확인했다(ND-138).
+- **예약 행 정리**: 최종 상태(보냄·취소·건너뜀)이고 업무 기한 + 7일이 지난 행만 지운다. "예약" 행은 지우지 않는다(ND-142).
+- **배포 전 사건**: N10 배포 전에 성립한 출연·모집·주문 항목에는 예약을 만들지 않는다(ND-141).
+- **알림 시작 시각**: 예약을 만드는 사건이 알림 시작 시각보다 이르면 예약을 만들지 않는다. 취소는 처리한다(ND-145).
+- **발생 시각**: 예약 알림의 발생 시각(목록 정렬 기준)은 배치가 실제로 보낸 시각이다(ND-148).
+- **계속 실패하는 예약**: 3번 연속 보내지 못하면 "건너뜀"으로 끝내고 사람이 보게 남긴다(ND-147).
+- **받는 사람 복제본 없음**: 예약의 받는 사람 복제본이 없으면 레코드가 재시도 뒤 DLT로 간다. 레코드의 받는 사람이 모두 받을 수 없는 회원이면 DLT 없이 커밋한다(ND-146).
+- 예약의 중복 방지 키는 `notification_schedule`의 (종류, 대상 ID, 받는 사람)이다(ND-025).
 
 ## 8. 하루 묶음 알림
 
@@ -369,9 +406,6 @@
 
 | ID | 질문 |
 | --- | --- |
-| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108, N7 출연은 ND-113, N7 강의는 ND-117, N7 회원은 ND-121) |
-| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106, N7 출연은 ND-111, N7 강의는 ND-115, N7 회원은 ND-119. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
-| U11 | 규칙 밖 종류 코드 중 예약 5종(승급 승인은 ND-071, 하루 묶음은 ND-098, 단체방 3종 이름은 ND-043) |
+| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108, N7 출연은 ND-113, N7 강의는 ND-117, N7 회원은 ND-121, N7 고객센터는 ND-126, N9 채팅은 ND-132, N10 예약은 ND-140) |
+| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106, N7 출연은 ND-111, N7 강의는 ND-115, N7 회원은 ND-119, N7 고객센터는 ND-124, N9 채팅은 ND-130, N10 예약은 ND-139. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
 | U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |
-| U16 | 예약 알림별로 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 계약 검증(처리 방향은 ND-034) |
-| U19 | 구조는 ND-051로 정했다. 구현 가능성 검증만 남았다(N2, #801) |
