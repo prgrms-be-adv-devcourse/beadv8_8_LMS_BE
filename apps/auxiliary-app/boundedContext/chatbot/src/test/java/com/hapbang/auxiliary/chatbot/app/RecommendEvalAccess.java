@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.chatbot.app;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +57,10 @@ public final class RecommendEvalAccess {
 
     /** 강의 추천. 결과 수는 설정의 {@code resultSize}. 인기순으로 채운 항목은 맞춤 후보가 아니다 */
     public List<Pick> lecture(ChatbotLectureRecommendProperties properties, long memberId, @Nullable String interest) {
-        LectureRecommendUseCase useCase = new LectureRecommendUseCase(lectureStore, index, embedder, visibility, properties,
-                metrics);
+        // 조합마다 설정이 달라 인기순 캐시도 매번 새로 만든다
+        PopularLectureCache popularCache = new PopularLectureCache(lectureStore, properties, Clock.systemUTC());
+        LectureRecommendUseCase useCase = new LectureRecommendUseCase(lectureStore, index, embedder, visibility, popularCache,
+                properties, metrics);
         LectureRecommendation result = useCase.recommend(memberId, interest);
         List<Pick> picks = new ArrayList<>();
         for (LectureRecommendation.Item item : result.items()) {
@@ -69,7 +72,7 @@ public final class RecommendEvalAccess {
     /** 인플루언서 추천(관심사 없음). 결과 수는 설정의 {@code size}. 인기순으로 채운 항목은 맞춤 후보가 아니다 */
     public List<Pick> influencer(ChatbotInfluencerRecommendProperties properties, long memberId) {
         InfluencerRecommendUseCase useCase = new InfluencerRecommendUseCase(influencerStore, visibility, index, embedder,
-                properties);
+                properties, metrics);
         InfluencerRecommendUseCase.InfluencerRecommendation result = useCase.recommend(memberId, null);
         List<Pick> picks = new ArrayList<>();
         for (Candidate candidate : result.items()) {
