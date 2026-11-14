@@ -182,6 +182,9 @@
 | NT-SCH-19 | 계속 실패하는 예약 | 보낼 때마다 알림 저장이 실패하는 예약 | 예약 배치 3회 | 1·2회: 실패 횟수 1·2, "예약" 유지, 알림 0. 3회: 실패 횟수 3, "건너뜀", ERROR `[NOTIFICATION_SCHEDULE_FAILED]`. 그 뒤 회차는 고르지 않는다 | 실패 횟수는 실패한 저장 트랜잭션과 분리해 기록한다(롤백돼도 남는다) | ND-147 | `notification_schedule.failure_count` | Integration(PG) | 유효 |
 | NT-SCH-20 | 이의 제기 접수의 예약 취소 | 구매 취소 마감 임박 예약 있음 / 없음 | `LectureObjectionFiledEvent`(구매 완료 뒤, 구매 완료 전) | 둘 다 "취소"로 남고 늦게 온 구매 완료가 예약을 만들지 않는다. 대체 기한은 접수 시각의 KST 날짜 + 8일 00:00. 이의 제기 접수 알림은 그대로 만든다 | 철회돼도 되살리지 않는다(ND-149 한계) | ND-034, ND-143, ND-149 | `lecture.events.v1`, 이벤트 계약 2장 불변식 | Unit, Integration(PG+Kafka) | 유효 |
 | NT-SCH-21 | 회차의 예약 선택과 판정 시각 | 한 회차 고르는 건수 1 | 기한이 지난 예약(보낼 시각이 더 이름) + 유효한 예약, 보낼 시각 전 예약, 회차 시작 뒤 기한이 지나는 예약 | 기한 지난 예약은 고르지 않고(먼저 건너뜀으로 끝낸다) 유효한 예약을 보낸다. 보낼 시각 전 예약은 "예약"으로 남는다. 판정과 발생 시각은 행을 잠근 뒤의 시각이다 | `runOnce` 경로로 본다 | ND-029, ND-135, ND-144, ND-148 | — | Integration(PG) | 유효 |
+| NT-SCH-22 | 예약 결과 지표 | 보낼 예약, 기한 지난 예약(회차 시작 때 끝냄), 받을 수 없는 회원의 예약, 계속 실패하는 예약, 실패 횟수 기록이 실패하는 예약, 이미 끝난 예약 | 예약 배치 회차 | `hapbang.notification.schedule.outcomes`가 결과마다 1씩 는다: `sent`, `skipped`(기한 경과·받을 수 없는 회원 각각), `retry`(1·2번째 실패), `abandoned`(3번째 실패), `record_failed`(`[NOTIFICATION_SCHEDULE_FAILED]` ERROR). 이미 끝난 예약은 세지 않는다 | 회차 시작 때 한꺼번에 끝낸 기한 경과는 그 건수만큼 `skipped`가 는다 | ND-147, ND-150 | — | Integration(PG) | 유효 |
+| NT-SCH-23 | 회차 결과 지표 | 정상 회차, 회차 예외, 잠금 시도 실패, 다른 실행이 잠금을 쥔 회차 | 예약 배치 호출 | `hapbang.notification.schedule.runs{outcome}`: 정상은 `completed`, 회차 예외·잠금 시도 실패는 `failed`가 1 는다. 다른 실행이 잠금을 쥐어 건너뛴 회차는 세지 않는다. 회차 예외·잠금 시도 실패는 ERROR로 남는다 | 회차 예외가 나도 배치는 다음 회차에 다시 돈다 | ND-150 | — | Unit, Integration(PG) | 유효 |
+| NT-SCH-24 | alert "예약 알림 발송 실패" | `k8s/platform/base/alerting/rules.yaml` | 규칙 정의 | warning, 지속 없음. `outcomes{result=abandoned\|record_failed}` 또는 `runs{outcome=failed}`가 10분 안에 늘었거나 새 series면 울린다. `retry`·`skipped`·`sent`만 늘면 울리지 않는다 | Grafana provisioning 형식(기존 규칙과 같은 구조) | ND-151 | `observability.md` "구성한 alert" | 설정 검토(정적) | 유효 |
 
 ### 2.9 USR — 회원 복제본·탈퇴
 
@@ -273,14 +276,14 @@
 | READ 읽음 | 6 | 6 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 5 | 5 | 0 | 0 | 0 |
 | BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
-| SCH 예약 | 21 | 21 | 0 | 0 | 0 |
+| SCH 예약 | 24 | 24 | 0 | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
 | RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **119** | **114** | **4** | **0** | **0** |
+| **합계** | **122** | **117** | **4** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -326,6 +329,9 @@
 | NT-SCH-15 (N10) | `domain.ScheduleTimesTest`(대체 기한, 기한 넘는 취소 시각), `app.ScheduleInputsTest` | 전부 |
 | NT-SCH-20 (N10) | `app.ScheduleInputsTest`(이의 제기 접수 → 대체 기한 취소), `in.event.NotificationScheduleInputTest`(구매 완료 뒤·전 이의 제기 접수) | 전부 |
 | NT-SCH-21 (N10) | `app.ScheduleDispatcherSelectionTest`(한 회차 1건: 보낼 시각 전·후, 기한 지난 예약이 앞에 있음), `app.ScheduleDispatcherTest`(회차 시작 뒤 기한이 지나면 건너뜀, 발생 시각 = 보낸 시각) | 전부 |
+| NT-SCH-22 (N11) | `app.ScheduleDispatcherTest`(보낸·건너뛴 예약 결과별 수, 같은 알림이 이미 있어도 sent, retry 두 번 뒤 abandoned, 실패 횟수 기록 실패는 record_failed), `app.ScheduleDispatcherMetricsTest`(결과값마다 0으로 미리 만듦, 고른 뒤 다른 실행이 끝낸 예약은 세지 않음) | 전부 |
+| NT-SCH-23 (N11) | `app.ScheduleDispatcherMetricsTest`(끝까지 돈 회차 completed, 회차 예외·잠금 시도 실패 failed, 잠금 경합은 세지 않음), `in.NotificationScheduleBatchTest`(잠금 시도 실패·회차 예외 ERROR, 예외를 밖으로 내보내지 않음) | 전부 |
+| NT-SCH-24 (N11) | 정적 확인: `rules.yaml` YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}`(CI `ci.yml`과 같은 검사), promtool로 새 규칙 식의 PromQL 문법(NR-085) | 일부(Grafana 적용·실제 통보는 운영 적용 뒤) |
 | NT-SCH-17·18 (N10) | `app.ScheduleServiceTest`(시작 시각 전·같은 시각), `in.event.NotificationAppearanceProgressAlertTest`(받을 수 없는 호스트 + 게스트 복제본 없음은 DLT, 모두 받을 수 없음은 DLT 없음), `in.event.NotificationScheduleInputTest`(게스트 복제본 없음 → 예약·알림 0) | 전부 |
 | NT-GEN-12 (N10) | `app.ScheduleAlertTemplatesTest`(5종 종류 코드), `app.ScheduleDispatcherTest`(저장된 `kind`) | 전부 |
 | NT-USR-07 | `app.NotificationConcurrencyTest`(보존 정리와 파기의 겹침, B·C 두 파기의 겹침), `app.NotificationMaskingServiceTest`(저장된 알림·밀려난 알림, 파기 상태 복제본, 파기 뒤 옛 닉네임 초안 저장, 복제본 없는 회원의 파기와 저장 동시 처리), `in.event.NotificationMemberEventListenerTest`(파기 이벤트, 변경 이벤트와 순서, 재수신), `domain.NotificationUserTest`·`app.NotificationUserSyncServiceTest`(파기된 복제본은 가입·변경으로 바뀌지 않음) | 전부(ND-051·ND-054) |
@@ -354,6 +360,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-14 decisions.md ND-150·ND-151 반영(N11, #937): NT-SCH-22(예약 결과 지표)·NT-SCH-23(회차 결과 지표)·NT-SCH-24(alert 규칙)를 더했다. 집계 119 → 122, 유효 117.
 - 2026-11-14 문서 정리(#931): 3장 완료 증거 1번 메모를 고쳤다(구매 완료 알림은 M4·N7 강의로 만든다, U2 해소). PR 리뷰 뒤 머리말 현재 상태, NT-GEN-02 선행 조건·예외 칸, 4장 연결 테스트 표 제목과 M 작업 메모를 고쳤다. 항목·집계는 그대로다.
 - 2026-11-12 decisions.md ND-129~ND-132 반영(N9 채팅 단체방, #921): NT-GEN-24(채팅 3종)를 더하고 NT-GEN-10·15의 범위에 N9 채팅을 더했다. 받는 사람은 기존 NT-GEN-08, group 이름은 NT-KAF-06이 이미 다룬다. 집계 108 → 109, 유효 102, 미결 7(회원 #915·고객센터 #918 병합 뒤 기준). 구현 뒤 4장 연결 표에 채팅 행을 더했다.
 - 2026-11-12 decisions.md ND-122~ND-126 반영(N7 고객센터 묶음, #918): NT-GEN-23(고객센터 2종)·NT-KAF-10(고객센터 알림 리스너)을 더하고, NT-GEN-10·15의 범위에 N7 고객센터를 더했다. 집계 106 → 108, 유효 101, 미결 7(강의 #910·회원 #915 병합 뒤 기준). 번호는 그 두 묶음(NT-GEN-21·22) 다음이다. 구현 뒤 4장 연결 표에 고객센터 2행을 더했다. S6 리뷰 뒤 NT-GEN-23 예외 칸과 연결 표에 빈·공백 제목 DLT(ND-127)를 더했다(항목·집계는 그대로).
