@@ -13,7 +13,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.core.io.ClassPathResource;
 
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Activity;
@@ -21,34 +24,52 @@ import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Answer;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Appearance;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Member;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Split;
+import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalDataGenerator.Variant;
 
 /**
  * 더미 데이터 생성 규칙과 커밋한 파일(#867).
- * 생성기를 고치면 {@code RECOMMEND_EVAL_REGENERATE=yes}로 {@link #committedFileMatchesGenerator()}를 한 번 돌려 파일을 다시 쓰고
+ * 생성기를 고치면 {@code RECOMMEND_EVAL_REGENERATE=yes}로 {@link #committedFileMatchesGenerator(Variant)}를 한 번 돌려 파일을 다시 쓰고
  * 함께 커밋한다(파일이 바뀌면 임베딩 캐시도 바뀐 글만 다시 만든다).
  */
 class RecommendEvalDataGeneratorTest {
 
-    private static final Path SOURCE = Path.of("src/test/resources", RecommendEvalData.RESOURCE);
-
     private final RecommendEvalData data = RecommendEvalDataGenerator.generate(RecommendEvalDataGenerator.SEED);
 
-    @Test
-    void committedFileMatchesGenerator() throws Exception {
-        String generated = data.toJson();
+    @ParameterizedTest
+    @EnumSource(Variant.class)
+    void committedFileMatchesGenerator(Variant variant) throws Exception {
+        RecommendEvalData generatedData = RecommendEvalDataGenerator.generate(RecommendEvalDataGenerator.SEED, variant);
+        String generated = generatedData.toJson();
         if ("yes".equals(System.getenv("RECOMMEND_EVAL_REGENERATE"))) {
-            Files.createDirectories(SOURCE.getParent());
-            Files.writeString(SOURCE, generated);
+            Path source = Path.of("src/test/resources", variant.resource());
+            Files.createDirectories(source.getParent());
+            Files.writeString(source, generated);
             return;
         }
         String committed;
-        try (InputStream in = new ClassPathResource(RecommendEvalData.RESOURCE).getInputStream()) {
+        try (InputStream in = new ClassPathResource(variant.resource()).getInputStream()) {
             committed = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
 
         assertThat(committed.replace("\r\n", "\n")).as("생성기와 파일이 다르면 RECOMMEND_EVAL_REGENERATE=yes로 다시 만든다")
                 .isEqualTo(generated);
-        assertThat(RecommendEvalData.read()).as("파일을 읽은 값").isEqualTo(data);
+        assertThat(RecommendEvalData.read(variant)).as("파일을 읽은 값").isEqualTo(generatedData);
+    }
+
+    @Test
+    @DisplayName("변형 데이터: 글은 같아 임베딩 캐시를 그대로 쓰고, 강의 구매와 출연 상대만 다르다")
+    void flippedKeepsTextsAndChangesAssumptions() {
+        RecommendEvalData flipped = RecommendEvalDataGenerator.generate(RecommendEvalDataGenerator.SEED, Variant.FLIPPED);
+
+        assertThat(flipped.lectures()).isEqualTo(data.lectures());
+        assertThat(flipped.members()).isEqualTo(data.members());
+        assertThat(flipped.influencers()).isEqualTo(data.influencers());
+        assertThat(flipped.purchases()).isNotEqualTo(data.purchases());
+        assertThat(flipped.appearances()).isNotEqualTo(data.appearances());
+        assertThat(partners(flipped.appearances()).values()).as("변형도 함께 출연을 마친 상대 2~8명")
+                .allSatisfy(partners -> assertThat(partners.size()).isBetween(2, 8));
+        assertThat(flipped.lectureSplit().tuning()).hasSize(80);
+        assertThat(flipped.influencerSplit().tuning()).hasSize(80);
     }
 
     @Test
