@@ -2,12 +2,15 @@ package com.hapbang.auxiliary.notification.app;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
@@ -17,6 +20,8 @@ import com.hapbang.auxiliary.global.scheduling.JobLock;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.domain.ScheduleTimes;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -65,6 +70,20 @@ public class ScheduleDispatcher {
     /** 같은 예약을 이 횟수만큼 연속으로 보내지 못하면 건너뜀으로 끝낸다(ND-147) */
     static final int MAX_FAILURES = 3;
 
+    /** 예약 하나의 결과 지표(ND-150). alert "예약 알림 발송 실패"는 abandoned·record_failed를 본다(ND-151) */
+    static final String OUTCOMES_METRIC = "hapbang.notification.schedule.outcomes";
+    /** 회차 결과 지표(ND-150). alert는 failed를 본다(ND-151) */
+    static final String RUNS_METRIC = "hapbang.notification.schedule.runs";
+
+    /** 지표 {@value #OUTCOMES_METRIC}의 result 값 */
+    enum Result {
+        SENT, SKIPPED, RETRY, ABANDONED, RECORD_FAILED;
+
+        String tag() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
     private final ScheduleStore store;
     private final NotificationWriter writer;
     private final TransactionTemplate transaction;
@@ -74,9 +93,13 @@ public class ScheduleDispatcher {
     private final int batchSize;
     private final int cleanupBatchSize;
     private final int retentionDays;
+    /** 지표가 없는 실행(지표 저장소 빈 없음)에서는 비어 있다 */
+    private final Map<Result, Counter> outcomes = new EnumMap<>(Result.class);
+    private final Counter runsCompleted;
+    private final Counter runsFailed;
 
     public ScheduleDispatcher(ScheduleStore store, NotificationWriter writer, TransactionTemplate transaction,
-            JobLock jobLock,
+            JobLock jobLock, ObjectProvider<MeterRegistry> meterRegistry,
             @Value("${hapbang.notification.schedule.batch-size:100}") int batchSize,
             @Value("${hapbang.notification.schedule.cleanup-batch-size:100}") int cleanupBatchSize,
             @Value("${hapbang.notification.schedule.retention-days:7}") int retentionDays) {
@@ -89,6 +112,18 @@ public class ScheduleDispatcher {
         this.batchSize = batchSize;
         this.cleanupBatchSize = cleanupBatchSize;
         this.retentionDays = retentionDays;
+        // 처음부터 0으로 만들어 두어 첫 증가도 increase()로 잡힌다(ND-150). 0인 새 series는 alert 기준(> 0)에 걸리지 않는다
+        MeterRegistry registry = meterRegistry.getIfAvailable();
+        if (registry != null) {
+            for (Result result : Result.values()) {
+                outcomes.put(result, Counter.builder(OUTCOMES_METRIC).tag("result", result.tag()).register(registry));
+            }
+            this.runsCompleted = Counter.builder(RUNS_METRIC).tag("outcome", "completed").register(registry);
+            this.runsFailed = Counter.builder(RUNS_METRIC).tag("outcome", "failed").register(registry);
+        } else {
+            this.runsCompleted = null;
+            this.runsFailed = null;
+        }
     }
 
     /**
@@ -98,39 +133,62 @@ public class ScheduleDispatcher {
      * @param clock 지금 시각. 운영은 시스템 시계, 시험은 정한 시계
      */
     public RunResult runOnce(Clock clock) {
-        Optional<JobLock.Lease> lease = jobLock.tryAcquire(NotificationJob.SCHEDULE_DISPATCH);
+        Optional<JobLock.Lease> lease;
+        try {
+            lease = jobLock.tryAcquire(NotificationJob.SCHEDULE_DISPATCH);
+        } catch (RuntimeException e) {
+            // 잠금 시도 실패(DB 오류)도 회차 실패로 센다. 잠금 경합(빈 값)은 세지 않는다(ND-150)
+            increment(runsFailed);
+            throw e;
+        }
         if (lease.isEmpty()) {
             log.debug("다른 실행이 예약 배치 잠금을 쥐고 있어 이번 회차를 건너뛰었다");
             return RunResult.notRun();
         }
         try (JobLock.Lease ignored = lease.get()) {
-            Instant selectedAt = clock.instant();
-            // 기한이 지난 예약이 보낼 예약 고르기의 앞자리를 차지하지 않게 먼저 끝낸다(ND-135·ND-144)
-            Integer expired = transaction.execute(status -> store.skipExpired(selectedAt, batchSize));
-            int sent = 0;
-            int skipped = expired == null ? 0 : expired;
-            int failed = 0;
-            List<Long> due = store.findDueIds(selectedAt, batchSize);
-            for (long id : due) {
-                try {
-                    switch (dispatchOne(id, clock)) {
-                        case SENT -> sent++;
-                        case SKIPPED -> skipped++;
-                        case NOT_SCHEDULED -> {
-                        }
-                    }
-                } catch (RuntimeException e) {
-                    failed++;
-                    recordFailure(id, clock.instant(), e);
-                }
-            }
-            int deleted = cleanUp(clock.instant());
-            if (!due.isEmpty() || skipped > 0 || deleted > 0) {
-                log.info("예약 배치를 실행했다 due={}, sent={}, skipped={}, failed={}, deleted={}", due.size(), sent,
-                        skipped, failed, deleted);
-            }
-            return new RunResult(true, sent, skipped, failed, deleted);
+            RunResult result = runLocked(clock);
+            increment(runsCompleted);
+            return result;
+        } catch (RuntimeException e) {
+            increment(runsFailed);
+            throw e;
         }
+    }
+
+    private RunResult runLocked(Clock clock) {
+        Instant selectedAt = clock.instant();
+        // 기한이 지난 예약이 보낼 예약 고르기의 앞자리를 차지하지 않게 먼저 끝낸다(ND-135·ND-144)
+        Integer expired = transaction.execute(status -> store.skipExpired(selectedAt, batchSize));
+        int sent = 0;
+        int skipped = expired == null ? 0 : expired;
+        int failed = 0;
+        count(Result.SKIPPED, skipped);
+        List<Long> due = store.findDueIds(selectedAt, batchSize);
+        for (long id : due) {
+            try {
+                switch (dispatchOne(id, clock)) {
+                    case SENT -> {
+                        sent++;
+                        count(Result.SENT, 1);
+                    }
+                    case SKIPPED -> {
+                        skipped++;
+                        count(Result.SKIPPED, 1);
+                    }
+                    case NOT_SCHEDULED -> {
+                    }
+                }
+            } catch (RuntimeException e) {
+                failed++;
+                count(recordFailure(id, clock.instant(), e), 1);
+            }
+        }
+        int deleted = cleanUp(clock.instant());
+        if (!due.isEmpty() || skipped > 0 || deleted > 0) {
+            log.info("예약 배치를 실행했다 due={}, sent={}, skipped={}, failed={}, deleted={}", due.size(), sent,
+                    skipped, failed, deleted);
+        }
+        return new RunResult(true, sent, skipped, failed, deleted);
     }
 
     /**
@@ -146,9 +204,11 @@ public class ScheduleDispatcher {
      * 보내지 못한 예약의 실패 횟수를 센다(ND-147). 실패한 저장 트랜잭션은 이미 롤백됐고, 횟수는 그와 분리된 새 트랜잭션
      * ({@code REQUIRES_NEW})에서 기록한다. {@value #MAX_FAILURES}번 연속이면 같은 트랜잭션에서 "건너뜀"으로 끝내고 사람이 보게 ERROR를
      * 남긴다. 그 전에는 다음 회차로 미룬 배치 항목이라 WARN이다(docs/dev/logging.md 레벨 표). 횟수 기록마저 실패하면 예약은 그대로
-     * "예약"으로 남는다
+     * "예약"으로 남고, alert 대상이라 표식을 붙인 ERROR를 남긴다(ND-150)
+     *
+     * @return 지표에 셀 결과. 건너뜀으로 끝냈으면 abandoned, 기록마저 실패했으면 record_failed, 그 밖에는 retry(ND-150)
      */
-    private void recordFailure(long scheduleId, Instant now, RuntimeException cause) {
+    private Result recordFailure(long scheduleId, Instant now, RuntimeException cause) {
         try {
             Integer count = failureTransaction.execute(status -> {
                 OptionalInt recorded = store.recordFailure(scheduleId, now);
@@ -160,13 +220,30 @@ public class ScheduleDispatcher {
             if (count != null && count >= MAX_FAILURES) {
                 log.error("[NOTIFICATION_SCHEDULE_FAILED] 예약 알림을 {}번 연속 보내지 못해 건너뜀으로 끝냈다 scheduleId={}",
                         count, scheduleId, cause);
-            } else {
-                log.warn("예약 알림을 보내지 못했다. 예약으로 남아 다음 회차에 다시 보낸다 scheduleId={}, failureCount={}",
-                        scheduleId, count, cause);
+                return Result.ABANDONED;
             }
+            log.warn("예약 알림을 보내지 못했다. 예약으로 남아 다음 회차에 다시 보낸다 scheduleId={}, failureCount={}",
+                    scheduleId, count, cause);
+            return Result.RETRY;
         } catch (RuntimeException e) {
             e.addSuppressed(cause);
-            log.warn("예약 알림 실패 횟수를 기록하지 못했다. 예약으로 남아 다음 회차에 다시 보낸다 scheduleId={}", scheduleId, e);
+            // alert "예약 알림 발송 실패"가 보는 결과라 사람이 볼 ERROR로 남긴다(ND-150). 횟수가 쌓이지 않아 건너뜀에 이르지 못할 수 있다
+            log.error("[NOTIFICATION_SCHEDULE_FAILED] 예약 알림 실패 횟수를 기록하지 못했다. 예약으로 남아 다음 회차에 다시 보낸다 "
+                    + "scheduleId={}", scheduleId, e);
+            return Result.RECORD_FAILED;
+        }
+    }
+
+    private void count(Result result, int amount) {
+        Counter counter = outcomes.get(result);
+        if (counter != null && amount > 0) {
+            counter.increment(amount);
+        }
+    }
+
+    private static void increment(Counter counter) {
+        if (counter != null) {
+            counter.increment();
         }
     }
 

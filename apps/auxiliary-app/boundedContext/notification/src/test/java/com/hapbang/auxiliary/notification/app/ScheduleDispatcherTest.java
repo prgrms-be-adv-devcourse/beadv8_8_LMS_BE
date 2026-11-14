@@ -18,7 +18,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -30,6 +33,9 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 예약 배치(ND-029·ND-135·ND-142·ND-144). 가장 중요한 검증: 알림 저장과 예약 상태 변경은 한 트랜잭션이다. 둘 중 하나가 실패하면 둘 다
  * 되돌아가 예약은 "예약"으로 남고 다음 배치가 다시 보낸다. test-spec NT-SCH-07·08·10·12·14·16.
@@ -37,6 +43,7 @@ import com.hapbang.testsupport.IntegrationTest;
  * 다른 테스트 클래스의 예약(2026년)과 섞이지 않게 2001년 시각을 쓴다.
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class ScheduleDispatcherTest {
 
     private static final AtomicLong NEXT_ID = new AtomicLong(928_500);
@@ -59,6 +66,9 @@ class ScheduleDispatcherTest {
 
     @Autowired
     private TransactionTemplate transaction;
+
+    @Autowired
+    private MeterRegistry meters;
 
     // NT-SCH-08·16
 
@@ -434,6 +444,123 @@ class ScheduleDispatcherTest {
         assertThat(rows(kind, canceled, receiver)).isEmpty();
         assertThat(status(kind, scheduled, receiver)).isEqualTo("SCHEDULED");
         assertThat(status(kind, recent, receiver)).isEqualTo("CANCELED");
+    }
+
+    // NT-SCH-22 (ND-150): 예약 결과 지표. 다른 시험의 예약과 섞이지 않게 1990년 시각을 쓴다
+
+    @Test
+    void 보낸_예약과_건너뛴_예약을_결과별로_센다() {
+        long receiver = member();
+        long withdrawn = member();
+        userSync.syncModified(new UserDto(withdrawn, "회원" + withdrawn, Role.INFLUENCER, UserStatus.WITHDRAWN, 1L));
+        Instant now = Instant.parse("1990-01-10T00:00:00Z");
+        ScheduleKind kind = ScheduleKind.APPEARANCE_STARTING;
+        long due = NEXT_ID.incrementAndGet();
+        long expired = NEXT_ID.incrementAndGet();
+        long unreachable = NEXT_ID.incrementAndGet();
+        create(kind, due, receiver, now.minusSeconds(60), now.plusSeconds(86_400), deadlinePayload("합방"));
+        create(kind, expired, receiver, now.minusSeconds(120), now.minusSeconds(1), deadlinePayload("합방"));
+        create(kind, unreachable, withdrawn, now.minusSeconds(60), now.plusSeconds(86_400), deadlinePayload("합방"));
+        double sent = outcomes("sent");
+        double skipped = outcomes("skipped");
+
+        dispatcher.runOnce(at(now));
+
+        assertThat(outcomes("sent") - sent).isEqualTo(1);
+        // 회차 시작 때 한꺼번에 끝낸 기한 경과 1 + 보내기 직전 판정의 받을 수 없는 회원 1
+        assertThat(outcomes("skipped") - skipped).isEqualTo(2);
+    }
+
+    @Test
+    void 같은_알림이_이미_있어도_sent로_센다() {
+        long receiver = member();
+        Instant now = Instant.parse("1990-04-10T00:00:00Z");
+        ScheduleKind kind = ScheduleKind.APPEARANCE_STARTING;
+        long target = NEXT_ID.incrementAndGet();
+        create(kind, target, receiver, now.minusSeconds(60), now.plusSeconds(86_400), deadlinePayload("합방"));
+        long id = scheduleId(kind, target, receiver);
+        dispatcher.dispatchOne(id, at(now));
+        // 같은 알림이 이미 있는 채로 예약을 다시 "예약"으로 둔다
+        jdbc.update("update notification.notification_schedule set status = 'SCHEDULED' where id = ?", id);
+        double sent = outcomes("sent");
+
+        dispatcher.runOnce(at(now));
+
+        assertThat(outcomes("sent") - sent).isEqualTo(1);
+        assertThat(alertsOf(receiver)).hasSize(1);
+    }
+
+    @Test
+    void 계속_실패하는_예약은_두_번_retry_세_번째에_abandoned로_센다() {
+        long receiver = member();
+        long target = NEXT_ID.incrementAndGet();
+        Instant now = Instant.parse("1990-02-10T00:00:00Z");
+        // 기한 값이 없어 문구를 만들지 못한다(알림 저장 실패)
+        create(ScheduleKind.APPEARANCE_STARTING, target, receiver, now.minusSeconds(60), now.plusSeconds(86_400),
+                Map.of("v", 1, "title", "합방"));
+        double retry = outcomes("retry");
+        double abandoned = outcomes("abandoned");
+
+        dispatcher.runOnce(at(now));
+        dispatcher.runOnce(at(now.plusSeconds(60)));
+        assertThat(outcomes("retry") - retry).isEqualTo(2);
+        assertThat(outcomes("abandoned") - abandoned).isZero();
+
+        dispatcher.runOnce(at(now.plusSeconds(120)));
+        assertThat(outcomes("retry") - retry).isEqualTo(2);
+        assertThat(outcomes("abandoned") - abandoned).isEqualTo(1);
+    }
+
+    @Test
+    void 실패_횟수_기록마저_실패하면_record_failed로_세고_표식을_붙인_ERROR를_남긴다(CapturedOutput output) {
+        long receiver = member();
+        long target = NEXT_ID.incrementAndGet();
+        Instant now = Instant.parse("1990-03-10T00:00:00Z");
+        create(ScheduleKind.APPEARANCE_STARTING, target, receiver, now.minusSeconds(60), now.plusSeconds(86_400),
+                Map.of("v", 1, "title", "합방"));
+        long id = scheduleId(ScheduleKind.APPEARANCE_STARTING, target, receiver);
+        double recordFailed = outcomes("record_failed");
+        double retry = outcomes("retry");
+        failFailureCountUpdateOf(target);
+        try {
+            dispatcher.runOnce(at(now));
+        } finally {
+            dropFailureCountTrigger();
+        }
+
+        assertThat(outcomes("record_failed") - recordFailed).isEqualTo(1);
+        assertThat(outcomes("retry") - retry).isZero();
+        assertThat(failureCount(id)).isZero();
+        assertThat(status(ScheduleKind.APPEARANCE_STARTING, target, receiver)).isEqualTo("SCHEDULED");
+        // alert가 보는 결과라 사람이 볼 ERROR와 alert 표식을 남긴다(ND-150, docs/dev/logging.md)
+        assertThat(output.getAll().lines().filter(line -> line.contains("scheduleId=" + id)))
+                .anyMatch(line -> line.contains("ERROR") && line.contains("[NOTIFICATION_SCHEDULE_FAILED]"));
+    }
+
+    private double outcomes(String result) {
+        Counter counter = meters.find("hapbang.notification.schedule.outcomes").tag("result", result).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    private void failFailureCountUpdateOf(long target) {
+        jdbc.execute("""
+                create or replace function notification.test_fail_failure_count() returns trigger language plpgsql as $$
+                begin
+                    if new.failure_count <> old.failure_count and new.target_id = %d then
+                        raise exception 'test: 실패 횟수 기록 실패';
+                    end if;
+                    return new;
+                end $$
+                """.formatted(target));
+        jdbc.execute("""
+                create trigger test_fail_failure_count before update on notification.notification_schedule
+                for each row execute function notification.test_fail_failure_count()
+                """);
+    }
+
+    private void dropFailureCountTrigger() {
+        jdbc.execute("drop trigger if exists test_fail_failure_count on notification.notification_schedule");
+        jdbc.execute("drop function if exists notification.test_fail_failure_count()");
     }
 
     private void create(ScheduleKind kind, long target, long receiver, Instant sendAt, Instant deadline,

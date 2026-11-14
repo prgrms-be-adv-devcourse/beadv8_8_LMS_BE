@@ -20,8 +20,8 @@
 | `boundedContext/notification` 디렉터리 | N1~N10 구현 | `build.gradle.kts`, `src/`. 구현 범위는 [module.md](../../../../docs/notification/module.md) 2장 As-Is |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1~N10 완료 | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-082 |
+| 기능 구현 | N1~N10 완료, N11 진행 중(#937) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-086 |
 | Flyway | 작성 | `src/main/resources/db/migration/`의 6개 파일(`notification_user`, `notification`, 파기 표시, `notification_runtime_setting`, `notification_payout_item`, `notification_schedule`) |
 
 ## 2. 문서 구축 상태
@@ -66,6 +66,7 @@
 | M8 | P2 | 채팅: 단체방 이벤트 3종, `chat.events.v1` 토픽 | 채팅 | N0 | 완료 | #897(PR #904, dev `973ccbe5`). 3종 모두 `@Externalized`(key 방 ID). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 6장 |
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 완료 | #921(PR #927, dev `c95d732d`). 정책 ND-129~ND-132, 새 group `auxiliary-app.notification-chat-alert` |
 | N10 | P2 | 예약 배치와 예약 알림 5종 | 알림 | N2(종류별 N5·M3·M4) | 완료 | #928(PR #929, dev `cced81b7`). 정책 ND-133~ND-149. U6은 #935로 팀 확인(구현은 ND-134) |
+| N11 | P2 | 예약 알림 지표와 alert "예약 알림 발송 실패" | 알림 | N10 | 진행 중 | #937. 정책 ND-150~ND-152. 구현·테스트 완료(NR-086), PR 전. rules.yaml·observability.md 팀(인프라) 승인은 PR 리뷰 |
 
 - P0 완료 기준 문제(U2, T3)는 M4와 N7 강의 묶음이 끝나 해소됐다([decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)).
 
