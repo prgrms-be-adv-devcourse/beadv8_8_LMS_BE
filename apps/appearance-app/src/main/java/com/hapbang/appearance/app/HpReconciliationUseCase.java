@@ -17,12 +17,12 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.config.AppearanceHpReconciliationProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.HpReconciliationRule;
-import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.domain.HpReconciliationTrigger;
 import com.hapbang.appearance.domain.HpTaskRefType;
@@ -53,14 +53,18 @@ import lombok.extern.slf4j.Slf4j;
  * </ol>
  * 동시에 두 번 실행하지 않는다. 배치는 실행 중이면 건너뛰고, 관리자 실행은 409다.
  * <ul>
- *     <li>같은 앱: 앱 메모리의 실행 중 표시로 막는다</li>
- *     <li>배포 중 옛 pod와 새 pod가 겹칠 때(maxSurge 1): DB에 {@code RUNNING} 실행이 있으면 다른 pod가 하고 있는 것으로 보고 시작하지
- *     않는다. 두 실행이 함께 끝나면 커서 저장이 충돌해 뒤에 끝난 실행을 기록하지 못한다({@code @Version}). 다만 확인과 시작 사이에는
- *     잠그지 않아, 두 pod의 배치가 같은 순간에 시작하면 함께 돌 수 있다(매일 04:00 한 번이라 드묾)</li>
+ *     <li>같은 앱: 앱 메모리의 실행 중 표시로 DB를 읽지 않고 바로 막는다</li>
+ *     <li>다른 pod(배포 중 옛 pod와 새 pod가 겹칠 때, maxSurge 1): DB에 {@code RUNNING} 실행이 있으면 다른 pod가 하고 있는 것으로 보고
+ *     시작하지 않는다. 두 실행이 함께 돌면 커서 저장이 충돌해 뒤에 끝난 실행을 기록하지 못하기 때문이다({@code @Version}).
+ *     정리·확인·시작은 한 트랜잭션에서 advisory lock을 잡고 해, 두 pod가 같은 순간에 시작해도 하나만 돈다(#911,
+ *     {@link HpReconciliationSupport#start})</li>
  *     <li>앱이 멈춰 {@code RUNNING}으로 남은 실행은 실행을 시작할 때 {@code abandon-after}보다 오래된 것만 정리하고 중단 횟수를 올린다.
  *     그 안의 실행은 다른 pod가 하고 있을 수 있어 두고, 이번 실행을 시작하지 않는다(#821)</li>
  * </ul>
- * replica를 늘리면 단일 실행 장치를 먼저 둔다.
+ * replica를 늘리기 전에 할 일: 지표 {@code mismatches{rule}}·{@code last.completed}도 수집할 때 DB에서 읽게 바꾼다. 지금은 pod 메모리에
+ * 있고 기동할 때와 대사를 끝낼 때만 바뀐다. pod가 둘 이상이면 대사를 돌리지 않은 pod는 기동 때 복원한 옛 값을 계속 내고, alert가 pod별
+ * 최댓값을 보므로 불일치를 고친 뒤에도 그 pod가 다시 뜰 때까지 alert가 풀리지 않는다(#911). 실행 자체는 위 잠금으로 하나만 돈다.
+ * <p>
  * 배치는 시스템이 실행하므로 Facade를 거치지 않고 이 UseCase를 직접 부른다.
  */
 @Slf4j
@@ -88,7 +92,7 @@ public class HpReconciliationUseCase {
      *
      * @return 끝난 실행. 건너뛰었으면 null
      */
-    public HpReconciliationRun runScheduled() {
+    public HpReconciliationRunResDto runScheduled() {
         if (!running.compareAndSet(false, true)) {
             log.info("HP 대사가 이미 실행 중이라 이번 배치를 건너뛴다");
             return null;
@@ -105,12 +109,12 @@ public class HpReconciliationUseCase {
      *
      * @throws AppearanceException 이미 실행 중({@code HP_RECONCILIATION_RUNNING})
      */
-    public HpReconciliationRun runManual(Long adminId) {
+    public HpReconciliationRunResDto runManual(Long adminId) {
         if (!running.compareAndSet(false, true)) {
             throw new AppearanceException(AppearanceErrorCode.HP_RECONCILIATION_RUNNING);
         }
         try {
-            HpReconciliationRun run = run(HpReconciliationTrigger.MANUAL, adminId);
+            HpReconciliationRunResDto run = run(HpReconciliationTrigger.MANUAL, adminId);
             if (run == null) {
                 throw new AppearanceException(AppearanceErrorCode.HP_RECONCILIATION_RUNNING);
             }
@@ -121,15 +125,18 @@ public class HpReconciliationUseCase {
     }
 
     /** @return 끝난 실행. 다른 pod가 실행 중이라 시작하지 않았으면 null */
-    private HpReconciliationRun run(HpReconciliationTrigger trigger, Long adminId) {
+    private HpReconciliationRunResDto run(HpReconciliationTrigger trigger, Long adminId) {
         LocalDateTime startedAt = LocalDateTime.now(clock);
-        abandonLeftOverRuns(startedAt);
-        List<HpReconciliationRun> otherRuns = hpReconciliationSupport.findRunning();
-        if (!otherRuns.isEmpty()) {
-            warnBlocked(trigger, otherRuns);
-            return null;
+        HpReconciliationSupport.StartResult startResult = hpReconciliationSupport.start(trigger, adminId, startedAt);
+        recordAbandoned(startResult.abandonedIds());
+        Long runId;
+        switch (startResult) {
+            case HpReconciliationSupport.StartResult.Started started -> runId = started.runId();
+            case HpReconciliationSupport.StartResult.Blocked blocked -> {
+                warnBlocked(trigger, blocked.runningRuns());
+                return null;
+            }
         }
-        Long runId = hpReconciliationSupport.start(trigger, adminId, startedAt);
         Progress progress = new Progress();
         String failureReason = null;
         try {
@@ -147,7 +154,7 @@ public class HpReconciliationUseCase {
         }
         // 결과를 기록하지 못하면(커서 버전 충돌, DB 순간 장애) 바로 미완료로 끝낸다. RUNNING으로 두면 abandon-after 동안
         // 같은 pod에서도 다시 실행할 수 없다. 그새 다른 pod가 먼저 정리했으면 그 pod가 중단 횟수를 올렸으므로 지표를 남기지 않는다 (#821)
-        HpReconciliationRun run;
+        HpReconciliationRunResDto run;
         boolean ownResult = true;
         try {
             run = hpReconciliationSupport.finish(runId, progress.mismatches, progress.checked, progress.dead,
@@ -164,30 +171,28 @@ public class HpReconciliationUseCase {
             recordResult(run, progress);
         } else {
             log.warn("다른 pod가 먼저 정리한 HP 대사라 지표를 남기지 않는다 runId={} status={} reason={}", runId,
-                    run.getStatus(), run.getFailureReason());
+                    run.status(), run.failureReason());
         }
         return run;
     }
 
     /** 실행 중인 다른 실행 때문에 시작하지 않는다. 그날 배치가 통째로 빠지므로 막은 실행을 남긴다 */
-    private static void warnBlocked(HpReconciliationTrigger trigger, List<HpReconciliationRun> otherRuns) {
+    private static void warnBlocked(HpReconciliationTrigger trigger, List<HpReconciliationRunResDto> otherRuns) {
         List<Long> runIds = new ArrayList<>();
         List<LocalDateTime> startedAts = new ArrayList<>();
-        for (HpReconciliationRun other : otherRuns) {
-            runIds.add(other.getId());
-            startedAts.add(other.getStartedAt());
+        for (HpReconciliationRunResDto other : otherRuns) {
+            runIds.add(other.id());
+            startedAts.add(other.startedAt());
         }
         log.warn("다른 pod가 HP 대사를 실행 중이라 이번 실행을 시작하지 않는다 trigger={} runIds={} startedAts={}", trigger,
                 runIds, startedAts);
     }
 
     /**
-     * 앱이 멈춰 실행 중으로 남은 실행을 미완료로 끝내고 중단 횟수를 올린다. 횟수를 올리지 않으면 alert "대사 중단"이 알지 못한다(#821).
-     * 새로 뜬 앱에서 처음 만드는 counter면 첫 수집 값이 이미 1이다. alert "대사 중단"은 새로 생긴 series도 중단으로 친다(#804)
+     * 실행을 시작하며 정리한 실행(앱이 멈춰 실행 중으로 남은 실행)만큼 중단 횟수를 올린다. 횟수를 올리지 않으면 alert "대사 중단"이 알지
+     * 못한다(#821). 새로 뜬 앱에서 처음 만드는 counter면 첫 수집 값이 이미 1이다. alert "대사 중단"은 새로 생긴 series도 중단으로 친다(#804)
      */
-    private void abandonLeftOverRuns(LocalDateTime now) {
-        List<Long> abandonedIds = hpReconciliationSupport.abandonRunningStartedBefore(
-                now.minus(properties.abandonAfter()), now);
+    private void recordAbandoned(List<Long> abandonedIds) {
         if (!abandonedIds.isEmpty()) {
             hpReconciliationMetrics.recordRuns(HpReconciliationStatus.INCOMPLETE, abandonedIds.size());
             log.warn("앱이 멈춰 끝나지 못한 HP 대사를 미완료로 정리했다 runIds={}", abandonedIds);
@@ -323,29 +328,29 @@ public class HpReconciliationUseCase {
         };
     }
 
-    private void logMismatches(HpReconciliationRun run, Progress progress) {
+    private void logMismatches(HpReconciliationRunResDto run, Progress progress) {
         for (HpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
             HpReconciliationComparer.Finding finding = mismatch.finding();
             log.warn("{} rule={} runId={} referenceType={} referenceId={} appearanceId={} appearance=[{}] wallet=[{}]",
-                    MISMATCH_LOG_TAG, finding.rule(), run.getId(), mismatch.refType(), mismatch.refId(),
+                    MISMATCH_LOG_TAG, finding.rule(), run.id(), mismatch.refType(), mismatch.refId(),
                     finding.appearanceId(), finding.appearanceState(), finding.walletState());
         }
     }
 
-    private void recordResult(HpReconciliationRun run, Progress progress) {
-        hpReconciliationMetrics.recordRun(run.getStatus());
-        if (run.getStatus() == HpReconciliationStatus.COMPLETED) {
+    private void recordResult(HpReconciliationRunResDto run, Progress progress) {
+        hpReconciliationMetrics.recordRun(run.status());
+        if (run.status() == HpReconciliationStatus.COMPLETED) {
             List<HpReconciliationRule> mismatchRules = new ArrayList<>();
             for (HpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
                 mismatchRules.add(mismatch.finding().rule());
             }
             hpReconciliationMetrics.updateMismatches(mismatchRules);
-            hpReconciliationMetrics.updateLastCompleted(run.getFinishedAt());
-            log.info("HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.getId(), run.getCheckedCount(),
-                    run.getMismatchCount(), run.getDeadCount());
+            hpReconciliationMetrics.updateLastCompleted(run.finishedAt());
+            log.info("HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.id(), run.checkedCount(),
+                    run.mismatchCount(), run.deadCount());
         } else {
             log.warn("HP 대사를 끝까지 하지 못했다. 다음 실행에서 다시 본다 runId={} checked={} mismatches={} reason={}",
-                    run.getId(), run.getCheckedCount(), run.getMismatchCount(), run.getFailureReason());
+                    run.id(), run.checkedCount(), run.mismatchCount(), run.failureReason());
         }
     }
 
