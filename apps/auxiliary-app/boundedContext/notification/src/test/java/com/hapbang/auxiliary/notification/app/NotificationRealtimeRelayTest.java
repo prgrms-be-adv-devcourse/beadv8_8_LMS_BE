@@ -144,6 +144,36 @@ class NotificationRealtimeRelayTest {
         verifyNoMoreInteractions(publisher);
     }
 
+    // Redis 발행 구간 지표(ND-162, NT-OBS-07)
+
+    @Test
+    void 발행에_성공하면_commit_뒤부터_Redis_발행_완료까지를_잰다() {
+        givenNotification(1L, 10L, noMention());
+        NotificationRealtimeRelay relay = relay(Runnable::run,
+                (receiver, frame) -> clock.advance(Duration.ofMillis(40)));
+
+        relay.publishAfterCommit(1L, 10L);
+
+        var timer = registry.find(NotificationRealtimeRelay.PUBLISH_LATENCY_METRIC).timer();
+        assertThat(timer).isNotNull();
+        assertThat(timer.count()).isEqualTo(1);
+        assertThat(timer.totalTime(java.util.concurrent.TimeUnit.MILLISECONDS)).isEqualTo(40.0);
+    }
+
+    @Test
+    void 발행에_실패하거나_버린_프레임은_발행_구간을_재지_않는다() {
+        givenNotification(1L, 10L, noMention());
+        givenNotification(2L, 10L, noMention());
+        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+            throw new IllegalStateException("redis down");
+        });
+
+        relay.publishAfterCommit(1L, 10L);
+        relay.publishAfterCommit(2L, 10L);
+
+        assertThat(registry.find(NotificationRealtimeRelay.PUBLISH_LATENCY_METRIC).timer()).isNull();
+    }
+
     @Test
     void 알림을_다시_읽지_못하면_read_failed로_세고_생략_시간을_걸지_않는다() {
         when(notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(1L, 10L))
