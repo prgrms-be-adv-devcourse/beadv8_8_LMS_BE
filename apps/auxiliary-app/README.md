@@ -53,7 +53,10 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 
 ## 권한
 
-- 업무 API는 비회원에게 열지 않는다. 공통 `SecurityConfig`가 Swagger·헬스체크 밖의 모든 요청에 로그인을 요구한다. 모듈이 공개 경로를 따로 열지 않는다.
+- 업무 API는 로그인을 요구한다. 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·Prometheus 수집 밖의 요청에 로그인을 요구한다. 업무 API의 예외는 둘이다.
+    - 강의 검색 `GET /api/v1/search/lectures`: 비회원도 쓴다. 회원이면 헤더로 인증되어 회원 한도로 센다(#883).
+    - 알림 웹소켓 핸드셰이크 `GET /api/v1/notifications/ws`: 브라우저가 업그레이드 요청에 인증 헤더를 싣지 못하므로 열고, 인증은 알림 연결 티켓으로 한다(`docs/notification/decisions.md` ND-060).
+- 새 공개 경로는 모듈이 따로 열지 않고 공통 `SecurityConfig`에 이유와 함께 더한다.
 - 역할 검사는 각 모듈 Facade의 `@PreAuthorize`로 한다. 챗봇은 로그인 회원 전체(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN`)가 쓴다(11/06 결정, #715).
 
 ## Flyway
@@ -69,7 +72,7 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 3. `apps/auxiliary-app/build.gradle.kts`에 `implementation(project(":<모듈>"))`를 더한다.
 4. `src/main/java/com/hapbang/auxiliary/<모듈>/package-info.java`에 `@ApplicationModule(displayName = "...", allowedDependencies = "global")`을 붙인다.
 5. 첫 SQL `src/main/resources/db/migration/V{yyyyMMddHHmm}__create_<모듈>_schema.sql`에 `CREATE SCHEMA IF NOT EXISTS <모듈>;`을 쓴다.
-6. 외부 API가 있으면 `k8s/base/gateway.yaml`의 HTTPRoute `matches`에 그 모듈 경로(`/api/v1/<경로>`)를 더한다. 응답 시간 30초·본문 1MiB가 그 경로에도 걸린다. 오래 열어 두는 응답(SSE·WebSocket)은 chat-app처럼 경로를 따로 만들어 시간 제한을 따로 둔다. 보안 설정(`SecurityConfig`)은 경로와 상관없이 같다.
+6. 외부 API가 있으면 `k8s/base/gateway.yaml`의 HTTPRoute `matches`에 그 모듈 경로(`/api/v1/<경로>`)를 더한다. 응답 시간 30초·본문 1MiB가 그 경로에도 걸린다. 오래 열어 두는 응답(SSE·WebSocket)은 chat-app처럼 경로를 따로 만들어 시간 제한을 따로 둔다. 보안 설정(`SecurityConfig`)은 경로와 상관없이 같다(공개 경로 예외는 "권한").
 7. `./gradlew verifyModuleStructure :auxiliary-app:check`로 확인한다. `AuxiliaryModularityTest`가 새 모듈을 찾는지도 본다.
 
 모듈 `build.gradle.kts`에는 `-parameters` 컴파일 옵션을 켠다(`:chatbot` 참고). Spring Boot 플러그인을 쓰는 실행 앱은 자동으로 켜지지만 하위 프로젝트는 아니다. 없으면 `@RequestParam`·`@PathVariable`이 인자 이름을 읽지 못한다.
@@ -92,7 +95,7 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 
 DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
 
-STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 Gateway `claimToHeaders`가 넘기고(#847), global 필터는 읽지 않는다. 알림 연결 티켓 API만 직접 읽는다(`docs/notification/decisions.md` ND-056·ND-064).
+STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 Gateway `claimToHeaders`가 넘기고(#847), global 필터는 읽지 않는다. 알림 연결 티켓 API만 직접 읽는다(`docs/notification/decisions.md` ND-056·ND-064). 알림 웹소켓 핸드셰이크가 받는 출처는 `hapbang.notification.websocket.allowed-origins`(local·prod 프로필)로 정한다.
 
 로컬은 다른 앱과 같이 `./gradlew :auxiliary-app:bootRun`으로 띄운다. 로컬 PostgreSQL(docker compose)은 모든 앱이 database 하나를 schema로 나눠 쓰므로 따로 만들 것이 없다.
 
