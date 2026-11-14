@@ -607,6 +607,59 @@ groups:
             member-app 상태와 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "NOTIFICATION_BACKFILL_STALLED]" 또는 "Backfill" 로그를 본다.
             원인을 고치면 앱이 스스로 다시 시도한다. 관리자 Backfill 재실행(POST /api/v1/notifications/admin/user-replica/backfill)은 같은 잠금이라 함께 돌지 않는다.
 
+      # 알림 예약 배치가 보내지 못하고 끝낸 예약 알림(#937, docs/notification/decisions.md ND-150·ND-151).
+      # 예약 결과 abandoned(3번 연속 실패로 건너뜀)·record_failed(실패 횟수 기록마저 실패)와 회차 결과 failed(회차 예외·잠금 시도 실패)를 본다.
+      # retry는 다음 회차에 다시 보내므로 보지 않는다. 배치는 실패를 안에서 잡아 아래 "예약 작업 실패"(@Scheduled 밖 예외)에는 잡히지 않는다.
+      # 카운터는 기동할 때 0으로 만들어 두므로 첫 증가도 increase로 잡힌다. 0인 새 series는 threshold(> 0)에 걸리지 않는다.
+      # 새 series 갈래는 pod가 뜬 뒤 첫 수집 전에 실패가 나 series가 처음부터 0보다 큰 경우를 잡는다(HP 작업 DEAD와 같다). 이때 summary 건수는 누적값이다.
+      - uid: hapbang-notification-schedule-failure
+        title: 예약 알림 발송 실패
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name, result, outcome) (
+                  (increase(hapbang_notification_schedule_outcomes_total{result=~"abandoned|record_failed"}[10m]) > 0)
+                  or
+                  (
+                    hapbang_notification_schedule_outcomes_total{result=~"abandoned|record_failed"}
+                      unless hapbang_notification_schedule_outcomes_total{result=~"abandoned|record_failed"} offset 10m
+                  )
+                  or
+                  (increase(hapbang_notification_schedule_runs_total{outcome="failed"}[10m]) > 0)
+                  or
+                  (
+                    hapbang_notification_schedule_runs_total{outcome="failed"}
+                      unless hapbang_notification_schedule_runs_total{outcome="failed"} offset 10m
+                  )
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }}의 알림 예약 배치에서 {{ if $labels.result }}예약 {{ $labels.result }}{{ else }}회차 실패{{ end }}가 났다(최근 10분 약 {{ with $values.A }}{{ humanize .Value }}{{ end }}건).'
+          description: >-
+            abandoned는 같은 예약을 3번 연속 보내지 못해 알림 없이 건너뜀으로 끝낸 것이고(그 예약 알림은 나가지 않는다), record_failed는 실패 횟수를 기록하지 못해
+            다음 회차에 다시 시도하는 것이며, 회차 실패는 회차 전체가 예외로 끝난 것이다(다음 회차에 다시 돈다).
+            abandoned·record_failed는 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "NOTIFICATION_SCHEDULE_FAILED]"로 scheduleId와 원인을, 회차 실패는 같은 앱의 ERROR "예약 배치"로 예외를 보고,
+            DB 예외면 PostgreSQL 상태를 본다. 건너뜀으로 끝낸 예약은 되살리지 않는다(docs/notification/decisions.md ND-147).
+
       # @Scheduled 메서드가 예외로 끝난 실행(Spring 관측 지표 tasks.scheduled.execution의 exception tag).
       # 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다. 예외 series는 첫 실패 때 생기므로 10분 안에 새로 생긴 series도 친다.
       - uid: hapbang-scheduled-task-failure
