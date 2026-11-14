@@ -10,7 +10,7 @@
 | 채널 | 앱 안에서만 보낸다. 이메일·푸시는 없다. 그래서 로그인하지 못한 회원에게 가야 하는 알림(비밀번호 변경, 로그인 잠금, 탈퇴 복구 기한)은 범위 밖이다 |
 | 받는 사람 | 유저·인플루언서·인증된 인플루언서. 일반 유저도 받는다. 관리자는 받지 않고 관리자 업무(검수·심사 요청, 새 문의)는 관리자 화면 목록에서 처리한다 |
 | 채팅과의 관계 | 채팅의 기존 알림(출연 알림 메시지, 단체방 안내, `/user/queue/chats/notifications`)은 그대로 둔다. 알림 모듈은 같은 이벤트를 따로 받아 알림센터에 함께 보낸다. 채팅 새 메시지와 차단은 알림센터에 넣지 않는다(채팅의 안 읽은 메시지 수가 맡는다) |
-| 규모 | 즉시 알림 49종, 예약 알림 5종 |
+| 규모 | 즉시 알림 49종, 예약 알림 5종 (2026-11-14 주석: 고객센터 답변 수정은 ND-123으로 폐기했다. 지금 종류 수는 `docs/notification/notification-catalog.md`가 원본이다) |
 
 ### 배경
 
@@ -138,7 +138,7 @@ consumer group 이름은 `notification.<목적>`이다. 처리하지 못한 메�
 | 알림 | 받는 사람 | 종류 코드 | 이벤트 |
 | --- | --- | --- | --- |
 | 문의 답변 도착 | 문의한 회원 | `INQUIRY_ANSWERED` | 🆕 `InquiryAnsweredEvent` |
-| 답변 수정 | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 🆕 `InquiryReplyEditedEvent` |
+| 답변 수정 (2026-11-14 주석: ND-123으로 폐기, 이벤트를 발행하지 않는다) | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 🆕 `InquiryReplyEditedEvent` |
 | 이의 제기 접수 불가 (재시도 뒤) | 구매자 | `LECTURE_OBJECTION_FILE_REJECTED` | 🆕 `LectureObjectionFileRejectedEvent` (고객센터 발행) |
 | 반환 지연 | 구매자 | `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | ⚠️ `LectureObjectionReturnActionRequiredEvent` |
 

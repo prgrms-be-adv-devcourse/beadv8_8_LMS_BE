@@ -38,7 +38,7 @@
 | [`AGENTS.md`](AGENTS.md), 이 문서 | 작성 완료 (#750) |
 | [`docs/notification/INDEX.md`](../../../../docs/notification/INDEX.md) | 작성 완료 (#752) |
 | [`docs/notification/event-contracts.md`](../../../../docs/notification/event-contracts.md) | 확정, M1~M8 발행 완료(3장) |
-| `docs/policy.md` 알림센터 장 | 후속(팀 승인 필요, 4장) |
+| `docs/policy.md` 알림센터 장 | 9장 작성(#935, 팀 승인은 PR 리뷰) |
 
 ## 3. 구현 작업 계획
 
@@ -77,7 +77,7 @@
 | --- | --- | --- |
 | U3 | 알림 담당(+ FE) | 각 종류를 소비하는 작업(N7의 남은 묶음. N5는 ND-075, N6는 ND-085, N7 강의는 ND-117, N7 회원은 ND-121, N9 채팅은 ND-132, N10 예약은 ND-140) |
 | U5 | 알림 담당 | 이벤트 소비(N7의 남은 묶음. N5는 ND-073, N6는 ND-083, N7 강의는 ND-115, N7 회원은 ND-119, N9 채팅은 ND-130, N10 예약은 ND-139) |
-| U6 (T5) | 팀 확인 대기 (알림 쪽 ND-134) | N10 PR 리뷰 |
+| U6 (T5) | 팀 확인 대기 (알림 쪽 ND-134, policy.md 9장) | #935 PR 리뷰 |
 | U12 | 팀 + FE | 화면 표시(FE). 서버 생성은 막지 않는다 |
 | U13 | 알림 + 챗봇 + 인프라 담당 (N1 값은 인프라 확인됨, N3는 알림 담당 제안, N4는 관측 ND-066) | N10 자원 산정 |
 | U14 | 인프라 담당 확인 대기 (알림 쪽 ND-062·ND-063) | N4 PR 리뷰 |
@@ -86,10 +86,10 @@
 
 그 밖의 팀 승인 필요:
 
-- `docs/policy.md`에 알림센터 장 추가, `docs/GLOSSARY.md`에 알림센터 용어 반영(팀 승인 후속).
+- `docs/policy.md` 9장(알림센터), `docs/GLOSSARY.md` 알림 용어(#935): 알림 담당 초안이고 팀 승인은 PR 리뷰에서 받는다.
 - 원천 설계 `docs/architecture/infrastructure/notification.md`를 축소할지(팀 결정).
 - `docs/architecture/infrastructure/kafka.md` 토픽 표의 알림 소비 그룹: 고객센터(#918, ND-122)와 출연·강의 처리 범위(#933)를 알림 담당 승인으로 적었고 팀 검토는 PR 리뷰에서 받는다.
-- 원천 설계 `docs/architecture/infrastructure/notification.md`의 즉시 알림 수(49종)와 답변 수정 알림은 ND-123과 다르다(팀 공유 문서, 승인 필요).
+- 원천 설계 `docs/architecture/infrastructure/notification.md`의 즉시 알림 수(49종)와 답변 수정 알림에 ND-123 주석을 붙였다(#935, 원문 유지, 팀 승인은 PR 리뷰).
 - Billing 쪽 T1(BD-127)·T6·T7은 [`docs/billing/decisions.md`](../../../../docs/billing/decisions.md) 10장에서 관리한다.
 
 ## 5. 관련 Issue

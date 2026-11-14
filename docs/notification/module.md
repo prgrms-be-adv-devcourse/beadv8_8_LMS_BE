@@ -6,7 +6,7 @@
 >
 > - 기준: 처음 작성은 2026-11-06 `dev` e054d6f6(알림 모듈 코드 없음), 2장 As-Is는 dev `cced81b7`(N1~N10)이다. 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.
 > - 이 문서는 모듈의 구조와 상태만 적는다. 결정과 이유는 [decisions.md](decisions.md)(`ND-*`), 개념은 [CONTEXT.md](CONTEXT.md), 구현 규칙은 [`apps/auxiliary-app/boundedContext/notification/AGENTS.md`](../../apps/auxiliary-app/boundedContext/notification/AGENTS.md), 진행 상황은 [`PROGRESS.md`](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)다. 결정은 ND 번호로 가리키고 본문을 다시 쓰지 않는다.
-> - 업무 정책 원본은 [`docs/policy.md`](../policy.md)다(알림센터 장은 팀 승인 뒤 후속). 원천 설계는 [알림 설계](../architecture/infrastructure/notification.md)(이하 N)다.
+> - 업무 정책 원본은 [`docs/policy.md`](../policy.md) 9장(알림센터)이다. 원천 설계는 [알림 설계](../architecture/infrastructure/notification.md)(이하 N)다.
 
 ## 0. 상태 표시
 
