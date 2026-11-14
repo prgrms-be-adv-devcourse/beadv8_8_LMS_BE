@@ -88,9 +88,8 @@
 
 - `docs/policy.md`에 알림센터 장 추가, `docs/GLOSSARY.md`에 알림센터 용어 반영(팀 승인 후속).
 - 원천 설계 `docs/architecture/infrastructure/notification.md`를 축소할지(팀 결정).
-- `docs/architecture/infrastructure/kafka.md` 토픽 표의 고객센터 알림 소비 그룹(#918, ND-122): 알림 담당 승인으로 적었고 팀 검토는 PR 리뷰에서 받는다.
+- `docs/architecture/infrastructure/kafka.md` 토픽 표의 알림 소비 그룹: 고객센터(#918, ND-122)와 출연·강의 처리 범위(#933)를 알림 담당 승인으로 적었고 팀 검토는 PR 리뷰에서 받는다.
 - 원천 설계 `docs/architecture/infrastructure/notification.md`의 즉시 알림 수(49종)와 답변 수정 알림은 ND-123과 다르다(팀 공유 문서, 승인 필요).
-- `apps/auxiliary-app/README.md` "권한"·"실행과 설정"에 알림 웹소켓 핸드셰이크 경로 예외(ND-060)를 적는 일(팀 공유 문서, 승인 필요).
 - Billing 쪽 T1(BD-127)·T6·T7은 [`docs/billing/decisions.md`](../../../../docs/billing/decisions.md) 10장에서 관리한다.
 
 ## 5. 관련 Issue
