@@ -27,6 +27,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
 import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.out.HpReconciliationRunRepository;
@@ -81,17 +82,17 @@ class AppearanceHpReconciliationFinishFailureTest {
         doThrow(new QueryTimeoutException("시험용 DB 오류")).when(hpReconciliationSupport)
                 .finish(any(), anyList(), anyInt(), anyInt(), any(), anyMap(), any());
 
-        HpReconciliationRun failed = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto failed = hpReconciliationUseCase.runScheduled();
 
-        assertThat(failed.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-        assertThat(failed.getFailureReason())
+        assertThat(failed.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+        assertThat(failed.failureReason())
                 .isEqualTo(HpReconciliationUseCase.FINISH_FAILED_REASON + "QueryTimeoutException");
         assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore + 1);
 
         doCallRealFinish();
-        HpReconciliationRun next = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto next = hpReconciliationUseCase.runScheduled();
 
-        assertThat(next.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+        assertThat(next.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
         assertThat(runRepository.findAll()).extracting(HpReconciliationRun::getStatus)
                 .containsExactlyInAnyOrder(HpReconciliationStatus.INCOMPLETE, HpReconciliationStatus.COMPLETED);
     }
@@ -111,10 +112,10 @@ class AppearanceHpReconciliationFinishFailureTest {
             return invocation.callRealMethod();
         }).when(hpReconciliationSupport).finish(any(), anyList(), anyInt(), anyInt(), any(), anyMap(), any());
 
-        HpReconciliationRun run = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto run = hpReconciliationUseCase.runScheduled();
 
-        assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-        assertThat(run.getFailureReason()).isEqualTo(HpReconciliationSupport.ABANDONED_REASON);
+        assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+        assertThat(run.failureReason()).isEqualTo(HpReconciliationSupport.ABANDONED_REASON);
         assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore);
     }
 
@@ -136,9 +137,9 @@ class AppearanceHpReconciliationFinishFailureTest {
         doCallRealFinish();
         doCallRealMethod().when(hpReconciliationSupport).abandonIfRunning(any(), any(), any());
         clock.advance(Duration.ofHours(1).plusMinutes(1));
-        HpReconciliationRun next = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto next = hpReconciliationUseCase.runScheduled();
 
-        assertThat(next.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+        assertThat(next.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
         assertThat(runRepository.findAll()).extracting(HpReconciliationRun::getStatus, HpReconciliationRun::getFailureReason)
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple(HpReconciliationStatus.INCOMPLETE,

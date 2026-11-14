@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
-import com.hapbang.appearance.domain.HpReconciliationRun;
 
 import lombok.RequiredArgsConstructor;
 
@@ -33,8 +32,7 @@ public class HpReconciliationAdminFacade {
      */
     public HpReconciliationRunResDto run(Long adminId) {
         appearanceUserSupport.getAdmin(adminId);
-        HpReconciliationRun run = hpReconciliationUseCase.runManual(adminId);
-        return HpReconciliationRunResDto.from(run, hpReconciliationSupport.findMismatches(run.getId()));
+        return hpReconciliationUseCase.runManual(adminId);
     }
 
     /**
@@ -44,10 +42,10 @@ public class HpReconciliationAdminFacade {
      */
     public HpReconciliationRunResDto getLatest(Long adminId) {
         appearanceUserSupport.getAdmin(adminId);
-        HpReconciliationRun run = hpReconciliationSupport.findLatestRun();
+        HpReconciliationRunResDto run = hpReconciliationSupport.findLatestRun();
         if (run == null) {
             throw new AppearanceException(AppearanceErrorCode.HP_RECONCILIATION_NOT_FOUND);
         }
-        return HpReconciliationRunResDto.from(run, hpReconciliationSupport.findMismatches(run.getId()));
+        return run;
     }
 }
