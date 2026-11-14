@@ -47,7 +47,7 @@
 
 | 정보 | 원본 |
 | --- | --- |
-| 업무 규칙 | [`docs/policy.md`](../policy.md). **알림센터 장은 아직 없다.** 그래서 확정된 알림 정책은 지금 `decisions.md`에만 있고, policy.md 반영은 팀 승인 후속이다. `decisions.md`가 팀 규칙보다 우선하는 전역 원본이 되는 것은 아니다 |
+| 업무 규칙 | [`docs/policy.md`](../policy.md) 9장(알림센터). 세부 결정과 이유는 `decisions.md`가 맡는다. `decisions.md`가 팀 규칙보다 우선하는 전역 원본이 되는 것은 아니다 |
 | 알림 결정과 이유 | `decisions.md` (ND) |
 | 구현 규칙 | 알림 `AGENTS.md` (루트 AGENTS → [auxiliary README](../../apps/auxiliary-app/README.md) → 이 규칙 순서로 상속) |
 | 도메인 개념 | `CONTEXT.md` |
@@ -68,7 +68,7 @@
 2. auxiliary-app 공통 규칙 [`apps/auxiliary-app/README.md`](../../apps/auxiliary-app/README.md) (`apps/auxiliary-app/AGENTS.md`는 없다)
 3. 알림 [`AGENTS.md`](../../apps/auxiliary-app/boundedContext/notification/AGENTS.md)
 4. 이 문서
-5. [`docs/policy.md`](../policy.md) (알림센터 장 없음)
+5. [`docs/policy.md`](../policy.md) 9장(알림센터)
 6. [`decisions.md`](decisions.md)
 7. [`CONTEXT.md`](CONTEXT.md)
 8. [`notification-catalog.md`](notification-catalog.md)
@@ -126,7 +126,7 @@
 
 | 바뀐 것 | 고칠 문서 |
 | --- | --- |
-| 업무 규칙 | `docs/policy.md` (팀 승인, 알림센터 장 신설 전) |
+| 업무 규칙 | `docs/policy.md` 9장 (팀 승인) |
 | 결정 | `decisions.md` (기존 행 상태를 바꾸고 새 `ND-*`를 더한다) |
 | 알림 종류·발생 조건·받는 사람 | `notification-catalog.md` |
 | 발행 모듈에 요청하는 이벤트 계약 | `event-contracts.md` |
@@ -150,7 +150,7 @@
 
 | 유형 | 처리 |
 | --- | --- |
-| policy와 decisions가 다름 | 지금은 policy에 알림 장이 없다. 장이 생기면 policy가 원본이다. 차이는 근거와 시점을 확인해 보고한다 |
+| policy와 decisions가 다름 | policy.md 9장이 원본이다. 차이는 근거와 시점을 확인해 보고한다 |
 | 결정 상태가 문서마다 다름 | `decisions.md` 상태 칸과 대체 관계(ND-005 → ND-006·007, ND-901~903 폐기)를 따른다 |
 | module과 실제 코드·설정이 다름 | 코드·설정을 확인하고 module As-Is를 고친다 |
 | 이벤트 계약 문서와 발행 코드가 다름 | 발행 앱 코드와 계약 소유자를 확인한다. 미확정 계약을 확정으로 쓰지 않는다 |

@@ -22,7 +22,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 
 | 순서 | 문서 | 역할 |
 | --- | --- | --- |
-| 1 | [`docs/policy.md`](../../../../docs/policy.md) | 업무 규칙 원본(SoT). 알림센터 장은 아직 없다. 장을 더하는 일은 팀 승인을 받는 후속 작업이고, 그때까지 알림센터 정책은 decisions.md에만 있다 |
+| 1 | [`docs/policy.md`](../../../../docs/policy.md) | 업무 규칙 원본(SoT). 알림센터 업무 규칙은 9장에 있고, 결정 이유·세부는 decisions.md에 있다 |
 | 2 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 결정·이유·상태(`ND-*`), 미결(U1~U20), 팀 결정 필요(T1~T8) |
 | 3 | [`docs/notification/CONTEXT.md`](../../../../docs/notification/CONTEXT.md) | 배경과 도메인 맥락 |
 | 4 | [`docs/notification/module.md`](../../../../docs/notification/module.md) | 모듈 구조(현재 상태와 제안 To-Be) |
