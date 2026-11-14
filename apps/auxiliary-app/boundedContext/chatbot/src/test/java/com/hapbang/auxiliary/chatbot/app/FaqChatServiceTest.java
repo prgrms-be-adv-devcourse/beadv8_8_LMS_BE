@@ -38,6 +38,7 @@ import reactor.test.StepVerifier;
  */
 class FaqChatServiceTest {
 
+    private static final long MEMBER = 1L;
     private static final FaqHit HIT = new FaqHit("FAQ-501", "출연을 취소하고 싶어요.", "확정 전에는 언제든 취소할 수 있습니다.", 0.9);
     private static final FaqHit SECOND = new FaqHit("FAQ-502", "호스트가 일방적으로 취소하면?", "보류한 HP를 돌려받습니다.", 0.85);
 
@@ -68,7 +69,7 @@ class FaqChatServiceTest {
         when(searchService.search(anyString())).thenReturn(List.of(HIT, SECOND));
         service = service(Duration.ofSeconds(2), 4, true);
 
-        FaqAnswer answer = service.chat("출연 취소하면 어떻게 돼요?");
+        FaqAnswer answer = service.chat(MEMBER, "출연 취소하면 어떻게 돼요?");
 
         assertThat(answer.fallback()).isFalse();
         assertThat(answer.answer()).isEqualTo(FakeChatModel.ANSWER_PREFIX + " " + HIT.answer());
@@ -90,7 +91,7 @@ class FaqChatServiceTest {
         when(searchService.search(anyString())).thenReturn(List.of());
         service = service(Duration.ofSeconds(2), 4, true);
 
-        FaqAnswer answer = service.chat("쿠폰은 어디서 받아요?");
+        FaqAnswer answer = service.chat(MEMBER, "쿠폰은 어디서 받아요?");
 
         assertThat(answer.fallback()).isFalse();
         assertThat(answer.sources()).isEmpty();
@@ -104,7 +105,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.FAIL);
         service = service(Duration.ofSeconds(2), 4, true);
 
-        FaqAnswer answer = service.chat("출연 취소");
+        FaqAnswer answer = service.chat(MEMBER, "출연 취소");
 
         assertThat(answer).isEqualTo(new FaqAnswer(HIT.answer(), List.of(new FaqSource("FAQ-501", HIT.question())), true));
         assertThat(fallbacks("faq_chat", "error")).isEqualTo(1);
@@ -117,7 +118,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.FAIL);
         service = service(Duration.ofSeconds(2), 4, true);
 
-        assertThat(service.chat("쿠폰은 어디서 받아요?"))
+        assertThat(service.chat(MEMBER, "쿠폰은 어디서 받아요?"))
                 .isEqualTo(new FaqAnswer(FaqChatService.NO_ANSWER_MESSAGE, List.of(), true));
         assertThat(registry.get("hapbang.chatbot.faq.unmatched").tag("feature", "faq_chat").counter().count()).isEqualTo(1);
     }
@@ -131,7 +132,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.HANG);
         service = service(Duration.ofMillis(300), 4, true);
 
-        FaqAnswer answer = service.chat("출연 취소");
+        FaqAnswer answer = service.chat(MEMBER, "출연 취소");
 
         assertThat(answer.fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "timeout")).isEqualTo(1);
@@ -145,12 +146,12 @@ class FaqChatServiceTest {
         service = service(Duration.ofSeconds(2), 4, true);
 
         for (int i = 0; i < 5; i++) {
-            service.chat("출연 취소");
+            service.chat(MEMBER, "출연 취소");
         }
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
         int calls = chatModel.calls();
 
-        FaqAnswer answer = service.chat("출연 취소");
+        FaqAnswer answer = service.chat(MEMBER, "출연 취소");
 
         assertThat(answer.fallback()).isTrue();
         assertThat(chatModel.calls()).isEqualTo(calls);
@@ -166,9 +167,9 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.HANG);
         service = service(Duration.ofSeconds(30), 1, true);
 
-        CompletableFuture<FaqAnswer> first = CompletableFuture.supplyAsync(() -> service.chat("첫 질문"));
+        CompletableFuture<FaqAnswer> first = CompletableFuture.supplyAsync(() -> service.chat(MEMBER, "첫 질문"));
         await().atMost(Duration.ofSeconds(10)).until(() -> chatModel.calls() == 1);
-        FaqAnswer second = service.chat("두 번째 질문");
+        FaqAnswer second = service.chat(MEMBER, "두 번째 질문");
 
         assertThat(second.fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "busy")).isEqualTo(1);
@@ -182,7 +183,7 @@ class FaqChatServiceTest {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
         service = service(Duration.ofSeconds(2), 4, false);
 
-        assertThat(service.chat("출연 취소").fallback()).isTrue();
+        assertThat(service.chat(MEMBER, "출연 취소").fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "model_off")).isEqualTo(1);
     }
 
@@ -192,7 +193,7 @@ class FaqChatServiceTest {
         when(searchService.search(anyString())).thenReturn(List.of(HIT));
         service = service(Duration.ofSeconds(2), 4, true);
 
-        List<FaqStreamEvent> events = service.stream("출연 취소").collectList().block(Duration.ofSeconds(5));
+        List<FaqStreamEvent> events = service.stream(MEMBER, "출연 취소").collectList().block(Duration.ofSeconds(5));
 
         assertThat(events).hasSizeGreaterThan(2);
         assertThat(events.getLast()).isEqualTo(new FaqStreamEvent.Done(List.of(new FaqSource("FAQ-501", HIT.question())), false));
@@ -211,7 +212,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.FAIL);
         service = service(Duration.ofSeconds(2), 4, true);
 
-        StepVerifier.create(service.stream("출연 취소"))
+        StepVerifier.create(service.stream(MEMBER, "출연 취소"))
                 .expectNext(new FaqStreamEvent.Token(HIT.answer()))
                 .expectNext(new FaqStreamEvent.Done(List.of(new FaqSource("FAQ-501", HIT.question())), true))
                 .verifyComplete();
@@ -225,7 +226,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.FAIL_AFTER_FIRST_TOKEN);
         service = service(Duration.ofSeconds(2), 4, true);
 
-        StepVerifier.create(service.stream("출연 취소"))
+        StepVerifier.create(service.stream(MEMBER, "출연 취소"))
                 .expectNext(new FaqStreamEvent.Token(FakeChatModel.ANSWER_PREFIX))
                 .expectNext(new FaqStreamEvent.Error(FaqChatService.STREAM_ERROR_MESSAGE))
                 .verifyComplete();
@@ -240,7 +241,7 @@ class FaqChatServiceTest {
         service = service(Duration.ofMillis(300), 4, true);
 
         // verify 상한은 테스트가 멈추지 않게 하는 안전장치다. 모델이 답하지 않으므로 끝났다면 시간 상한에서 끊은 것이다
-        StepVerifier.create(service.stream("출연 취소"))
+        StepVerifier.create(service.stream(MEMBER, "출연 취소"))
                 .expectNext(new FaqStreamEvent.Token(HIT.answer()))
                 .expectNextMatches(event -> event instanceof FaqStreamEvent.Done done && done.fallback())
                 .expectComplete()
@@ -255,7 +256,7 @@ class FaqChatServiceTest {
         chatModel.mode(FakeChatModel.Mode.EMPTY);
         service = service(Duration.ofSeconds(2), 4, true);
 
-        StepVerifier.create(service.stream("아무 말"))
+        StepVerifier.create(service.stream(MEMBER, "아무 말"))
                 .expectNext(new FaqStreamEvent.Token(FaqChatService.NO_ANSWER_MESSAGE))
                 .expectNext(new FaqStreamEvent.Done(List.of(), false))
                 .verifyComplete();
@@ -271,13 +272,13 @@ class FaqChatServiceTest {
         service = service(Duration.ofSeconds(30), 1, true);
 
         CountDownLatch subscribed = new CountDownLatch(1);
-        Disposable stream = service.stream("첫 질문").doOnSubscribe(s -> subscribed.countDown()).subscribe();
+        Disposable stream = service.stream(MEMBER, "첫 질문").doOnSubscribe(s -> subscribed.countDown()).subscribe();
         assertThat(subscribed.await(10, TimeUnit.SECONDS)).isTrue();
         await().atMost(Duration.ofSeconds(10)).until(() -> chatModel.calls() == 1);
         stream.dispose();
         chatModel.mode(FakeChatModel.Mode.TOOL_ANSWER);
 
-        assertThat(service.chat("두 번째 질문").fallback()).isFalse();
+        assertThat(service.chat(MEMBER, "두 번째 질문").fallback()).isFalse();
     }
 
     @Test
@@ -289,11 +290,11 @@ class FaqChatServiceTest {
         LlmCallGuard.Permit other = guard.acquire(true);
         assertThat(other.blocked()).isNull();
 
-        assertThat(service.chat("출연 취소").fallback()).isTrue();
+        assertThat(service.chat(MEMBER, "출연 취소").fallback()).isTrue();
         assertThat(fallbacks("faq_chat", "busy")).isEqualTo(1);
 
         other.succeeded();
-        assertThat(service.chat("출연 취소").fallback()).isFalse();
+        assertThat(service.chat(MEMBER, "출연 취소").fallback()).isFalse();
     }
 
     private FaqChatService service(Duration timeout, int maxConcurrent, boolean withModel) {
@@ -306,7 +307,7 @@ class FaqChatServiceTest {
                 false, Duration.ofMinutes(10), new ChatbotFaqProperties.RateLimit(10, Duration.ofMinutes(1), 100));
         guard = new LlmCallGuard(circuitBreaker, new ChatbotLlmProperties(maxConcurrent), new SimpleAsyncTaskExecutorBuilder());
         return new FaqChatService(beans.getBeanProvider(org.springframework.ai.chat.model.ChatModel.class),
-                beans.getBeanProvider(ChatClient.Builder.class), new FaqTools(searchService), searchService,
+                beans.getBeanProvider(ChatClient.Builder.class), new FaqTools(searchService, new ChatbotMetrics(registry)), searchService,
                 properties, new ChatbotMetrics(registry), guard);
     }
 

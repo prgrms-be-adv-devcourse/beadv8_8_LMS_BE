@@ -10,7 +10,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.AfterEach;
@@ -23,6 +22,8 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
+import com.hapbang.auxiliary.chatbot.app.ChatCardCollector;
+import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
 import com.hapbang.auxiliary.chatbot.app.FaqHit;
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
 import com.hapbang.auxiliary.chatbot.app.FaqSearchService;
@@ -237,7 +238,7 @@ class FaqIndexingIntegrationTest {
         List<FaqHit> sources = new CopyOnWriteArrayList<>();
 
         ToolCallback[] callbacks = ToolCallbacks.from(faqTools);
-        String result = callbacks[0].call("{\"question\":\"HP 충전 방법\"}", new ToolContext(Map.of(FaqTools.SOURCES, sources)));
+        String result = callbacks[0].call("{\"question\":\"HP 충전 방법\"}", new ToolContext(ChatToolContext.of(1L, sources, new ChatCardCollector())));
 
         assertThat(callbacks).hasSize(1);
         assertThat(callbacks[0].getToolDefinition().name()).isEqualTo("searchFaq");

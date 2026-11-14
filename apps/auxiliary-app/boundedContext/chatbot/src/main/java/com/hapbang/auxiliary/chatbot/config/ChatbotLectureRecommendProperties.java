@@ -19,7 +19,7 @@ import jakarta.validation.constraints.Positive;
  * <p>
  * <b>임시값</b>이라고 적은 값은 평가 없이 정한 값이다. 추천 가중치 보정(#867)에서 더미 데이터로 결과를 보며 다시 정하고, 정할 때 평가 결과(데이터 수, 지표, 회차)를
  * 설정 주석·PR에 적는다. 관심사 최대 길이(100자)는 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라
- * {@code LectureRecommendUseCase.INTEREST_MAX_LENGTH}에 있다.
+ * {@code RecommendInterest.MAX_LENGTH}에 있다.
  *
  * @param resultSize       추천 수(이슈 #718에서 정한 화면 카드 수)
  * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성, 이슈 #718에서 정함)
@@ -31,11 +31,12 @@ import jakarta.validation.constraints.Positive;
  *                         약 {@code β/(1−β)}다(0.05면 약 0.05). α와 같이 기본값 없이 프로필 yaml에 둔다. 임시값
  * @param knnK             벡터 검색으로 받는 후보 수. 임시값
  * @param numCandidates    벡터 검색이 샤드마다 살펴볼 후보 수(knnK 이상). 임시값
- * @param popularPoolSize  인기순으로 채울 때 미리 읽는 강의 수. 임시값
- * @param explainTimeout   버튼 경로의 LLM 이유 문장 시간 상한. 넘으면 정해진 문장으로 답한다
- * @param reasonMaxLength  LLM 이유 문장의 최대 글자 수. 넘으면 자른다(카드 크기)
- * @param explainDescriptionMaxLength 버튼 경로 프롬프트에 넣는 강의 소개의 최대 글자 수(입력 토큰 상한)
+ * @param popularPoolSize  인기순 캐시로 채우지 못할 때 직접 읽는 강의 수. 임시값
+ * @param popularCacheSize 인기순 캐시에 두는 상위 강의 수(pod 메모리, 회원별 제외는 코드에서 한다). 임시값
+ * @param popularCacheTtl  인기순 캐시를 다시 읽는 주기. 캐시 뒤 상태가 바뀐 강의는 응답 직전에 다시 확인해 거른다
  * @param rateLimit        관심사를 넣은 요청(임베딩 비용)의 회원별 호출 제한
+ * @param buttonRateLimit  챗봇 "강의 추천받기" 버튼(LLM 비용)의 회원별 호출 제한
+ * @param widgetRateLimit  위젯 API 전체(관심사 여부와 상관없이)의 회원별 호출 제한. 연타가 공용 DB 연결을 붙잡지 않게 넓게 둔다
  * @param indexCheckBatch  정합 점검이 한 번에 읽는 강의 수
  */
 @Validated
@@ -50,10 +51,11 @@ public record ChatbotLectureRecommendProperties(
         @DefaultValue("50") @Positive int knnK,
         @DefaultValue("100") @Positive int numCandidates,
         @DefaultValue("50") @Positive int popularPoolSize,
-        @DefaultValue("10s") @NotNull Duration explainTimeout,
-        @DefaultValue("80") @Positive int reasonMaxLength,
-        @DefaultValue("300") @Positive int explainDescriptionMaxLength,
+        @DefaultValue("200") @Positive int popularCacheSize,
+        @DefaultValue("1m") @NotNull Duration popularCacheTtl,
         @DefaultValue @Valid RateLimit rateLimit,
+        @DefaultValue @Valid RateLimit buttonRateLimit,
+        @DefaultValue @Valid WidgetRateLimit widgetRateLimit,
         @DefaultValue("500") @Positive int indexCheckBatch) {
 
     /**
@@ -97,6 +99,13 @@ public record ChatbotLectureRecommendProperties(
      */
     public record RateLimit(
             @DefaultValue("10") @Positive int limit,
+            @DefaultValue("1m") @NotNull Duration period,
+            @DefaultValue("10000") @Positive long maxKeys) {
+    }
+
+    /** 위젯 API 전체의 회원별 호출 제한. 기본값만 {@link RateLimit}와 다르다(인플루언서 위젯과 같은 값) */
+    public record WidgetRateLimit(
+            @DefaultValue("60") @Positive int limit,
             @DefaultValue("1m") @NotNull Duration period,
             @DefaultValue("10000") @Positive long maxKeys) {
     }

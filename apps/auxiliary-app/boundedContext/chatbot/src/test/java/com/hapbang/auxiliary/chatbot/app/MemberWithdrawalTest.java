@@ -157,7 +157,7 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
     @DisplayName("싱크 회차 끝의 정리는 어떤 경로로든 남은 마스킹 회원의 행을 지운다")
     void runEndPurge() {
         givenUserData();
-        jdbcTemplate.update("INSERT INTO chatbot.masked_member (user_id, masked_at) VALUES (?, now())", USER);
+        rows.masked(USER);
 
         chatbotSyncUseCase.runBatch(SyncType.LECTURE, SyncTrigger.SCHEDULED);
 

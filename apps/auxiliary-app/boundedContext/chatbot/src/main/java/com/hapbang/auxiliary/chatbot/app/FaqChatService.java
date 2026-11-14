@@ -3,7 +3,6 @@ package com.hapbang.auxiliary.chatbot.app;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -81,10 +80,10 @@ public class FaqChatService {
     }
 
     /** 한 번에 받는 FAQ 대화 */
-    public FaqAnswer chat(String message) {
+    public FaqAnswer chat(long memberId, String message) {
         Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
         LlmCallGuard.Result<String> result = llm.call(chatClient != null, properties.chatTimeout(),
-                () -> prompt(message, sources).call().content());
+                () -> prompt(memberId, message, sources).call().content());
         if (result.succeeded()) {
             String content = result.value();
             return answered(Feature.FAQ_CHAT, content == null || content.isBlank() ? NO_ANSWER_MESSAGE : content, sources);
@@ -101,7 +100,7 @@ public class FaqChatService {
      * 스트림 FAQ 대화. 구독할 때 회로·동시 상한을 확인한다.
      * 첫 조각 전에 실패하면 fallback 답을 {@code token} + {@code done}으로, 조각을 보낸 뒤 실패하면 {@code error}로 끝낸다.
      */
-    public Flux<FaqStreamEvent> stream(String message) {
+    public Flux<FaqStreamEvent> stream(long memberId, String message) {
         return Flux.defer(() -> {
             LlmCallGuard.Permit call = llm.acquire(chatClient != null);
             if (call.blocked() != null) {
@@ -112,7 +111,7 @@ public class FaqChatService {
             Duration total = properties.streamTimeout();
             long deadline = System.nanoTime() + total.toNanos();
 
-            Flux<FaqStreamEvent> tokens = prompt(message, sources)
+            Flux<FaqStreamEvent> tokens = prompt(memberId, message, sources)
                     .stream()
                     .content()
                     // 전체 시간 상한: 첫 조각은 total, 다음 조각은 남은 시간까지 기다린다
@@ -147,11 +146,11 @@ public class FaqChatService {
         });
     }
 
-    private ChatClient.ChatClientRequestSpec prompt(String message, Collection<FaqHit> sources) {
+    private ChatClient.ChatClientRequestSpec prompt(long memberId, String message, Collection<FaqHit> sources) {
         return chatClient.prompt()
                 .user(message)
                 .tools(faqTools)
-                .toolContext(Map.of(FaqTools.SOURCES, sources));
+                .toolContext(ChatToolContext.of(memberId, sources, new ChatCardCollector()));
     }
 
     // 모델이 정상으로 답했을 때. Tool이 FAQ를 하나도 못 찾았으면 매칭 실패로 센다

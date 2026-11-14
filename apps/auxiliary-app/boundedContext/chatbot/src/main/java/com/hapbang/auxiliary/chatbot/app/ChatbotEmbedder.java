@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.chatbot.app;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.jspecify.annotations.Nullable;
@@ -8,6 +9,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotIndexProperties;
+import com.hapbang.auxiliary.chatbot.domain.TasteVectors;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,6 +61,27 @@ public class ChatbotEmbedder {
     /** 검색어를 임베딩한다 */
     public float[] embedQuery(String text) {
         return checkDimensions(model().embed(properties.queryPrefix() + text));
+    }
+
+    /**
+     * 관심사 원문과 쿼리 확장 표현을 한 번에 임베딩해, 각각 크기를 1로 맞춘 뒤 평균을 낸다(#720). 평균의 크기는 1이 아닐 수 있다
+     * (코사인 검색이고 혼합할 때 다시 맞추므로 결과는 같다). 하나면 {@link #embedQuery}와 같다.
+     *
+     * @param queries 원문이 첫째. 비어 있지 않아야 한다
+     */
+    public float[] embedInterest(List<String> queries) {
+        if (queries.size() == 1) {
+            return embedQuery(queries.getFirst());
+        }
+        List<float[]> vectors = model().embed(queries.stream().map(query -> properties.queryPrefix() + query).toList());
+        if (vectors.size() != queries.size()) {
+            throw new IllegalStateException("임베딩 결과 수가 요청과 다릅니다 expected=" + queries.size() + ", actual=" + vectors.size());
+        }
+        List<float[]> normalized = new ArrayList<>();
+        for (float[] vector : vectors) {
+            normalized.add(TasteVectors.normalize(checkDimensions(vector)));
+        }
+        return TasteVectors.mean(normalized);
     }
 
     private float[] checkDimensions(float[] vector) {

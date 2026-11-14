@@ -19,6 +19,10 @@ spring:
         transcription: none
     vectorstore:
       type: none
+    # 앱 application.yaml과 같은 값(#720). 자유 질문 테스트가 이 상한이 ChatClient의 Tool 호출 경로에 걸리는지 확인한다
+    tools:
+      limits:
+        max-total-tool-calls: 3
   elasticsearch:
     # ES를 쓰는 테스트는 ElasticsearchTestcontainersConfig가 주소를 바꾼다. 나머지는 닿지 않는 주소다
     uris: http://127.0.0.1:9

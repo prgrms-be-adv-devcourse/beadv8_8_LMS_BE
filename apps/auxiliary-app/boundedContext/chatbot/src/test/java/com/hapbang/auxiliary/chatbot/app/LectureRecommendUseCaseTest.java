@@ -1,16 +1,15 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.SequencedMap;
 
 import org.junit.jupiter.api.AfterEach;
@@ -27,8 +26,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
+import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
@@ -81,10 +79,13 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("제외: 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·탈퇴 판매자·사본 없는 판매자는 가까워도 빠진다")
+    @DisplayName("제외: 보유·결제 중·장바구니·본인 강의·판매 중 아님·삭제·원본 없음·탈퇴 판매자·사본 없는 판매자·"
+            + "마스킹 판매자(상태는 ACTIVE)는 가까워도 빠지고, 5개를 채우는 인기순에서도 빠진다")
     void exclusions() {
         data.member(1);
         data.member(600, "WITHDRAWN");
+        data.member(650);
+        rows.masked(650);
         lecture(1, 100, "스프링 입문", FakeEmbeddingModel.axis(0));
         lecture(2, 100, "스프링 결제중", FakeEmbeddingModel.withCosine(0, 1, 0.99));
         lecture(3, 100, "스프링 장바구니", FakeEmbeddingModel.withCosine(0, 2, 0.9));
@@ -98,16 +99,17 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         lecture(8, 600, "스프링 탈퇴판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         lecture(9, 700, "스프링 사본없는판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         lecture(10, 200, "스프링 추천", FakeEmbeddingModel.withCosine(0, 1, 0.95));
+        lecture(11, 650, "스프링 마스킹판매자", FakeEmbeddingModel.withCosine(0, 1, 0.96));
         data.purchase(1, 1, 1, "OWNED", RecommendRows.AT);
         data.purchase(2, 1, 2, "PENDING", RecommendRows.AT);
         data.cart(1, 1, 3, false, RecommendRows.AT);
-        indexAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        indexAll(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
 
         LectureRecommendation result = useCase.recommend(1, null);
 
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(10L);
         assertThat(result.needsInterest()).isFalse();
-        assertThat(result.personalized()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.PERSONALIZED);
         // 구매 중심(축 0)이 장바구니 강의보다 가깝다. 가장 가까운 구매 강의 제목을 문장에 넣는다
         assertThat(result.items().getFirst().reason()).isEqualTo(LectureRecommendReason.SIMILAR_TO_PURCHASED);
         assertThat(result.items().getFirst().reasonText()).isEqualTo("구매하신 「스프링 입문」 강의와 비슷해요.");
@@ -121,7 +123,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         lecture(61, 200, "추천 강의", FakeEmbeddingModel.withCosine(2, 3, 0.95));
         data.purchase(60, 6, 60, "OWNED", RecommendRows.AT);
         indexAll(60, 61);
-        ToolContext context = new ToolContext(Map.of(LectureRecommendTools.MEMBER_ID, 6L));
+        ToolContext context = new ToolContext(ChatToolContext.of(6L, List.of(), new ChatCardCollector()));
 
         LectureRecommendation forScreen = useCase.recommend(6, null);
         LectureRecommendTools.Result forTool = tools.recommendLectures(null, context);
@@ -163,7 +165,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
                         tuple(27L, LectureRecommendReason.POPULAR));
         assertThat(result.items().getLast().score()).isZero();
         assertThat(result.items().getLast().reasonText()).isEqualTo("요즘 많이 듣는 강의예요.");
-        assertThat(result.personalized()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.PERSONALIZED);
     }
 
     @Test
@@ -185,7 +187,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(31L, 30L, 32L, 33L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
         assertThat(result.needsInterest()).isTrue();
-        assertThat(result.personalized()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
     }
 
     @Test
@@ -219,7 +221,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(50L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
         assertThat(result.needsInterest()).isTrue();
-        assertThat(result.personalized()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
     }
 
     @Test
@@ -237,7 +239,7 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         assertThat(result.items().getFirst().reason()).isEqualTo(LectureRecommendReason.MATCHES_INTEREST);
         assertThat(result.items().getFirst().reasonText()).isEqualTo("입력하신 관심사와 맞는 강의예요.");
         assertThat(result.needsInterest()).isFalse();
-        assertThat(result.personalized()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.PERSONALIZED);
     }
 
     @Test
@@ -310,10 +312,11 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("요청 회원이 탈퇴(숨김)면 빈 결과")
+    @DisplayName("요청 회원이 탈퇴(숨김)면 빈 결과(인기순도 주지 않는다)")
     void hiddenRequesterGetsNothing() {
         data.member(9, "WITHDRAWN");
         data.lecture(90, 100, "강의 90");
+        owned(90, 3);
 
         LectureRecommendation result = useCase.recommend(9, null);
 
@@ -322,7 +325,62 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("색인을 쓸 수 없으면(index 없음) 관심사 없는 요청은 인기순·personalized false, 관심사 요청은 LECTURE_RECOMMEND_UNAVAILABLE")
+    @DisplayName("요청 회원이 마스킹이면 사본 상태가 ACTIVE여도 빈 결과(인기순도 주지 않는다)")
+    void maskedRequesterGetsNothing() {
+        data.member(9);
+        rows.masked(9);
+        data.lecture(90, 100, "강의 90");
+        owned(90, 3);
+
+        LectureRecommendation result = useCase.recommend(9, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.needsInterest()).isFalse();
+    }
+
+    @Test
+    @DisplayName("인기순 캐시를 읽은 뒤 판매 중지·판매자 마스킹이 된 강의는 응답에 나오지 않는다(응답 직전에 ID로 다시 확인하고, "
+            + "모자라면 인기순 쿼리를 직접 돈다)")
+    void popularCacheRechecksBeforeAnswer() {
+        data.member(20);
+        popularLectures();
+        assertThat(useCase.recommend(20, null).items()).extracting(LectureRecommendation.Item::lectureId)
+                .containsExactly(120L, 121L, 122L, 123L, 124L);
+
+        jdbcTemplate.update("UPDATE chatbot.lecture_copy SET on_sale = FALSE WHERE id = 120");
+        rows.masked(200);
+
+        assertThat(useCase.recommend(20, null).items()).extracting(LectureRecommendation.Item::lectureId)
+                .containsExactly(121L, 124L, 125L);
+    }
+
+    @Test
+    @DisplayName("인기순 캐시는 popular-cache-ttl(1분) 동안 다시 읽지 않는다. 지나면 새 순서를 읽는다")
+    void popularCacheTtl() {
+        data.member(20);
+        popularLectures();
+        useCase.recommend(20, null);
+        data.lecture(126, 400, "강의 126");
+        owned(126, 10);
+
+        assertThat(useCase.recommend(20, null).items()).extracting(LectureRecommendation.Item::lectureId)
+                .doesNotContain(126L);
+        clock.advance(Duration.ofMinutes(1));
+        assertThat(useCase.recommend(20, null).items().getFirst().lectureId()).isEqualTo(126L);
+    }
+
+    // 판매자 100·200·300이 2개씩, 구매 수 6~1. 판매자당 2개라 상위 5개가 120~124다
+    private void popularLectures() {
+        long[][] lectures = {{120, 100}, {121, 100}, {122, 200}, {123, 200}, {124, 300}, {125, 300}};
+        for (int i = 0; i < lectures.length; i++) {
+            data.lecture(lectures[i][0], lectures[i][1], "강의 " + lectures[i][0]);
+            owned(lectures[i][0], 6 - i);
+        }
+    }
+
+    @Test
+    @DisplayName("색인을 쓸 수 없으면(index 없음) 관심사가 있든 없든 인기순·POPULAR_TEMPORARY로 답하고 검색 장애로 센다"
+            + "(LLM 실패가 아니라 fallbacks에는 세지 않는다)")
     void unavailableIndex() throws Exception {
         data.member(10);
         lecture(100, 100, "스프링 입문", FakeEmbeddingModel.axis(0));
@@ -330,31 +388,38 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         data.purchase(100, 10, 100, "OWNED", RecommendRows.AT);
         indexAll(100);
         deleteIndex();
+        double searchErrors = searchErrors();
         double fallbacks = fallbacks("error");
 
         LectureRecommendation result = useCase.recommend(10, null);
+        LectureRecommendation withInterest = useCase.recommend(10, "데이터");
 
-        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(101L);
-        assertThat(result.personalized()).isFalse();
-        assertThat(result.needsInterest()).isFalse();
-        // 인기순으로 대신 답한 것만 센다(503은 세지 않는다)
-        assertThat(fallbacks("error")).isEqualTo(fallbacks + 1);
-        assertThatThrownBy(() -> useCase.recommend(10, "데이터"))
-                .isInstanceOf(ChatbotException.class)
-                .extracting("errorCode").isEqualTo(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE);
-        assertThat(fallbacks("error")).isEqualTo(fallbacks + 1);
+        for (LectureRecommendation answer : List.of(result, withInterest)) {
+            assertThat(answer.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(101L);
+            assertThat(answer.basis()).isEqualTo(RecommendBasis.POPULAR_TEMPORARY);
+            assertThat(answer.needsInterest()).isFalse();
+        }
+        assertThat(searchErrors()).isEqualTo(searchErrors + 2);
+        assertThat(fallbacks("error")).isEqualTo(fallbacks);
     }
 
     @Test
-    @DisplayName("관심사 임베딩이 실패하면 LECTURE_RECOMMEND_UNAVAILABLE(관심사를 무시한 인기순으로 답하지 않는다)")
+    @DisplayName("관심사 임베딩이 실패하면 인기순·POPULAR_TEMPORARY(오류로 답하지 않는다)")
     void interestEmbeddingFailure() {
         data.member(11);
         data.lecture(110, 100, "강의 110");
         embedding.failWith(new IllegalStateException("임베딩 장애"));
 
-        assertThatThrownBy(() -> useCase.recommend(11, "데이터"))
-                .isInstanceOf(ChatbotException.class)
-                .extracting("errorCode").isEqualTo(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE);
+        LectureRecommendation result = useCase.recommend(11, "데이터");
+
+        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(110L);
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR_TEMPORARY);
+    }
+
+    private double searchErrors() {
+        var counter = meterRegistry.find("hapbang.chatbot.recommend.search.errors").tag("feature", "lecture_recommend")
+                .counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private double fallbacks(String reason) {

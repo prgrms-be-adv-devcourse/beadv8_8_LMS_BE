@@ -16,6 +16,8 @@ import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 public record CopyRows(JdbcTemplate jdbc) {
 
     public static final LocalDateTime SCHEDULED_AT = LocalDateTime.of(2026, 11, 20, 20, 0);
+    /** {@link #masked}가 넣는 마스킹 시각. 마스킹 시각을 읽는 코드는 없어 값에 뜻은 없다 */
+    public static final LocalDateTime MASKED_AT = LocalDateTime.of(2026, 11, 9, 10, 0);
 
     public void clear() {
         jdbc.execute("TRUNCATE chatbot.appearance_copy, chatbot.appearance_review_copy, chatbot.member_copy, "
@@ -43,6 +45,11 @@ public record CopyRows(JdbcTemplate jdbc) {
     /** 회원 사본의 분야 목록(JSON 문자열) */
     public String memberCategories(long id) {
         return jdbc.queryForObject("SELECT categories::text FROM chatbot.member_copy WHERE id = ?", String.class, id);
+    }
+
+    /** 마스킹한 회원. 회원 사본은 건드리지 않는다(탈퇴 이벤트가 늦어 {@code ACTIVE}인 채 마스킹만 반영된 경우도 이것으로 만든다) */
+    public void masked(long userId) {
+        jdbc.update("INSERT INTO chatbot.masked_member (user_id, masked_at) VALUES (?, ?)", userId, MASKED_AT);
     }
 
     public List<Long> maskedMembers() {

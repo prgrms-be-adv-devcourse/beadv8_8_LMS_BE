@@ -10,6 +10,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
+import org.springframework.ai.model.tool.ToolCallLimitExceededException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.task.SimpleAsyncTaskExecutorBuilder;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
@@ -23,6 +24,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import jakarta.annotation.PreDestroy;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.core.JacksonException;
 
 /**
  * 챗봇 LLM 호출 장치(#718 공통 기반, #715 FAQ 대화에서 꺼냄). FAQ 대화·강의 추천 설명·인플루언서 추천·자유 질문이 모두 이것을 거친다.
@@ -33,6 +35,8 @@ import reactor.core.scheduler.Schedulers;
  *     돌려준다. 이때 기능은 LLM 없이 답한다(fallback). 로그·지표는 기능 쪽이 남긴다.</li>
  *     <li>한 번에 받기({@link #call})는 별도 스레드에서 부르고 시간 상한까지 기다린다. 스트림은 {@link #acquire}로 허가만 받고
  *     기능이 Reactor로 시간을 자른 뒤 결과를 직접 알린다(Resilience4j TimeLimiter는 Flux에 걸리지 않는다).</li>
+ *     <li>모델이 답했는데 형식이 틀린 것({@code .entity()}의 JSON 파싱 실패, {@link FallbackReason#FORMAT})은 공급자 장애가 아니라
+ *     회로에 실패로 넣지 않는다. 리랭킹 형식 오류가 FAQ 대화까지 막지 않게 한다. 호출자에게는 실패로 돌려주고 지표 태그로 따로 센다.</li>
  *     <li>별도 스레드는 Boot builder로 만든 가상 스레드 executor다. 앱의 trace decorator가 붙어 LLM 호출·Tool 로그에 요청의
  *     {@code traceId}가 찍힌다(docs/dev/logging.md "스레드 경계"). 동시 수는 허가가 제한한다.</li>
  * </ul>
@@ -88,6 +92,12 @@ public class LlmCallGuard {
             permit.failed(e);
             return new Result<>(null, FallbackReason.TIMEOUT, e);
         } catch (ExecutionException e) {
+            FallbackReason modelAnswered = modelAnsweredFailure(e.getCause());
+            if (modelAnswered != null) {
+                // 모델은 답했다. 성공도 실패도 아니라 회로에는 남기지 않고 자리만 돌려준다
+                permit.cancelled();
+                return new Result<>(null, modelAnswered, e.getCause());
+            }
             permit.failed(e.getCause());
             return new Result<>(null, FallbackReason.ERROR, e.getCause());
         } catch (InterruptedException e) {
@@ -96,6 +106,36 @@ public class LlmCallGuard {
             Thread.currentThread().interrupt();
             return new Result<>(null, FallbackReason.ERROR, e);
         }
+    }
+
+    /**
+     * 모델은 답했지만 쓸 수 없는 실패의 이유. 공급자 장애가 아니라 회로 실패로 세지 않는다. 그 밖이면 null.
+     * <ul>
+     *     <li>{@link FallbackReason#FORMAT}: {@code .entity()}의 JSON 형식 오류</li>
+     *     <li>{@link FallbackReason#TOOL_LIMIT}: 한 요청의 Tool 호출 상한({@code spring.ai.tools.limits.*})을 넘음</li>
+     * </ul>
+     */
+    static @Nullable FallbackReason modelAnsweredFailure(@Nullable Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+            if (cause instanceof ToolCallLimitExceededException || cause instanceof ToolCallLimitReached) {
+                return FallbackReason.TOOL_LIMIT;
+            }
+        }
+        return isFormatError(error) ? FallbackReason.FORMAT : null;
+    }
+
+    /**
+     * {@code .entity()}의 형식 오류인지: 예외 자신이나 원인 중에 Jackson 예외가 있다. Spring AI 2.0.1은 구조화 출력의 JSON을 읽지 못하면
+     * Jackson 예외({@code StreamReadException} 등)를 그대로 던지고, 변환기에 따라 {@link IllegalStateException}으로 감싸기도 한다.
+     * 둘 다 형식 오류로 본다(테스트 {@code LectureRecommendButtonTest.formatErrorIsNotCircuitFailure}로 확인).
+     */
+    static boolean isFormatError(@Nullable Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+            if (cause instanceof JacksonException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.chatbot.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +37,14 @@ class TasteVectorsTest {
 
         assertThat(mixed[0]).isCloseTo(0.7f, within(1e-6f));
         assertThat(mixed[1]).isCloseTo(0.3f, within(1e-6f));
+    }
+
+    @Test
+    @DisplayName("평균·내적·가중 합 (#719 인플루언서 취향)")
+    void meanDotWeightedSum() {
+        assertThat(TasteVectors.mean(List.of(new float[] {1, 0}, new float[] {0, 1}))).containsExactly(0.5f, 0.5f);
+        assertThat(TasteVectors.dot(new float[] {0.6f, 0.8f}, new float[] {1, 0})).isCloseTo(0.6, within(1e-6));
+        assertThat(TasteVectors.weightedSum(new float[] {1, 0}, 0.25, new float[] {0, 1}, 0.75)).containsExactly(0.25f, 0.75f);
     }
 
     @Test
