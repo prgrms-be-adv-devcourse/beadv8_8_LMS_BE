@@ -4,7 +4,7 @@
 
 > 문서 지도: [도메인 개념](CONTEXT.md) · **[설계·구현 구조](module.md)** · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API](../api/notification.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md). 문서 목록은 [INDEX](INDEX.md).
 >
-> - 기준: 2026-11-06 `dev` e054d6f6. 이 시점에 알림 모듈 코드는 없다. 코드가 생기면 문서와 코드가 다를 때 **코드가 맞다**. 확인 후 이 문서를 고친다.
+> - 기준: 처음 작성은 2026-11-06 `dev` e054d6f6(알림 모듈 코드 없음), 2장 As-Is는 dev `cced81b7`(N1~N10)이다. 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.
 > - 이 문서는 모듈의 구조와 상태만 적는다. 결정과 이유는 [decisions.md](decisions.md)(`ND-*`), 개념은 [CONTEXT.md](CONTEXT.md), 구현 규칙은 [`apps/auxiliary-app/boundedContext/notification/AGENTS.md`](../../apps/auxiliary-app/boundedContext/notification/AGENTS.md), 진행 상황은 [`PROGRESS.md`](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)다. 결정은 ND 번호로 가리키고 본문을 다시 쓰지 않는다.
 > - 업무 정책 원본은 [`docs/policy.md`](../policy.md)다(알림센터 장은 팀 승인 뒤 후속). 원천 설계는 [알림 설계](../architecture/infrastructure/notification.md)(이하 N)다.
 
@@ -21,7 +21,7 @@
 
 맡는 것과 맡지 않는 것은 [CONTEXT.md](CONTEXT.md) 1장에 있다(ND-001~004). 채팅 알림은 채팅 소유이며 이 모듈의 구조에 넣지 않는다(ND-004, decisions.md 12장).
 
-## 2. As-Is (기준: dev `35735bf1`(N2 PR #819, N3 PR #834, N4 PR #853 병합) + N5 #859 브랜치 `feature/tkt-859`(PR 리뷰 중, dev 병합 전))
+## 2. As-Is (기준: dev `cced81b7`(N1~N10 병합, 마지막 N10 PR #929))
 
 | 사실 | 근거 |
 | --- | --- |
@@ -30,7 +30,7 @@
 | Gradle 등록: `val auxiliaryModules = listOf("chatbot", "notification", "search")`. `:auxiliary-app`이 업무 모듈을 의존한다 | `settings.gradle.kts` 22행, `apps/auxiliary-app/build.gradle.kts` |
 | `:notification`은 `:auxiliary-global`과 `spring-boot-starter-kafka`만 의존한다. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어 starter를 직접 쓰고, common/kafka의 처리 로그 인터셉터는 복사했다 | `boundedContext/notification/build.gradle.kts`, `.../in/event/kafka/EventLogContextRecordInterceptor.java` |
 | 모듈 `@ApplicationModule(displayName = "Notification", allowedDependencies = "global")` | `.../notification/package-info.java` |
-| Flyway `V202611091500__create_notification_schema.sql`: schema `notification`, 테이블 `notification.notification_user` 하나(ND-046). 나머지 테이블 셋은 없다 | `boundedContext/notification/src/main/resources/db/migration/` |
+| Flyway `V202611091500__create_notification_schema.sql`: schema `notification`, 테이블 `notification.notification_user`(ND-046). 다른 테이블은 아래 N2·N5·N8·N10 Flyway 행에 있다 | `boundedContext/notification/src/main/resources/db/migration/` |
 | 회원 복제본: `NotificationUser`(shared `ReplicaUser` 상속), `NotificationUserSyncService`(가입은 없으면 생성·있으면 건너뜀, 변경은 없으면 그 정보로 생성(ND-049)·있으면 더 큰 버전만, 복제할 수 없는 정보는 `INVALID_MEMBER_EVENT`로 재시도 없이 DLT) | `.../domain/NotificationUser.java`, `.../app/NotificationUserSyncService.java` |
 | 회원 이벤트 소비자 `NotificationMemberEventListener`: 토픽 `member.events.v1`, 그룹 `auxiliary-app.notification-member-replica`(ND-047), `UserJoinedEvent`·`UserModifiedEvent`(복제본 + 가입 환영·승급 승인, 아래 N5 행)와 `UserMaskedEvent`(파기 닉네임, ND-051), N7 회원 3종(`InfluencerChannelApprovedEvent`·`InfluencerChannelRejectedEvent`·`InfluencerUpgradeRequestRejectedEvent`, 알림만, 아래 N7 회원 행)을 처리하고 그 밖 종류·tombstone은 건너뛴다. Backfill을 기다리지 않는다(ND-080). `hapbang.notification.member-events.enabled`(기본 켜짐)로 켜고 끈다 | `.../in/event/NotificationMemberEventListener.java` |
 | 알림 생성(N5, #859): 초안 `AlertDrafts`(11종의 받는 사람·원본 대상 ID·이동 대상·값, 발생 시각은 이벤트 사건 시각이고 출연 요청 도착·회원 이벤트는 Kafka 레코드 timestamp, ND-073·ND-074·ND-081), 문구 `AlertTemplate`(enum 11개, 카탈로그 0.5, `NotificationTemplates`가 빈 템플릿과 함께 등록, ND-075), 저장 전 `AlertStartPolicy`(`hapbang.notification.alert.start-at` 필수, 이른 사건은 커밋만, ND-076). `NotificationAlertService`가 출연 2종은 받는 사람이 받을 수 있는 회원인지 먼저 보고, 언급 회원 닉네임을 복제본에서 읽어(없으면 재시도 가능한 `MENTIONED_NOT_REPLICATED`, 재시도 뒤 DLT, ND-091) 저장 서비스에 넘긴다. 강의 원천 지급은 하루 묶음(N8)으로 넘긴다(ND-013), 지급 제목은 없다(ND-070) | `.../app/AlertDrafts.java`, `AlertTemplate.java`, `AlertStartPolicy.java`, `NotificationAlertService.java` |
@@ -44,7 +44,7 @@
 | Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID) | `boundedContext/notification/src/main/resources/db/migration/` |
 | Flyway `V202611120950__create_notification_payout_item.sql`(N8, ND-103): `notification.notification_payout_item`(PK 지급 건 ID, 묶음 알림 ID FK, 받는 사람, 지급 HP CHECK >= 0, 지급 시각)과 `notification`의 묶음 유일 인덱스 `uk_notification_bundle`(종류, 받는 사람, 묶음 키; `bundle_key IS NOT NULL`만 조건이라 삭제된 행 포함) | `boundedContext/notification/src/main/resources/db/migration/` |
 | 하루 묶음(N8 #890, ND-032·ND-097·ND-101~ND-103): 지갑 리스너가 강의 원천 `PayoutCompletedEvent`를 `DailyPayout`(묶음 키 = `paidAt`의 KST 날짜 `yyyy-MM-dd`)으로 바꿔 `NotificationAlertService.dailyPayout`에 넘긴다(시작 시각 전이면 커밋만, ND-076). `NotificationWriter.addDailyPayout`이 한 트랜잭션에서 받는 사람 행 잠금(ND-053) → 받는 사람 확인 → 같은 지급이면 `DUPLICATE`(묶음 불변) → 그 날짜 묶음(삭제된 행 포함)이 없으면 만들고(`Notification.createBundle`, 원본 대상 ID·이동 대상 없음) 있으면 받는 사람의 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근 뒤(밀려날 행이 이 안에 있어 전체 읽음과 잠금 순서가 같다) 칸만 바꾸는 UPDATE로 합계·건수·문구·발생 시각(늦은 값)·안 읽음·되살림(`UPDATED`) → 지급 기록(`JdbcPayoutItemStore`) → 21번째부터 Soft Delete → commit 뒤 실시간 전달. 문구는 `PayoutDailyTemplate`(값 `v`·`date`·`totalPaidAmountHp`·`count`, ND-100) | `.../app/DailyPayout.java`, `.../app/PayoutDailyTemplate.java`, `.../app/NotificationWriter.java`, `.../app/PayoutItemStore.java`, `.../out/JdbcPayoutItemStore.java`, `.../out/NotificationRepository.java`, `.../in/event/NotificationBillingEventListener.java` |
-| 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴·정지·관리자 제외, ND-018·ND-072·ND-003. 결과 `SKIPPED_RECEIVER`) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate`)은 운영 코드에 아직 없다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
+| 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴·정지·관리자 제외, ND-018·ND-072·ND-003. 결과 `SKIPPED_RECEIVER`) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate` 구현)은 각 소비 작업 행에 있고 `NotificationTemplates`가 등록한다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
 | N6 변환·문구(#862): `AppearanceCancelRequestAlerts`·`LectureObjectionAlerts`가 출연 취소 요청 3종·이의 제기 결과 4종을 알림 초안으로 바꾼다(받는 사람, 원본 대상 ID ND-083, 이동 대상 ND-084, 발생 시각은 사건 시각, 필수 값이 비면 `IllegalArgumentException`). `AppearanceCancelRequestTemplates`·`LectureObjectionTemplates`(enum)가 값만으로 문구를 만들고(ND-085, 값 `v` 1, 취소 요청 도착은 게스트 `nicknames`) `NotificationTemplates`가 N5 템플릿과 함께 등록한다. `ObjectionLegacyFormat`이 원본 JSON의 #818 추가 필드 키로 이전 형식·판별 불가·지금 형식을 나눈다(ND-086) | `.../app/{AppearanceCancelRequest,LectureObjection}{Alerts,Templates}.java`, `.../app/NotificationTemplates.java`, `.../in/event/kafka/ObjectionLegacyFormat.java` |
 | N6 소비자(#862, ND-087·ND-096): 출연 취소 요청 3종은 `NotificationAppearanceEventListener`(N5 그룹 `auxiliary-app.notification-appearance-alert`)의 처리기다. 취소 요청 도착은 `NotificationAlertService.cancelRequested`가 시작 시각·받는 사람을 먼저 본 뒤 게스트 닉네임을 읽고, 수락·거절은 `create(draft)`다. 초안으로 바꿀 때 필수 값이 비면 `RejectedEventException`(재시도 없이 DLT, 저장 단계 오류는 그대로 재시도). 이의 제기 결과 4종은 `NotificationLectureEventListener`(`lecture.events.v1`, 그룹 `auxiliary-app.notification-lecture-alert`, DLT `<토픽>.<그룹>.DLT`)가 값을 바이트로 받아 `__TypeId__`가 없거나 신뢰 패키지(`com.hapbang.shared.lecture.event`) 밖이면 DLT, 패키지 안 다른 종류는 건너뛰고, 4종은 `ObjectionLegacyFormat`으로 이전 형식(로그는 종류마다 1·2·4…번째만 INFO, 지표 `hapbang.notification.alert.legacy.skipped` 뒤 커밋)·판별 불가(값 `null`, 일부 키 없음, JSON 객체가 아닌 본문 → DLT)·지금 형식(Jackson으로 레코드로 바꿔 `create`)을 나눈다. 강의 컨테이너도 `NotificationAlertListenerStarter`가 첫 Backfill 뒤에 시작한다 | `.../in/event/NotificationAppearanceEventListener.java`, `.../in/event/NotificationLectureEventListener.java`, `.../in/event/NotificationAlertListenerStarter.java`, `.../in/event/kafka/NotificationKafka{Config,ErrorHandlerConfig,TopicConfig,Constants}.java`, `.../app/NotificationAlertService.java` |
 | N7 지갑 4종(#907, ND-105~ND-108): `WalletAlerts`가 충전 실패·환불 실패·환불 운영자 확인 필요·환전 승인을 알림 초안으로 바꾼다(받는 사람 `userId`, 원본 대상과 이동 대상이 같은 자원 ID `CHARGE`·`REFUND_REQUEST`·`EXCHANGE`, 발생 시각은 사건 시각, 필수 값이 비면 `IllegalArgumentException`). 값에는 `v`와 문구에 쓰는 값만 있다(충전 실패의 결제 금액은 저장하지 않는다, ND-109). 문구는 `WalletAlertTemplates`(enum 4개, 카탈로그 0.7, 환전 승인의 송금 예정일은 값의 `payoutScheduledAt`(UTC ISO 문자열)을 KST `M월 d일`로)이고 `NotificationTemplates`가 등록한다. 소비는 N5의 `NotificationBillingEventListener`(그룹 `auxiliary-app.notification-billing-alert`)에 처리기 4개를 더했고, 변환의 검증 실패는 `RejectedEventException`(재시도 없이 DLT)으로 바꾼 뒤 `NotificationAlertService.create`로 넘긴다(시작 시각·받는 사람 정책·멱등은 N5와 같다) | `.../app/WalletAlerts.java`, `.../app/WalletAlertTemplates.java`, `.../app/NotificationTemplates.java`, `.../in/event/NotificationBillingEventListener.java` |
@@ -299,15 +299,14 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | U14 | WebSocket 경로 Gateway 시간 제한. 알림 쪽은 ND-062·ND-063, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
 | U15 | Gateway `claimToHeaders`에 `exp` 추가. 알림 쪽은 ND-055·ND-056·ND-064, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
 | U3 | N5 밖 종류별 실제 문구(원칙은 ND-039·ND-050, N5는 ND-075) | 각 종류를 소비하는 작업(N6 이후) |
-| U2 / T3 | P0 완료 기준 | 작업 계획 |
 | U12 | 채팅과 동시 표시(화면, FE 안건). 규칙 밖 종류 코드 U11은 ND-137로 끝났다 | FE |
 | T8 | chat-app 불변식과 ND-004의 방향 차이 | 채팅 소유, 이 모듈 구조에는 영향 없음 |
-| U19 | 구조는 ND-051로 정했다. 남은 것은 구현 가능성 검증(`NT-USR-07`) | 알림 저장(N2, #801) 구현 |
 
 ## 7. 갱신 이력
 
 | 날짜 | 내용 |
 | --- | --- |
+| 2026-11-14 | 문서 정리(#931): 2장 기준을 dev `cced81b7`로 고치고, Flyway 첫 행과 템플릿 서술을 실제 코드에 맞췄다. 6장에서 해소된 U2/T3·U19 행을 지웠다. PR 리뷰 뒤 머리말 기준 문장을 고쳤다 |
 | 2026-11-13 | ND-133~ND-143 반영(N10 사전 결정, #928): 3.2 예약 행을 결정 참조로 고치고 예약 행 정리 행을 더했다. 6장에서 U16 행을 지우고 U6·U11 행을 결정 범위로 고쳤다 |
 | 2026-11-13 | N10 구현(#928, ND-144~ND-148 포함): 2장 As-Is에 예약 테이블·예약 입력·예약 배치 행을 더했다(S6 리뷰 뒤 실패 횟수·발생 시각 반영). PR #929 Bot 리뷰 뒤 이의 제기 접수 취소(ND-149), 기한 지난 예약 먼저 건너뜀·기한 남은 예약만 선택, 잠근 뒤 시각으로 판정·발생 시각을 반영했다 |
 | 2026-11-12 | N7 출연 구현(#908, ND-110~ND-113): 2장에 출연 10종 변환·문구·소비 행을 더했다. 5.2·5.3 M3 행을 #871 발행으로 고쳤다 |

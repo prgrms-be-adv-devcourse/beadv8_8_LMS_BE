@@ -8,7 +8,7 @@
 > - 업무 정책의 원본은 [`docs/policy.md`](../policy.md)다. 알림센터 장은 아직 없고, 반영은 팀 승인 뒤 후속 작업이다(decisions.md 머리말). 그 전까지 알림센터 결정은 decisions.md에 있다.
 > - 용어는 [`docs/GLOSSARY.md`](../GLOSSARY.md)가 원본이다. GLOSSARY에 없는 말은 **제안 용어**로 표시한다. 제안 용어를 GLOSSARY에 넣는 일은 팀 승인이 필요하다.
 > - 미결 항목(`U*`, `T*`)은 decisions.md 10장에 있다. 이 문서에서 확정처럼 쓰지 않는다.
-> - 구현 상태: 2026-11-09 기준 모듈 뼈대(회원 복제본, Kafka 소비·DLT 설정)만 있고 알림 생성 코드는 없다([module.md](module.md) 2장).
+> - 구현 상태: 구현 작업 N1~N10이 dev에 병합됐다(2026-11-14 확인, dev `cced81b7`). 구현 범위는 [module.md](module.md) 2장 As-Is에 있다.
 
 ## 1. 알림센터 도메인의 책임
 

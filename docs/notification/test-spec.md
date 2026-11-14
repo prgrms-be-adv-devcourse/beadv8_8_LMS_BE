@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · **[테스트 검증 기준](test-spec.md)** · [회귀 실행 기록](regression-log.md) · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림센터(auxiliary-app 알림 모듈)가 **무엇을 만족해야 하는가**(요구사항, 합격 기준, 근거 결정)를 `NT-*` ID로 정리한다. 통과·실패, 실행 날짜, 실행 건수는 적지 않는다. **실제로 실행한 결과는 [regression-log.md](regression-log.md)에만 적는다.**
-> - **현재 상태(2026-11-09, N1 #797)**: 모듈 뼈대(회원 복제본, Kafka 소비·DLT 설정) 테스트가 생겼다. 연결된 항목은 4장 "N1 연결 테스트"에 있고, 나머지 항목은 "테스트 없음"이다. "유효"는 합격 기준이 결정과 맞는다는 뜻이지 구현·통과했다는 뜻이 아니다. 실행 결과는 [regression-log.md](regression-log.md)에만 있다.
+> - **현재 상태(2026-11-14, dev `cced81b7`)**: 구현 작업 N1~N10의 테스트가 있다. 테스트와 연결한 항목은 4장 "연결 테스트" 표에 있고, 표에 없는 항목은 연결한 테스트를 적지 않았다. "유효"는 합격 기준이 결정과 맞는다는 뜻이지 구현·통과했다는 뜻이 아니다. 실행 결과는 [regression-log.md](regression-log.md)에만 있다.
 > - 근거: 결정은 [decisions.md](decisions.md)의 `ND-*`·`U*`, 설계 원본은 [알림 설계](../architecture/infrastructure/notification.md)(이하 `N`, 장 번호로 적는다), Kafka 규칙은 [kafka.md](../architecture/infrastructure/kafka.md), 모듈 경계·자원은 [auxiliary-app README](../../apps/auxiliary-app/README.md)다. 이 문서는 결정을 새로 만들지 않는다.
 > - 테스트 방식(단위·통합 기준, 테스트용 DB)은 팀 합의 전이다(루트 AGENTS 11장). "테스트 종류" 칸은 **제안**이다.
 
@@ -63,7 +63,7 @@
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-GEN-01 | 충전 완료 알림 (일반 유저 포함) | `notification_user`에 역할 유저(일반 유저)·정상 상태 회원 A | `billing.events.v1` `ChargeCompletedEvent`(충전한 회원 A) | A에게 알림 1건. 종류 `CHARGE_COMPLETED`, 받는 사람 A, 원본 이벤트 종류·원본 대상 ID 채움, 값(`jsonb`, `v`) 저장, 발생 시각 = 이벤트 업무 시각, 읽은 시각 없음, 문구 비어 있지 않음. A의 안 읽은 수 +1 | 인플루언서·인증된 인플루언서도 같은 결과 | ND-001, ND-003, ND-008, ND-011, ND-020 | Kafka `billing.events.v1`, 카탈로그 `CHARGE_COMPLETED` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-02 | 구매 완료 알림 (일반 유저) | 일반 유저 구매자 B. **M4**(`LectureOrderPaidEvent` 발행) 필요 | `lecture.events.v1` `LectureOrderPaidEvent` | B에게 종류 `LECTURE_ORDER_PAID` 알림. 항목이 여럿이어도 주문당 1건(원본 대상 ID `orderId`, ND-115) | M4 전에는 실행할 수 없다. 11장 완료 증거에 넣을지는 U2(3장) | ND-003, ND-011, ND-115 | Kafka `lecture.events.v1`, 카탈로그 `LECTURE_ORDER_PAID` | Integration(PG+Kafka) | 유효 |
+| NT-GEN-02 | 구매 완료 알림 (일반 유저) | 일반 유저 구매자 B. M4(`LectureOrderPaidEvent` 발행, #872 완료) | `lecture.events.v1` `LectureOrderPaidEvent` | B에게 종류 `LECTURE_ORDER_PAID` 알림. 항목이 여럿이어도 주문당 1건(원본 대상 ID `orderId`, ND-115) | 11장 완료 증거 1번(3장) | ND-003, ND-011, ND-115 | Kafka `lecture.events.v1`, 카탈로그 `LECTURE_ORDER_PAID` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-03 | 출연 원천 지급 알림 | 게스트 회원 | `PayoutCompletedEvent` `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE`, `payoutType` `NORMAL`·`PENALTY` | 지급마다 `PAYOUT_COMPLETED` 1건(묶지 않는다). 같은 이벤트로 사건 알림이 따로 있어도 지급 알림은 별개로 생긴다 | `LECTURE_ORDER_ITEM` 원천은 이 종류로 만들지 않는다(→ BUN) | ND-013 | Kafka `billing.events.v1`, 카탈로그 `PAYOUT_COMPLETED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-04 | 조건부 발송 | M3·M4 | `AppearanceRecruitClosedEvent`(`closeType`), `AppearanceConfirmedEvent`(`confirmType`), `LectureOrderItemConfirmedEvent`(`confirmationType`) | `DEADLINE`·`AUTO`일 때만 알림 1건. 조기 마감·직접 확인·직접 구매 확정은 알림 0이고 offset은 커밋(DLT 아님) | — | ND-011 | 카탈로그 `APPEARANCE_RECRUIT_CLOSED`, `APPEARANCE_CONFIRMED`, `LECTURE_ORDER_ITEM_CONFIRMED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-05 | 받는 사람이 여럿인 알림 | 호스트·게스트, 구매자·판매자 복제본. M2·M3·M4 | `AppearanceRequestExpiredEvent`, `LectureObjectionFiledEvent`, `LectureObjectionResolvedEvent` | 받는 사람마다 1건씩(만료: 호스트·게스트, 이의 제기: 구매자·판매자). `accepted`에 따라 값이 달라진다 | 받는 사람 중 한 명이 탈퇴면 나머지만(NT-USR-03) | ND-011, ND-015 | 카탈로그 `APPEARANCE_REQUEST_EXPIRED`, `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_RESOLVED` | Integration(PG+Kafka) | 유효 |
@@ -253,7 +253,7 @@
 
 | # | 원문 | NT | 메모 |
 | --- | --- | --- | --- |
-| 1 | 일반 유저 계정이 충전 완료·구매 완료 알림을 받는다. | NT-GEN-01(충전 완료), NT-GEN-02(구매 완료) | 충전 완료는 ✅ `ChargeCompletedEvent`로 지금 가능하다. **구매 완료는 P1 이벤트 `LectureOrderPaidEvent`(M4)가 필요하다.** N 8장 "P0만으로 11장 완료 증거를 시연할 수 있다"와 맞지 않아 미결(U2) |
+| 1 | 일반 유저 계정이 충전 완료·구매 완료 알림을 받는다. | NT-GEN-01(충전 완료), NT-GEN-02(구매 완료) | 충전 완료는 `ChargeCompletedEvent`(N5), 구매 완료는 `LectureOrderPaidEvent`(M4 #872, N7 강의 #910)로 만든다. P0 완료 기준 문제(U2)는 해소됐다(2026-11-14) |
 | 2 | 같은 integration event를 두 번 소비해도 알림은 한 번만 생긴다. | NT-IDEM-01, NT-IDEM-02 | 받는 사람이 여럿이면 NT-IDEM-03 |
 | 3 | 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다. | NT-RT-01, NT-RT-04 | 연결 티켓 NT-RT-05. 운영 Gateway에서 연결이 유지되는지는 NT-RT-07, Gateway 경로·`exp` claim은 NT-RT-09 |
 | 4 | 알림이 21개가 되면 가장 오래된 알림이 목록에서 빠지고, 그 알림의 이벤트를 다시 소비해도 되살아나지 않는다. | NT-RET-01, NT-RET-02 | 묶음 알림이 밀려난 뒤 새 지급이 오면 되살린다(NT-BUN-05, ND-097) |
@@ -282,9 +282,9 @@
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
 | **합계** | **119** | **114** | **4** | **0** | **0** |
 
-- 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
+- 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
-**연결 테스트(N1·N2·N3)** (클래스는 `apps/auxiliary-app/boundedContext/notification/src/test/java/com/hapbang/auxiliary/notification/` 아래. "일부"는 합격 기준의 한 부분만 본다)
+**연결 테스트(N1~N10)** (클래스는 `apps/auxiliary-app/boundedContext/notification/src/test/java/com/hapbang/auxiliary/notification/` 아래. "일부"는 합격 기준의 한 부분만 본다)
 
 | NT | 테스트 | 범위 |
 | --- | --- | --- |
@@ -344,7 +344,7 @@
 | NT-RET-02·NT-IDEM-01 (실시간) | `in.NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 프레임 없음, 20개 유지) | 실시간 부분 |
 | (보안) | `in.NotificationRealtimeIntegrationTest`(클라이언트 SEND로 다른 회원 목적지 주입 불가, 자기 목적지 말고는 구독 불가), `in.websocket.NotificationStompInterceptorTest`(결합 안 된 CONNECT·다른 사용자 CONNECT 거절, 끝에 / 붙인 목적지 거절, 결합한 연결의 UNSUBSCRIBE·ACK 통과) | test-spec 항목 없음(ND-026·ND-027 보강) |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
-- 아직 발행되지 않는 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. 그 항목은 해당 M 전에는 실행할 수 없다.
+- 작성 때 발행되지 않던 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. M1~M8은 모두 완료됐다(PROGRESS 3장).
 
 ## 5. 이 문서를 고칠 때
 
@@ -354,6 +354,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-14 문서 정리(#931): 3장 완료 증거 1번 메모를 고쳤다(구매 완료 알림은 M4·N7 강의로 만든다, U2 해소). PR 리뷰 뒤 머리말 현재 상태, NT-GEN-02 선행 조건·예외 칸, 4장 연결 테스트 표 제목과 M 작업 메모를 고쳤다. 항목·집계는 그대로다.
 - 2026-11-12 decisions.md ND-129~ND-132 반영(N9 채팅 단체방, #921): NT-GEN-24(채팅 3종)를 더하고 NT-GEN-10·15의 범위에 N9 채팅을 더했다. 받는 사람은 기존 NT-GEN-08, group 이름은 NT-KAF-06이 이미 다룬다. 집계 108 → 109, 유효 102, 미결 7(회원 #915·고객센터 #918 병합 뒤 기준). 구현 뒤 4장 연결 표에 채팅 행을 더했다.
 - 2026-11-12 decisions.md ND-122~ND-126 반영(N7 고객센터 묶음, #918): NT-GEN-23(고객센터 2종)·NT-KAF-10(고객센터 알림 리스너)을 더하고, NT-GEN-10·15의 범위에 N7 고객센터를 더했다. 집계 106 → 108, 유효 101, 미결 7(강의 #910·회원 #915 병합 뒤 기준). 번호는 그 두 묶음(NT-GEN-21·22) 다음이다. 구현 뒤 4장 연결 표에 고객센터 2행을 더했다. S6 리뷰 뒤 NT-GEN-23 예외 칸과 연결 표에 빈·공백 제목 DLT(ND-127)를 더했다(항목·집계는 그대로).
 - 2026-11-12 decisions.md ND-118~ND-121 반영(N7 회원 묶음, #915): NT-GEN-22(회원 3종)를 더하고, NT-GEN-10·15의 범위에 N7 회원을 더했다. 집계 105 → 106, 유효 99, 미결 7(출연 #908·강의 #910 병합 뒤 기준).
