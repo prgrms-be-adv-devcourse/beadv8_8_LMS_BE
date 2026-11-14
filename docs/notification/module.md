@@ -4,7 +4,7 @@
 
 > 문서 지도: [도메인 개념](CONTEXT.md) · **[설계·구현 구조](module.md)** · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API](../api/notification.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md). 문서 목록은 [INDEX](INDEX.md).
 >
-> - 기준: 2026-11-06 `dev` e054d6f6. 이 시점에 알림 모듈 코드는 없다. 코드가 생기면 문서와 코드가 다를 때 **코드가 맞다**. 확인 후 이 문서를 고친다.
+> - 기준: 처음 작성은 2026-11-06 `dev` e054d6f6(알림 모듈 코드 없음), 2장 As-Is는 dev `cced81b7`(N1~N10)이다. 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.
 > - 이 문서는 모듈의 구조와 상태만 적는다. 결정과 이유는 [decisions.md](decisions.md)(`ND-*`), 개념은 [CONTEXT.md](CONTEXT.md), 구현 규칙은 [`apps/auxiliary-app/boundedContext/notification/AGENTS.md`](../../apps/auxiliary-app/boundedContext/notification/AGENTS.md), 진행 상황은 [`PROGRESS.md`](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)다. 결정은 ND 번호로 가리키고 본문을 다시 쓰지 않는다.
 > - 업무 정책 원본은 [`docs/policy.md`](../policy.md)다(알림센터 장은 팀 승인 뒤 후속). 원천 설계는 [알림 설계](../architecture/infrastructure/notification.md)(이하 N)다.
 
@@ -306,7 +306,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | 날짜 | 내용 |
 | --- | --- |
-| 2026-11-14 | 문서 정리(#931): 2장 기준을 dev `cced81b7`로 고치고, Flyway 첫 행과 템플릿 서술을 실제 코드에 맞췄다. 6장에서 해소된 U2/T3·U19 행을 지웠다 |
+| 2026-11-14 | 문서 정리(#931): 2장 기준을 dev `cced81b7`로 고치고, Flyway 첫 행과 템플릿 서술을 실제 코드에 맞췄다. 6장에서 해소된 U2/T3·U19 행을 지웠다. PR 리뷰 뒤 머리말 기준 문장을 고쳤다 |
 | 2026-11-13 | ND-133~ND-143 반영(N10 사전 결정, #928): 3.2 예약 행을 결정 참조로 고치고 예약 행 정리 행을 더했다. 6장에서 U16 행을 지우고 U6·U11 행을 결정 범위로 고쳤다 |
 | 2026-11-13 | N10 구현(#928, ND-144~ND-148 포함): 2장 As-Is에 예약 테이블·예약 입력·예약 배치 행을 더했다(S6 리뷰 뒤 실패 횟수·발생 시각 반영). PR #929 Bot 리뷰 뒤 이의 제기 접수 취소(ND-149), 기한 지난 예약 먼저 건너뜀·기한 남은 예약만 선택, 잠근 뒤 시각으로 판정·발생 시각을 반영했다 |
 | 2026-11-12 | N7 출연 구현(#908, ND-110~ND-113): 2장에 출연 10종 변환·문구·소비 행을 더했다. 5.2·5.3 M3 행을 #871 발행으로 고쳤다 |

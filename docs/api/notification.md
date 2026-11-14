@@ -2,7 +2,7 @@
 
 > 문서 탐색: [알림 문서 INDEX](../notification/INDEX.md)
 
-> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 #853). 이벤트 소비·Backfill 재실행 API는 N5(#859) 확정 To-Be**([모듈 문서](../notification/module.md) 2장).
+> - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: REST 4개 구현(#801, dev 병합 #819), 연결 티켓·WebSocket 구현(#829, dev 병합 #834), Gateway route 구현(N4 #847, ND-062~ND-064·ND-067, dev 병합 #853), Backfill 재실행·실행 조회 API 구현(N5 #859, dev 병합 #865)**([모듈 문서](../notification/module.md) 2장).
 > - 원천: [알림 설계](../architecture/infrastructure/notification.md) 6.3, 결정 [ND-026](../notification/decisions.md)·ND-023·ND-027·ND-028. 이 문서는 원천에 있는 사실만 옮긴다. 원천에 없는 값은 "미정(구현 때 정함)"으로 둔다.
 > - 공통 규칙: 성공 응답 `RsData`, 오류 `ProblemDetail`(+ `code`)은 [API 규칙](conventions.md)을 따른다. 모듈은 `@RestControllerAdvice`를 만들지 않는다.
 > - 개념(알림, 읽음, 안 읽은 수, 연결 티켓)은 [도메인 개념](../notification/CONTEXT.md)에 있다.
@@ -94,3 +94,4 @@
 | 2026-11-12 | ND-125 반영(N7 고객센터 사전 결정, #918): 2.2 이동 대상에 새 `targetType` `INQUIRY`(문의 답변 도착·이의 제기 접수 불가)를 더했다 |
 | 2026-11-12 | ND-131 반영(N9 채팅 사전 결정, #921): 2.2 이동 대상에 새 `targetType` `CHAT_ROOM`을 더하고 `null` 행에 단체방 강퇴를 더했다 |
 | 2026-11-13 | ND-139 반영(N10 사전 결정, #928): 2.2 이동 대상의 쓰는 종류에 예약 5종을 더했다(새 `targetType` 없음) |
+| 2026-11-14 | 문서 정리(#931): 머리말 구현 상태에 Backfill 재실행·실행 조회 API 구현(N5, #865)을 적었다 |

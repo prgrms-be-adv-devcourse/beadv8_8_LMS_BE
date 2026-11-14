@@ -4,7 +4,7 @@
 
 auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 지킬 개발 규칙이다.
 
-- **현재 상태(2026-11-12)**: Gradle 모듈 `:notification`이다. 회원 복제본·Kafka 소비·DLT 공통 설정(N1 #797), 알림 저장·REST·파기 닉네임(N2 #801), 실시간 전달(N3 #829), Gateway route(N4 #847)가 있고, 출연·지갑·회원 이벤트로 알림을 만드는 소비자와 회원 복제본 Backfill·관리자 재실행 API(N5 #859), 출연 취소 요청 3종·이의 제기 결과 4종 알림 소비자(N6 #862), 강의 지급 하루 묶음(N8 #890), 발행 모듈 새 이벤트 알림 소비자(N7: 지갑 #907·출연 #908·강의 #910·회원 #915·고객센터 #918), 채팅 단체방 3종 알림 소비자(N9 #921)가 있다. 구현 범위는 [`docs/notification/module.md`](../../../../docs/notification/module.md) 2장, 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
+- **현재 상태(2026-11-14)**: Gradle 모듈 `:notification`이다. 회원 복제본·Kafka 소비·DLT 공통 설정(N1 #797), 알림 저장·REST·파기 닉네임(N2 #801), 실시간 전달(N3 #829), Gateway route(N4 #847)가 있고, 출연·지갑·회원 이벤트로 알림을 만드는 소비자와 회원 복제본 Backfill·관리자 재실행 API(N5 #859), 출연 취소 요청 3종·이의 제기 결과 4종 알림 소비자(N6 #862), 강의 지급 하루 묶음(N8 #890), 발행 모듈 새 이벤트 알림 소비자(N7: 지갑 #907·출연 #908·강의 #910·회원 #915·고객센터 #918), 채팅 단체방 3종 알림 소비자(N9 #921), 예약 배치와 예약 알림 5종(N10 #928)이 있다. 구현 범위는 [`docs/notification/module.md`](../../../../docs/notification/module.md) 2장, 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
 - **규칙 상속 순서**: 루트 [`AGENTS.md`](../../../../AGENTS.md) → [`apps/auxiliary-app/README.md`](../../README.md) → 이 문서. 이 문서와 상위 문서가 충돌하면 상위 문서를 따르고, 충돌을 보고한다.
 - 이 문서는 규칙만 적는다. 결정의 이유·대안·이력은 [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md)의 `ND-*` 번호로 참조하고 여기에 옮기지 않는다.
 

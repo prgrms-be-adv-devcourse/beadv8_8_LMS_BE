@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | auxiliary-app 생성 | 완료 | 커밋 `363dbeef`(#714, PR #736). 운영 준비 #726(PR #740·#741·#745) |
 | 챗봇 모듈 | 있음 | `apps/auxiliary-app/boundedContext/chatbot` |
-| notification Gradle 모듈 | 등록 | `settings.gradle.kts` `auxiliaryModules = listOf("chatbot", "notification")` |
+| notification Gradle 모듈 | 등록 | `settings.gradle.kts` `auxiliaryModules = listOf("chatbot", "notification", "search")` |
 | `boundedContext/notification` 디렉터리 | N1~N10 구현 | `build.gradle.kts`, `src/`. 구현 범위는 [module.md](../../../../docs/notification/module.md) 2장 As-Is |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
