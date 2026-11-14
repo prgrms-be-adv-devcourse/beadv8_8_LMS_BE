@@ -25,9 +25,12 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.listener.CompositeRecordInterceptor;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.CompositeProducerListener;
 import org.springframework.kafka.support.LoggingProducerListener;
+import org.springframework.kafka.support.ProducerListener;
 import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
@@ -84,13 +87,16 @@ public class NotificationKafkaConfig {
     private final String bootstrapServers;
     private final ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers;
     private final ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers;
+    private final NotificationKafkaMetrics metrics;
 
     public NotificationKafkaConfig(@Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers,
             ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers,
-            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers) {
+            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
+            NotificationKafkaMetrics metrics) {
         this.bootstrapServers = bootstrapServers;
         this.consumerFactoryCustomizers = consumerFactoryCustomizers;
         this.producerFactoryCustomizers = producerFactoryCustomizers;
+        this.metrics = metrics;
     }
 
     // 회원 이벤트
@@ -120,8 +126,9 @@ public class NotificationKafkaConfig {
     @Bean(name = MEMBER_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationMemberEventDeadLetterTemplate(
-            @Qualifier("notificationMemberEventDeadLetterProducerFactory") ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            @Qualifier("notificationMemberEventDeadLetterProducerFactory") ProducerFactory<String, Object> producerFactory,
+            @Qualifier(MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = MEMBER_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -159,8 +166,9 @@ public class NotificationKafkaConfig {
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationAppearanceEventDeadLetterTemplate(
             @Qualifier("notificationAppearanceEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            ProducerFactory<String, Object> producerFactory,
+            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = APPEARANCE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -199,8 +207,9 @@ public class NotificationKafkaConfig {
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationBillingEventDeadLetterTemplate(
             @Qualifier("notificationBillingEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            ProducerFactory<String, Object> producerFactory,
+            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = BILLING_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -240,8 +249,9 @@ public class NotificationKafkaConfig {
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationLectureEventDeadLetterTemplate(
             @Qualifier("notificationLectureEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            ProducerFactory<String, Object> producerFactory,
+            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = LECTURE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -280,8 +290,9 @@ public class NotificationKafkaConfig {
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationCustomerSupportEventDeadLetterTemplate(
             @Qualifier("notificationCustomerSupportEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            ProducerFactory<String, Object> producerFactory,
+            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = CUSTOMERSUPPORT_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -321,8 +332,9 @@ public class NotificationKafkaConfig {
     @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> notificationChatEventDeadLetterTemplate(
             @Qualifier("notificationChatEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory) {
-        return deadLetterTemplate(producerFactory);
+            ProducerFactory<String, Object> producerFactory,
+            @Qualifier(CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
     @Bean(name = CHAT_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
@@ -337,7 +349,7 @@ public class NotificationKafkaConfig {
     // 소비자들이 함께 쓰는 조립
 
     /** 알림을 만드는 출연·지갑·강의·고객센터·채팅 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
-    private static <V> ConcurrentKafkaListenerContainerFactory<String, V> alertContainerFactory(
+    private <V> ConcurrentKafkaListenerContainerFactory<String, V> alertContainerFactory(
             ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, V> factory = containerFactory(consumerFactory, errorHandler);
         factory.setAutoStartup(false);
@@ -382,7 +394,7 @@ public class NotificationKafkaConfig {
         return factory;
     }
 
-    private static <V> ConcurrentKafkaListenerContainerFactory<String, V> containerFactory(
+    private <V> ConcurrentKafkaListenerContainerFactory<String, V> containerFactory(
             ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, V> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
@@ -392,8 +404,9 @@ public class NotificationKafkaConfig {
         // 직접 만든 팩토리에는 Boot의 spring.kafka.listener.observation-enabled가 적용되지 않는다. 받은 메시지의 traceparent를
         // 부모로 consumer span을 만들게 켠다
         factory.getContainerProperties().setObservationEnabled(true);
-        // 처리 로그에 eventType·eventKey를 붙인다(docs/dev/logging.md "MDC 키")
-        factory.setRecordInterceptor(new EventLogContextRecordInterceptor<>());
+        // 처리 로그에 eventType·eventKey를 붙인다(docs/dev/logging.md "MDC 키"). 소비 지연과 저장 결과의 소비 문맥(ND-160·ND-161)
+        factory.setRecordInterceptor(new CompositeRecordInterceptor<>(new EventLogContextRecordInterceptor<>(),
+                metrics.<String, V>recordInterceptor()));
         return factory;
     }
 
@@ -416,12 +429,16 @@ public class NotificationKafkaConfig {
         return new DelegatingByTypeSerializer(delegates, true);
     }
 
-    /** 발행 실패 로그에 key·값을 남기지 않는 DLT 템플릿. 값에 회원 정보 같은 업무 데이터가 있을 수 있다 */
-    static <K, V> KafkaTemplate<K, V> deadLetterTemplate(ProducerFactory<K, V> producerFactory) {
+    /**
+     * 발행 실패 로그에 key·값을 남기지 않는 DLT 템플릿. 값에 회원 정보 같은 업무 데이터가 있을 수 있다. 전송 결과는 브로커 응답으로
+     * 센다({@code metricsListener}, ND-159)
+     */
+    static <K, V> KafkaTemplate<K, V> deadLetterTemplate(ProducerFactory<K, V> producerFactory,
+            ProducerListener<K, V> metricsListener) {
         KafkaTemplate<K, V> template = new KafkaTemplate<>(producerFactory);
         LoggingProducerListener<K, V> producerListener = new LoggingProducerListener<>();
         producerListener.setIncludeContents(false);
-        template.setProducerListener(producerListener);
+        template.setProducerListener(new CompositeProducerListener<>(producerListener, metricsListener));
         // DLT 전송도 실패한 소비의 trace에 남긴다
         template.setObservationEnabled(true);
         return template;

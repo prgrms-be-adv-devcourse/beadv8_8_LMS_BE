@@ -29,6 +29,12 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 @Configuration(proxyBeanMethods = false)
 public class NotificationKafkaErrorHandlerConfig {
 
+    private final NotificationKafkaMetrics metrics;
+
+    public NotificationKafkaErrorHandlerConfig(NotificationKafkaMetrics metrics) {
+        this.metrics = metrics;
+    }
+
     public static final String MEMBER_EVENT_ERROR_HANDLER = "notificationMemberEventErrorHandler";
 
     @Bean(name = MEMBER_EVENT_ERROR_HANDLER, defaultCandidate = false)
@@ -94,7 +100,8 @@ public class NotificationKafkaErrorHandlerConfig {
         return errorHandler(deadLetterTemplate, settings);
     }
 
-    static DefaultErrorHandler errorHandler(KafkaOperations<?, ?> deadLetterTemplate,
+    /** 처리 실패 시도는 재시도·역직렬화 실패를 포함해 {@link NotificationKafkaMetrics#retryListener()}가 센다(ND-159) */
+    DefaultErrorHandler errorHandler(KafkaOperations<?, ?> deadLetterTemplate,
             NotificationKafkaConsumerSettings settings) {
         ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(settings.maxRetries());
         backOff.setInitialInterval(settings.retryInitialInterval().toMillis());
@@ -103,6 +110,7 @@ public class NotificationKafkaErrorHandlerConfig {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(deadLetterRecoverer(deadLetterTemplate, settings),
                 backOff);
         errorHandler.addNotRetryableExceptions(RejectedEventException.class);
+        errorHandler.setRetryListeners(metrics.retryListener());
         return errorHandler;
     }
 

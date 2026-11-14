@@ -72,7 +72,7 @@ class NotificationWebSocketConfigTest {
     private static NotificationWebSocketConfig config(Duration heartbeat, int channelThreads) {
         return new NotificationWebSocketConfig(mock(NotificationTicketHandshakeInterceptor.class),
                 mock(NotificationWebSocketSessions.class), mock(NotificationStompInterceptor.class),
-                new String[] {"http://localhost:5173"}, Duration.ofSeconds(10), DataSize.ofKilobytes(512),
+                mock(NotificationOutboundLatencyInterceptor.class), new String[] {"http://localhost:5173"}, Duration.ofSeconds(10), DataSize.ofKilobytes(512),
                 channelThreads, channelThreads, heartbeat);
     }
 

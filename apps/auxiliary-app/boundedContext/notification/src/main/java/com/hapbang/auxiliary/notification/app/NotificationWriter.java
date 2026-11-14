@@ -62,12 +62,21 @@ public class NotificationWriter {
     private final MemberMaskLocks maskLocks;
     private final NotificationRealtimeRelay realtime;
     private final PayoutItemStore payoutItems;
+    private final NotificationOutcomeRecorder outcomes;
 
     /**
+     * 결과는 Kafka 소비 중이면 commit 뒤에 센다({@link NotificationOutcomeRecorder}, ND-160).
+     *
      * @throws NotificationException 받는 사람 복제본이 없으면 {@code RECEIVER_NOT_REPLICATED}
      */
     @Transactional
     public NotificationWriteResult save(NotificationDraft draft) {
+        NotificationWriteResult result = saveDraft(draft);
+        outcomes.record(result);
+        return result;
+    }
+
+    private NotificationWriteResult saveDraft(NotificationDraft draft) {
         Assert.notNull(draft, "알림 초안이 필요합니다.");
         Assert.hasText(draft.sourceEventType(), "원본 이벤트 종류가 필요합니다.");
         Assert.hasText(draft.sourceTargetId(), "원본 대상 ID가 필요합니다.");
@@ -114,10 +123,18 @@ public class NotificationWriter {
      *     <li>commit 뒤 실시간으로 넘긴다(ND-059). 숨겨진 묶음이면 넘기지 않는다.</li>
      * </ol>
      *
+     * 결과는 Kafka 소비 중이면 commit 뒤에 센다({@link NotificationOutcomeRecorder}, ND-160).
+     *
      * @throws NotificationException 받는 사람 복제본이 없으면 {@code RECEIVER_NOT_REPLICATED}
      */
     @Transactional
     public NotificationWriteResult addDailyPayout(DailyPayout payout) {
+        NotificationWriteResult result = addPayout(payout);
+        outcomes.record(result);
+        return result;
+    }
+
+    private NotificationWriteResult addPayout(DailyPayout payout) {
         Assert.notNull(payout, "지급이 필요합니다.");
         Assert.notNull(payout.settlementId(), "지급 건 ID가 필요합니다.");
         Assert.notNull(payout.paidAt(), "지급 시각이 필요합니다.");

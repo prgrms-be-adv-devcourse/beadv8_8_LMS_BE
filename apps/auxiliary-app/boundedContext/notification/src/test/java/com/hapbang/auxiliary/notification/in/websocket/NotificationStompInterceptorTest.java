@@ -10,6 +10,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -22,6 +23,8 @@ import org.springframework.web.socket.WebSocketSession;
 import com.hapbang.auxiliary.notification.app.dto.ConnectionTicket;
 import com.hapbang.shared.member.domain.Role;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 알림 STOMP 수신 검사(ND-026·ND-027). 결합하지 않은 연결의 CONNECT, 클라이언트 SEND, 자기 목적지가 아닌 구독(끝에 / 붙인 것 포함)을
  * 거절하고, 결합한 연결의 그 밖의 프레임(UNSUBSCRIBE·ACK)은 받는다.
@@ -31,7 +34,8 @@ class NotificationStompInterceptorTest {
     private static final String BOUND = "bound-session";
     private static final String UNBOUND = "unbound-session";
 
-    private final NotificationWebSocketSessions sessions = new NotificationWebSocketSessions(Duration.ofMinutes(5));
+    private final NotificationWebSocketSessions sessions = new NotificationWebSocketSessions(Duration.ofMinutes(5),
+            new StaticListableBeanFactory().getBeanProvider(MeterRegistry.class));
     private final NotificationStompInterceptor interceptor = new NotificationStompInterceptor(sessions);
 
     NotificationStompInterceptorTest() throws Exception {
