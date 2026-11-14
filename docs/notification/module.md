@@ -62,12 +62,12 @@
 | 연결 티켓(N3): `POST /api/v1/notifications/ws-tickets`(`@PreAuthorize` 받는 역할). 30초·1회용(Redis `GETDEL`, 키는 SHA-256), 회원마다 60초 10번(Lua INCR+PEXPIRE, 넘으면 공통 `RateLimitExceededException` → 429 `TOO_MANY_REQUESTS`·`Retry-After: 60`), 저장소 없음·실패 503 `CONNECTION_TICKET_UNAVAILABLE`. 연결 만료 `min(X-User-Token-Exp, 발급 + 15분)`, 헤더는 컨트롤러만 읽는다(ND-056·ND-058) | `.../app/NotificationConnection{TicketService,Facade}.java`, `.../in/ApiV1NotificationConnectionController.java`, `.../out/redis/RedisNotificationConnectionTicketStore.java`, `src/main/resources/notification/redis/ws-ticket-rate.lua` |
 | 자체 STOMP(N3): `@EnableWebSocketMessageBroker`, 엔드포인트 `/api/v1/notifications/ws`(출처 검사 → 티켓, 없거나 쓴 티켓 401), 메모리 브로커 `/queue`, 사용자 목적지 `/user`. 수신 검사는 CONNECT를 결합된 회원만, SUBSCRIBE를 `/user/queue/notifications`만 받고 SEND는 모두 거절한다. 연결별 만료 예약 + 30초 주기 대조로 4401 `TOKEN_EXPIRED` 종료(ND-057). 수신·송신 채널 실행기 각 2스레드(설정이 소유, 기동 때 미리 띄우고 컨텍스트가 닫힐 때 종료), 전송 10초·512KB. 서버 STOMP heart-beat 보내기·받기 `hapbang.notification.realtime.websocket.heartbeat`(기본 25초, ND-063) — 스케줄러 1스레드(같은 방식으로 소유·종료). STOMP 협상이라 클라이언트가 받기 0이면 서버도 보내지 않고(FE 계약, ND-068), 클라이언트 보내기가 끊기면 서버가 연결을 닫는다. 설정값이 0 이하이거나 5분(`MAX_HEARTBEAT`, Gateway stream idle) 이상이면 생성자가 `IllegalArgumentException`으로 기동을 막는다(ND-068, #847) | `.../in/websocket/Notification{WebSocketConfig,TicketHandshakeInterceptor,HandshakeHandler,StompInterceptor,WebSocketSessions}.java` |
 | `hapbang.notification.realtime.enabled`(기본 켜짐)로 위 빈을 켜고 끈다. 모듈 테스트 설정은 끄고 `@NotificationRealtimeTest`만 켠다. 모듈 빌드에 `spring-boot-starter-websocket`·`spring-boot-starter-data-redis` | `.../app/ConditionalOnNotificationRealtime.java`, `boundedContext/notification/build.gradle.kts`, `src/test/resources/hapbang-module-test.yaml` |
-| auxiliary global `SecurityConfig`가 `GET /api/v1/notifications/ws`만 `permitAll`이다(ND-060). 허용 출처는 `hapbang.notification.websocket.allowed-origins`(local·prod 프로필). Redis 명령 시간 제한 `spring.data.redis.timeout: 10s`(앱 공통) | `apps/auxiliary-app/global/.../config/SecurityConfig.java`, `apps/auxiliary-app/src/main/resources/application{,-local,-prod}.yaml` |
+| auxiliary global `SecurityConfig`가 알림 경로 중에는 `GET /api/v1/notifications/ws`만 `permitAll`이다(ND-060). 허용 출처는 `hapbang.notification.websocket.allowed-origins`(local·prod 프로필). Redis 명령 시간 제한 `spring.data.redis.timeout: 10s`(앱 공통) | `apps/auxiliary-app/global/.../config/SecurityConfig.java`, `apps/auxiliary-app/src/main/resources/application{,-local,-prod}.yaml` |
 | 테스트(Unit·PG·PG+Kafka·MockMvc, 순서를 강제한 경합 테스트 포함). 건수와 실행 결과는 [regression-log.md](regression-log.md)에만 둔다 | `boundedContext/notification/src/test/` |
 | Gateway HTTPRoute `auxiliary-app`의 `matches`에 `/api/v1/notifications`가 있다(챗봇·검색·Swagger와 함께, 30초·본문 1Mi, JWT SecurityPolicy 대상). 알림 웹소켓은 HTTPRoute `auxiliary-app-notification-websocket`(경로 Exact `/api/v1/notifications/ws` + `GET`, `timeouts` 0s)과 BackendTrafficPolicy(`requestTimeout: 0s`, `streamIdleTimeout: 300s`)이고 JWT SecurityPolicy·본문 제한 대상이 아니다(ND-062·ND-063·ND-067, #847) | `apps/auxiliary-app/k8s/base/gateway.yaml` |
 | Gateway `claimToHeaders`는 `X-User-Id`(`sub`), `X-User-Role`(`role`), `X-User-Token-Exp`(`exp`, #847 ND-064)를 넘긴다. 외부에서 보낸 같은 헤더는 공용 Gateway `ClientTrafficPolicy`가 모든 route에서 지운다 | `apps/auxiliary-app/k8s/base/gateway.yaml`, `k8s/gateway/base/gateway.yaml` |
 | auxiliary global 필터는 `X-User-Id`·`X-User-Role`만 읽는다. `X-User-Token-Exp`가 없다. 바꾸지 않고 알림 연결 티켓 API가 직접 읽는다(ND-056) | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/auth/GatewayUserHeaderFilter.java`, README "실행과 설정" 끝 |
-| 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·prometheus와 알림 웹소켓 핸드셰이크(`GET /api/v1/notifications/ws`, ND-060) 밖의 모든 요청에 인증을 요구한다 | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/config/SecurityConfig.java` |
+| 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·prometheus, 강의 검색(`GET /api/v1/search/lectures`, #883)과 알림 웹소켓 핸드셰이크(`GET /api/v1/notifications/ws`, ND-060) 밖의 모든 요청에 인증을 요구한다 | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/config/SecurityConfig.java` |
 | Modulith 발행 기록·Flyway 이력은 schema `auxiliary`, Flyway `out-of-order: true`, Hikari 5, 스케줄 풀 2 | `apps/auxiliary-app/src/main/resources/application.yaml` |
 | Kafka·Redis 클라이언트는 루트 빌드가 모든 앱에 넣는다(`:kafka`, `:redis`). WebSocket starter와 업무 모듈용 Redis starter·micrometer-core는 알림 모듈 빌드가 직접 넣는다(N3, 업무 모듈은 `:redis` 프로젝트를 의존할 수 없다) | `build.gradle.kts` 62~68행, `boundedContext/notification/build.gradle.kts` |
 
@@ -178,7 +178,7 @@
 ### 3.6 인증·권한
 
 - 사용자 인증은 Gateway가 JWT를 검증해 넘기는 사용자 헤더(`X-User-Id`, `X-User-Role`)로 한다(루트 AGENTS 2장, `GatewayUserHeaderFilter`).
-- auxiliary global `SecurityConfig`가 업무 API 전부에 로그인을 요구한다. 예외는 알림 웹소켓 핸드셰이크 `GET /api/v1/notifications/ws` 하나이고, 인증은 연결 티켓으로 한다(ND-060). auxiliary README "권한"의 "모듈이 공개 경로를 따로 열지 않는다"에 이 예외를 적는 일은 팀 승인 후속이다(PROGRESS 4장).
+- auxiliary global `SecurityConfig`가 알림 API에 로그인을 요구한다. 알림 경로 중 예외는 웹소켓 핸드셰이크 `GET /api/v1/notifications/ws` 하나이고, 인증은 연결 티켓으로 한다(ND-060). 이 예외는 auxiliary README "권한"에 적었다(#933). 앱 전체의 공개 경로는 README "권한"과 `SecurityConfig`에 있다.
 - 역할 검사는 모듈 Facade의 `@PreAuthorize`로 한다(auxiliary README "권한"). 받는 사람은 유저·인플루언서·인증된 인플루언서다(ND-003). 모든 API는 본인 알림만 다룬다(ND-026).
 - WebSocket 연결은 연결 티켓으로 인증한다(ND-028). 연결 만료는 ND-056, 서버가 끊는 경우는 ND-057, 티켓·전송 수치는 ND-058, 프레임을 보내는 때는 ND-059다. Gateway route는 ND-062, WebSocket 시간 제한과 서버 STOMP heart-beat는 ND-063, `exp` claim은 ND-064, WebSocket route를 JWT SecurityPolicy에서 빼는 것은 ND-067이다(N4, #847).
 
@@ -306,6 +306,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | 날짜 | 내용 |
 | --- | --- |
+| 2026-11-14 | #933 리뷰: 2장 `SecurityConfig` 행 둘과 3.6 인증 서술을 알림 경로 기준으로 고치고 강의 검색 공개 경로(#883)를 더했다. README "권한" 반영을 적었다 |
 | 2026-11-14 | 문서 정리(#931): 2장 기준을 dev `cced81b7`로 고치고, Flyway 첫 행과 템플릿 서술을 실제 코드에 맞췄다. 6장에서 해소된 U2/T3·U19 행을 지웠다. PR 리뷰 뒤 머리말 기준 문장을 고쳤다 |
 | 2026-11-13 | ND-133~ND-143 반영(N10 사전 결정, #928): 3.2 예약 행을 결정 참조로 고치고 예약 행 정리 행을 더했다. 6장에서 U16 행을 지우고 U6·U11 행을 결정 범위로 고쳤다 |
 | 2026-11-13 | N10 구현(#928, ND-144~ND-148 포함): 2장 As-Is에 예약 테이블·예약 입력·예약 배치 행을 더했다(S6 리뷰 뒤 실패 횟수·발생 시각 반영). PR #929 Bot 리뷰 뒤 이의 제기 접수 취소(ND-149), 기한 지난 예약 먼저 건너뜀·기한 남은 예약만 선택, 잠근 뒤 시각으로 판정·발생 시각을 반영했다 |
