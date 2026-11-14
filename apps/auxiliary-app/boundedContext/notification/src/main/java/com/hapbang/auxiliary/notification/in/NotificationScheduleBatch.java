@@ -29,7 +29,8 @@ class NotificationScheduleBatch {
         try {
             dispatcher.runOnce(Clock.systemUTC());
         } catch (JobLockException e) {
-            log.warn("예약 배치 잠금을 시도하지 못해 이번 회차를 건너뛰었다", e);
+            // 회차 실패로 세어 alert 대상이므로 ERROR다(ND-150)
+            log.error("예약 배치 잠금을 시도하지 못해 이번 회차를 건너뛰었다", e);
         } catch (RuntimeException e) {
             log.error("예약 배치 회차가 실패했다. 다음 회차에 다시 실행한다", e);
         }

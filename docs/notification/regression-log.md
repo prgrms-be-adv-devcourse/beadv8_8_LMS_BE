@@ -86,6 +86,94 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-086 · 2026-11-14 · 통과 (N11 #937 S6 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-086 |
+| 실행 날짜 | 2026-11-14 13:33~13:36 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | NR-085 목록 + `ScheduleDispatcherTest` import 묶음, `rules.yaml` 새 series 갈래 주석 |
+| 대상 기능 | N11 |
+| 관련 NT ID | NT-SCH-01~24 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, promtool `check rules`(NR-085와 같은 방법) |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure` 새로 실행. `:auxiliary-app:test`는 UP-TO-DATE(입력이 NR-085 뒤로 바뀌지 않음, 새 실행 아님). promtool `SUCCESS: 1 rules found` |
+| 건수 | `:notification` 408(새 실행), `:auxiliary-app` 13(NR-085 결과). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. Grafana 적용·실제 통보는 운영 적용 전 |
+| 관련 변경 | #937 |
+
+#### NR-085 · 2026-11-14 · 통과 (N11 #937 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-085 |
+| 실행 날짜 | 2026-11-14 13:26~13:30 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | NR-084 목록 + `app/ScheduleDispatcher.java`(record_failed 표식 ERROR, `Locale` import), `in/NotificationScheduleBatch.java`(잠금 시도 실패 ERROR), 시험 `ScheduleDispatcherTest`(같은 알림 sent, record_failed ERROR 확인)·`ScheduleDispatcherMetricsTest`(고른 뒤 끝난 예약 미집계)·새 `in/NotificationScheduleBatchTest`(로그 레벨 2건), 문서 |
+| 대상 기능 | N11 지표·로그 레벨(ND-150 S6 리뷰 반영) |
+| 관련 NT ID | NT-SCH-01~24 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`. NT-SCH-24: `docker run --rm --entrypoint promtool prom/prometheus:v2.53.0 check rules`(rules.yaml에서 새 규칙의 식을 뽑아 Prometheus 규칙 파일로 감쌈), YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0, 세 태스크 새로 실행). promtool `SUCCESS: 1 rules found`. 괄호를 뺀 식은 `parse error`로 실패해 검사가 문법 오류를 잡는 것을 확인 |
+| 건수 | `:notification` 408, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음. 반영 중 red: 로그 레벨 시험 2건이 WARN이라 실패(의도한 red), "이미 끝난 예약 미집계" 통합 시험이 뮤테이션(NOT_SCHEDULED→sent)을 잡지 못해 단위 시험으로 바꾼 뒤 뮤테이션 red 확인·복원 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. Grafana 적용·실제 통보는 운영 적용 전이라 미실행 |
+| 관련 변경 | #937 |
+
+#### NR-084 · 2026-11-14 · 통과 (N11 #937 예약 알림 지표 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-084 |
+| 실행 날짜 | 2026-11-14 13:06~13:16 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | `app/ScheduleDispatcher.java`(지표 두 개, 회차 결과, `recordFailure` 결과 반환), 시험 `app/ScheduleDispatcherTest.java`(지표 3건 추가)·`app/ScheduleDispatcherMetricsTest.java`(새 단위 5건), `k8s/platform/base/alerting/rules.yaml`, `docs/architecture/infrastructure/observability.md`, 알림 문서(decisions·test-spec·module·PROGRESS·이 문서) |
+| 대상 기능 | N11 예약 알림 지표(ND-150)와 alert 규칙(ND-151) |
+| 관련 NT ID | NT-SCH-01~23 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행(결과 XML이 모두 이번 실행) |
+| 건수 | `:notification` 404, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. NT-SCH-24는 정적 확인만(YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}`). PromQL 문법·Grafana 적용·실제 통보는 미실행(promtool 없음, 운영 적용 전) |
+| 관련 변경 | #937 |
+
+#### NR-083 · 2026-11-14 · 실패 (N11 #937 의도한 red)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-083 |
+| 실행 날짜 | 2026-11-14 12:5x~13:0x (KST, 분 단위 미기록) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`). 지표 구현 전 |
+| 작업 트리 변경 | `app/ScheduleDispatcherTest.java`에 지표 시험 3건만 더함 |
+| 대상 기능 | N11 예약 결과 지표(ND-150) |
+| 관련 NT ID | NT-SCH-22 |
+| 명령 | `./gradlew :notification:test --tests "*ScheduleDispatcherTest.보낸_예약과*" --tests "*ScheduleDispatcherTest.계속_실패하는*" --tests "*ScheduleDispatcherTest.실패_횟수_기록마저*"` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 실패(의도한 red). 3건 모두 `AssertionFailedError`(카운터 증가 기대 1·2·1, 실제 0). 이어서 `ScheduleDispatcherMetricsTest`는 `:notification:compileTestJava`에서 생성자 인자(`ObjectProvider<MeterRegistry>`) 없음으로 컴파일 실패(의도한 red) |
+| 건수 | 3건 실행, 실패 3 |
+| 실패 원인 분류 | 기능 없음(의도한 red) |
+| 수정 내용 | NR-084 |
+| 재실행 결과 | NR-084 통과 |
+| 미검증 항목 | — |
+| 관련 변경 | #937 |
+
 #### NR-082 · 2026-11-13 · 통과 (N10 #928 PR #929 Bot 리뷰 반영 뒤 S6 재리뷰 반영)
 
 | 항목 | 값 |
