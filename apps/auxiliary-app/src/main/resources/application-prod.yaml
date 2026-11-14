@@ -57,12 +57,23 @@ hapbang:
       lecture-name: chatbot-lectures-openai-1536
       influencer-name: chatbot-influencers-openai-1536
       dimensions: 1536
+    # 추천 가중치(#867). OpenAI 임베딩 + 더미 데이터 평가(조정용 80명으로 고르고 확인용 20명으로 한 번 확인)로 정했다.
+    # 더미 데이터 기준이라 실사용 데이터가 쌓이면 다시 본다. 근거 표: docs/chatbot/recommend-weights.md
     recommend:
       lecture:
         # 관심사 비율 α와 인기 비율 β. 임베딩 모델마다 유사도가 퍼지는 구간이 달라 프로필마다 둔다(기본값 없음).
-        # 임시값. 식에서 정한 추정 시작값이고, 추천 가중치 보정(#867)에서 다시 정한다
+        # α 0.3 유지: 0~0.7 모두 hit@5 차이 2명 이하. 0.5는 상위 20개 안 정답이 3명 줄어 리랭킹 여지가 작아진다
         interest-weight: 0.3
-        popularity-weight: 0.05
+        # β 0.05 → 0.2: 80명 hit@5 0.288 → 0.338. 인기와 무관한 변형 데이터와 합쳐도 손해가 가장 적다. 20명 0.400
+        popularity-weight: 0.2
+        weights:
+          # 1점 −0.5 → −1.0: 1점 준 강의는 취향에서 뺀다(그 분야 불호). hit@5는 같고 싫어한 분야 강의가 추천에서 빠진다
+          rating1: -1.0
+          # 2점 −0.3 → −0.6: 2점은 분야보다 그 강의에 대한 실망이라 약하게(구매 1.0 − 0.6 = 0.4) 남긴다
+          rating2: -0.6
+      influencer:
+        # β 0.2 → 0.1: 상위 20개 안 정답 0.500 → 0.613. 0은 받은 별점이 순서에 안 쓰여 0.1. 20명 hit@5 0.300
+        popularity-weight: 0.1
   search:
     elasticsearch:
       # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806)
