@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.chatbot.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -14,10 +15,12 @@ import org.junit.jupiter.api.Test;
 class TextHashTest {
 
     @Test
-    @DisplayName("FAQ 내용 해시")
-    void faq() {
-        assertThat(Faq.hash("안녕하세요")).isEqualTo("2c68318e352971113645cbc72861e1ec23f48d5baa5f9b405fed9dddca893eb4");
-        assertThat(Faq.hash("HP\n질문")).isEqualTo("cfa7d665a761a863c2d212d44c2233fee1a2bebeb05e694734cb9f889956636c");
+    @DisplayName("글은 UTF-8로 해시한다(FAQ 내용 해시가 쓴다). 바이트 해시도 같은 값이다")
+    void sha256() {
+        assertThat(Sha256.hex("안녕하세요")).isEqualTo("2c68318e352971113645cbc72861e1ec23f48d5baa5f9b405fed9dddca893eb4");
+        assertThat(Sha256.hex("HP\n질문")).isEqualTo("cfa7d665a761a863c2d212d44c2233fee1a2bebeb05e694734cb9f889956636c");
+        assertThat(Sha256.hex("abc".getBytes(StandardCharsets.US_ASCII)))
+                .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     @Test

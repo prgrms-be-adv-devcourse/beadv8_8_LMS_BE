@@ -1,10 +1,6 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 import java.util.Objects;
 
 import com.hapbang.shared.jpa.BaseEntity;
@@ -114,15 +110,6 @@ public class Faq extends BaseEntity {
         this.answer = content.answer();
         this.policyRef = content.policyRef();
         this.sortOrder = content.sortOrder();
-        this.contentHash = hash(category.name() + "\n" + embeddingText());
-    }
-
-    static String hash(String text) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256을 쓸 수 없습니다", e);
-        }
+        this.contentHash = Sha256.hex(category.name() + "\n" + embeddingText());
     }
 }
