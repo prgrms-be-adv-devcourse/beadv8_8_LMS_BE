@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -59,7 +60,7 @@ public class ChatbotCategoryNames {
      * @throws Unavailable 받지 못했고 들고 있던 표도 없을 때
      */
     public Map<String, String> current() {
-        Map<String, String> table = table(true);
+        Map<String, String> table = tableWaitingForFirstFetch();
         if (table == null) {
             throw new Unavailable(lastFailure);
         }
@@ -68,12 +69,22 @@ public class ChatbotCategoryNames {
 
     /** 코드들의 한글 이름(화면 쪽). 기다리지 않는다. 표에 없거나 표가 아직 없으면 코드 그대로 */
     public List<String> namesOf(List<String> codes) {
-        Map<String, String> table = table(false);
+        Map<String, String> table = tableWithoutWaiting();
         return namesOf(codes, table == null ? Map.of() : table);
     }
 
-    // 표를 돌려준다. 다시 받을 때가 됐으면 받는다(표가 있으면 한 호출만, 없으면 잠금으로 한 호출만). wait=false면 잠금을 기다리지 않는다
-    private @Nullable Map<String, String> table(boolean wait) {
+    // 표가 아직 없으면 첫 받기를 하는 호출의 잠금을 기다린다
+    private @Nullable Map<String, String> tableWaitingForFirstFetch() {
+        return table(this::lock);
+    }
+
+    // 표가 아직 없고 다른 호출이 받는 중이면 기다리지 않고 지금 표(null)를 돌려준다
+    private @Nullable Map<String, String> tableWithoutWaiting() {
+        return table(firstFetch::tryLock);
+    }
+
+    // 표를 돌려준다. 다시 받을 때가 됐으면 받는다(표가 있으면 한 호출만, 없으면 잠금으로 한 호출만). 첫 받기 잠금을 잡는 방법은 호출이 정한다
+    private @Nullable Map<String, String> table(BooleanSupplier takeFirstFetchLock) {
         if (names != null) {
             if (due() && refreshing.compareAndSet(false, true)) {
                 try {
@@ -82,7 +93,7 @@ public class ChatbotCategoryNames {
                     refreshing.set(false);
                 }
             }
-        } else if (wait ? lock() : firstFetch.tryLock()) {
+        } else if (takeFirstFetchLock.getAsBoolean()) {
             try {
                 if (names == null && due()) {
                     fetch();
