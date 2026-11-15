@@ -72,8 +72,7 @@ public class RecommendReranker {
 
     RecommendReranker(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder, LlmCallGuard llm,
             ChatbotRecommendLlmProperties properties, ChatbotMetrics metrics) {
-        // ChatClient.Builder 빈 정의는 모델이 없어도 있고, 그때 꺼내면 예외다. 모델이 있을 때만 꺼낸다(FaqChatService와 같다)
-        this.chatClient = chatModel.getIfAvailable() == null ? null : chatClientBuilder.getObject().build();
+        this.chatClient = ChatbotChatClients.create(chatModel, chatClientBuilder, null);
         this.llm = llm;
         this.properties = properties;
         this.metrics = metrics;

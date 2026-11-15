@@ -45,7 +45,7 @@ public class QueryExpander {
 
     QueryExpander(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder, LlmCallGuard llm,
             ChatbotRecommendLlmProperties properties, ChatbotMetrics metrics) {
-        this.chatClient = chatModel.getIfAvailable() == null ? null : chatClientBuilder.getObject().build();
+        this.chatClient = ChatbotChatClients.create(chatModel, chatClientBuilder, null);
         this.llm = llm;
         this.properties = properties;
         this.metrics = metrics;

@@ -69,9 +69,7 @@ public class FaqChatService {
     FaqChatService(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder,
             FaqTools faqTools, FaqSearchService searchService, ChatbotFaqProperties properties, ChatbotMetrics metrics,
             LlmCallGuard llm) {
-        // ChatClient.Builder 빈 정의는 모델이 없어도 있고, 그때 꺼내면 예외다. 모델이 있을 때만 꺼낸다
-        this.chatClient = chatModel.getIfAvailable() == null ? null
-                : chatClientBuilder.getObject().defaultSystem(SYSTEM_PROMPT).build();
+        this.chatClient = ChatbotChatClients.create(chatModel, chatClientBuilder, SYSTEM_PROMPT);
         if (chatClient == null) {
             log.info("채팅 모델이 없어 FAQ 대화는 LLM 없이 검색 결과로만 답한다");
         }
