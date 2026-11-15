@@ -22,7 +22,8 @@ import lombok.RequiredArgsConstructor;
  *     <li><b>후보 풀은 코드가 만든다</b>({@link LectureRecommendUseCase#pool}, 맞춤 후보만, 제외 규칙·판매자당 상한 적용). LLM은 풀에서만
  *     고른다. 풀이 비면(신호도 관심사도 없음, 검색 장애) LLM을 부르지 않고 인기순이다.</li>
  *     <li>LLM이 고른 강의 → 남은 풀(코드 순서) → 인기순으로 추천 수를 채운다. LLM이 고른 강의만 LLM 문장이고 나머지는 이유 코드 문장이다.</li>
- *     <li>프롬프트에는 강의 제목·소개(공개 정보)와 이유 코드 설명만 넣는다. 회원 정보·회원이 산 강의(이유 문장의 기준 강의 제목)는 넣지 않는다.</li>
+ *     <li>프롬프트에는 강의 제목·소개(공개 정보)와 이유 코드 설명을 넣는다. 회원이 산 강의(이유 문장의 기준 강의 제목)는 넣지 않는다.
+ *     요청 회원의 취향은 {@code rerank.taste=PUBLIC}일 때만 관심사와 공개 프로필을 넣는다({@link RecommendTasteSupport}, #948).</li>
  *     <li>LLM 호출은 리랭킹 1회 + 관심사가 있을 때 쿼리 확장 1회다. 회원별 호출 제한은 진입점이 센다.</li>
  *     <li>대화 Tool({@link LectureRecommendTools})은 이것을 부르지 않는다(호출 수를 늘리지 않음, 코드 순서 그대로).</li>
  * </ul>
@@ -35,6 +36,7 @@ public class LectureRecommendExplainUseCase {
     private final LectureRecommendStore store;
     private final QueryExpander queryExpander;
     private final RecommendReranker reranker;
+    private final RecommendTasteSupport tasteSupport;
     private final ChatbotLectureRecommendProperties properties;
     private final ChatbotRecommendLlmProperties llmProperties;
 
@@ -49,7 +51,7 @@ public class LectureRecommendExplainUseCase {
         }
         List<Long> ids = pool.lectureIds();
         RecommendReranker.Reranked reranked = reranker.rerank(Feature.LECTURE_BUTTON, "수강할 강의", candidateLines(pool),
-                properties.resultSize());
+                properties.resultSize(), tasteSupport.read(memberId, interest));
         Map<Long, String> llmReasons = reranked.reasonsById(ids);
         LectureRecommendation recommendation = recommendUseCase.complete(pool, reranked.chosenThenRest(ids))
                 .withReasonTexts(item -> llmReasons.getOrDefault(item.lectureId(), item.reasonText()));

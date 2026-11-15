@@ -22,6 +22,7 @@ import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
+import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.testsupport.IntegrationTest;
 
@@ -45,6 +46,9 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
 
     @Autowired
     private FakeEmbeddingModel fakeModel;
+
+    @Autowired
+    private FakeChatModel fakeChat;
 
     @Autowired
     private LectureRecommendStore lectureStore;
@@ -134,6 +138,30 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
         // 2 × 1 조합 × (강의 2줄 + 인플루언서 1줄), 회원 80명
         assertThat(first).hasSize(6).allSatisfy(row -> assertThat(row.members()).isEqualTo(80));
         assertThat(first.getFirst().hitAt5()).as("분야 벡터면 숨긴 구매를 일부는 맞힌다").isPositive();
+    }
+
+    @Test
+    void rerankEvaluationRunsButtonPathAndCountsAnswers() throws Exception {
+        // 순번 2(풀 안), 99(풀 밖), 1(81자 이유). 쿼리 확장도 같은 글을 받아 형식이 맞지 않아 관심사 원문으로 계속한다
+        fakeChat.reset();
+        fakeChat.reply("""
+                {"picks": [{"candidate": 2, "reason": "둘째"}, {"candidate": 99, "reason": "밖"},
+                  {"candidate": 1, "reason": "%s"}]}""".formatted("가".repeat(81)));
+        RerankEvaluation.Report report = rerankEvaluation().run(Group.TUNING, new RerankEvaluation.Settings(
+                List.of(RerankEvaluation.Mode.NONE), 1, 5, "", 20, ""));
+
+        System.out.println(report.text());
+        assertThat(report.lines()).hasSize(3).allSatisfy(line -> {
+            assertThat(line.members()).isEqualTo(5);
+            assertThat(line.fallbacks()).isZero();
+            assertThat(line.picks()).isEqualTo(15);
+            assertThat(line.outOfPool()).as("순번 99는 늘 풀 밖").isGreaterThanOrEqualTo(5);
+            assertThat(line.reasonsCut()).isEqualTo(5);
+        });
+        // 강의 신호만 5 + 강의 신호+관심사 (확장 5 + 리랭킹 5) + 인플루언서 5. 같은 풀을 다시 만들 때 확장을 다시 부르지 않는다
+        assertThat(fakeChat.calls()).isEqualTo(20);
+        assertThat(report.text()).contains("| 리랭킹, 취향 없음(#720) | 강의 신호만 | 5 |")
+                .as("가중치는 운영 설정 파일에서 읽는다").contains("강의 β=0.2, 인플루언서 β=0.1");
     }
 
     @Test
