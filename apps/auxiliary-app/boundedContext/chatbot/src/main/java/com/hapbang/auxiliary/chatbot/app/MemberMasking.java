@@ -56,7 +56,7 @@ public class MemberMasking {
             boolean first = store.mask(userId, maskedAt);
             MaskedMemberStore.Purged purged = store.purge(userId);
             if (first) {
-                indexTaskStore.add(IndexType.INFLUENCER, String.valueOf(userId), IndexAction.DELETE, CopyTimes.now(clock));
+                indexTaskStore.add(IndexType.INFLUENCER, InfluencerIndexPlan.docIdOf(userId), IndexAction.DELETE, CopyTimes.now(clock));
             }
             return new Result(first, purged);
         });

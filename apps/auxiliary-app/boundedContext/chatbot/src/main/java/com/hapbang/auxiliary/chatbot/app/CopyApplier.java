@@ -129,7 +129,7 @@ public class CopyApplier {
             LocalDateTime now = now();
             CopyWrite write = lectureCopyStore.save(copy, source, now);
             if (write.outcome().valueChanged() || write.restored()) {
-                indexTaskStore.add(IndexType.LECTURE, String.valueOf(copy.id()), IndexAction.UPSERT, now);
+                indexTaskStore.add(IndexType.LECTURE, LectureIndexDocument.docId(copy.id()), IndexAction.UPSERT, now);
             }
             return write;
         });
@@ -143,7 +143,7 @@ public class CopyApplier {
     public List<MissingCopy> markMissingLectures(long runId, LocalDateTime startedAt) {
         return transaction.execute(status -> {
             List<MissingCopy> missing = lectureCopyStore.markMissingLectures(runId, startedAt);
-            indexTaskStore.addAll(IndexType.LECTURE, missing.stream().map(row -> String.valueOf(row.sourceId())).toList(),
+            indexTaskStore.addAll(IndexType.LECTURE, missing.stream().map(row -> LectureIndexDocument.docId(row.sourceId())).toList(),
                     IndexAction.UPSERT, now());
             return missing;
         });
