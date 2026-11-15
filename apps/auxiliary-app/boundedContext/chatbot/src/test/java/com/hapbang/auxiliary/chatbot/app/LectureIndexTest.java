@@ -107,6 +107,21 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("사본이 바뀌지 않은 문서를 다시 처리하면 성공이고, 다시 임베딩하지 않으며 문서·벡터는 그대로다")
+    void unchangedDocumentStaysAsIs() {
+        data.lecture(1, 100, "스프링 입문");
+        handle(docs("1"));
+        LectureIndexDocument before = index.documents(IndexType.LECTURE, List.of("1"), LectureIndexDocument.class).get("1");
+        embedding.put("스프링", FakeEmbeddingModel.axis(3));
+
+        assertThat(handle(docs("1"))).isEmpty();
+
+        assertThat(embedding.calls()).isEqualTo(1);
+        assertThat(index.documents(IndexType.LECTURE, List.of("1"), LectureIndexDocument.class).get("1")).isEqualTo(before);
+        assertThat(index.vectors(IndexType.LECTURE, List.of("1")).get("1")).containsExactly(FakeEmbeddingModel.axis(0));
+    }
+
+    @Test
     @DisplayName("임베딩 글(콘텐츠 제목 포함)이 바뀌면 다시 임베딩한다")
     void textChangeReembeds() {
         data.lecture(1, 100, "스프링 입문");
