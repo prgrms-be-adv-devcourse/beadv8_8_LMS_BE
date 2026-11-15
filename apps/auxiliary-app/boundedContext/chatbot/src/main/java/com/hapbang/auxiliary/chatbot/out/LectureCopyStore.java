@@ -23,13 +23,13 @@ public class LectureCopyStore {
 
     static final CopyTable LECTURE = new CopyTable("lecture_copy", "id",
             List.of("seller_user_id", "title", "description", "content_titles", "on_sale", "deleted"),
-            Set.of("content_titles"), true, true);
+            Set.of("content_titles"), true);
     static final CopyTable PURCHASE = new CopyTable("lecture_purchase_copy", "order_item_id",
-            List.of("buyer_user_id", "lecture_id", "result", "ordered_at", "purchased_at"), Set.of(), true, true);
+            List.of("buyer_user_id", "lecture_id", "result", "ordered_at", "purchased_at"), Set.of(), true);
     static final CopyTable CART_ITEM = new CopyTable("cart_item_copy", "id",
-            List.of("user_id", "lecture_id", "deleted", "added_at"), Set.of(), true, true);
+            List.of("user_id", "lecture_id", "deleted", "added_at"), Set.of(), true);
     static final CopyTable REVIEW = new CopyTable("lecture_review_copy", "id",
-            List.of("lecture_id", "reviewer_user_id", "rating", "counted", "deleted"), Set.of(), true, true);
+            List.of("lecture_id", "reviewer_user_id", "rating", "counted", "deleted"), Set.of(), true);
 
 
     private final NamedParameterJdbcTemplate jdbc;
