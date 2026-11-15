@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.chatbot.exception;
+package com.hapbang.auxiliary.chatbot.app.exception;
 
 import org.springframework.http.HttpStatus;
 

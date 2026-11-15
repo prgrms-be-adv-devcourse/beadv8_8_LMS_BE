@@ -2,8 +2,8 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.out.MemberCopyStore;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

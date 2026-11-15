@@ -7,9 +7,9 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

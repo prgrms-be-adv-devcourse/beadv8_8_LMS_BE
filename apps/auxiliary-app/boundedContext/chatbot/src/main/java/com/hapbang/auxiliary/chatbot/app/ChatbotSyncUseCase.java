@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatch;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatchKind;
@@ -21,8 +23,6 @@ import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
 import com.hapbang.auxiliary.chatbot.domain.SyncTally;
 import com.hapbang.auxiliary.chatbot.domain.SyncTrigger;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
