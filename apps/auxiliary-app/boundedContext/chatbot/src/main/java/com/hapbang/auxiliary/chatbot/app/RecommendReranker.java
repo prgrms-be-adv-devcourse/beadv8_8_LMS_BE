@@ -16,6 +16,7 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
@@ -187,12 +188,15 @@ public class RecommendReranker {
         return prompt.toString();
     }
 
-    /** LLM 응답(구조화 출력의 최상위 객체) */
-    record Picks(@Nullable List<Pick> picks) {
+    /**
+     * LLM 응답(구조화 출력의 최상위 객체). OpenAI strict 스키마는 모든 필드가 required여야 해서 {@code required = true}를 단다.
+     * 없으면 Spring AI가 {@code @Nullable} 필드를 required에서 빼고 OpenAI가 400으로 거절한다. 값은 그래도 null일 수 있다고 보고 읽는다
+     */
+    record Picks(@JsonProperty(required = true) @Nullable List<Pick> picks) {
     }
 
     /** 고른 후보 하나. candidate는 프롬프트의 후보 순번(1부터) */
-    record Pick(int candidate, @Nullable String reason) {
+    record Pick(int candidate, @JsonProperty(required = true) @Nullable String reason) {
     }
 
     /**
