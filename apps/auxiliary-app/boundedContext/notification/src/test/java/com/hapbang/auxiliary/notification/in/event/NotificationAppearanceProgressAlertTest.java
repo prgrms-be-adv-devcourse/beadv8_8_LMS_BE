@@ -363,6 +363,24 @@ class NotificationAppearanceProgressAlertTest {
         assertThat(deadLetterKeys()).noneMatch(key -> key.startsWith("skip:"));
     }
 
+    /**
+     * 요청 만료 리스너는 트랜잭션 밖이다. 호스트 사전 판단 건너뜀 뒤 게스트 저장이 실패해 레코드가 재시도·DLT로 가면, 시도마다 호스트
+     * 건너뜀을 세지 않는다. 트랜잭션 밖 결과는 레코드 처리가 성공해야 센다(ND-177)
+     */
+    @Test
+    void 트랜잭션_밖_만료_레코드가_재시도_뒤_DLT로_가면_사전_판단_건너뜀을_세지_않는다() {
+        double before = skippedReceiver();
+        long host = withdrawnMember();
+        long guestWithoutReplica = nextId();
+
+        kafka.send(APPEARANCE_TOPIC, "expired:retry",
+                new AppearanceRequestExpiredEvent(request(host, guestWithoutReplica, "만료 재시도"), AT));
+
+        new MemberEventKafka(bootstrapServers, APPEARANCE_TOPIC).awaitDeadLetter(APPEARANCE_DLT, "expired:retry");
+        awaitProcessed();
+        assertThat(skippedReceiver() - before).isZero();
+    }
+
     @Test
     void 시작_시각보다_이른_요청_수락은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
         long host = member("호스트");

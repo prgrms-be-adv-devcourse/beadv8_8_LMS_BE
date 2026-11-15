@@ -1,5 +1,7 @@
 package com.hapbang.auxiliary.notification.app;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -17,6 +19,10 @@ import lombok.extern.slf4j.Slf4j;
  *     없어 세지 않는다(예약은 ND-150 지표가 센다).</li>
  *     <li>트랜잭션 안이면 commit된 뒤에만 센다. 롤백된 시도는 세지 않고, 재시도해 commit되면 그때 한 번 센다. 실패는
  *     {@code consume.failures}가 센다.</li>
+ *     <li>트랜잭션 밖이면(예: 요청 만료 리스너의 받는 사람 사전 판단) 레코드 처리가 성공한 뒤({@link #succeeded}) 한 번 센다. 실패해
+ *     재시도된 시도의 결과는 버린다(ND-177). 이 방식은 소비 컨테이너의 레코드 interceptor가 성공하면 {@link #succeeded}를, 끝나면
+ *     성공·실패와 상관없이 {@link #exit}를 부른다는 전제에 기댄다(알림 컨테이너는 모두 {@code NotificationKafkaMetrics}의 interceptor를
+ *     쓴다). 이 interceptor가 없는 소비 경로(예: batch 리스너)에서 트랜잭션 밖에 기록하면 세지 않고 버려진다.</li>
  *     <li>결과는 commit된 저장 시도의 결과 건수다. 알림 행 수와 항상 같지는 않다(UPDATED는 행을 늘리지 않고 DUPLICATE·SKIPPED_RECEIVER는
  *     행이 없다).</li>
  *     <li>commit 뒤 집계가 실패해도 예외를 밖으로 내지 않는다. 이미 commit된 처리가 실패로 보여 다시 처리되면 안 된다.</li>
@@ -29,6 +35,7 @@ public class NotificationOutcomeRecorder {
     public static final String OUTCOMES_METRIC = "hapbang.notification.consume.outcomes";
 
     private static final ThreadLocal<String> TOPIC = new ThreadLocal<>();
+    private static final ThreadLocal<List<NotificationWriteResult.Outcome>> OUTSIDE_TX_OUTCOMES = new ThreadLocal<>();
 
     private final ObjectProvider<MeterRegistry> meterRegistry;
 
@@ -41,9 +48,24 @@ public class NotificationOutcomeRecorder {
         TOPIC.set(topic);
     }
 
-    /** 이 스레드의 레코드 처리가 끝났다 */
+    /**
+     * 이 스레드의 레코드 처리가 성공했다. 트랜잭션 밖에서 기록한 결과(사전 판단 건너뜀 등)를 이때 한 번 센다(ND-177). 실패해 재시도되는 시도의
+     * 결과는 {@link #exit}에서 버린다
+     */
+    public void succeeded() {
+        String topic = TOPIC.get();
+        List<NotificationWriteResult.Outcome> pending = OUTSIDE_TX_OUTCOMES.get();
+        OUTSIDE_TX_OUTCOMES.remove();
+        if (topic == null || pending == null) {
+            return;
+        }
+        pending.forEach(outcome -> countSafely(topic, outcome));
+    }
+
+    /** 이 스레드의 레코드 처리가 끝났다. 성공으로 끝나지 않은 시도의 트랜잭션 밖 결과는 버린다 */
     public void exit() {
         TOPIC.remove();
+        OUTSIDE_TX_OUTCOMES.remove();
     }
 
     /** 저장 결과를 센다. 소비 문맥이 없으면 아무것도 하지 않는다 */
@@ -61,7 +83,13 @@ public class NotificationOutcomeRecorder {
                 }
             });
         } else {
-            countSafely(topic, outcome);
+            // 트랜잭션 밖(예: 요청 만료 리스너의 사전 판단)은 레코드가 재시도되면 같은 결과가 다시 나온다. 성공한 시도만 세려고 모아 둔다
+            List<NotificationWriteResult.Outcome> pending = OUTSIDE_TX_OUTCOMES.get();
+            if (pending == null) {
+                pending = new ArrayList<>();
+                OUTSIDE_TX_OUTCOMES.set(pending);
+            }
+            pending.add(outcome);
         }
     }
 
