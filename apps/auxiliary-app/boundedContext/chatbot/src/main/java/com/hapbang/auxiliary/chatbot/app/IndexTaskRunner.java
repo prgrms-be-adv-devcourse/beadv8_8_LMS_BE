@@ -203,8 +203,18 @@ public class IndexTaskRunner {
 
     /** 지표 {@value #METRIC}의 {@code result} 태그 */
     enum Result {
-        DONE,
-        FAILED;
+        DONE("색인 요청을 끝냄"),
+        FAILED("색인 요청이 실패해 다시 시도함");
+
+        private final String description;
+
+        Result(String description) {
+            this.description = description;
+        }
+
+        String getDescription() {
+            return description;
+        }
 
         String tag() {
             return name().toLowerCase(Locale.ROOT);

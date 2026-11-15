@@ -266,14 +266,20 @@ public class RecommendVectorIndex {
 
     /** 벡터 밖 필드의 매핑 종류 */
     public enum Field {
-        /** 정확히 맞추는 문자열(필터·집계) */
-        KEYWORD,
-        /** 정수 */
-        LONG,
-        /** 참·거짓(필터) */
-        BOOLEAN,
-        /** 저장만 하고 검색하지 않는 문자열(표시·해시) */
-        STORED_TEXT;
+        KEYWORD("정확히 맞추는 문자열(필터·집계)"),
+        LONG("정수"),
+        BOOLEAN("참·거짓(필터)"),
+        STORED_TEXT("저장만 하고 검색하지 않는 문자열(표시·해시)");
+
+        private final String description;
+
+        Field(String description) {
+            this.description = description;
+        }
+
+        public String getDescription() {
+            return description;
+        }
 
         Property property() {
             return switch (this) {
