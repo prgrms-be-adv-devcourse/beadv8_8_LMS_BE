@@ -32,7 +32,7 @@ public interface ApiV1ChatbotSyncAdminSpec {
             Pageable pageable);
 
     @Operation(summary = "싱크 회차 상세",
-            description = "회차와 어긋난 항목(회차당 최대 100건, 종류마다 최근 10회만 남김). 첫 실행은 원본 전체를 넣으므로 어긋남 행 없이 "
+            description = "회차와 어긋난 항목(회차당 최대 100건, 종류마다 최근 168회(매시 일주일)만 남김. 숫자는 서버 설정 기본값). 첫 실행은 원본 전체를 넣으므로 어긋남 행 없이 "
                     + "건수만 있다. 없으면 404 SYNC_RUN_NOT_FOUND.")
     RsData<SyncRunDetailResDto> getRun(Long adminId, Long runId);
 }
