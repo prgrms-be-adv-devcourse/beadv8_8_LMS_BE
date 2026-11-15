@@ -217,13 +217,17 @@ class ChatbotFaqApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("요청 값 검증: 메시지 1~500자, 검색어 1~200자, 모르는 분류는 400")
+    @DisplayName("요청 값 검증: 메시지 1~500자(스트림도), 검색어 1~200자, 모르는 분류는 400")
     void validation() throws Exception {
         mockMvc.perform(chat("/api/v1/chatbot/chat/faq", " ").with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(chat("/api/v1/chatbot/chat/faq", "가".repeat(501)).with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
+        mockMvc.perform(chat("/api/v1/chatbot/chat/faq/stream", " ").with(login(8L, Role.USER))
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "가".repeat(201)).with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "").with(login(8L, Role.USER)))
