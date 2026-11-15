@@ -62,8 +62,8 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
     private static KafkaProducer<String, byte[]> producer;
 
     static ChatbotKafkaSettings settings() {
-        return ChatbotKafkaSettings.of(TOPIC, GROUP, ChatbotKafkaSettings.APPEARANCE_TRUSTED_PACKAGE, 1,
-                Duration.ofMillis(100), Duration.ofMillis(100));
+        return ChatbotKafkaSettings.of(TOPIC, GROUP, ChatbotKafkaSettings.APPEARANCE_TRUSTED_PACKAGE,
+                new ChatbotKafkaSettings.Retry.ThenDeadLetter(1, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     @DynamicPropertySource
