@@ -86,6 +86,98 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-092 · 2026-11-15 · 통과 (N13 #946 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-092 |
+| 실행 날짜 | 2026-11-15 20:33~20:40 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `52208c28`) |
+| 작업 트리 변경 | NR-090 목록 + 리뷰 반영: `k3d/tools/poll_latency_count.sh`(추가 확인은 성공 조회만), `queries/commit_setting.sql`·`b0.sh`(앱 역할 설정까지 확인), `verify_b0.py`(V8 감싼 예외 면제 제거·로그 범위, V7 회차 전체, 명령줄 모드 제거), `loadtest/k6/notification/rest.js`(N15 프로필 제거), 생성기 seed 상수·예약 종류 상수 이름, 시험 |
+| 대상 기능 | N13 |
+| 관련 NT ID | NT-OBS-11·12, NT-B0-01~10, 회귀 전체 |
+| 명령 | NR-090과 같다 |
+| 실행 환경 | NR-090과 같다 |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행. 스크립트 시험 통과, guard 2 PASS·3 SKIP, b0.sh 문법 검사 통과 |
+| 건수 | `:notification` 462(실패 0·오류 0·건너뜀 1), `:auxiliary-app` 13, 스크립트 시험 43 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | 공식 B0 5회(NR-091)의 수집 데이터를 고친 검증기로 다시 검증: 5회 모두 V0~V8 PASS, F 같음, 성능 값 같음(측정은 다시 하지 않음, 이전 결과는 회차 폴더의 `result.before-review.json`) |
+| RED 확인 | 추가 시험 4건(V8 면제, V8 로그 범위, V7 회차 전체, polling 조회 실패)을 먼저 써서 실패를 확인했다. V8 시험은 `ListenerExecutionFailedException` 면제를 되돌린 뮤테이션에서 실패, 복원 뒤 `cmp` 같음 |
+| 미검증 항목 | 전체 `./gradlew check`(미실행), 운영 smoke L1·L2(미실행) |
+| 관련 변경 | #946 |
+
+#### NR-091 · 2026-11-15 · 통과 (N13 #946 B0 공식 기준선 5회)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-091 |
+| 실행 날짜 | 2026-11-15 19:20~20:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `52208c28`) |
+| 작업 트리 변경 | NR-090 목록과 같다 |
+| 대상 기능 | N13 B0(E2E, 로컬 k3d `k3d-hapbang-b0`) |
+| 관련 NT ID | NT-B0-11 |
+| 명령 | `bash loadtest/notification/b0.sh run <1~5>`(차례로, 실패하면 멈춤). fixture `bea6c107…`, B0 `auxiliary` database `synchronous_commit=off`(ND-170), 진단 끔 |
+| 실행 환경 | Windows 10, Docker Desktop VM 12코어, k3d server·agent, 앱 704Mi·`-Xmx256m`, 도구 pod `b0-kafka-tools`(apache/kafka:4.4.0) |
+| 결과 | 통과. 5회 모두 V0-1~V0-7·V1~V8 PASS, 결과 지문 F 5회 같음(`5a7ab852…`, 5,461행). 정상 단계 처리량 CV ≤ 10%. 회차별 수치와 통계의 원본은 [B0 기준선](../load-test/notification-baseline.md) |
+| 건수 | 회차당 회원 1,000·알림 5,000(정상 4,925, 실패 75) |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | — (E2E) |
+| 미검증 항목 | 운영 smoke L1·L2(미실행, 알림 담당). 전체 `./gradlew check`(미실행) |
+| 관련 변경 | #946. 수치 원본은 [B0 기준선](../load-test/notification-baseline.md), 판정 기준 ND-175 |
+
+#### NR-090 · 2026-11-15 · 통과 (N13 #946 구현·도구 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-090 |
+| 실행 날짜 | 2026-11-15 20:15~20:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `52208c28`) |
+| 작업 트리 변경 | 운영 코드 `app/NotificationAlertService.java`(사전 판단 건너뜀 집계, ND-164). 테스트 `app/NotificationOutcomeRecorderIntegrationTest`, `in/event/NotificationAppearanceProgressAlertTest`, `in/event/NotificationKafkaMetricsIntegrationTest`, 새 `in/event/kafka/B0FixtureContractTest`, 새 `loadtest/` 패키지(생성기·시험 10개 파일). 도구 `loadtest/notification/`(b0.sh, k3d·tools·diag·queries, normalize·verify·diag 스크립트, tests), `loadtest/k6/notification/`. 문서 decisions·module·test-spec·regression-log·PROGRESS, `docs/load-test/` |
+| 대상 기능 | N13(ND-163~ND-175) |
+| 관련 NT ID | NT-OBS-11·12, NT-B0-01~10, 회귀 전체 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --rerun-tasks -x :chatbot:test -x :search:test`; `python -I -m unittest discover -s loadtest/notification/tests`; `bash loadtest/notification/tests/b0_guard_test.sh` |
+| 실행 환경 | Windows 10, Git Bash, JDK 25(Gradle toolchain), Docker Desktop(Testcontainers) |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행. 스크립트 시험 통과. guard 시험 2 PASS, 3 SKIP(B0 cluster가 있어 "cluster 없음" 시험을 건너뜀) |
+| 건수 | `:notification` 462(실패 0·오류 0·건너뜀 1: 환경 변수가 있을 때만 도는 `B0FixtureExportTest`), `:auxiliary-app` 13, 스크립트 시험 40 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 사전 판단 집계 2건(서비스 0 대 1, Kafka 1 대 10), 가입 환영 기대값, V2 회차 전체·기대 밖 토픽, 단계 분리(G9 컴파일), 보간·건수·V0-7·완료 관측·도구 pod polling·클러스터 시계·진단 분석 시험을 먼저 써서 실패를 확인했다. `NotificationKafkaMetricsIntegrationTest`의 정확히 한 번 시험은 바로 통과해 지연 기록을 `intercept`로 옮긴 뮤테이션에서 7 대 8로 실패시킨 뒤 되돌렸다(`git diff` 0줄) |
+| 미검증 항목 | 전체 `./gradlew check`(미실행), 챗봇·검색 시험(제외) |
+| 관련 변경 | #946 |
+
+#### NR-089 · 2026-11-15 · 기록 (N13 #946 공식 기준선 전 B0 회차)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-089 |
+| 실행 날짜 | 2026-11-14 21:35 ~ 2026-11-15 19:17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `52208c28`, 회차마다 도구가 달랐다) |
+| 작업 트리 변경 | 회차 사이에 도구·생성기를 고쳤다(아래 수정 내용) |
+| 대상 기능 | N13 B0(E2E) |
+| 관련 NT ID | NT-B0-11 |
+| 명령 | `bash loadtest/notification/b0.sh run 1`(여러 번), `run 1~5`, 진단 `B0_DIAG=1 … run d1~d5` |
+| 실행 환경 | NR-091과 같다(진단 회차 전에는 `synchronous_commit` 기본값 on) |
+| 결과 | 공식 기준선 아님. 회차·이유는 [B0 기준선](../load-test/notification-baseline.md) "공식 기준선 전 회차 기록" 표. 161625~172205의 5회와 진단 5회는 모두 V0~V8 PASS·F 같음(기능 동일성 자료) |
+| 건수 | — |
+| 실패 원인 분류 | 도구 결함(토픽 삭제 대기, 도구 JVM 메모리, 덤프 인코딩, 종료 처리), 생성기 결함(가입 환영 누락), 구현 결함(사전 판단 건너뜀 집계 누락), 측정 방법(한 단계 투입, 완료 감지, polling 정밀도), 환경(WAL fsync 변동) |
+| 수정 내용 | ND-163~ND-170. 기대값(manifest)은 실측에 맞추지 않고 카탈로그·정책으로 다시 계산했다 |
+| 재실행 결과 | NR-091 |
+| RED 확인 | NR-090 |
+| 미검증 항목 | — |
+| 관련 변경 | #946 |
+
 #### NR-088 · 2026-11-14 · 통과 (N12 #944 S6 리뷰 반영)
 
 | 항목 | 값 |

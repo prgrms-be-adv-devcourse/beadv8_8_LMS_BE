@@ -8,7 +8,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-14. 상태는 `dev` `c0414dbd`(N11 #937 PR #938 병합 포함) 기준 git log와 코드로 확인했다.
+마지막 갱신: 2026-11-15. 상태는 `dev` `52208c28`(N12 #944 PR #945 병합 포함) 기준 git log와 코드, `feature/tkt-946` 작업 트리로 확인했다.
 
 ## 1. 현재 상태
 
@@ -20,7 +20,7 @@
 | `boundedContext/notification` 디렉터리 | N1~N10 구현 | `build.gradle.kts`, `src/`. 구현 범위는 [module.md](../../../../docs/notification/module.md) 2장 As-Is |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1~N11 완료, N12 진행 중(#944) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
+| 기능 구현 | N1~N12 완료, N13 진행 중(#946) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
 | 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-088 |
 | Flyway | 작성 | `src/main/resources/db/migration/`의 6개 파일(`notification_user`, `notification`, 파기 표시, `notification_runtime_setting`, `notification_payout_item`, `notification_schedule`) |
 
@@ -67,8 +67,8 @@
 | N9 | P2 | M8 이벤트 소비 | 알림 | M8, N2 | 완료 | #921(PR #927, dev `c95d732d`). 정책 ND-129~ND-132, 새 group `auxiliary-app.notification-chat-alert` |
 | N10 | P2 | 예약 배치와 예약 알림 5종 | 알림 | N2(종류별 N5·M3·M4) | 완료 | #928(PR #929, dev `cced81b7`). 정책 ND-133~ND-149. U6은 #935로 팀 확인(구현은 ND-134) |
 | N11 | P2 | 예약 알림 지표와 alert "예약 알림 발송 실패" | 알림 | N10 | 완료 | #937(PR #938, dev `c0414dbd`). 정책 ND-150~ND-152. `rules.yaml` 운영 적용은 사용자 수동 |
-| N12 | P1 | 계측 보강: Kafka 소비 실패·DLT 결과·저장 결과·소비 지연, 실시간 전달 구간·연결 수 | 알림 | 없음 | 진행 중 | #944. 정책 ND-153~ND-162. 테스트 NT-OBS-01~10. 구현·테스트 완료(NR-088), PR 전 |
-| N13 | P1 | 부하 도구와 리팩토링 전 대표 기준선 B0, 허용 회귀율 승인 | 알림 | N12 | 대기 | ND-155·ND-156 |
+| N12 | P1 | 계측 보강: Kafka 소비 실패·DLT 결과·저장 결과·소비 지연, 실시간 전달 구간·연결 수 | 알림 | 없음 | 완료 | #944(PR #945, dev `52208c28`). 정책 ND-153~ND-162. 테스트 NT-OBS-01~10 |
+| N13 | P1 | 부하 도구와 리팩토링 전 대표 기준선 B0, 허용 회귀율 승인 | 알림 | N12 | 진행 중 | #946. 정책 ND-163~ND-176. 테스트 NT-OBS-11·12, NT-B0-01~11. B0 공식 5회와 허용 회귀율 −10% 확정(ND-175, [B0 기준선](../../../../docs/load-test/notification-baseline.md)). 운영 smoke L1·L2 미실행(알림 담당), PR 전 |
 | N14 | P1 | 구조 리팩토링: Kafka 설정 공통화, 리스너 공통 뼈대, 동일성 테스트, B0 재측정 | 알림 | N13(허용 회귀율 승인) | 대기 | ND-154·ND-156 |
 | N15 | P1 | 본 부하 시험 L1~L6, U13 측정값 전달 | 알림(L6 챗봇 담당 확인, U13 확정은 인프라·챗봇 담당) | N14 | 대기 | ND-155·ND-157 |
 | N16 | P1 | 운영 E2E: N10 예약 알림 확인과 기록 | 알림(실행은 사용자) | N15 | 대기 | ND-158 |
