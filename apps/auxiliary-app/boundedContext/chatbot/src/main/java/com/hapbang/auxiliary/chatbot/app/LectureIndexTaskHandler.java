@@ -72,6 +72,10 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
                 toEmbed.add(lecture);
                 continue;
             }
+            if (previous.equals(current)) {
+                // 상태 필드도 같다(정합 점검과 같은 비교). 보낼 것이 없다
+                continue;
+            }
             try {
                 // 문서가 그사이 사라졌으면(index 재생성 등) 새로 임베딩한다
                 if (!index.update(IndexType.LECTURE, docId, current.stateFields())) {
