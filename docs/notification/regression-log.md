@@ -86,6 +86,29 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-095 · 2026-11-15 · 통과 (N13 #946 PR #954 CI 실패 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-095 |
+| 실행 날짜 | 2026-11-15 21:46~21:52 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `a7e483d1`) |
+| 작업 트리 변경 | `loadtest/B0ConsoleProducerCompatibilityTest.java`(투입 파일 복사 권한 0644 명시) |
+| 대상 기능 | NT-B0-08(G8) |
+| 관련 NT ID | NT-B0-08, 회귀 전체 |
+| 명령 | `./gradlew -p apps/auxiliary-app :notification:test --tests '*B0ConsoleProducerCompatibilityTest'`; NR-090의 회귀 3명령 |
+| 실행 환경 | NR-090과 같다 |
+| 결과 | 통과(종료 코드 0). G8 1건 통과. 세 태스크 모두 새로 실행 |
+| 건수 | `:notification` 464(실패 0·오류 0·건너뜀 1), `:auxiliary-app` 16 |
+| 실패 원인 분류 | 테스트 환경(파일 권한) |
+| 수정 내용 | CI(Linux)에서 G8이 90행(producer 종료 코드)에서 실패했다. Linux의 `Files.createTempFile`은 0600이고 Testcontainers `MountableFile.forHostPath(file)`는 그 권한 그대로 root 소유로 복사해, `apache/kafka:4.4.0` 컨테이너의 `appuser`(uid 1000)가 투입 파일을 읽지 못했다(`Permission denied`). Windows는 POSIX 권한이 없어 로컬에서 드러나지 않았다. 복사 권한을 0644로 명시했다. 검증 조건은 바꾸지 않았다 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 로컬에서 복사 권한을 0600으로 강제하자 `bash: line 1: /tmp/b0/chat.events.v1.txt: Permission denied`, 기대 0·실제 1로 같은 90행에서 실패. 0644 명시 뒤 통과. 확인용 표식이 남지 않았음을 grep으로 확인 |
+| 미검증 항목 | CI(Linux)에서의 재실행(Push 뒤 확인), 전체 `./gradlew check`(CI) |
+| 관련 변경 | PR #954 CI |
+
 #### NR-094 · 2026-11-15 · 통과 (N13 #946 PR 리뷰 반영 S6 재리뷰 뒤)
 
 | 항목 | 값 |

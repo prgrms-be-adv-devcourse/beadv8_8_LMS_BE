@@ -82,7 +82,9 @@ class B0ConsoleProducerCompatibilityTest {
             Path file = Files.createTempFile("b0-" + topic, ".txt");
             Files.writeString(file, entry.getValue().stream().map(B0Record::line)
                     .collect(Collectors.joining("\n", "", "\n")), StandardCharsets.UTF_8);
-            kafka.copyFileToContainer(MountableFile.forHostPath(file), "/tmp/b0/" + topic + ".txt");
+            // Linux의 Files.createTempFile은 0600이고 Testcontainers는 그 권한 그대로 root 소유로 복사한다. 컨테이너는
+            // appuser(uid 1000)로 실행하므로 읽을 수 있게 0644를 명시한다(Windows는 POSIX 권한이 없어 드러나지 않았다)
+            kafka.copyFileToContainer(MountableFile.forHostPath(file, 0644), "/tmp/b0/" + topic + ".txt");
 
             ExecResult result = kafka.execInContainer("bash", "-c", B0ConsoleProducer.command("localhost:9093",
                     topic, "/tmp/b0/producer.properties", "/tmp/b0/producer-log4j2.yaml", "/tmp/b0/" + topic + ".txt"));
