@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -83,7 +84,7 @@ public class IndexTaskRunner {
         if (types.isEmpty()) {
             return 0;
         }
-        long startNanos = System.nanoTime();
+        Instant start = clock.instant();
         LocalDateTime now = now();
         LocalDateTime leaseUntil = now.plus(settings.lease());
         List<IndexTask> tasks = transaction.execute(status -> {
@@ -99,7 +100,7 @@ public class IndexTaskRunner {
         boolean first = true;
         for (Map.Entry<IndexType, SequencedMap<String, List<IndexTask>>> entry : byType.entrySet()) {
             List<Long> ids = entry.getValue().values().stream().flatMap(List::stream).map(IndexTask::id).toList();
-            Duration elapsed = Duration.ofNanos(System.nanoTime() - startNanos);
+            Duration elapsed = Duration.between(start, clock.instant());
             if (!first && elapsed.compareTo(settings.lease().dividedBy(2)) > 0) {
                 store.release(ids, now(), leaseUntil);
                 log.info("회차가 임대 시간의 절반을 넘겨 남은 색인 요청을 돌려준다 type={}, docs={}, elapsed={}", entry.getKey(),

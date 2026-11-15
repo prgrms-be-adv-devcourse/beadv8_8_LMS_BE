@@ -34,6 +34,7 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore.IndexTask;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
+import com.hapbang.auxiliary.chatbot.support.ChatbotTestClock;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -243,9 +244,9 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
         store.add(IndexType.INFLUENCER, "7", IndexAction.DELETE, now());
         // 첫 종류(강의)를 처리하는 데 임대의 절반보다 오래 걸린다
-        lectures.sleep = Duration.ofMillis(50);
+        lectures.elapse = LEASE.dividedBy(2).plusSeconds(1);
 
-        assertThat(runner(Duration.ofMillis(20), lectures, influencers).runOnce()).isEqualTo(1);
+        assertThat(runner(LEASE, lectures, influencers).runOnce()).isEqualTo(1);
 
         assertThat(influencers.calls).isEmpty();
         assertThat(row("7")).containsEntry("attempts", 0).containsEntry("done_at", null).containsEntry("next_attempt_at", now());
@@ -365,7 +366,8 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         private final Map<String, Integer> failures = new ConcurrentHashMap<>();
         private volatile boolean available = true;
         private volatile boolean throwAll;
-        private volatile Duration sleep = Duration.ZERO;
+        /** 처리하는 동안 흐른 것으로 칠 시간(테스트 시계를 그만큼 움직인다) */
+        private volatile Duration elapse = Duration.ZERO;
 
         private FakeHandler(IndexType type) {
             this.type = type;
@@ -384,13 +386,7 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         @Override
         public Map<String, RuntimeException> handle(SequencedMap<String, IndexAction> docs) {
             calls.add(Map.copyOf(docs));
-            if (!sleep.isZero()) {
-                try {
-                    Thread.sleep(sleep);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
+            ChatbotTestClock.clock().advance(elapse);
             if (throwAll) {
                 throw new IllegalStateException("처리기 전체 실패");
             }
