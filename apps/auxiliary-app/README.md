@@ -88,7 +88,7 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 | Swagger | `/api/v1/auxiliary/swagger-ui.html` (`global/src/main/resources/swagger.yml`). 모듈 셋의 API가 한 명세에 있고 컨트롤러 `@Tag`로 나뉜다 |
 | DB 연결 풀 | Hikari 5. PostgreSQL `max_connections` 100을 다른 앱과 나눠 쓴다 |
 | 배치 스레드 | `spring.task.scheduling.pool.size` 2 |
-| Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`) |
+| Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`). 챗봇 회원 그룹(`auxiliary-app.chatbot-member-copy`)만 처리 실패를 DLT로 보내지 않고 10초마다 성공할 때까지 다시 시도한다(#835. 마스킹은 이벤트로만 알 수 있어 DLT로 가면 지울 데이터가 영구히 남는다). 그동안 이 그룹의 뒤 메시지는 기다리고, 6번째 실패에서 `[CHATBOT_MEMBER_EVENT_STUCK]` ERROR를 한 번 남긴다. 읽을 수 없는·필수 값이 빠진 메시지는 이 그룹도 바로 DLT |
 | 배치 실행 락 | global `JobLock`(PostgreSQL advisory lock). database를 모듈이 함께 쓰므로 락 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번(`JobLockKey`) |
 | 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL` / 검색 통계 동기화: `MemberApiClient`, `MEMBER_API_BASE_URL`) |
 | 메모리 | large node, limit 704Mi, `-Xmx256m`, `MALLOC_ARENA_MAX=2`(#684 예산) |
