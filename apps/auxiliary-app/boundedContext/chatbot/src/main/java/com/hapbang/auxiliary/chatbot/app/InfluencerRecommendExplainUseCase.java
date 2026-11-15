@@ -23,7 +23,8 @@ import lombok.RequiredArgsConstructor;
  * LLM 리랭킹 + 이유({@link RecommendReranker}) → 남은 풀(코드 순서) → 인기순 채우기.
  * <ul>
  *     <li>프롬프트에는 후보의 공개 수치만 넣는다: 분야 이름, 후보가 완료한 출연 수(요청 회원과 함께한 수가 아님), 평균 별점, 이유 코드.
- *     <b>닉네임·자기소개 원문, 요청 회원 정보, 회원 ID, 함께 출연한 이력은 넣지 않는다.</b></li>
+ *     <b>후보의 닉네임·자기소개 원문, 회원 ID, 함께 출연한 이력은 넣지 않는다.</b> 요청 회원의 취향은 {@code rerank.taste=PUBLIC}일 때만
+ *     관심사와 요청 회원 자신의 공개 프로필(분야·자기소개)을 넣는다({@link RecommendTasteSupport}, #948).</li>
  *     <li>LLM이 고른 후보만 LLM 문장이고 나머지(남은 풀·인기순 채움)는 이유 코드 문장이다. 풀이 비면 LLM을 부르지 않는다.</li>
  * </ul>
  */
@@ -34,6 +35,7 @@ public class InfluencerRecommendExplainUseCase {
     private final InfluencerRecommendUseCase useCase;
     private final QueryExpander queryExpander;
     private final RecommendReranker reranker;
+    private final RecommendTasteSupport tasteSupport;
     private final ChatbotCategoryNames categoryNames;
     private final ChatbotInfluencerRecommendProperties properties;
     private final ChatbotRecommendLlmProperties llmProperties;
@@ -54,7 +56,7 @@ public class InfluencerRecommendExplainUseCase {
             lines.add(line(candidate));
         }
         RecommendReranker.Reranked reranked = reranker.rerank(Feature.INFLUENCER_BUTTON, "함께 방송할 출연 상대", lines,
-                properties.size());
+                properties.size(), tasteSupport.read(userId, interest));
         List<Long> ids = pool.memberIds();
         Map<Long, String> llmReasons = reranked.reasonsById(ids);
         InfluencerRecommendation recommendation = useCase.complete(pool, reranked.chosenThenRest(ids));
@@ -75,7 +77,7 @@ public class InfluencerRecommendExplainUseCase {
         return sentences;
     }
 
-    // 후보의 공개 수치만. 닉네임·자기소개·요청 회원 정보·회원 ID는 넣지 않는다
+    // 후보의 공개 수치만. 후보의 닉네임·자기소개·회원 ID는 넣지 않는다
     private String line(Candidate candidate) {
         List<String> names = categoryNames.namesOf(candidate.categories());
         Double rating = candidate.averageRating();

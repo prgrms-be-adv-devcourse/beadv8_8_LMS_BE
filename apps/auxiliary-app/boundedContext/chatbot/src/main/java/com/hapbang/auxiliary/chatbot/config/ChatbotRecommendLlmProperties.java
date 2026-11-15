@@ -2,14 +2,20 @@ package com.hapbang.auxiliary.chatbot.config;
 
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 추천 버튼 경로의 LLM 설정 {@code hapbang.chatbot.recommend} (#720). 강의·인플루언서가 같은 값을 쓴다(리랭킹·쿼리 확장 처리가 한 벌).
@@ -32,7 +38,9 @@ public record ChatbotRecommendLlmProperties(
      * @param timeout         시간 상한. 넘으면 코드 순서 상위 추천 수 + 이유 코드 문장
      * @param poolSize        LLM에 보여 줄 맞춤 후보 수(풀). 풀에는 맞춤 후보만 넣는다
      * @param reasonMaxLength 이유 문장의 최대 글자 수(카드 크기). 넘으면 자른다
-     * @param descriptionMaxLength 프롬프트에 넣는 강의 소개의 최대 글자 수(입력 토큰 상한)
+     * @param descriptionMaxLength 프롬프트에 넣는 강의 소개·요청 회원 자기소개의 최대 글자 수(입력 토큰 상한)
+     * @param taste           요청 회원의 취향을 프롬프트에 넣는 범위(#948). 기본은 넣지 않는다
+     * @param temperature     리랭킹 호출의 온도. 비우면 공급자 설정(prod 0.2)을 쓴다. 리랭킹은 고르기라 흔들림의 이득이 작아 따로 둔다(#948)
      */
     public record Rerank(
             @DefaultValue("true") boolean enabled,
@@ -40,7 +48,20 @@ public record ChatbotRecommendLlmProperties(
             @DefaultValue("12s") @NotNull Duration timeout,
             @DefaultValue("20") @Positive int poolSize,
             @DefaultValue("80") @Positive int reasonMaxLength,
-            @DefaultValue("300") @Positive int descriptionMaxLength) {
+            @DefaultValue("300") @Positive int descriptionMaxLength,
+            @DefaultValue("NONE") @NotNull Taste taste,
+            @Nullable @DecimalMin("0.0") @DecimalMax("2.0") Double temperature) {
+    }
+
+    /** 리랭킹 프롬프트에 넣는 요청 회원 취향의 범위(#948) */
+    @Getter
+    @RequiredArgsConstructor
+    public enum Taste {
+
+        NONE("넣지 않는다. LLM은 후보 정보만 보고 고른다(#720)"),
+        PUBLIC("본인이 이번에 입력한 관심사와, 인플루언서면 공개 프로필의 분야 이름·자기소개. 넣을 것이 없으면 리랭킹하지 않고 코드 순서로 이유만 쓴다");
+
+        private final String description;
     }
 
     /**
