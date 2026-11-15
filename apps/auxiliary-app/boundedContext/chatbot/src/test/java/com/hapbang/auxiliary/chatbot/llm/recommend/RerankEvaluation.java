@@ -59,7 +59,7 @@ final class RerankEvaluation {
     /** 비교할 방식 */
     enum Mode {
 
-        NONE("none", "리랭킹, 취향 없음(지금 운영, #720)", Taste.NONE, null, true,
+        NONE("none", "리랭킹, 취향 없음(#720)", Taste.NONE, null, true,
                 List.of(Target.LECTURE_SIGNAL, Target.LECTURE_INTEREST, Target.INFLUENCER)),
         PUBLIC("public", "리랭킹, 공개 취향(#948)", Taste.PUBLIC, null, true, List.of(Target.LECTURE_INTEREST, Target.INFLUENCER)),
         PUBLIC_T0("public-t0", "리랭킹, 공개 취향, 온도 0", Taste.PUBLIC, 0.0, true,

@@ -160,7 +160,7 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
         });
         // 강의 신호만 5 + 강의 신호+관심사 (확장 5 + 리랭킹 5) + 인플루언서 5. 같은 풀을 다시 만들 때 확장을 다시 부르지 않는다
         assertThat(fakeChat.calls()).isEqualTo(20);
-        assertThat(report.text()).contains("| 리랭킹, 취향 없음(지금 운영, #720) | 강의 신호만 | 5 |")
+        assertThat(report.text()).contains("| 리랭킹, 취향 없음(#720) | 강의 신호만 | 5 |")
                 .as("가중치는 운영 설정 파일에서 읽는다").contains("강의 β=0.2, 인플루언서 β=0.1");
     }
 
