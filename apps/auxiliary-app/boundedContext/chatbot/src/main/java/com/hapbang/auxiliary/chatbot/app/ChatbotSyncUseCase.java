@@ -153,8 +153,13 @@ public class ChatbotSyncUseCase {
         } catch (RuntimeException e) {
             lease.close();
             if (run != null) {
-                run.fail(new SyncTally(), "실행을 시작하지 못했습니다: " + rootMessage(e), now());
-                syncRunRepository.save(run);
+                // 기록이 실패해도 시작을 막은 원래 예외를 던진다. 기록 실패는 suppressed로 붙인다
+                try {
+                    run.fail(new SyncTally(), "실행을 시작하지 못했습니다: " + rootMessage(e), now());
+                    syncRunRepository.save(run);
+                } catch (RuntimeException recordFailure) {
+                    e.addSuppressed(recordFailure);
+                }
             }
             throw e;
         }
