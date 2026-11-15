@@ -10,6 +10,8 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
@@ -88,6 +90,23 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
         clearTasks();
         assertThat(checker.check()).isEqualTo(2);
         assertThat(influencerTasks()).containsExactlyInAnyOrder("11", "12");
+    }
+
+    @Test
+    @DisplayName("정합 점검은 회원을 페이지로 나눠 끝까지 훑는다(페이지 크기 2, 회원 5명: 마지막 페이지가 모자라도 모두 본다)")
+    void checkerPagesThroughAllMembers() {
+        for (long id = 21; id <= 25; id++) {
+            influencer(id, "GAME", "롤 " + id);
+        }
+        clearTasks();
+        ChatbotInfluencerRecommendProperties smallPages = new Binder(new MapConfigurationPropertySource(
+                Map.of("hapbang.chatbot.recommend.influencer.check-page-size", "2")))
+                .bindOrCreate("hapbang.chatbot.recommend.influencer", ChatbotInfluencerRecommendProperties.class);
+        InfluencerIndexChecker paged = new InfluencerIndexChecker(handler, index, store,
+                new ChatbotCategoryNames(memberSource, properties, clockBean), indexTaskStore, smallPages, clockBean);
+
+        assertThat(paged.check()).isEqualTo(5);
+        assertThat(influencerTasks()).containsExactlyInAnyOrder("21", "22", "23", "24", "25");
     }
 
     @Test
