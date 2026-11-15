@@ -308,7 +308,9 @@ class FaqChatServiceTest {
         }
         ChatbotFaqProperties properties = new ChatbotFaqProperties("chatbot-faq-test-8", 8, 0.8, 3, "", "", timeout, timeout,
                 false, Duration.ofMinutes(10), new ChatbotFaqProperties.RateLimit(10, Duration.ofMinutes(1), 100));
-        guard = new LlmCallGuard(circuitBreaker, new ChatbotLlmProperties(maxConcurrent), new SimpleAsyncTaskExecutorBuilder());
+        guard = new LlmCallGuard(circuitBreaker, new ChatbotLlmProperties(maxConcurrent,
+                new ChatbotLlmProperties.CircuitBreakerSettings(10, 5, 50, Duration.ofSeconds(30), 3)),
+                new SimpleAsyncTaskExecutorBuilder());
         return new FaqChatService(beans.getBeanProvider(org.springframework.ai.chat.model.ChatModel.class),
                 beans.getBeanProvider(ChatClient.Builder.class), new FaqTools(searchService, new ChatbotMetrics(registry)), searchService,
                 properties, new ChatbotMetrics(registry), guard);
