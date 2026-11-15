@@ -33,7 +33,7 @@ import com.hapbang.auxiliary.chatbot.app.FaqSeedSynchronizer;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
 import com.hapbang.auxiliary.chatbot.app.FaqTools;
 import com.hapbang.auxiliary.chatbot.domain.Faq;
-import com.hapbang.auxiliary.chatbot.domain.FaqRepository;
+import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;

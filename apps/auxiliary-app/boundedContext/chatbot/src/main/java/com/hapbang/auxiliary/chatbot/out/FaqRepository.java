@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.chatbot.domain;
+package com.hapbang.auxiliary.chatbot.out;
 
 import java.util.Collection;
 import java.util.List;
@@ -6,6 +6,9 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+
+import com.hapbang.auxiliary.chatbot.domain.Faq;
+import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 
 public interface FaqRepository extends JpaRepository<Faq, Long> {
 

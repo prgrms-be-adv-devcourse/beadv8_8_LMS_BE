@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.auxiliary.chatbot.domain.Faq;
-import com.hapbang.auxiliary.chatbot.domain.FaqRepository;
+import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 
 import lombok.RequiredArgsConstructor;
