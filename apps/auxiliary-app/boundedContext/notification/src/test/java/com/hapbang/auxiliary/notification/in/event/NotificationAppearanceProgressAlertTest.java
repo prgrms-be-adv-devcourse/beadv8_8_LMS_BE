@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.notification.in.event;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.hapbang.auxiliary.notification.app.NotificationOutcomeRecorder;
 import com.hapbang.auxiliary.notification.domain.NotificationUser;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
@@ -11,12 +12,15 @@ import com.hapbang.auxiliary.notification.out.NotificationUserRepository;
 import com.hapbang.shared.appearance.domain.AppearanceConfirmType;
 import com.hapbang.shared.appearance.domain.AppearanceRecruitCloseType;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
+import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
 import com.hapbang.shared.appearance.dto.AppearanceDto;
 import com.hapbang.shared.appearance.dto.AppearanceRecruitDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.event.AppearanceAbsentEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationNotSelectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSelectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCanceledByHostEvent;
 import com.hapbang.shared.appearance.event.AppearanceConfirmedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRecruitCanceledEvent;
@@ -26,11 +30,14 @@ import com.hapbang.shared.appearance.event.AppearanceRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -102,6 +109,9 @@ class NotificationAppearanceProgressAlertTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Autowired
     private KafkaListenerEndpointRegistry listenerRegistry;
@@ -322,6 +332,37 @@ class NotificationAppearanceProgressAlertTest {
         assertThat(deadLetterKeys()).doesNotContain("both:withdrawn");
     }
 
+    /**
+     * 받는 사람 사전 판단(NotificationAlertService.cannotReceive)을 거치는 출연 이벤트 9종: createMentioning 호출 6곳과 전용 메서드
+     * 3개(요청 도착·모집 지원·취소 요청). 건너뛴 것도 소비 결과 skipped_receiver로 센다(ND-164). 만료는 호스트(사전 판단)와
+     * 게스트(저장 서비스) 두 건이라 모두 10건이다. 알림·DLT는 그대로 없다
+     */
+    @Test
+    void 받을_수_없는_회원에게_가는_출연_알림은_사전_판단에서_건너뛰어도_소비_결과에_센다() {
+        double before = skippedReceiver();
+        long recruitId = nextId();
+        List<Object> events = List.of(
+                new AppearanceRequestSentEvent(request(withdrawnMember(), withdrawnMember(), "도착")),
+                new AppearanceApplicationSubmittedEvent(application(recruitId, withdrawnMember(), withdrawnMember())),
+                new AppearanceCancelRequestedEvent(new AppearanceCancelRequestDto(nextId(), nextId(), "취소 요청",
+                        withdrawnMember(), withdrawnMember(), 1, AT.plusDays(20)), AT),
+                new AppearanceRequestAcceptedEvent(request(withdrawnMember(), withdrawnMember(), "수락"), nextId(), AT),
+                new AppearanceRequestRejectedEvent(request(withdrawnMember(), withdrawnMember(), "거절"), AT),
+                new AppearanceRequestCanceledEvent(request(withdrawnMember(), withdrawnMember(), "취소"), AT),
+                new AppearanceRequestExpiredEvent(request(withdrawnMember(), withdrawnMember(), "만료"), AT),
+                new AppearanceApplicationSelectedEvent(application(recruitId, withdrawnMember(), withdrawnMember()),
+                        nextId(), SCHEDULED, AT),
+                new AppearanceCanceledByHostEvent(appearance(withdrawnMember(), withdrawnMember(), "파기"), 30_000L, AT));
+
+        for (int i = 0; i < events.size(); i++) {
+            kafka.send(APPEARANCE_TOPIC, "skip:" + i, events.get(i));
+        }
+        awaitProcessed();
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(skippedReceiver() - before).isEqualTo(10.0));
+        assertThat(deadLetterKeys()).noneMatch(key -> key.startsWith("skip:"));
+    }
+
     @Test
     void 시작_시각보다_이른_요청_수락은_게스트_복제본이_없어도_닉네임을_읽지_않고_DLT_없이_건너뛴다() {
         long host = member("호스트");
@@ -408,6 +449,12 @@ class NotificationAppearanceProgressAlertTest {
         long marker = member("표식");
         kafka.send(APPEARANCE_TOPIC, "marker", new AppearanceAbsentEvent(appearance(host, marker, "표식"), AT));
         await().atMost(TIMEOUT).until(() -> rows(marker).size() == 1);
+    }
+
+    private double skippedReceiver() {
+        Counter counter = meterRegistry.find(NotificationOutcomeRecorder.OUTCOMES_METRIC).tag("topic", APPEARANCE_TOPIC)
+                .tag("result", "skipped_receiver").counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private List<String> deadLetterKeys() {
