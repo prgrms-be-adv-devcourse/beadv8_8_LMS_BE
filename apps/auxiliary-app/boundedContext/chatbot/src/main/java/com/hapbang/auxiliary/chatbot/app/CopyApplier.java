@@ -11,7 +11,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
-import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
@@ -85,7 +84,7 @@ public class CopyApplier {
      * @param runId 싱크 회차 ID. 이벤트면 null
      */
     public CopyWrite apply(AppearanceSyncDto appearance, Long runId) {
-        return appearanceCopyStore.save(AppearanceCopy.from(appearance), runId, now());
+        return appearanceCopyStore.save(CopyMapper.appearance(appearance), runId, now());
     }
 
     /**
@@ -94,13 +93,13 @@ public class CopyApplier {
      * @param runId 싱크 회차 ID. 이벤트면 null
      */
     public CopyWrite apply(AppearanceReviewSyncDto review, Long runId) {
-        AppearanceReviewCopy copy = AppearanceReviewCopy.from(review);
+        AppearanceReviewCopy copy = CopyMapper.appearanceReview(review);
         return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, runId, now()));
     }
 
     /** 리뷰 공개 이벤트를 반영한다 */
     public CopyWrite apply(AppearanceReviewPublishedEvent event) {
-        AppearanceReviewCopy copy = AppearanceReviewCopy.from(event);
+        AppearanceReviewCopy copy = CopyMapper.appearanceReview(event);
         return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, null, now()));
     }
 
@@ -114,7 +113,7 @@ public class CopyApplier {
      * {@link CopyOutcome#DISCARDED}로 센다. 그래서 마스킹 회원의 행은 어긋남·경고 비율 집계에서 빠진다(#717 스펙).
      */
     public CopyWrite apply(UserDto user) {
-        MemberCopy copy = MemberCopy.from(user);
+        MemberCopy copy = CopyMapper.member(user);
         return transaction.execute(status -> {
             maskedMemberStore.lock(copy.id());
             if (!maskedMemberStore.isMasked(copy.id())) {
@@ -136,7 +135,7 @@ public class CopyApplier {
      * @param runId 싱크 회차 ID. 이벤트면 null
      */
     public CopyWrite apply(LectureSyncDto lecture, Long runId) {
-        LectureCopies.Lecture copy = LectureCopies.Lecture.from(lecture);
+        LectureCopies.Lecture copy = CopyMapper.lecture(lecture);
         return transaction.execute(status -> {
             LocalDateTime now = now();
             CopyWrite write = lectureCopyStore.save(copy, runId, now);
@@ -163,19 +162,19 @@ public class CopyApplier {
 
     /** 구매를 반영한다. 구매자를 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
     public CopyWrite apply(LecturePurchaseSyncDto purchase, Long runId) {
-        LectureCopies.Purchase copy = LectureCopies.Purchase.from(purchase);
+        LectureCopies.Purchase copy = CopyMapper.purchase(purchase);
         return unlessMasked(copy.buyerUserId(), () -> lectureCopyStore.save(copy, runId, now()));
     }
 
     /** 장바구니 항목을 반영한다. 주인을 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
     public CopyWrite apply(CartItemSyncDto cartItem, Long runId) {
-        LectureCopies.CartItem copy = LectureCopies.CartItem.from(cartItem);
+        LectureCopies.CartItem copy = CopyMapper.cartItem(cartItem);
         return unlessMasked(copy.userId(), () -> lectureCopyStore.save(copy, runId, now()));
     }
 
     /** 강의 리뷰를 반영한다. 작성자를 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
     public CopyWrite apply(LectureReviewSyncDto review, Long runId) {
-        LectureCopies.Review copy = LectureCopies.Review.from(review);
+        LectureCopies.Review copy = CopyMapper.lectureReview(review);
         return unlessMasked(copy.reviewerUserId(), () -> lectureCopyStore.save(copy, runId, now()));
     }
 

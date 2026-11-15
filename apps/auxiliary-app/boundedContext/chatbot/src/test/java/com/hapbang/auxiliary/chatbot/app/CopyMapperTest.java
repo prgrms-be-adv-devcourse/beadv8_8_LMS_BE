@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -12,11 +13,14 @@ import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
+import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.LectureCopies;
 import com.hapbang.auxiliary.chatbot.domain.MemberCopy;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 import com.hapbang.shared.lecture.dto.CartItemSyncDto;
 import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
@@ -39,15 +43,41 @@ class CopyMapperTest {
     @Test
     @DisplayName("출연 사본의 해시")
     void appearanceHash() {
-        AppearanceCopy copy = AppearanceCopy.from(new AppearanceSyncDto(1L, 2L, 3L, AppearanceResult.SCHEDULED, AT, 4L));
+        AppearanceCopy copy = CopyMapper.appearance(new AppearanceSyncDto(1L, 2L, 3L, AppearanceResult.SCHEDULED, AT, 4L));
 
         assertThat(copy.hash()).isEqualTo("9a7c043e67b5d6949643834608e77431e2ca2a868f5657c35a24d6065e6f167d");
     }
 
     @Test
+    @DisplayName("출연 해시는 version을 넣지 않는다. 값이 하나라도 다르면 해시가 다르다")
+    void appearanceHashIgnoresVersion() {
+        AppearanceCopy v0 = CopyMapper.appearance(new AppearanceSyncDto(1L, 2L, 3L, AppearanceResult.SCHEDULED, AT, 0L));
+        AppearanceCopy v1 = CopyMapper.appearance(new AppearanceSyncDto(1L, 2L, 3L, AppearanceResult.SCHEDULED, AT, 1L));
+        AppearanceCopy done = CopyMapper.appearance(new AppearanceSyncDto(1L, 2L, 3L, AppearanceResult.COMPLETED, AT, 2L));
+
+        assertThat(v0.hash()).isEqualTo(v1.hash()).isNotEqualTo(done.hash());
+        assertThat(v1.version()).isEqualTo(1L);
+        assertThat(v0.scheduledAt()).isEqualTo(CopyTimes.kst(AT));
+    }
+
+    @Test
+    @DisplayName("리뷰: 공개 이벤트에서 싱크 DTO 4필드만 뽑아 싱크로 받은 값과 해시가 같다. 필수 값이 없으면 예외")
+    void reviewEventMatchesSyncDto() {
+        AppearanceReviewPublishedEvent event = new AppearanceReviewPublishedEvent(10L, 1L, 3L, 2L,
+                AppearanceParticipantRole.GUEST, 5, AT);
+
+        AppearanceReviewCopy fromEvent = CopyMapper.appearanceReview(event);
+        AppearanceReviewCopy fromSync = CopyMapper.appearanceReview(new AppearanceReviewSyncDto(10L, 1L, 2L, 5));
+
+        assertThat(fromEvent).isEqualTo(fromSync);
+        assertThatThrownBy(() -> CopyMapper.appearanceReview(new AppearanceReviewPublishedEvent(null, 1L, 3L, 2L,
+                AppearanceParticipantRole.GUEST, 5, AT))).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     @DisplayName("출연 리뷰 사본의 해시")
     void appearanceReviewHash() {
-        AppearanceReviewCopy copy = AppearanceReviewCopy.from(new AppearanceReviewSyncDto(10L, 1L, 2L, 5));
+        AppearanceReviewCopy copy = CopyMapper.appearanceReview(new AppearanceReviewSyncDto(10L, 1L, 2L, 5));
 
         assertThat(copy.hash()).isEqualTo("28b02e3c27e6424125f9f72707754422b686c6c624e5bfa0f438c08123548a37");
     }
@@ -55,7 +85,7 @@ class CopyMapperTest {
     @Test
     @DisplayName("회원 사본의 해시")
     void memberHash() {
-        MemberCopy copy = MemberCopy.from(new UserDto(7L, "닉네임", Role.INFLUENCER, UserStatus.ACTIVE, 3L,
+        MemberCopy copy = CopyMapper.member(new UserDto(7L, "닉네임", Role.INFLUENCER, UserStatus.ACTIVE, 3L,
                 List.of("GAME", "MUSIC"), "소개"));
 
         assertThat(copy.hash()).isEqualTo("f14c082a6872db2d594b655ecaa8b03597e8ef35a8c1ab4d5478ff3c654b99e0");
@@ -64,7 +94,7 @@ class CopyMapperTest {
     @Test
     @DisplayName("강의 사본의 해시. 콘텐츠는 sequence 순으로 넣는다")
     void lectureHash() {
-        LectureCopies.Lecture copy = LectureCopies.Lecture.from(new LectureSyncDto(5L, 7L, "강의", "설명", 1000L, true,
+        LectureCopies.Lecture copy = CopyMapper.lecture(new LectureSyncDto(5L, 7L, "강의", "설명", 1000L, true,
                 false, List.of(new LectureContentSyncDto(12L, "둘째", 2), new LectureContentSyncDto(11L, "첫째", 1)), 9L));
 
         assertThat(copy.contentTitles()).containsExactly("첫째", "둘째");
@@ -74,7 +104,7 @@ class CopyMapperTest {
     @Test
     @DisplayName("구매 사본의 해시")
     void purchaseHash() {
-        LectureCopies.Purchase copy = LectureCopies.Purchase.from(new LecturePurchaseSyncDto(20L, 8L, 5L,
+        LectureCopies.Purchase copy = CopyMapper.purchase(new LecturePurchaseSyncDto(20L, 8L, 5L,
                 LecturePurchaseResult.OWNED, AT_KST, AT_KST.plusDays(1), 2L));
 
         assertThat(copy.hash()).isEqualTo("cfbdaa7a2639907a0be34faa587f63eef69f47431ba095f39f2d87e1b8ea5edf");
@@ -83,7 +113,7 @@ class CopyMapperTest {
     @Test
     @DisplayName("장바구니 사본의 해시")
     void cartItemHash() {
-        LectureCopies.CartItem copy = LectureCopies.CartItem.from(new CartItemSyncDto(30L, 8L, 5L, false, AT_KST, 1L));
+        LectureCopies.CartItem copy = CopyMapper.cartItem(new CartItemSyncDto(30L, 8L, 5L, false, AT_KST, 1L));
 
         assertThat(copy.hash()).isEqualTo("a14482acfc71af68b6545d414567bdfba09550f35b6cde62975c811eefdcbc10");
     }
@@ -91,7 +121,7 @@ class CopyMapperTest {
     @Test
     @DisplayName("강의 리뷰 사본의 해시")
     void lectureReviewHash() {
-        LectureCopies.Review copy = LectureCopies.Review.from(new LectureReviewSyncDto(40L, 5L, 8L, 4, true, false, 1L));
+        LectureCopies.Review copy = CopyMapper.lectureReview(new LectureReviewSyncDto(40L, 5L, 8L, 4, true, false, 1L));
 
         assertThat(copy.hash()).isEqualTo("f9ddbbcfd02193e16ac5fcb20044e0258292535b2f983916a1ca32a09cd97b51");
     }
