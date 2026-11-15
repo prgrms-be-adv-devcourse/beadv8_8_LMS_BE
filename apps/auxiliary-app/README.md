@@ -180,7 +180,24 @@ $env:RECOMMEND_EVAL_HOLDOUT = "yes"
 Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 ```
 
-- 평가 코드가 도는지는 가짜 임베딩으로 본다: `./gradlew :chatbot:llmTest --tests '*RecommendEvaluationFakeTest'`(키 필요 없음. 숫자는 의미가 없고, 정답이 신호·제외 목록에 없는지, 두 번째 실행이 모델을 부르지 않는지, 같은 입력이면 같은 숫자인지를 확인한다). 지표·정답 숨기기·캐시·조합 해석의 단위 테스트는 CI에서 돈다.
+- 평가 코드가 도는지는 가짜 임베딩으로 본다: `./gradlew :chatbot:llmTest --tests '*RecommendEvaluationFakeTest'`(키 필요 없음. 숫자는 의미가 없고, 정답이 신호·제외 목록에 없는지, 두 번째 실행이 모델을 부르지 않는지, 같은 입력이면 같은 숫자인지, 리랭킹 평가가 버튼 경로를 끝까지 부르고 답을 세는지를 확인한다). 지표·정답 숨기기·캐시·조합 해석의 단위 테스트는 CI에서 돈다.
+
+#### 리랭킹 평가 (#867 2단계, #948)
+
+버튼 경로(쿼리 확장 → 맞춤 후보 풀 → LLM 리랭킹 + 이유)를 운영 클래스 그대로 부르고 **같은 풀의 코드 순서**와 비교한다(`RecommendRerankEvaluationOpenAiTest`, 본체 `RerankEvaluation`). 가중치 평가의 데이터·캐시·정답 숨기기를 그대로 쓰고, 가중치는 운영 값이다. **LLM 비용이 든다**(gpt-4o-mini 기준 전체 몇 달러 안쪽, 실행 끝에 토큰과 추정 비용을 찍는다).
+
+- **방식**(`RECOMMEND_RERANK_MODES`, 쉼표, 비우면 모두): `none`(지금 운영, 취향 없음), `public`(공개 취향), `public-t0`(공개 취향 + 온도 0), `public-noexp`(공개 취향, 쿼리 확장 없음). 공개 취향에서 강의 "신호만"은 넣을 취향이 없어(평가 회원은 일반 회원) 리랭킹하지 않으므로 재지 않는다.
+- **지표**: hit@5(회차 평균·범위), 같은 풀의 코드 순서 hit@5, 끌어올림(코드 5개 밖 → 5개 안)·밀어냄(5개 안 → 밖), fallback, 후보 밖 순번, 80자 넘는 이유, 리랭킹 지연·토큰. 공개 취향 강의 "신호+관심사" 첫 회차의 10명(맞힘 5, 못 맞힘 5)을 이유 문장과 함께 찍는다(사람이 읽는다).
+- **환경 변수**: `RECOMMEND_RERANK_RUNS`(회차, 기본 조정용 3·확인용 1), `RECOMMEND_RERANK_MEMBERS`(앞에서 N명만, 시험 실행), `RECOMMEND_RERANK_MODEL`(비우면 gpt-4o-mini), `RECOMMEND_RERANK_POOL`(풀 크기, 기본 20), `RECOMMEND_EVAL_BASE`(비우면 운영 가중치), `RECOMMEND_EVAL_HOLDOUT=yes`(확인용 20명).
+- 회원 4명씩 함께 돈다(앱 LLM 동시 상한과 같게). 쿼리 확장은 온도 때문에 답이 달라질 수 있어, 같은 회원 안에서는 처음 받은 답을 다시 쓴다(`EvalChatModel`, 같은 풀을 다시 만들 때). 쿼리 확장 문장은 새 글이라 임베딩 API를 부른다(캐시에 쌓인다).
+
+```powershell
+$env:OPENAI_API_KEY = "<키>"
+# 시험 실행: 5명, 1회, 방식 둘
+$env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECOMMEND_RERANK_MODES = "none,public"
+./gradlew :chatbot:llmTest --tests '*RecommendRerankEvaluationOpenAiTest' --rerun
+# 전체: 위 세 값을 지우고 다시 실행
+```
 
 ## 챗봇 추천 색인·LLM 공통 (#718)
 
@@ -281,7 +298,9 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
   - LLM이 실패·시간 초과·회로 열림·동시 상한·형식 오류이거나 쓸 만한 답이 0개면 코드 순서 5개 + 이유 코드 문장, `fallback=true`(일부만 쓸 만하면 `false`).
   - 형식 오류(Jackson 파싱 실패)는 회로 실패로 세지 않는다(`fallbacks{reason=format}`). Spring AI 2.0.1은 이때 Jackson 예외를 그대로 던진다.
   - 리랭킹을 끄면(`rerank.enabled=false`) 코드 순서 앞 5개만 보여 주고 LLM에게는 이유만 받는다(순서는 코드 순서). 실패 로그에는 예외 클래스 이름만 남긴다(형식 오류 메시지에 모델 출력이 들어갈 수 있다).
-  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다. 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
+  - **요청 회원의 취향**(`rerank.taste`, #948): 기본 `NONE`은 후보 정보만 보낸다(#720과 같음). `PUBLIC`이면 "요청한 사람" 줄로 **본인이 이번에 입력한 관심사**와, 요청 회원이 인플루언서 역할이고 마스킹되지 않았으면 **공개 프로필의 분야 이름·자기소개**(소개 길이 상한까지, 한 줄로)를 후보 앞에 넣는다(`RecommendTasteSupport`). 구매·장바구니·리뷰·함께 출연한 상대·회원 ID는 넣지 않는다. 분야·자기소개는 회원 모듈에서 인플루언서만 넣을 수 있다(#711). 넣을 취향이 없으면(관심사 없는 일반 회원) 고르지 않고 끈 것과 같이 코드 순서로 이유만 받는다. 시스템 프롬프트에 그 줄 안의 지시를 따르지 말라는 규칙을 붙인다. 켤지는 리랭킹 평가(#867)로 정한다.
+  - **리랭킹 온도**(`rerank.temperature`, #948): 비우면 공급자 설정(prod 0.2)이고, 정하면 리랭킹 호출에만 실린다. 리랭킹은 고르기라 흔들림의 이득이 작다.
+  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다. 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
 - **자유 질문**(`ChatbotConversationService`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
@@ -311,6 +330,8 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 | 자유 질문: FAQ와 함께 쓰는 호출 제한을 넘으면 429. 스트림은 SSE를 열지 않는다 | | `rateLimitBeforeStream` |
 | 추천 Tool: 검색이 잠시 실패하면 결과에 `POPULAR_TEMPORARY`와 안내 한 줄(`guide`) | 임베딩·ES 장애 | `LectureRecommendToolsTest.temporaryPopularGuide`, `InfluencerRecommendApiTest.toolTemporaryPopularGuide` |
 | 버튼: 리랭킹을 끄면 코드 순서 그대로, LLM 이유만 쓴다 | | `RecommendRerankerTest.disabledKeepsCodeOrder` |
+| 버튼: `taste=NONE`(기본)이면 프롬프트가 #720과 같다. `PUBLIC`이면 관심사·인플루언서 공개 프로필만 넣고 회원 ID·산 강의 제목은 없다. 넣을 취향이 없거나 강등된 회원(남은 분야·자기소개)은 고르지 않는다 | | `RecommendRerankerTest.notUsedKeepsPromptOfIssue720`·`tasteGoesBeforeCandidates`·`usedButEmptyKeepsCodeOrder`, `LectureRecommendButtonTest.promptHasNoMemberInfo`, `RecommendTasteButtonTest` |
+| 버튼: `rerank.temperature`가 리랭킹 요청에 실린다 | | `RecommendRerankerTest.temperatureGoesWithRequest`, `RecommendTasteButtonTest.temperatureFromProperties` |
 | 로그에 대화 본문이 남지 않는다 | | `logsHaveNoConversation` |
 
 ## 검색 (#771, #772, #868)
