@@ -23,7 +23,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -36,7 +35,6 @@ import com.hapbang.auxiliary.chatbot.out.IndexTaskStore.IndexTask;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.ChatbotTestClock;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** 색인 요청 실행기를 실제 DB로 확인한다(#718 공통 기반). 처리기는 테스트가 만든 가짜다 */
@@ -276,14 +274,12 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     private IndexTaskRunner runner(Duration lease, IndexTaskHandler... handlers) {
-        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-        beans.registerSingleton("meterRegistry", registry);
         ChatbotIndexProperties.Task settings = new ChatbotIndexProperties.Task(Duration.ofSeconds(5), 50, lease,
                 Duration.ofSeconds(30), Duration.ofHours(1), 3, Duration.ofDays(7));
         ChatbotIndexProperties properties = new ChatbotIndexProperties("chatbot-lectures-test-8",
                 "chatbot-influencers-test-8", 8, "", "", settings);
         return new IndexTaskRunner(store, List.of(handlers), properties, transactionManager,
-                beans.getBeanProvider(MeterRegistry.class), clockBean);
+                new ChatbotMetrics(registry), clockBean);
     }
 
     // 앞 실행이 가져간 뒤 트랜잭션을 열어 둔 채로, 뒤 실행이 waitLockType 락을 기다리는 것을 확인하고 앞 트랜잭션을 끝낸다
@@ -356,7 +352,7 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     private double counter(String type, String result) {
-        return registry.get(IndexTaskRunner.METRIC).tag("type", type).tag("result", result).counter().count();
+        return registry.get(ChatbotMetrics.INDEX_TASKS).tag("type", type).tag("result", result).counter().count();
     }
 
     private static final class FakeHandler implements IndexTaskHandler {

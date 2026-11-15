@@ -4,6 +4,8 @@ import java.util.Locale;
 
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.domain.IndexType;
+
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -18,11 +20,14 @@ import lombok.RequiredArgsConstructor;
  *     <li>{@code hapbang.chatbot.fallbacks{feature, reason}}: LLM 호출이 실패해 검색 결과·안내 문구·정해진 문장으로 답한 수</li>
  *     <li>{@code hapbang.chatbot.recommend.search.errors{feature}}: 추천 검색(ES·임베딩)이 실패해 인기순으로 대신 답한 수</li>
  *     <li>{@code hapbang.chatbot.rate.limit.rejected{feature}}: 회원별 호출 제한으로 429를 준 수</li>
+ *     <li>{@code hapbang.chatbot.index.tasks{type, result}}: 색인 요청 실행기({@link IndexTaskRunner})가 처리한 문서 수</li>
  * </ul>
  */
 @Component
 @RequiredArgsConstructor
 public class ChatbotMetrics {
+
+    static final String INDEX_TASKS = "hapbang.chatbot.index.tasks";
 
     private final MeterRegistry registry;
 
@@ -54,6 +59,14 @@ public class ChatbotMetrics {
 
     public void rateLimited(Feature feature) {
         counter("hapbang.chatbot.rate.limit.rejected", "회원별 호출 제한으로 거절한 수", "feature", feature.tag()).increment();
+    }
+
+    /** 색인 요청 실행기가 처리한 문서 수. 0건은 세지 않는다 */
+    void indexTasks(IndexType type, IndexTaskRunner.Result result, int amount) {
+        if (amount > 0) {
+            counter(INDEX_TASKS, "챗봇 색인 요청을 처리한 문서 수", "type", type.name(), "result", result.tag())
+                    .increment(amount);
+        }
     }
 
     private Counter counter(String name, String description, String... tags) {

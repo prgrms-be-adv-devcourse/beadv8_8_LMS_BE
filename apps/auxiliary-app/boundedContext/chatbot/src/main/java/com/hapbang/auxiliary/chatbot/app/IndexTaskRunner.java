@@ -14,7 +14,6 @@ import java.util.SequencedMap;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,8 +27,6 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore.IndexTask;
 
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -51,23 +48,21 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class IndexTaskRunner {
 
-    static final String METRIC = "hapbang.chatbot.index.tasks";
-
     private final IndexTaskStore store;
     private final Map<IndexType, IndexTaskHandler> handlers;
     private final ChatbotIndexProperties.Task settings;
     private final TransactionTemplate transaction;
-    private final ObjectProvider<MeterRegistry> registry;
+    private final ChatbotMetrics metrics;
     private final Clock clock;
 
     IndexTaskRunner(IndexTaskStore store, List<IndexTaskHandler> handlers, ChatbotIndexProperties properties,
-            PlatformTransactionManager transactionManager, ObjectProvider<MeterRegistry> registry,
+            PlatformTransactionManager transactionManager, ChatbotMetrics metrics,
             @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.store = store;
         this.handlers = byType(handlers);
         this.settings = properties.task();
         this.transaction = new TransactionTemplate(transactionManager);
-        this.registry = registry;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -151,7 +146,7 @@ public class IndexTaskRunner {
         }
         store.done(doneIds, now(), leaseUntil);
         // 끝내기 기록이 성공한 뒤에 센다. DB 오류로 다시 처리되면 한 번만 센다
-        count(type, Result.DONE, succeeded);
+        metrics.indexTasks(type, Result.DONE, succeeded);
         tally.done += succeeded;
     }
 
@@ -161,7 +156,7 @@ public class IndexTaskRunner {
         LocalDateTime next = now().plus(backoff(attempts));
         store.retryLater(tasks.stream().map(IndexTask::id).toList(), next,
                 failure.getClass().getSimpleName() + ": " + failure.getMessage(), leaseUntil);
-        count(type, Result.FAILED, 1);
+        metrics.indexTasks(type, Result.FAILED, 1);
         if (attempts >= settings.alertAfterAttempts()) {
             log.error("[CHATBOT_INDEX_TASK_STUCK] 색인 요청이 계속 실패한다 type={}, docId={}, attempts={}, next={}", type, docId,
                     attempts, next, failure);
@@ -176,14 +171,6 @@ public class IndexTaskRunner {
         int doublings = Math.min(Math.max(attempts - 1, 0), 30);
         Duration delay = settings.retryInitial().multipliedBy(1L << doublings);
         return delay.compareTo(settings.retryMax()) > 0 ? settings.retryMax() : delay;
-    }
-
-    private void count(IndexType type, Result result, int amount) {
-        MeterRegistry meters = registry.getIfAvailable();
-        if (meters != null && amount > 0) {
-            Counter.builder(METRIC).description("챗봇 색인 요청을 처리한 문서 수")
-                    .tag("type", type.name()).tag("result", result.tag()).register(meters).increment(amount);
-        }
     }
 
     private LocalDateTime now() {
@@ -202,7 +189,7 @@ public class IndexTaskRunner {
         return map;
     }
 
-    /** 지표 {@value #METRIC}의 {@code result} 태그 */
+    /** 지표 {@value ChatbotMetrics#INDEX_TASKS}의 {@code result} 태그 */
     enum Result {
         DONE("색인 요청을 끝냄"),
         FAILED("색인 요청이 실패해 다시 시도함");
