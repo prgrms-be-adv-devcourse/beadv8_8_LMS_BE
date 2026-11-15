@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.auxiliary.chatbot.app.ChatbotFaqFacade;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
-import com.hapbang.auxiliary.chatbot.in.dto.FaqChatRequest;
+import com.hapbang.auxiliary.chatbot.in.dto.FaqChatReqDto;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
 
@@ -39,7 +39,7 @@ public class ApiV1ChatbotChatController {
             FAQ 검색 결과만 근거로 답한다. sources는 근거 FAQ다. LLM이 실패하거나 시간 상한(chat-timeout)을 넘기면 fallback=true이고 \
             검색 상위 1건의 답변 또는 안내 문구로 답한다. 검색과 합쳐 회원마다 주기당 호출 수를 제한한다(넘으면 429).""")
     @PostMapping
-    public RsData<FaqAnswer> chat(@LoginUserId Long userId, @Valid @RequestBody FaqChatRequest request) {
+    public RsData<FaqAnswer> chat(@LoginUserId Long userId, @Valid @RequestBody FaqChatReqDto request) {
         return RsData.ok("FAQ 대화 답변입니다.", facade.chat(userId, request.message()));
     }
 
@@ -49,7 +49,7 @@ public class ApiV1ChatbotChatController {
             첫 조각 전에 실패하면 fallback 답을 token 한 번 + done(fallback=true)으로, 도중에 실패하면 \
             event: error, data: {"message":"..."} 로 끝난다. 호출 제한을 넘으면 스트림을 열지 않고 429(ProblemDetail)다.""")
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<Object>> stream(@LoginUserId Long userId, @Valid @RequestBody FaqChatRequest request) {
+    public Flux<ServerSentEvent<Object>> stream(@LoginUserId Long userId, @Valid @RequestBody FaqChatReqDto request) {
         return facade.stream(userId, request.message()).map(ApiV1ChatbotChatController::toSse);
     }
 
