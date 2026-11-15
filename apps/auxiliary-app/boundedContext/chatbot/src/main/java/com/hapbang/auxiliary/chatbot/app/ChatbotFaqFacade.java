@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 import com.hapbang.auxiliary.chatbot.out.FaqRepository;
@@ -47,12 +48,12 @@ public class ChatbotFaqFacade {
     /** FAQ 모아보기. 분류가 없으면 전체(분류·시드 순서) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     @Transactional(readOnly = true)
-    public List<FaqView> listFaqs(@Nullable FaqCategory category) {
+    public List<FaqResDto> listFaqs(@Nullable FaqCategory category) {
         metrics.request(Feature.FAQ_LIST);
         var faqs = category == null ? faqRepository.findAllByOrderBySortOrderAsc()
                 : faqRepository.findByCategoryOrderBySortOrderAsc(category);
         return faqs.stream()
-                .map(faq -> new FaqView(faq.getCode(), faq.getCategory(), faq.getQuestion(), faq.getAnswer()))
+                .map(faq -> new FaqResDto(faq.getCode(), faq.getCategory(), faq.getQuestion(), faq.getAnswer()))
                 .toList();
     }
 
@@ -88,9 +89,5 @@ public class ChatbotFaqFacade {
             throw e;
         }
         metrics.request(feature);
-    }
-
-    /** FAQ 모아보기 항목 */
-    public record FaqView(String code, FaqCategory category, String question, String answer) {
     }
 }

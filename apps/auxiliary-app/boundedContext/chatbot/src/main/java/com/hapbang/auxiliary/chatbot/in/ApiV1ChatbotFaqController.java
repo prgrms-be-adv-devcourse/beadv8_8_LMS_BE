@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotFaqFacade;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqResDto;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
@@ -35,7 +36,7 @@ public class ApiV1ChatbotFaqController {
 
     @Operation(summary = "FAQ 모아보기", description = "분류별 FAQ 목록. 분류를 빼면 전체(분류·순서대로). 호출 제한 없음")
     @GetMapping
-    public RsData<List<ChatbotFaqFacade.FaqView>> list(
+    public RsData<List<FaqResDto>> list(
             @Parameter(description = "분류. 없으면 전체", example = "HP") @RequestParam(required = false) FaqCategory category) {
         return RsData.ok("FAQ 목록을 조회했습니다.", facade.listFaqs(category));
     }
