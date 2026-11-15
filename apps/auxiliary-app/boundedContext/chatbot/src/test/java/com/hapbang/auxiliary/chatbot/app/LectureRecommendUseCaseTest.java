@@ -220,6 +220,23 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("결제 중(PENDING) 구매는 추천에서 빼지만 취향 신호는 아니다: 그것뿐이면 인기순과 needsInterest")
+    void pendingPurchaseIsExcludedButNotSignal() {
+        data.member(6);
+        lecture(60, 100, "결제 중인 강의", FakeEmbeddingModel.axis(0));
+        lecture(61, 200, "비슷한 강의", FakeEmbeddingModel.withCosine(0, 1, 0.99));
+        data.purchase(6, 6, 60, "PENDING", RecommendRows.AT);
+        indexAll(60, 61);
+
+        LectureRecommendation result = useCase.recommend(6, null);
+
+        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(61L);
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
+        assertThat(result.needsInterest()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
+    }
+
+    @Test
     @DisplayName("신호가 없고 관심사만 있으면 관심사 벡터로 찾는다(MATCHES_INTEREST, needsInterest 아님)")
     void interestOnly() {
         data.member(4);
