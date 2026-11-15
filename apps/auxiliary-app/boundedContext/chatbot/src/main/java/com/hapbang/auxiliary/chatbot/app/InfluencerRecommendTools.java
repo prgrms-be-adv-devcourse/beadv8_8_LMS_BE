@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerItemResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
-import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 
@@ -23,7 +22,7 @@ import lombok.RequiredArgsConstructor;
  *     <li><b>회원 ID는 {@link ToolContext}의 {@link ChatToolContext#MEMBER_ID}에서만 꺼낸다.</b> Tool 인자로 받지 않는다(모델이 다른 회원 ID를 넣을 수 없다).
  *     ToolContext 인자는 Tool 스키마에서 빠진다. 없으면 호출 쪽 잘못이라 거절한다.</li>
  *     <li>관심사 문장은 대화에서 모델이 채운다(예: "롤 방송"). 있으면 그 문장으로 찾고, 없으면 위젯과 같다.
- *     {@code interest-max-length}를 넘으면 자른다(임베딩 비용 상한). 대화 전체의 호출 제한은 자유 질문 진입점이 건다.</li>
+ *     {@link RecommendInterest#MAX_LENGTH}를 넘으면 자른다(임베딩 비용 상한). 대화 전체의 호출 제한은 자유 질문 진입점이 건다.</li>
  *     <li><b>카드와 LLM에 가는 결과를 나눈다.</b> 카드(회원 ID·함께 출연한 이력 {@code PAST_PARTNER} 포함)는 수집기
  *     ({@link ChatToolContext#CARDS})에 담아 FE로 따로 보낸다. 대화 LLM에는 분야·공개 통계·나머지 이유 코드만 준다
  *     (회원 ID와 요청 회원의 출연 이력은 LLM에 가지 않는다).</li>
@@ -39,7 +38,6 @@ public class InfluencerRecommendTools {
 
     private final InfluencerRecommendUseCase useCase;
     private final InfluencerRecommendMapper mapper;
-    private final ChatbotInfluencerRecommendProperties properties;
     private final ChatbotMetrics metrics;
 
     @Tool(name = TOOL_NAME, description = """
@@ -68,7 +66,7 @@ public class InfluencerRecommendTools {
         if (interest == null || interest.isBlank()) {
             return null;
         }
-        return TextCut.head(interest.strip(), properties.interestMaxLength());
+        return TextCut.head(interest.strip(), RecommendInterest.MAX_LENGTH);
     }
 
     /**
