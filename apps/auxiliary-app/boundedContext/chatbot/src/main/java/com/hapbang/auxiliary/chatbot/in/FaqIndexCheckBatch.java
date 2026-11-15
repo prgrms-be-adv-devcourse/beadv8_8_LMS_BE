@@ -4,6 +4,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
+import com.hapbang.auxiliary.chatbot.app.FaqJobRunner;
 import com.hapbang.auxiliary.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;

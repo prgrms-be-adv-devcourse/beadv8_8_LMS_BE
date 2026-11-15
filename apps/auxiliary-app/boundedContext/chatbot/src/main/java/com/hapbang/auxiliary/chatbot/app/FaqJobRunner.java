@@ -1,10 +1,9 @@
-package com.hapbang.auxiliary.chatbot.in;
+package com.hapbang.auxiliary.chatbot.app;
 
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.ChatbotJob;
 import com.hapbang.auxiliary.global.scheduling.JobLock;
 
 import lombok.RequiredArgsConstructor;

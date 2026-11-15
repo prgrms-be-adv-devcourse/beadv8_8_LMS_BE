@@ -5,6 +5,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.app.FaqJobRunner;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
 
 import lombok.RequiredArgsConstructor;
