@@ -1,6 +1,6 @@
 # 알림 대표 기준선 B0
 
-알림(auxiliary-app notification) Kafka 소비 경로의 리팩토링 전 대표 기준선이다(N13, #946). N14 리팩토링 뒤 같은 조건으로 다시 재어 기능 동일성과 처리량 회귀를 판정한다. 정책·절차의 원본은 [알림 결정 기록](../notification/decisions.md) ND-155·ND-156·ND-163~ND-176이고, 이 문서는 수치와 회차의 원본이다.
+알림(auxiliary-app notification) Kafka 소비 경로의 리팩토링 전 대표 기준선이다(N13, #946). N14 리팩토링 뒤 같은 조건으로 다시 재어 기능 동일성과 처리량 회귀를 판정한다. 정책·절차의 원본은 [알림 결정 기록](../notification/decisions.md) ND-155·ND-156·ND-163~ND-178이고, 이 문서는 수치와 회차의 원본이다.
 
 ## 요약
 
@@ -22,7 +22,7 @@
 | cluster | 로컬 k3d `k3d-hapbang-b0`(server 1·agent 1, Docker Desktop VM 12코어). 노드·pod CPU 한도 없음(`cpu.max = max`), 앱은 core-data(server) 노드에 PostgreSQL·Kafka·도구 pod와 함께 배치 |
 | 앱 | auxiliary-app 로컬 이미지, 메모리 704Mi·`-Xmx256m`, 알림 리스너 `on-startup=false`, 알림 시작 시각 2026-01-01, Gateway·NetworkPolicy·관측 stack 없음(ND-171) |
 | PostgreSQL | 운영 manifest(512Mi). B0 cluster의 `auxiliary` database만 `synchronous_commit=off`(ND-170, 회차마다 확인해 `conditions.txt`에 남김) |
-| Kafka | 운영 manifest(700Mi, broker 힙 512m), 알림 토픽 6개 각 파티션 3 |
+| Kafka | 컨테이너 메모리 한도 700Mi(측정 당시 운영 manifest와 같음), broker 힙 512m, 알림 토픽 6개 각 파티션 3. 운영 manifest는 그 뒤 #941에서 768Mi가 됐지만 B0 구성은 700Mi로 고정한다(ND-178, 회차마다 확인해 `conditions.txt`에 남김) |
 | 투입 도구 | 도구 pod `b0-kafka-tools`(apache/kafka:4.4.0)의 console producer, `acks=all`·idempotence·in-flight 1(ND-165·ND-171) |
 | 고정 이벤트 | seed 20261114, fixture 내용 해시 `bea6c107…`. 회원 1,000 + 알림 5,000(정상 단계 4,925, 실패 단계 75)(ND-172) |
 | 절차 | `loadtest/notification/b0.sh run <n>`: 초기화 → 회원 투입·단계 장벽 → 정상 단계 투입·완료 → 실패 단계 투입·완료 → 수집·검증(ND-166·ND-173) |

@@ -86,6 +86,52 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-094 · 2026-11-15 · 통과 (N13 #946 PR 리뷰 반영 S6 재리뷰 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-094 |
+| 실행 날짜 | 2026-11-15 21:11~21:18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `6af69b6c`) |
+| 작업 트리 변경 | NR-093 목록 + `NotificationOutcomeRecorder`의 전제 Javadoc과 필드 이름(`OUTSIDE_TX_OUTCOMES`), `b0.sh` Kafka 확인(실행 중 pod, 컨테이너 이름, 한도·요청, `B0_KAFKA_MEMORY`) |
+| 대상 기능 | N13 PR 리뷰 반영 |
+| 관련 NT ID | NT-OBS-11, 회귀 전체 |
+| 명령 | NR-090과 같다 + B0 cluster에서 `kubectl get pod kafka-0`(Kafka 한도·요청 확인 명령) |
+| 실행 환경 | NR-090과 같다 |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행. 스크립트 시험 통과, b0.sh 문법 검사 통과, Kafka 확인 `700Mi/700Mi` |
+| 건수 | `:notification` 464(실패 0·오류 0·건너뜀 1), `:auxiliary-app` 16, 스크립트 시험 43 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | NR-093 |
+| 미검증 항목 | 전체 `./gradlew check`(미실행, CI), B0 Kafka 700Mi patch로 회차 실행(미실행) |
+| 관련 변경 | #946 PR Bot 리뷰 |
+
+#### NR-093 · 2026-11-15 · 통과 (N13 #946 PR Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-093 |
+| 실행 날짜 | 2026-11-15 21:00~21:06 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-946` |
+| 커밋 | 미커밋 작업 트리(기준 `6af69b6c`, origin/dev `2f6af390` 병합 포함) |
+| 작업 트리 변경 | `app/NotificationOutcomeRecorder.java`(트랜잭션 밖 결과는 레코드 성공 뒤, ND-177), `in/event/kafka/NotificationKafkaMetrics.java`(성공 시점 호출), 시험 `app/NotificationOutcomeRecorderTest`·`in/event/NotificationAppearanceProgressAlertTest`, `loadtest/notification/k3d/platform/kustomization.yaml`(Kafka 700Mi, ND-178)·`b0.sh`(한도 확인), 문서 |
+| 대상 기능 | N13 PR 리뷰 반영 |
+| 관련 NT ID | NT-OBS-11, 회귀 전체 |
+| 명령 | NR-090과 같다 |
+| 실행 환경 | NR-090과 같다 |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행. 스크립트 시험 통과, guard 2 PASS·3 SKIP, b0.sh 문법 검사 통과 |
+| 건수 | `:notification` 464(실패 0·오류 0·건너뜀 1), `:auxiliary-app` 16(dev 병합으로 늘어남), 스크립트 시험 43 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 기록기에 빈 `succeeded()`만 둔 상태에서 새·바꾼 시험 3건이 실패(단위 0 대 1, 1 대 2, Kafka 0 대 2), 구현 뒤 통과 |
+| 미검증 항목 | 전체 `./gradlew check`(미실행, CI), B0 Kafka 700Mi patch로 회차 실행(미실행, 렌더링·현재 cluster 값만 확인) |
+| 관련 변경 | #946 PR Bot 리뷰 |
+
 #### NR-092 · 2026-11-15 · 통과 (N13 #946 S6 리뷰 반영)
 
 | 항목 | 값 |

@@ -264,7 +264,7 @@
 | NT-OBS-08 | 계약 무변경 | — | 알림 저장 | FE가 받는 MESSAGE 프레임 헤더는 `destination`·`content-type`·`subscription`·`message-id`·`content-length`뿐이고 본문은 `notification`·`unreadCount`다. Redis 실시간 메시지 본문은 `receiverUserId`·`frame`뿐이다 | 내부 수신 시각 헤더가 STOMP native 헤더로 새지 않는다 | ND-162, ND-059 | [API 계약](../api/notification.md) | 통합(실시간) | 유효 |
 | NT-OBS-09 | 열린 연결 수 | — | 연결, 종료 | `realtime.sessions`가 연결하면 1 늘고 닫으면 1 준다 | — | ND-162 | — | 통합(실시간) | 유효 |
 | NT-OBS-10 | 지표 없는 환경·client 지표 | — | MeterRegistry 없음, 알림 소비자 팩토리 | 지표 저장소가 없어도 소비·전달·집계가 예외 없이 돈다. 알림 소비자 팩토리에 Kafka client 지표 listener가 붙어 consumer lag가 나온다 | 운영 Prometheus 수집 여부는 배포 뒤 확인 | ND-159~ND-162 | `observability.md` | 단위, 통합 | 유효 |
-| NT-OBS-11 | 사전 판단 건너뜀 집계 | 받을 수 없는 회원(탈퇴·정지) | 닉네임을 읽는 출연 알림(`createMentioning` 6곳, 요청 도착·모집 지원·취소 요청) | 저장 서비스를 부르지 않고 건너뛴 것도 `consume.outcomes{skipped_receiver}`로 한 번 센다. 소비 문맥 밖이면 세지 않고, 바깥 트랜잭션이 롤백되면 세지 않는다. 알림·DLT는 없다 | 만료는 호스트(사전 판단)·게스트(저장 서비스) 두 건 | ND-160·ND-164 | — | 통합(DB), 통합(Kafka) | 유효 |
+| NT-OBS-11 | 사전 판단 건너뜀 집계 | 받을 수 없는 회원(탈퇴·정지) | 닉네임을 읽는 출연 알림(`createMentioning` 6곳, 요청 도착·모집 지원·취소 요청) | 저장 서비스를 부르지 않고 건너뛴 것도 `consume.outcomes{skipped_receiver}`로 한 번 센다. 소비 문맥 밖이면 세지 않고, 바깥 트랜잭션이 롤백되면 세지 않는다. 알림·DLT는 없다. 트랜잭션 밖 경로(요청 만료)는 레코드 처리가 성공해야 세고, 재시도·DLT로 간 레코드의 시도는 세지 않는다(ND-177) | 만료는 호스트(사전 판단)·게스트(저장 서비스) 두 건 | ND-160·ND-164·ND-177 | — | 단위, 통합(DB), 통합(Kafka) | 유효 |
 | NT-OBS-12 | 성공 레코드마다 정확히 한 번 | 소비 문맥 | 새 알림, 같은 사건, 받는 사람 제외, 하루 묶음 생성·더함, 저장 뒤 실패 → 재시도 성공 | `consume.latency` count가 레코드마다 정확히 한 번 는다(재시도 성공도 한 번). B0 정상 단계 완료 판정의 전제다 | LEGACY·알림 대상 아님은 B0 회차의 V0-7로 본다 | ND-161·ND-167 | — | 통합(Kafka) | 유효 |
 
 ### 2.16 B0 — 부하 도구·대표 기준선
@@ -392,7 +392,7 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 | NT-OBS-07 (N12) | `app.NotificationRealtimeRelayTest`(발행 구간: 성공만, 실패·버림 없음), `in.websocket.NotificationOutboundLatencyInterceptorTest`(처리 완료만, 예외·헤더 없음 제외, native 헤더 아님), `in.NotificationRealtimeMetricsTest`(전달 한 건에 두 구간 한 번씩) | 전부 |
 | NT-OBS-08·09 (N12) | `in.NotificationRealtimeMetricsTest`(MESSAGE 헤더 다섯 개·본문, Redis 메시지 본문, 연결 수 증감) | 전부 |
 | NT-OBS-10 (N12) | `in.event.kafka.NotificationKafkaMetricsTest`(지표 저장소 없음), `in.event.NotificationKafkaMetricsIntegrationTest`(소비자 팩토리의 Kafka client 지표 listener) | 운영 수집은 배포 뒤 확인 |
-| NT-OBS-11 (N13) | `app.NotificationOutcomeRecorderIntegrationTest`(사전 판단 롤백·문맥 밖), `in.event.NotificationAppearanceProgressAlertTest`(출연 9종 10건) | 전부 |
+| NT-OBS-11 (N13) | `app.NotificationOutcomeRecorderTest`(트랜잭션 밖은 성공 뒤·실패 시도 버림), `app.NotificationOutcomeRecorderIntegrationTest`(사전 판단 롤백·문맥 밖), `in.event.NotificationAppearanceProgressAlertTest`(출연 9종 10건, 트랜잭션 밖 만료 재시도·DLT 0건) | 전부 |
 | NT-OBS-12 (N13) | `in.event.NotificationKafkaMetricsIntegrationTest`(저장 결과·재시도와 상관없이 정확히 한 번) | 일부(LEGACY·알림 대상 아님은 NT-B0-11의 V0-7) |
 | NT-B0-01~04·06·07·09 (N13) | `loadtest.B0FixtureGeneratorTest` | 전부 |
 | NT-B0-05 (N13) | `in.event.kafka.B0FixtureContractTest` | 전부 |
@@ -410,6 +410,7 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-15 decisions.md ND-177 반영(PR Bot 리뷰, #946): NT-OBS-11에 트랜잭션 밖 경로의 재시도·DLT 기준과 연결 테스트를 더했다. 집계는 그대로.
 - 2026-11-15 decisions.md ND-163~ND-175 반영(N13 부하 도구·B0, #946): NT-OBS-11(사전 판단 건너뜀 집계, ND-164)·NT-OBS-12(성공 레코드마다 정확히 한 번, ND-167)와 2.16 B0(NT-B0-01~11)를 더하고 4장 연결 표에 N13 테스트를 더했다. 집계 132 → 145, 유효 141. 정정: 이전 합계 줄의 유효 127은 영역별 행의 합(128)과 달랐다(유효 + 미결 = 항목 수가 맞지 않음). 행의 합으로 고쳤다.
 - 2026-11-14 decisions.md ND-159~ND-162 반영(N12 계측, #944): 2.15 OBS(NT-OBS-01~10)를 더하고 4장 연결 표에 N12 테스트를 더했다. 집계 122 → 132, 유효 127.
 - 2026-11-14 decisions.md ND-150·ND-151 반영(N11, #937): NT-SCH-22(예약 결과 지표)·NT-SCH-23(회차 결과 지표)·NT-SCH-24(alert 규칙)를 더했다. 집계 119 → 122, 유효 117.
