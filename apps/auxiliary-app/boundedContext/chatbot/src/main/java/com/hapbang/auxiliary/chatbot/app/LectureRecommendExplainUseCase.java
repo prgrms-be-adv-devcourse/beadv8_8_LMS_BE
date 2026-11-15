@@ -69,7 +69,7 @@ public class LectureRecommendExplainUseCase {
             String description = lecture == null || lecture.description() == null ? ""
                     : TextCut.head(lecture.description(), descriptionMax).replace('\n', ' ');
             lines.add("제목: " + title + " | 소개: " + description + " | 추천 근거: "
-                    + pool.reasons().get(ranked.lectureId()).reason().description());
+                    + pool.reasons().get(ranked.lectureId()).reason().getDescription());
         }
         return lines;
     }

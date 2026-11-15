@@ -228,7 +228,7 @@ class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
 
         String prompt = chatModel.lastPrompt().getInstructions().stream().map(Message::getText)
                 .reduce("", (a, b) -> a + "\n" + b);
-        assertThat(prompt).contains("후보 강의 10", "소개 후보 강의 10", LectureRecommendReason.SIMILAR_TO_PURCHASED.description());
+        assertThat(prompt).contains("후보 강의 10", "소개 후보 강의 10", LectureRecommendReason.SIMILAR_TO_PURCHASED.getDescription());
         // 기본 설정(rerank.taste=NONE)이면 요청 회원의 취향 줄도 없다(#948)
         assertThat(prompt).doesNotContain("회원이 산 강의", "회원 ID", String.valueOf(member), "요청한 사람");
     }

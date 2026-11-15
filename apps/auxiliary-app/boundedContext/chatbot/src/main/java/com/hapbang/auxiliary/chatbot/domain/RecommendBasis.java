@@ -18,7 +18,7 @@ public enum RecommendBasis {
         this.description = description;
     }
 
-    public String description() {
+    public String getDescription() {
         return description;
     }
 }
