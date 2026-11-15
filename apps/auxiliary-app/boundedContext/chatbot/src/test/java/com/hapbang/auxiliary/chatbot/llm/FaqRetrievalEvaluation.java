@@ -3,10 +3,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -100,9 +96,7 @@ abstract class FaqRetrievalEvaluation {
     }
 
     private void deleteIndex() throws Exception {
-        HttpClient.newHttpClient().send(HttpRequest.newBuilder(
-                URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + vectorIndex.indexName())).DELETE().build(),
-                HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex(vectorIndex.indexName());
     }
 
     private static double ratio(long count, int total) {

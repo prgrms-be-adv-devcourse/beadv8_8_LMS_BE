@@ -271,8 +271,7 @@ class FaqIndexingIntegrationTest {
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + vectorIndex.indexName()))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex(vectorIndex.indexName());
     }
 
     private static String get(String path) throws Exception {

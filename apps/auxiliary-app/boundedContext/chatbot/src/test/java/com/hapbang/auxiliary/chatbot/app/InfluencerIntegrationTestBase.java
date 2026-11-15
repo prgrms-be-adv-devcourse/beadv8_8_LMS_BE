@@ -1,9 +1,5 @@
 package com.hapbang.auxiliary.chatbot.app;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,7 +38,6 @@ import com.hapbang.shared.member.dto.UserDto;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 abstract class InfluencerIntegrationTestBase extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     protected CopyApplier copyApplier;
@@ -117,7 +112,6 @@ abstract class InfluencerIntegrationTestBase extends ChatbotIntegrationTestBase 
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-influencers-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-influencers-test-8");
     }
 }

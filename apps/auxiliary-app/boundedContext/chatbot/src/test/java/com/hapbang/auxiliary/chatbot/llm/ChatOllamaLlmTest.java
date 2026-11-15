@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,7 +65,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 })
 class ChatOllamaLlmTest {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final List<String> TOOLS = List.of("searchFaq", "recommendLectures", "recommendInfluencers");
 
     // 질문 → 기대 Tool(없음이면 Tool을 부르지 않아야 한다)
@@ -209,8 +204,7 @@ class ChatOllamaLlmTest {
     private static void deleteIndexes() throws Exception {
         for (String index : List.of("chatbot-faq-ollama-768-llm", "chatbot-lectures-ollama-768-llm",
                 "chatbot-influencers-ollama-768-llm")) {
-            HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + index))
-                    .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+            ElasticsearchTestcontainersConfig.deleteIndex(index);
         }
     }
 }

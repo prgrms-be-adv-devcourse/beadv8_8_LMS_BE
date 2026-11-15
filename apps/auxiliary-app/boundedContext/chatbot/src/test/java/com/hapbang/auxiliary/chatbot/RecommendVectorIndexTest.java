@@ -180,8 +180,7 @@ class RecommendVectorIndexTest {
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + index.indexName(TYPE)))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex(index.indexName(TYPE));
     }
 
     private static String get(String path) throws Exception {

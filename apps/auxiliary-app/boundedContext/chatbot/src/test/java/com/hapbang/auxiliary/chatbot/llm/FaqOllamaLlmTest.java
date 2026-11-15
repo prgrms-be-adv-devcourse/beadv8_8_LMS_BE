@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 
@@ -95,8 +91,6 @@ class FaqOllamaLlmTest {
     }
 
     private void deleteIndex() throws Exception {
-        HttpClient.newHttpClient().send(HttpRequest.newBuilder(
-                URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-faq-ollama-768-llm")).DELETE().build(),
-                HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-faq-ollama-768-llm");
     }
 }

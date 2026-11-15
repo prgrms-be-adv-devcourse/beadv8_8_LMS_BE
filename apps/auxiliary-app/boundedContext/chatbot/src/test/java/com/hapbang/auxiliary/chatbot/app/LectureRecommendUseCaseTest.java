@@ -3,10 +3,6 @@ package com.hapbang.auxiliary.chatbot.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,7 +37,6 @@ import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private LectureRecommendUseCase useCase;
@@ -451,7 +446,6 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     private static void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-lectures-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-lectures-test-8");
     }
 }

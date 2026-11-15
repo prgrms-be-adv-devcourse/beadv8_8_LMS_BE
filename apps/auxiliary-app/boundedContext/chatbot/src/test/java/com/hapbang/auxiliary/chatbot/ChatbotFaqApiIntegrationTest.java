@@ -11,10 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -54,7 +50,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 @TestPropertySource(properties = "hapbang.chatbot.faq.rate-limit.limit=3")
 class ChatbotFaqApiIntegrationTest {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private MockMvc mockMvc;
@@ -250,7 +245,6 @@ class ChatbotFaqApiIntegrationTest {
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-faq-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-faq-test-8");
     }
 }

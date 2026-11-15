@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.SequencedMap;
@@ -44,7 +40,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private LectureRecommendExplainUseCase explainUseCase;
@@ -273,7 +268,6 @@ class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
     }
 
     private static void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-lectures-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-lectures-test-8");
     }
 }
