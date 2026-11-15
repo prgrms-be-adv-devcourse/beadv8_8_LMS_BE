@@ -25,23 +25,29 @@ import java.util.Objects;
  */
 public enum CopyOutcome {
 
-    INSERTED(SyncMismatchKind.ONLY_IN_SOURCE, true),
-    SOURCE_NEWER(SyncMismatchKind.SOURCE_NEWER, true),
-    VERSION_ONLY(null, false),
-    UNCHANGED(null, false),
-    SAME_VERSION_DIFFERENT(SyncMismatchKind.SAME_VERSION_DIFFERENT, true),
-    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false),
+    INSERTED(SyncMismatchKind.ONLY_IN_SOURCE, true, "우리 행이 없어 넣음"),
+    SOURCE_NEWER(SyncMismatchKind.SOURCE_NEWER, true, "원본이 새것이라 반영함"),
+    VERSION_ONLY(null, false, "값은 같고 version만 올림"),
+    UNCHANGED(null, false, "바뀐 것 없음"),
+    SAME_VERSION_DIFFERENT(SyncMismatchKind.SAME_VERSION_DIFFERENT, true, "같은 version인데 값이 달라 원본으로 고침"),
+    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false, "우리 version이 커서 무시함"),
     /** 마스킹한 회원의 데이터라 버렸다(회원 행은 역할·상태만 반영) (#717) */
-    DISCARDED(null, false);
+    DISCARDED(null, false, "마스킹한 회원의 데이터라 버림");
 
     /** 싱크 회차에 남길 어긋남. 정상이면 null */
     private final SyncMismatchKind mismatch;
     /** 사본의 값(해시)이 바뀌었는지 */
     private final boolean valueChanged;
+    private final String description;
 
-    CopyOutcome(SyncMismatchKind mismatch, boolean valueChanged) {
+    CopyOutcome(SyncMismatchKind mismatch, boolean valueChanged, String description) {
         this.mismatch = mismatch;
         this.valueChanged = valueChanged;
+        this.description = description;
+    }
+
+    public String getDescription() {
+        return description;
     }
 
     /**
