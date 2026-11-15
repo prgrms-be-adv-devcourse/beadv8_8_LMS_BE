@@ -32,6 +32,8 @@ import com.hapbang.auxiliary.chatbot.out.SyncMismatchRepository;
 import com.hapbang.auxiliary.chatbot.out.SyncRunRepository;
 import com.hapbang.auxiliary.global.scheduling.JobLock;
 import com.hapbang.shared.appearance.out.AppearanceApiCallException;
+import com.hapbang.shared.lecture.out.LectureApiCallException;
+import com.hapbang.shared.member.out.MemberApiCallException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -287,12 +289,22 @@ public class ChatbotSyncUseCase {
         }
     }
 
+    // 원본 API 호출 실패는 사유·상태·오류 코드로 적는다. 세 원본 모두 같은 모양
     private static String describe(RuntimeException e) {
         if (e instanceof AppearanceApiCallException call) {
-            return "출연 내부 API 호출 실패 reason=" + call.getReason() + ", status=" + call.getStatus() + ", code="
-                    + call.getCode();
+            return describeCall("출연", call.getReason(), call.getStatus(), call.getCode());
+        }
+        if (e instanceof MemberApiCallException call) {
+            return describeCall("회원", call.getReason(), call.getStatus(), call.getCode());
+        }
+        if (e instanceof LectureApiCallException call) {
+            return describeCall("강의", call.getReason(), call.getStatus(), call.getCode());
         }
         return e.getClass().getSimpleName() + ": " + e.getMessage();
+    }
+
+    private static String describeCall(String source, Enum<?> reason, int status, String code) {
+        return source + " 내부 API 호출 실패 reason=" + reason + ", status=" + status + ", code=" + code;
     }
 
     private static String rootMessage(Throwable e) {
