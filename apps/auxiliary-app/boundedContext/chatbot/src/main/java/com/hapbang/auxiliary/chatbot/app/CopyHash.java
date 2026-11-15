@@ -1,4 +1,7 @@
-package com.hapbang.auxiliary.chatbot.domain;
+package com.hapbang.auxiliary.chatbot.app;
+
+import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
+import com.hapbang.auxiliary.chatbot.domain.Sha256;
 
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.SerializationFeature;

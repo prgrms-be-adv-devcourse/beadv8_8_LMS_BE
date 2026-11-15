@@ -6,7 +6,6 @@ import java.util.List;
 
 import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
-import com.hapbang.auxiliary.chatbot.domain.CopyHash;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.LectureCopies;
 import com.hapbang.auxiliary.chatbot.domain.MemberCopy;

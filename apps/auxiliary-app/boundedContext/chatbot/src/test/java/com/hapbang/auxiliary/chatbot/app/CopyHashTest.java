@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.chatbot.domain;
+package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -8,6 +8,8 @@ import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 
 /** 사본 값의 해시와 시각 맞춤 (#716). DTO → 사본 변환의 해시는 {@code app.CopyMapperTest} */
 class CopyHashTest {
