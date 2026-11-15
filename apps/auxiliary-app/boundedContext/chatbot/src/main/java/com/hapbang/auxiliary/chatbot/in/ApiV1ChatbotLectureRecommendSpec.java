@@ -24,7 +24,7 @@ public interface ApiV1ChatbotLectureRecommendSpec {
                     + "요청 회원 정보를 아직 받지 못했으면(가입 직후) 빈 목록과 notice(화면 문구)가 온다. "
                     + "회원마다 주기당 호출 수를 제한한다(모든 요청에 넓은 제한, interest를 넣은 요청은 좁은 제한도 함께. "
                     + "넘으면 429, Retry-After. FE는 위젯을 숨긴다). 다른 실패는 FE가 추천 영역만 숨긴다.")
-    RsData<LectureRecommendResDto> recommend(Long userId,
+    RsData<LectureRecommendResDto> recommend(@Parameter(hidden = true) Long userId,
             @Parameter(description = "관심사(앞뒤 공백을 뺀 1~" + RecommendInterest.MAX_LENGTH
                     + "자, 저장하지 않음). 없으면 활동 기록만으로", example = "데이터 분석 입문")
             @Pattern(regexp = RecommendInterest.PATTERN, message = RecommendInterest.MESSAGE) String interest);
@@ -35,5 +35,5 @@ public interface ApiV1ChatbotLectureRecommendSpec {
             + "LLM이 실패하거나 시간 상한을 넘기거나 쓸 만한 답이 없으면 fallback=true이고 코드 순서와 정해진 문장으로 답한다. "
             + "맞춤 후보가 없으면 LLM을 부르지 않는다. basis·needsInterest·notice는 위젯 API와 같다. "
             + "LLM에는 회원 정보·회원이 산 강의를 보내지 않는다. 회원마다 주기당 호출 수를 제한한다(넘으면 429).")
-    RsData<LectureRecommendResDto> recommendExplained(Long userId, @Valid RecommendButtonReqDto request);
+    RsData<LectureRecommendResDto> recommendExplained(@Parameter(hidden = true) Long userId, @Valid RecommendButtonReqDto request);
 }
