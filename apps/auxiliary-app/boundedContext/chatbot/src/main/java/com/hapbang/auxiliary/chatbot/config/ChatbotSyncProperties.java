@@ -4,6 +4,14 @@ import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
+
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 /**
  * 싱크 설정 {@code hapbang.chatbot.sync} (#716, #717). 실행 시각(cron)은 배치 빈의 {@code @Scheduled} 플레이스홀더에 있다
@@ -17,27 +25,20 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param runRetention      회차 기록 보관 기간. 지나면 그 회차와 어긋남 행을 지운다(기본 30일)
  * @param failureAlertAfter 그 종류가 이 시간 동안 성공하지 못했으면 실패를 ERROR로 알린다. 한두 번의 실패는 다음 정시가 다시 한다
  */
+@Validated
 @ConfigurationProperties("hapbang.chatbot.sync")
 public record ChatbotSyncProperties(
-        @DefaultValue("500") int pageSize,
-        @DefaultValue("0.3") double warningRatio,
-        @DefaultValue("10") long warningMinChanged,
-        @DefaultValue("100") int mismatchMaxRows,
-        @DefaultValue("168") int mismatchKeepRuns,
+        @DefaultValue("500") @Min(1) @Max(500) int pageSize,
+        @DefaultValue("0.3") @DecimalMin(value = "0", inclusive = false) @DecimalMax("1") double warningRatio,
+        @DefaultValue("10") @PositiveOrZero long warningMinChanged,
+        @DefaultValue("100") @PositiveOrZero int mismatchMaxRows,
+        @DefaultValue("168") @Positive int mismatchKeepRuns,
         @DefaultValue("30d") Duration runRetention,
         @DefaultValue("3h") Duration failureAlertAfter
 ) {
 
+    // 기간의 하한은 jakarta 제약으로 나타낼 수 없어 생성자에서 확인한다
     public ChatbotSyncProperties {
-        if (pageSize < 1 || pageSize > 500) {
-            throw new IllegalArgumentException("hapbang.chatbot.sync.page-size는 1~500이어야 합니다: " + pageSize);
-        }
-        if (warningRatio <= 0 || warningRatio > 1) {
-            throw new IllegalArgumentException("hapbang.chatbot.sync.warning-ratio는 0보다 크고 1 이하여야 합니다: " + warningRatio);
-        }
-        if (warningMinChanged < 0 || mismatchMaxRows < 0 || mismatchKeepRuns < 1) {
-            throw new IllegalArgumentException("hapbang.chatbot.sync 건수 설정이 올바르지 않습니다.");
-        }
         if (runRetention.compareTo(Duration.ofDays(1)) < 0 || failureAlertAfter.isNegative() || failureAlertAfter.isZero()) {
             throw new IllegalArgumentException("hapbang.chatbot.sync 기간 설정이 올바르지 않습니다(run-retention 1일 이상, "
                     + "failure-alert-after 0보다 큼).");
