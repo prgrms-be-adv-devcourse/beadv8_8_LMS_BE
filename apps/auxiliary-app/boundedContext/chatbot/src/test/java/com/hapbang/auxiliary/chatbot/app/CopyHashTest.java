@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 
-/** 사본 값의 해시와 시각 맞춤 (#716). DTO → 사본 변환의 해시는 {@code app.CopyMapperTest} */
+/** 사본 값의 해시와 시각 맞춤 (#716). DTO → 사본 변환의 해시는 {@link CopyMapperTest} */
 class CopyHashTest {
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 11, 20, 20, 0, 0, 123_456_789);
