@@ -103,7 +103,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | --- | --- | --- |
 | 구현 | JVM. KRaft로 ZooKeeper 없이 broker 1개 실행 | C++(Seastar), 단일 binary. JVM·ZooKeeper 없음 |
 | schema registry | 별도 서버 필요. 이 문서는 registry 없이 shared 레코드와 호환·배포 순서 규칙으로 대신한다([7장](portfolio-items.md#kafka-이벤트-계약과-openapi-contract)) | **broker에 내장**(port 8081). Avro, Protobuf, JSON Schema |
-| 공식 메모리 요구 | 운영 최소치를 정하지 않음. heap은 설정으로 조절(이 문서 예산은 heap 512 MiB에 700 MiB) | 운영 broker는 **core당 최소 2 GB, core 최소 2개**. development mode는 최소 메모리를 강제하지 않는다. Docker 실행은 개발·test 용도라고 명시 |
+| 공식 메모리 요구 | 운영 최소치를 정하지 않음. heap은 설정으로 조절(이 문서 예산은 heap 512 MiB에 768 MiB, #941) | 운영 broker는 **core당 최소 2 GB, core 최소 2개**. development mode는 최소 메모리를 강제하지 않는다. Docker 실행은 개발·test 용도라고 명시 |
 | license | Apache 2.0 | Community Edition은 BSL. Redpanda를 남에게 상업 streaming·queue 서비스로 제공하는 것만 금지하고, 각 코드는 4년 뒤 Apache 2.0으로 바뀐다 |
 | 생태계 | Kafka 공식 문서, 운영 지표, Testcontainers | Kafka client 호환, Testcontainers Redpanda module, 자체 CLI(`rpk`)와 Console |
 
@@ -112,7 +112,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 **구성 요소 수로는 Redpanda가 가볍다.** broker와 schema registry가 한 binary다. 다만 이 문서는 registry 서버를 쓰지 않으므로([7장](portfolio-items.md#kafka-이벤트-계약과-openapi-contract)) 이 장점이 지금은 크지 않다. **메모리로는 공식 문서상 더 가볍다고 할 수 없다.**
 - Redpanda의 운영 최소치는 2 core × 2 GB = 4 GB다. t3.large 8 GiB의 절반이라 [3장](k3s.md#ec2-2노드-자원-예산) 예산에 들어가지 않는다.
 - t3.large에 맞추려면 development mode에 `--smp 1`과 작은 `--memory`로 돌려야 한다. 문서가 개발·test 용도라고 한 구성을 운영 서버에 두는 셈이고, 이 경우 필요한 메모리를 문서로 정할 수 없다.
-- Kafka는 heap을 직접 정하므로 예산을 설정으로 맞출 수 있다(현재 700 MiB, heap 256 MiB면 더 줄일 수 있다).
+- Kafka는 heap을 직접 정하므로 예산을 설정으로 맞출 수 있다(현재 768 MiB, heap 256 MiB면 더 줄일 수 있다).
 
 판단: **broker는 Apache Kafka(KRaft, heap 256~512 MiB)를 유지한다.** Redpanda는 다음 경우에 다시 본다.
 - 모듈을 별도 service로 떼어 내 runtime schema registry가 필요해질 때. 이때는 Kafka와 별도 registry 서버 대신 Redpanda 하나로 끝나므로 비교 결과가 달라진다.
@@ -140,7 +140,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 
 DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 토픽의 다른 그룹도 그 메시지를 한 번 더 받지만 소비 멱등이 흡수한다. 실행할 때마다 대상 메시지(DLT 이름·partition·offset), 원인, 결과를 해당 이슈 코멘트로 남긴다. 아래 명령은 로컬 k3d(`apache/kafka` 이미지)에서 확인했다.
 
-**broker pod(`kafka-0`)에 `exec`로 들어가 콘솔 도구를 실행하지 않는다.** 콘솔 도구도 JVM이라 broker 컨테이너의 메모리 limit(700Mi)을 함께 쓴다. broker가 평소 550Mi 안팎을 쓰므로 도구를 띄우면 broker가 OOMKilled된다(로컬 k3d에서 소비자·프로듀서를 함께 띄워 재현, #429). 같은 이미지로 임시 client pod를 띄워 쓰고 끝나면 지운다. 이미지가 node에 있어 새로 내려받지 않는다.
+**broker pod(`kafka-0`)에 `exec`로 들어가 콘솔 도구를 실행하지 않는다.** 콘솔 도구도 JVM이라 broker 컨테이너의 메모리 limit(768Mi)을 함께 쓴다. broker는 오래 돌면 RSS가 약 656Mi까지 오르므로(2026-11-14 운영, 고정 heap 512Mi가 모두 메모리에 올라온 것으로 본다, #941) 도구를 띄우면 broker가 OOMKilled된다(로컬 k3d에서 소비자·프로듀서를 함께 띄워 재현, #429). 같은 이미지로 임시 client pod를 띄워 쓰고 끝나면 지운다. 이미지가 node에 있어 새로 내려받지 않는다.
 
 0. client pod를 띄운다.
 
