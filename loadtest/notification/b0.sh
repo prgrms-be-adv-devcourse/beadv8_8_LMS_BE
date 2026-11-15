@@ -26,6 +26,8 @@ APP_NS=hapbang-prod
 PLATFORM_NS=hapbang-platform
 # Kafka 도구는 broker 컨테이너가 아니라 같은 이미지의 도구 pod에서 돌린다(ND-165, k3d/tools/kafka-tools.yaml)
 TOOLS_POD=b0-kafka-tools
+# B0 기준선의 Kafka 메모리 한도·요청(ND-178). k3d/platform/kustomization.yaml의 patch 값과 같아야 한다
+B0_KAFKA_MEMORY=700Mi
 BOOTSTRAP=kafka.hapbang-platform.svc.cluster.local:9092
 KAFKA_BIN=/opt/kafka/bin
 ALERT_TOPICS=(appearance.events.v1 billing.events.v1 chat.events.v1 customersupport.events.v1 lecture.events.v1)
@@ -318,6 +320,13 @@ run_once() {
       echo "producerVersion=$(kubectl --context "$CTX" -n "$PLATFORM_NS" exec "$TOOLS_POD" -- "$KAFKA_BIN/kafka-console-producer.sh" --version 2>/dev/null | head -1)"
       echo "image=$(docker image inspect hapbang/auxiliary-app:local --format '{{.Id}}')"
     } > "$out/conditions.txt"
+    # B0 기준선과 같은 Kafka 메모리 한도인지 본다(ND-178). 운영 manifest가 바뀌어도 B0 구성(k3d/platform)이 700Mi로 고정한다
+    # StatefulSet 정의가 아니라 실제로 떠 있는 pod의 kafka 컨테이너(이름으로 고름) 한도·요청을 본다
+    local kafka_memory expected_kafka_memory="$B0_KAFKA_MEMORY/$B0_KAFKA_MEMORY"
+    kafka_memory=$(kubectl --context "$CTX" -n "$PLATFORM_NS" get pod kafka-0 \
+      -o jsonpath='{.spec.containers[?(@.name=="kafka")].resources.limits.memory}/{.spec.containers[?(@.name=="kafka")].resources.requests.memory}')
+    echo "kafkaMemoryLimitRequest=$kafka_memory" >> "$out/conditions.txt"
+    [ "$kafka_memory" = "$expected_kafka_memory" ] || die "Kafka 메모리 한도/요청이 B0 기준선($B0_KAFKA_MEMORY)과 다르다: $kafka_memory (b0.sh setup으로 B0 구성을 다시 적용하고 kafka-0을 다시 띄운다)"
   fi
 
   log "1. 앱 내림"

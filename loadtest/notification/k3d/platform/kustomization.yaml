@@ -12,6 +12,19 @@ resources:
   - ../../../../k8s/platform/base/redis.yaml
 components:
   - ../../../../k8s/components/core-data
+# B0 기준선(2026-11-15)은 Kafka 메모리 한도 700Mi로 쟀다. 운영 manifest는 #941에서 768Mi로 올랐지만 B0와 N14를 같은 조건으로
+# 비교하려고 B0 cluster에서만 700Mi로 고정한다(ND-178). 힙(-Xmx512m)은 운영과 같다.
+patches:
+  - target:
+      kind: StatefulSet
+      name: kafka
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 700Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 700Mi
 generatorOptions:
   disableNameSuffixHash: true
 secretGenerator:
