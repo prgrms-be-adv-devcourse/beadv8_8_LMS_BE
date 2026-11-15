@@ -9,6 +9,7 @@ import java.util.function.ToLongFunction;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
 import com.hapbang.auxiliary.chatbot.out.LectureCopyStore;
@@ -41,7 +42,7 @@ class CopySyncTargets {
     SyncTarget<UserDto> memberSyncTarget(MemberSyncSource source, CopyApplier applier) {
         return new CopySyncTarget<>(SyncType.MEMBER, ChatbotJob.MEMBER_SYNC,
                 pages(source::members, MemberPageDto::items, MemberPageDto::nextAfterId),
-                UserDto::id, UserDto::version, (user, runId) -> applier.apply(user),
+                UserDto::id, UserDto::version, (user, applySource) -> applier.apply(user),
                 (runId, startedAt) -> List.of());
     }
 
@@ -92,7 +93,7 @@ class CopySyncTargets {
             BiFunction<Long, Integer, SyncTarget.Page<T>> fetcher,
             ToLongFunction<T> id,
             Function<T, Long> version,
-            BiFunction<T, Long, CopyWrite> applier,
+            BiFunction<T, ApplySource, CopyWrite> applier,
             BiFunction<Long, LocalDateTime, List<MissingCopy>> missing
     ) implements SyncTarget<T> {
 
@@ -113,7 +114,7 @@ class CopySyncTargets {
 
         @Override
         public CopyWrite apply(T item, long runId) {
-            return applier.apply(item, runId);
+            return applier.apply(item, ApplySource.syncRun(runId));
         }
 
         @Override

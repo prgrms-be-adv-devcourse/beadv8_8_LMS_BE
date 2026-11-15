@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatch;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatchKind;
@@ -73,7 +74,7 @@ class ChatbotSyncUseCaseTest extends ChatbotIntegrationTestBase {
         source.put(appearance(2, AppearanceResult.COMPLETED, 1), appearance(3, AppearanceResult.SCHEDULED, 1),
                 appearance(6, AppearanceResult.SCHEDULED, 0));
         // 이벤트가 먼저 들어와 우리가 더 새것
-        copyApplier.apply(appearance(4, AppearanceResult.CANCELED, 2), null);
+        copyApplier.apply(appearance(4, AppearanceResult.CANCELED, 2), ApplySource.EVENT);
         // 같은 version인데 값이 다르다(잘못 반영됨)
         jdbcTemplate.update("UPDATE chatbot.appearance_copy SET result = 'NO_SHOW', dto_hash = repeat('0', 64) WHERE id = 5");
 
@@ -107,7 +108,7 @@ class ChatbotSyncUseCaseTest extends ChatbotIntegrationTestBase {
         // 스캔 중(첫 페이지 뒤) 이벤트로 새 출연이 들어온다. 원본 목록에는 아직 없다
         source.afterFirstPage(() -> {
             clock.advance(Duration.ofSeconds(1));
-            copyApplier.apply(appearance(9, AppearanceResult.SCHEDULED, 0), null);
+            copyApplier.apply(appearance(9, AppearanceResult.SCHEDULED, 0), ApplySource.EVENT);
         });
         // 첫 페이지 뒤에 다음 페이지가 있도록 원본을 늘린다
         source.put(IntStream.rangeClosed(10, 510)

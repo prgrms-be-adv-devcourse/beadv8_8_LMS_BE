@@ -9,6 +9,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.CopyApplier;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
@@ -49,7 +50,7 @@ public class LectureCopyEventListener {
     @KafkaHandler
     public void on(LectureChangedEvent event) {
         LectureSyncDto lecture = Objects.requireNonNull(event.lecture(), "lecture는 필수입니다.");
-        CopyWrite write = copyApplier.apply(lecture, null);
+        CopyWrite write = copyApplier.apply(lecture, ApplySource.EVENT);
         log.info("강의 변경 이벤트를 강의 사본에 반영했다 lectureId={}, version={}, ourVersion={}, outcome={}", lecture.id(),
                 lecture.version(), write.ourVersion(), write.outcome());
     }
@@ -57,7 +58,7 @@ public class LectureCopyEventListener {
     @KafkaHandler
     public void on(LecturePurchaseChangedEvent event) {
         LecturePurchaseSyncDto purchase = Objects.requireNonNull(event.purchase(), "purchase는 필수입니다.");
-        CopyWrite write = copyApplier.apply(purchase, null);
+        CopyWrite write = copyApplier.apply(purchase, ApplySource.EVENT);
         log.info("구매 변경 이벤트를 구매 사본에 반영했다 orderItemId={}, version={}, ourVersion={}, outcome={}",
                 purchase.orderItemId(), purchase.version(), write.ourVersion(), write.outcome());
     }
@@ -65,7 +66,7 @@ public class LectureCopyEventListener {
     @KafkaHandler
     public void on(CartItemChangedEvent event) {
         CartItemSyncDto cartItem = Objects.requireNonNull(event.cartItem(), "cartItem은 필수입니다.");
-        CopyWrite write = copyApplier.apply(cartItem, null);
+        CopyWrite write = copyApplier.apply(cartItem, ApplySource.EVENT);
         log.info("장바구니 변경 이벤트를 장바구니 사본에 반영했다 cartItemId={}, version={}, ourVersion={}, outcome={}",
                 cartItem.id(), cartItem.version(), write.ourVersion(), write.outcome());
     }
@@ -73,7 +74,7 @@ public class LectureCopyEventListener {
     @KafkaHandler
     public void on(LectureReviewChangedEvent event) {
         LectureReviewSyncDto review = Objects.requireNonNull(event.review(), "review는 필수입니다.");
-        CopyWrite write = copyApplier.apply(review, null);
+        CopyWrite write = copyApplier.apply(review, ApplySource.EVENT);
         log.info("강의 리뷰 변경 이벤트를 리뷰 사본에 반영했다 lectureReviewId={}, version={}, ourVersion={}, outcome={}",
                 review.id(), review.version(), write.ourVersion(), write.outcome());
     }

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.CopyRows;
@@ -76,19 +77,19 @@ class CopyApplierTest extends ChatbotIntegrationTestBase {
         assertThat(rows.appearance(1)).isEqualTo(before);
 
         // 싱크 회차가 원본에서 같은 값을 보면 원본에 있다는 표시를 남긴다(회차 끝 원본 없음 표시가 잡지 않게)
-        assertThat(copyApplier.apply(appearance(1, AppearanceResult.COMPLETED, 3), 77L).outcome())
+        assertThat(copyApplier.apply(appearance(1, AppearanceResult.COMPLETED, 3), ApplySource.syncRun(77L)).outcome())
                 .isEqualTo(CopyOutcome.UNCHANGED);
         assertThat(rows.appearance(1)).containsEntry("seen_run_id", 77L).containsEntry("missing_in_source", false)
                 .containsEntry("version", 3L);
         assertThat(rows.appearance(1).get("synced_at")).isNotEqualTo(before.get("synced_at"));
 
         // 리뷰도 같다: 같은 값의 이벤트는 건드리지 않고, 싱크는 본 표시를 남긴다
-        copyApplier.apply(review(10, 1, 4), null);
+        copyApplier.apply(review(10, 1, 4), ApplySource.EVENT);
         jdbcTemplate.update("UPDATE chatbot.appearance_review_copy SET missing_in_source = TRUE WHERE review_id = 10");
         Map<String, Object> reviewBefore = rows.review(10);
-        assertThat(copyApplier.apply(review(10, 1, 4), null).outcome()).isEqualTo(CopyOutcome.UNCHANGED);
+        assertThat(copyApplier.apply(review(10, 1, 4), ApplySource.EVENT).outcome()).isEqualTo(CopyOutcome.UNCHANGED);
         assertThat(rows.review(10)).isEqualTo(reviewBefore);
-        copyApplier.apply(review(10, 1, 4), 77L);
+        copyApplier.apply(review(10, 1, 4), ApplySource.syncRun(77L));
         assertThat(rows.review(10)).containsEntry("seen_run_id", 77L).containsEntry("missing_in_source", false);
     }
 
@@ -103,8 +104,8 @@ class CopyApplierTest extends ChatbotIntegrationTestBase {
         assertThat(rows.review(10)).containsEntry("appearance_id", 99L).containsEntry("reviewee_user_id", 2L)
                 .containsEntry("rating", 4);
 
-        assertThat(copyApplier.apply(review(10, 99, 4), null).outcome()).isEqualTo(CopyOutcome.UNCHANGED);
-        assertThat(copyApplier.apply(review(10, 99, 5), null).outcome()).isEqualTo(CopyOutcome.SAME_VERSION_DIFFERENT);
+        assertThat(copyApplier.apply(review(10, 99, 4), ApplySource.EVENT).outcome()).isEqualTo(CopyOutcome.UNCHANGED);
+        assertThat(copyApplier.apply(review(10, 99, 5), ApplySource.EVENT).outcome()).isEqualTo(CopyOutcome.SAME_VERSION_DIFFERENT);
         assertThat(rows.review(10)).containsEntry("rating", 5);
     }
 
@@ -121,7 +122,7 @@ class CopyApplierTest extends ChatbotIntegrationTestBase {
                 for (AppearanceSyncDto dto : List.of(newer, older)) {
                     futures.add(executor.submit(() -> {
                         start.await();
-                        return copyApplier.apply(dto, null);
+                        return copyApplier.apply(dto, ApplySource.EVENT);
                     }));
                 }
                 start.countDown();
@@ -145,6 +146,6 @@ class CopyApplierTest extends ChatbotIntegrationTestBase {
     }
 
     private CopyOutcome apply(AppearanceSyncDto dto) {
-        return copyApplier.apply(dto, null).outcome();
+        return copyApplier.apply(dto, ApplySource.EVENT).outcome();
     }
 }

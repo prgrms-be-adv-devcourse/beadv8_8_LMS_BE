@@ -15,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatch;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatchKind;
 import com.hapbang.auxiliary.chatbot.domain.SyncRun;
@@ -76,7 +77,7 @@ class MemberLectureSyncTest extends ChatbotIntegrationTestBase {
         // 원본: 강의 1 새것, 강의 2 사라짐, 강의 3 새로 생김. 우리: 강의 1보다 이벤트로 먼저 받은 구매 version 5
         lectureSource.putLectures(lecture(1, 1), lecture(3, 0));
         lectureSource.removeLecture(2);
-        copyApplier.apply(purchase(10, 5, LecturePurchaseResult.OWNED, 5), null);
+        copyApplier.apply(purchase(10, 5, LecturePurchaseResult.OWNED, 5), ApplySource.EVENT);
         clock.advance(Duration.ofDays(7));
 
         SyncRun lectures = run(SyncType.LECTURE);
@@ -111,7 +112,7 @@ class MemberLectureSyncTest extends ChatbotIntegrationTestBase {
                 .mapToObj(id -> purchase(id, 5, LecturePurchaseResult.OWNED, 0))
                 .toArray(com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto[]::new));
         LongStream.rangeClosed(200, 219).forEach(id ->
-                copyApplier.apply(purchase(id, 5, LecturePurchaseResult.OWNED, 0), null));
+                copyApplier.apply(purchase(id, 5, LecturePurchaseResult.OWNED, 0), ApplySource.EVENT));
         clock.advance(Duration.ofDays(7));
 
         SyncRun run = run(SyncType.LECTURE_PURCHASE);

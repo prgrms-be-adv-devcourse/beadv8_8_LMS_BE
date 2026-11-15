@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
 import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.IndexedProfile;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -107,12 +108,12 @@ abstract class InfluencerIntegrationTestBase extends ChatbotIntegrationTestBase 
     /** 두 회원이 함께 마친 출연 */
     protected void completed(long appearanceId, long hostId, long guestId) {
         copyApplier.apply(new AppearanceSyncDto(appearanceId, hostId, guestId, AppearanceResult.COMPLETED,
-                CopyRows.SCHEDULED_AT, 0L), null);
+                CopyRows.SCHEDULED_AT, 0L), ApplySource.EVENT);
     }
 
     /** 받은 출연 리뷰 */
     protected void review(long reviewId, long appearanceId, long revieweeId, int rating) {
-        copyApplier.apply(new AppearanceReviewSyncDto(reviewId, appearanceId, revieweeId, rating), null);
+        copyApplier.apply(new AppearanceReviewSyncDto(reviewId, appearanceId, revieweeId, rating), ApplySource.EVENT);
     }
 
     private void deleteIndex() throws Exception {

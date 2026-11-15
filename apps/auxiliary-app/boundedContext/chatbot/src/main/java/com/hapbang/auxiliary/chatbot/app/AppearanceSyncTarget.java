@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
 import com.hapbang.auxiliary.chatbot.out.AppearanceCopyStore;
@@ -52,7 +53,7 @@ class AppearanceSyncTarget implements SyncTarget<AppearanceSyncDto> {
 
     @Override
     public CopyWrite apply(AppearanceSyncDto item, long runId) {
-        return copyApplier.apply(item, runId);
+        return copyApplier.apply(item, ApplySource.syncRun(runId));
     }
 
     @Override

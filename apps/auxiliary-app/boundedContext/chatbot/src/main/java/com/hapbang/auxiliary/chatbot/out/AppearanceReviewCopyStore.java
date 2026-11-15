@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 
@@ -53,19 +54,15 @@ public class AppearanceReviewCopyStore {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    /**
-     * 받은 값을 반영한다.
-     *
-     * @param runId 싱크 회차 ID. 이벤트면 null
-     */
-    public CopyWrite save(AppearanceReviewCopy copy, Long runId, LocalDateTime now) {
+    /** 받은 값을 반영한다 */
+    public CopyWrite save(AppearanceReviewCopy copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("reviewId", copy.reviewId())
                 .addValue("appearanceId", copy.appearanceId())
                 .addValue("revieweeUserId", copy.revieweeUserId())
                 .addValue("rating", copy.rating())
                 .addValue("hash", copy.hash())
-                .addValue("runId", runId)
+                .addValue("runId", source.runId())
                 .addValue("now", now);
         RowMapper<CopyWrite> outcome = (rs, row) ->
                 new CopyWrite(CopyOutcome.decide(null, rs.getString("old_hash"), null, copy.hash()), null);

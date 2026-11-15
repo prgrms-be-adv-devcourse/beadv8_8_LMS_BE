@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
@@ -78,29 +79,21 @@ public class CopyApplier {
         this.clock = clock;
     }
 
-    /**
-     * 출연을 반영한다.
-     *
-     * @param runId 싱크 회차 ID. 이벤트면 null
-     */
-    public CopyWrite apply(AppearanceSyncDto appearance, Long runId) {
-        return appearanceCopyStore.save(CopyMapper.appearance(appearance), runId, now());
+    /** 출연을 반영한다 */
+    public CopyWrite apply(AppearanceSyncDto appearance, ApplySource source) {
+        return appearanceCopyStore.save(CopyMapper.appearance(appearance), source, now());
     }
 
-    /**
-     * 공개된 출연 리뷰를 반영한다. 리뷰를 받은 회원을 마스킹했으면 버린다.
-     *
-     * @param runId 싱크 회차 ID. 이벤트면 null
-     */
-    public CopyWrite apply(AppearanceReviewSyncDto review, Long runId) {
+    /** 공개된 출연 리뷰를 반영한다. 리뷰를 받은 회원을 마스킹했으면 버린다 */
+    public CopyWrite apply(AppearanceReviewSyncDto review, ApplySource source) {
         AppearanceReviewCopy copy = CopyMapper.appearanceReview(review);
-        return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, runId, now()));
+        return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, source, now()));
     }
 
     /** 리뷰 공개 이벤트를 반영한다 */
     public CopyWrite apply(AppearanceReviewPublishedEvent event) {
         AppearanceReviewCopy copy = CopyMapper.appearanceReview(event);
-        return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, null, now()));
+        return unlessMasked(copy.revieweeUserId(), () -> appearanceReviewCopyStore.save(copy, ApplySource.EVENT, now()));
     }
 
     /**
@@ -129,16 +122,12 @@ public class CopyApplier {
         });
     }
 
-    /**
-     * 강의를 반영한다. 값이 바뀌었거나 원본 없음 표시를 풀었으면 같은 트랜잭션에서 강의 색인 요청을 적는다.
-     *
-     * @param runId 싱크 회차 ID. 이벤트면 null
-     */
-    public CopyWrite apply(LectureSyncDto lecture, Long runId) {
+    /** 강의를 반영한다. 값이 바뀌었거나 원본 없음 표시를 풀었으면 같은 트랜잭션에서 강의 색인 요청을 적는다 */
+    public CopyWrite apply(LectureSyncDto lecture, ApplySource source) {
         LectureCopies.Lecture copy = CopyMapper.lecture(lecture);
         return transaction.execute(status -> {
             LocalDateTime now = now();
-            CopyWrite write = lectureCopyStore.save(copy, runId, now);
+            CopyWrite write = lectureCopyStore.save(copy, source, now);
             if (write.outcome().valueChanged() || write.restored()) {
                 indexTaskStore.add(IndexType.LECTURE, String.valueOf(copy.id()), IndexAction.UPSERT, now);
             }
@@ -160,22 +149,22 @@ public class CopyApplier {
         });
     }
 
-    /** 구매를 반영한다. 구매자를 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite apply(LecturePurchaseSyncDto purchase, Long runId) {
+    /** 구매를 반영한다. 구매자를 마스킹했으면 버린다 */
+    public CopyWrite apply(LecturePurchaseSyncDto purchase, ApplySource source) {
         LectureCopies.Purchase copy = CopyMapper.purchase(purchase);
-        return unlessMasked(copy.buyerUserId(), () -> lectureCopyStore.save(copy, runId, now()));
+        return unlessMasked(copy.buyerUserId(), () -> lectureCopyStore.save(copy, source, now()));
     }
 
-    /** 장바구니 항목을 반영한다. 주인을 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite apply(CartItemSyncDto cartItem, Long runId) {
+    /** 장바구니 항목을 반영한다. 주인을 마스킹했으면 버린다 */
+    public CopyWrite apply(CartItemSyncDto cartItem, ApplySource source) {
         LectureCopies.CartItem copy = CopyMapper.cartItem(cartItem);
-        return unlessMasked(copy.userId(), () -> lectureCopyStore.save(copy, runId, now()));
+        return unlessMasked(copy.userId(), () -> lectureCopyStore.save(copy, source, now()));
     }
 
-    /** 강의 리뷰를 반영한다. 작성자를 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite apply(LectureReviewSyncDto review, Long runId) {
+    /** 강의 리뷰를 반영한다. 작성자를 마스킹했으면 버린다 */
+    public CopyWrite apply(LectureReviewSyncDto review, ApplySource source) {
         LectureCopies.Review copy = CopyMapper.lectureReview(review);
-        return unlessMasked(copy.reviewerUserId(), () -> lectureCopyStore.save(copy, runId, now()));
+        return unlessMasked(copy.reviewerUserId(), () -> lectureCopyStore.save(copy, source, now()));
     }
 
     // 회원 락을 잡고, 마스킹한 회원이면 쓰지 않는다

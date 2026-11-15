@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 
@@ -69,12 +70,8 @@ public class AppearanceCopyStore {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    /**
-     * 받은 값을 반영한다.
-     *
-     * @param runId 싱크 회차 ID. 이벤트면 null
-     */
-    public CopyWrite save(AppearanceCopy copy, Long runId, LocalDateTime now) {
+    /** 받은 값을 반영한다 */
+    public CopyWrite save(AppearanceCopy copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", copy.id())
                 .addValue("hostId", copy.hostId())
@@ -83,7 +80,7 @@ public class AppearanceCopyStore {
                 .addValue("scheduledAt", copy.scheduledAt())
                 .addValue("version", copy.version())
                 .addValue("hash", copy.hash())
-                .addValue("runId", runId)
+                .addValue("runId", source.runId())
                 .addValue("now", now);
         RowMapper<CopyWrite> outcome = (rs, row) -> {
             Long ourVersion = rs.getObject("old_version", Long.class);

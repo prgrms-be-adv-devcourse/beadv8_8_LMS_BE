@@ -80,7 +80,7 @@ final class CopyTable {
      *
      * @param params          키·데이터 컬럼 값
      * @param incomingVersion 받은 version. 회원은 비어 있을 수 있다
-     * @param runId           싱크 회차 ID. 이벤트면 null
+     * @param runId           싱크 회차 ID({@link com.hapbang.auxiliary.chatbot.domain.ApplySource#runId()}). 이벤트와 회원이면 null
      */
     CopyWrite save(NamedParameterJdbcTemplate jdbc, MapSqlParameterSource params, Long incomingVersion, String hash,
             Long runId, LocalDateTime now) {
