@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendExplainUseCase.Explained;
-import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRecommendation;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendConfig;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
@@ -49,7 +48,8 @@ public class ChatbotInfluencerRecommendFacade {
     public InfluencerRecommendResDto recommend(long userId) {
         ChatbotRateLimits.acquire(widgetRateLimiter, userId, Feature.INFLUENCER_RECOMMEND, metrics);
         metrics.request(Feature.INFLUENCER_RECOMMEND);
-        return mapper.response(candidates(userId));
+        // 위젯은 관심사를 받지 않는다(관심사는 버튼·자유 질문 Tool)
+        return mapper.response(useCase.recommend(userId, null));
     }
 
     /**
@@ -63,10 +63,5 @@ public class ChatbotInfluencerRecommendFacade {
         metrics.request(Feature.INFLUENCER_BUTTON);
         Explained explained = explainUseCase.recommend(userId, RecommendInterest.normalize(interest));
         return mapper.explained(explained.recommendation(), explained.explanations(), explained.fallback());
-    }
-
-    // 위젯은 관심사를 받지 않는다(관심사는 버튼·자유 질문 Tool)
-    private InfluencerRecommendation candidates(long userId) {
-        return useCase.recommend(userId, null);
     }
 }
