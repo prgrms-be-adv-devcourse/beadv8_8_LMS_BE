@@ -1,0 +1,27 @@
+# B0 격리 환경의 공용 인프라(N13, ND-155): PostgreSQL·Kafka·Redis만. ES·관측 stack·Redpanda Console은 띄우지 않는다.
+# 운영과 같은 manifest 파일을 그대로 쓴다(레포 루트 k8s를 참조하므로 kustomize --load-restrictor LoadRestrictionsNone로 렌더링).
+# 비밀번호는 k8s/platform/overlays/local과 같은 로컬 가짜 값이다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hapbang-platform
+# namespace(hapbang-prod·hapbang-platform)와 StorageClass(local-path-retain)는 namespace 변환과 충돌하므로 b0.sh가
+# k8s/cluster의 같은 파일을 먼저 따로 적용한다.
+resources:
+  - ../../../../k8s/platform/base/postgres.yaml
+  - ../../../../k8s/platform/base/kafka.yaml
+  - ../../../../k8s/platform/base/redis.yaml
+components:
+  - ../../../../k8s/components/core-data
+generatorOptions:
+  disableNameSuffixHash: true
+secretGenerator:
+  - name: postgres-credentials
+    literals:
+      - postgres=local-postgres-password
+      - auxiliary=local-auxiliary-password
+      - member=local-member-password
+      - billing=local-billing-password
+      - appearance=local-appearance-password
+      - lecture=local-lecture-password
+      - chat=local-chat-password
+      - customersupport=local-customersupport-password
