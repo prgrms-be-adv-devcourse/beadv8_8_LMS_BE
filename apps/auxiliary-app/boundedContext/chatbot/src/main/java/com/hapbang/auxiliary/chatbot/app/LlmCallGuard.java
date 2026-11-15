@@ -8,6 +8,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.ai.model.tool.ToolCallLimitExceededException;
@@ -116,10 +117,8 @@ public class LlmCallGuard {
      * </ul>
      */
     static @Nullable FallbackReason modelAnsweredFailure(@Nullable Throwable error) {
-        for (Throwable cause = error; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
-            if (cause instanceof ToolCallLimitExceededException || cause instanceof ToolCallLimitReached) {
-                return FallbackReason.TOOL_LIMIT;
-            }
+        if (anyCause(error, cause -> cause instanceof ToolCallLimitExceededException || cause instanceof ToolCallLimitReached)) {
+            return FallbackReason.TOOL_LIMIT;
         }
         return isFormatError(error) ? FallbackReason.FORMAT : null;
     }
@@ -130,8 +129,13 @@ public class LlmCallGuard {
      * 둘 다 형식 오류로 본다(테스트 {@code LectureRecommendButtonTest.formatErrorIsNotCircuitFailure}로 확인).
      */
     static boolean isFormatError(@Nullable Throwable error) {
+        return anyCause(error, cause -> cause instanceof JacksonException);
+    }
+
+    // 예외 자신과 원인 사슬 중에 조건에 맞는 것이 있는지
+    private static boolean anyCause(@Nullable Throwable error, Predicate<Throwable> matches) {
         for (Throwable cause = error; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
-            if (cause instanceof JacksonException) {
+            if (matches.test(cause)) {
                 return true;
             }
         }
