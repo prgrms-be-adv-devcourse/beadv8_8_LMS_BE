@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
 import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
+import com.hapbang.auxiliary.chatbot.config.ChatbotSyncProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatch;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatchKind;

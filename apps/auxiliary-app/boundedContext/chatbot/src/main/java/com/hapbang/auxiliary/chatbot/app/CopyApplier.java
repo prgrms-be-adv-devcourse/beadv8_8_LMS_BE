@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;

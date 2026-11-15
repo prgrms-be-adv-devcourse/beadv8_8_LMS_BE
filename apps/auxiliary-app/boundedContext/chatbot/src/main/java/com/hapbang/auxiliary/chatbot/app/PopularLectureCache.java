@@ -8,6 +8,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;

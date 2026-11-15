@@ -8,8 +8,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
-import com.hapbang.auxiliary.chatbot.app.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.app.PopularLectureCache;
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.out.AppearanceSyncSource;
 import com.hapbang.auxiliary.chatbot.out.LectureSyncSource;
 import com.hapbang.auxiliary.chatbot.out.MemberSyncSource;

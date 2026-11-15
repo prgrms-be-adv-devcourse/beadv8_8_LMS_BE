@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.IndexedProfile;
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
