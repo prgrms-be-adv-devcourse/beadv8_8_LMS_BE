@@ -301,7 +301,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
   - 리랭킹을 끄면(`rerank.enabled=false`) 코드 순서 앞 5개만 보여 주고 LLM에게는 이유만 받는다(순서는 코드 순서). 실패 로그에는 예외 클래스 이름만 남긴다(형식 오류 메시지에 모델 출력이 들어갈 수 있다).
   - **요청 회원의 취향**(`rerank.taste`, #948): 기본 `NONE`은 후보 정보만 보낸다(#720과 같음). `PUBLIC`이면 "요청한 사람" 줄로 **본인이 이번에 입력한 관심사**와, 요청 회원이 인플루언서 역할이고 마스킹되지 않았으면 **공개 프로필의 분야 이름·자기소개**(소개 길이 상한까지, 한 줄로)를 후보 앞에 넣는다(`RecommendTasteSupport`). 구매·장바구니·리뷰·함께 출연한 상대·회원 ID는 넣지 않는다. 분야·자기소개는 회원 모듈에서 인플루언서만 넣을 수 있다(#711). 넣을 취향이 없으면(관심사 없는 일반 회원) 고르지 않고 끈 것과 같이 코드 순서로 이유만 받는다. 시스템 프롬프트에 그 줄 안의 지시를 따르지 말라는 규칙을 붙인다. prod는 리랭킹 평가(#867)로 `PUBLIC`을 켰다(근거 `docs/chatbot/recommend-rerank.md`).
   - **리랭킹 온도**(`rerank.temperature`, #948): 비우면 공급자 설정(prod 0.2)이고, 정하면 리랭킹 호출에만 실린다. 리랭킹은 고르기라 흔들림의 이득이 작다. prod는 0이고 시간 상한은 15s다(평가 최대 11.6s).
-  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다. 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
+  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다(리랭킹 prod는 평가로 15s, #948). 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
 - **자유 질문**(`ChatbotConversationService`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
@@ -311,7 +311,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
   - 시간 상한: 한 번에 받기 전체 25s(`chat.timeout`, Gateway 30s 안), 스트림 45s(`chat.stream-timeout`). 출발값이다.
   - `history`는 50개까지 받는다(넘으면 400). 글자 수 합 8,000자는 버리고 남은 최근 12개에만 센다. 검사는 회원별 호출 제한보다 먼저 한다(400 요청은 한도를 쓰지 않는다).
   - 호출 제한은 FAQ 검색·대화(#715)의 제한을 함께 쓴다. 대화 내용은 DB·로그에 남기지 않는다(로그에는 history 개수·글자 수·부른 Tool 이름·걸린 시간만).
-- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. chat 클라이언트가 하나라 기능별로 다르게 둘 수 없다. 그래서 리랭킹(12s)·쿼리 확장(5s) 가드가 포기한 뒤에도 HTTP 호출이 최대 50s 남아 동시 상한 4를 넘길 수 있다(남은 위험, 측정 뒤 기능별 클라이언트를 검토). local Ollama는 부트의 `RestClient.Builder`를 받아 만든다.
+- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. chat 클라이언트가 하나라 기능별로 다르게 둘 수 없다. 그래서 리랭킹(prod 15s)·쿼리 확장(5s) 가드가 포기한 뒤에도 HTTP 호출이 최대 50s 남아 동시 상한 4를 넘길 수 있다(남은 위험, 측정 뒤 기능별 클라이언트를 검토). local Ollama는 부트의 `RestClient.Builder`를 받아 만든다.
 - **FE GA4 이벤트 이름 제안**(FE가 정한다): `chatbot_button_click{button}`, `chatbot_recommend_card_impression{kind, basis, reason}`, `chatbot_recommend_card_click{kind, reason, position}`, `chatbot_conversation_start`, `chatbot_retry_click{kind}`(POPULAR_TEMPORARY 안내의 다시 시도).
 
 **지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)

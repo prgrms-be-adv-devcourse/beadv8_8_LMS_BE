@@ -86,7 +86,7 @@ hapbang:
         taste: public
         # 비움(0.2) → 0: 고르기라 흔들림의 이득이 없다. 80명 강의 0.375 → 0.383, 인플루언서 3회 결과가 같았다
         temperature: 0
-        # 12s → 15s: 평가 최대 11.6s. 쿼리 확장 5s를 더해도 버튼 한 번 20s 안
+        # 12s → 15s: 평가 최대 11.6s. 쿼리 확장 5s를 더한 LLM 상한 20s에 임베딩·ES를 더해도 Gateway 30s 안
         timeout: 15s
   search:
     elasticsearch:

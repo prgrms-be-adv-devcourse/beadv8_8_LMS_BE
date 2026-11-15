@@ -188,10 +188,7 @@ public class RecommendReranker {
         return prompt.toString();
     }
 
-    /**
-     * LLM 응답(구조화 출력의 최상위 객체). OpenAI strict 스키마는 모든 필드가 required여야 해서 {@code required = true}를 단다.
-     * 없으면 Spring AI가 {@code @Nullable} 필드를 required에서 빼고 OpenAI가 400으로 거절한다. 값은 그래도 null일 수 있다고 보고 읽는다
-     */
+    /** LLM 응답(구조화 출력의 최상위 객체). {@code required = true}는 OpenAI strict 스키마 때문이다(README "구조화 출력 응답 레코드") */
     record Picks(@JsonProperty(required = true) @Nullable List<Pick> picks) {
     }
 

@@ -17,16 +17,16 @@ class StructuredOutputSchemaTest {
 
     @Test
     void rerankAnswerListsEveryFieldAsRequired() {
-        assertThat(objectsMissingRequired(RecommendReranker.Picks.class)).isEmpty();
+        assertThat(propertySetsMissingRequired(RecommendReranker.Picks.class)).isEmpty();
     }
 
     @Test
     void expansionAnswerListsEveryFieldAsRequired() {
-        assertThat(objectsMissingRequired(QueryExpander.Expansions.class)).isEmpty();
+        assertThat(propertySetsMissingRequired(QueryExpander.Expansions.class)).isEmpty();
     }
 
     // 스키마 안의 객체마다 properties 키와 required가 같은지 보고, 다른 객체의 properties 키를 모은다
-    private static List<Object> objectsMissingRequired(Class<?> type) {
+    private static List<Object> propertySetsMissingRequired(Class<?> type) {
         List<Object> missing = new ArrayList<>();
         collect(new BeanOutputConverter<>(type).getJsonSchemaMap(), missing);
         return missing;

@@ -92,7 +92,7 @@ public class QueryExpander {
         return new ArrayList<>(queries);
     }
 
-    /** LLM 응답(구조화 출력의 최상위 객체). required는 {@link RecommendReranker}의 응답 레코드와 같은 이유(OpenAI strict 스키마) */
+    /** LLM 응답(구조화 출력의 최상위 객체). {@code required = true}는 OpenAI strict 스키마 때문이다(README "구조화 출력 응답 레코드") */
     record Expansions(@JsonProperty(required = true) @Nullable List<String> phrases) {
     }
 }
