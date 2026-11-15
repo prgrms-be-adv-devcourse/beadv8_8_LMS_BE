@@ -10,7 +10,6 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatStreamEvent;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 
 import reactor.core.publisher.Flux;
 
@@ -52,12 +51,7 @@ public class ChatbotChatFacade {
     }
 
     private void acquire(long userId, Feature feature) {
-        try {
-            rateLimiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
+        ChatbotRateLimits.acquire(rateLimiter, userId, feature, metrics);
         metrics.request(feature);
     }
 }

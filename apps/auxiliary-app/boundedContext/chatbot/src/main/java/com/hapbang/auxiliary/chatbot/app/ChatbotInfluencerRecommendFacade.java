@@ -11,7 +11,6 @@ import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRe
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendConfig;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 
 /**
  * 인플루언서 추천 API의 진입점 (#719). 역할 검사·회원별 호출 제한·사용 지표를 여기서 한다.
@@ -48,7 +47,7 @@ public class ChatbotInfluencerRecommendFacade {
     /** 후보만(LLM 없음, FE 추천 위젯) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommend(long userId) {
-        acquire(widgetRateLimiter, userId, Feature.INFLUENCER_RECOMMEND);
+        ChatbotRateLimits.acquire(widgetRateLimiter, userId, Feature.INFLUENCER_RECOMMEND, metrics);
         metrics.request(Feature.INFLUENCER_RECOMMEND);
         return mapper.response(candidates(userId));
     }
@@ -60,19 +59,10 @@ public class ChatbotInfluencerRecommendFacade {
      */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommendExplained(long userId, @Nullable String interest) {
-        acquire(rateLimiter, userId, Feature.INFLUENCER_BUTTON);
+        ChatbotRateLimits.acquire(rateLimiter, userId, Feature.INFLUENCER_BUTTON, metrics);
         metrics.request(Feature.INFLUENCER_BUTTON);
         Explained explained = explainUseCase.recommend(userId, RecommendInterest.normalize(interest));
         return mapper.explained(explained.recommendation(), explained.explanations(), explained.fallback());
-    }
-
-    private void acquire(KeyedRateLimiter limiter, long userId, Feature feature) {
-        try {
-            limiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
     }
 
     // 위젯은 관심사를 받지 않는다(관심사는 버튼·자유 질문 Tool)

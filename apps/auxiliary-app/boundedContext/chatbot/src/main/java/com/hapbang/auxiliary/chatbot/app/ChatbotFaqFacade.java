@@ -15,7 +15,6 @@ import com.hapbang.auxiliary.chatbot.app.dto.FaqResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 import com.hapbang.auxiliary.chatbot.out.FaqRepository;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
 
 import reactor.core.publisher.Flux;
@@ -82,12 +81,7 @@ public class ChatbotFaqFacade {
     }
 
     private void acquire(long userId, Feature feature) {
-        try {
-            rateLimiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
+        ChatbotRateLimits.acquire(rateLimiter, userId, feature, metrics);
         metrics.request(feature);
     }
 }
