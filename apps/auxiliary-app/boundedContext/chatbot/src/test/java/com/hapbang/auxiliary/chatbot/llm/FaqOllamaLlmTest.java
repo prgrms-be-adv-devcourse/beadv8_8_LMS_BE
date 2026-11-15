@@ -18,10 +18,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
-import com.hapbang.auxiliary.chatbot.app.FaqAnswer;
 import com.hapbang.auxiliary.chatbot.app.FaqChatService;
-import com.hapbang.auxiliary.chatbot.app.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.testsupport.IntegrationTest;
 

@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;

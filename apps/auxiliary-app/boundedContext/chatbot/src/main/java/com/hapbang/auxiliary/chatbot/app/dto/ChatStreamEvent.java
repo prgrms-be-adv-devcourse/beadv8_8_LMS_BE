@@ -1,6 +1,4 @@
-package com.hapbang.auxiliary.chatbot.app;
-
-import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
+package com.hapbang.auxiliary.chatbot.app.dto;
 
 import java.util.List;
 

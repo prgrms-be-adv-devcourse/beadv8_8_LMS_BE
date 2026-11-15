@@ -20,6 +20,9 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatStreamEvent;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
 import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
 
 import lombok.extern.slf4j.Slf4j;

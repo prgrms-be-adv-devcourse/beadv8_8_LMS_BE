@@ -8,8 +8,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotFaqFacade;
-import com.hapbang.auxiliary.chatbot.app.FaqAnswer;
-import com.hapbang.auxiliary.chatbot.app.FaqStreamEvent;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.in.dto.FaqChatRequest;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;

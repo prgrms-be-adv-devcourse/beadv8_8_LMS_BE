@@ -24,7 +24,6 @@ import org.springframework.context.annotation.Import;
 
 import com.hapbang.auxiliary.chatbot.app.ChatCardCollector;
 import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
-import com.hapbang.auxiliary.chatbot.app.FaqHit;
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
 import com.hapbang.auxiliary.chatbot.app.FaqSearchService;
 import com.hapbang.auxiliary.chatbot.app.FaqSeed;
@@ -32,6 +31,7 @@ import com.hapbang.auxiliary.chatbot.app.FaqSeedReader;
 import com.hapbang.auxiliary.chatbot.app.FaqSeedSynchronizer;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
 import com.hapbang.auxiliary.chatbot.app.FaqTools;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
 import com.hapbang.auxiliary.chatbot.domain.Faq;
 import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;

@@ -21,7 +21,10 @@ import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.task.SimpleAsyncTaskExecutorBuilder;
 
-import com.hapbang.auxiliary.chatbot.app.FaqAnswer.FaqSource;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer.FaqSource;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.config.ChatbotFaqProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLlmProperties;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;

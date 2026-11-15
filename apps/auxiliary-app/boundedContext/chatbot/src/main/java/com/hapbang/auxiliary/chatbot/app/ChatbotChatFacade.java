@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatStreamEvent;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
 import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 

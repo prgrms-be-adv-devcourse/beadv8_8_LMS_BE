@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.chatbot.app;
+package com.hapbang.auxiliary.chatbot.app.dto;
 
 /**
  * FAQ 검색 결과 하나. {@code searchFaq} Tool이 모델에게 그대로 돌려주는 값이다(JSON으로 직렬화된다).

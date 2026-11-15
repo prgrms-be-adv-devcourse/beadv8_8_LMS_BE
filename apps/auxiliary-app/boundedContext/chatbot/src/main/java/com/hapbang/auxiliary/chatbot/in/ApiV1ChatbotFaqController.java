@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotFaqFacade;
-import com.hapbang.auxiliary.chatbot.app.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
