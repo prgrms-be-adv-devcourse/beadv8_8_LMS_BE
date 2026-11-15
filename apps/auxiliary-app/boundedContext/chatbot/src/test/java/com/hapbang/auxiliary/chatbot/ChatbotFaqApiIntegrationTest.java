@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -107,8 +108,11 @@ class ChatbotFaqApiIntegrationTest {
         mockMvc.perform(get("/api/v1/chatbot/faqs").with(login(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(53)))
+                .andExpect(jsonPath("$.data[0]", aMapWithSize(4)))
                 .andExpect(jsonPath("$.data[0].code").value("FAQ-001"))
-                .andExpect(jsonPath("$.data[0].category").value("ACCOUNT"));
+                .andExpect(jsonPath("$.data[0].category").value("ACCOUNT"))
+                .andExpect(jsonPath("$.data[0].question").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].answer").isNotEmpty());
         mockMvc.perform(get("/api/v1/chatbot/faqs").param("category", "HP").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(5)))
