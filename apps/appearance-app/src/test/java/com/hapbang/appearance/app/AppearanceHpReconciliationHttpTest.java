@@ -13,9 +13,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
+import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
 import com.hapbang.appearance.domain.HpReconciliationMismatch;
 import com.hapbang.appearance.domain.HpReconciliationRule;
-import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
@@ -106,11 +106,11 @@ class AppearanceHpReconciliationHttpTest extends MockBillingIntegrationTest {
         MockBilling.holdListReturns(BillingReferenceType.APPEARANCE_RECRUIT, page("", "1970-01-01T00:00:00Z", 0));
         MockBilling.holdQueryReturns("[" + releasedRequest(requestId) + "]");
 
-        HpReconciliationRun run = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto run = hpReconciliationUseCase.runScheduled();
 
-        assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
-        assertThat(run.getCheckedCount()).isEqualTo(2);
-        assertThat(mismatchRepository.findByRunIdOrderByIdAsc(run.getId()))
+        assertThat(run.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
+        assertThat(run.checkedCount()).isEqualTo(2);
+        assertThat(mismatchRepository.findByRunIdOrderByIdAsc(run.id()))
                 .extracting(HpReconciliationMismatch::getReferenceId, HpReconciliationMismatch::getRule)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(777L, HpReconciliationRule.WALLET_ONLY_HOLD));
 
@@ -141,10 +141,10 @@ class AppearanceHpReconciliationHttpTest extends MockBillingIntegrationTest {
         MockBilling.holdListReturns(BillingReferenceType.APPEARANCE_RECRUIT, page("", "1970-01-01T00:00:00Z", 0));
         MockBilling.holdQueryFails(500);
 
-        HpReconciliationRun run = hpReconciliationUseCase.runScheduled();
+        HpReconciliationRunResDto run = hpReconciliationUseCase.runScheduled();
 
-        assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-        assertThat(run.getFailureReason()).contains("지갑 보류 조회", "결과를 받지 못함");
+        assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+        assertThat(run.failureReason()).contains("지갑 보류 조회", "결과를 받지 못함");
         assertThat(cursorRepository.findAll()).isEmpty();
     }
 }

@@ -1,5 +1,8 @@
 package com.hapbang.lecture.app;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.data.domain.Page;
@@ -19,6 +22,7 @@ import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureStatus;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.LectureThumbnailRef;
 
 import lombok.RequiredArgsConstructor;
 
@@ -66,6 +70,27 @@ public class LectureSupport {
                 ? lectureRepository.findByStatusAndDeletedAtIsNull(LectureStatus.ON_SALE, sorted)
                 : lectureRepository.findByStatusAndDeletedAtIsNullAndTitleContainingIgnoreCase(LectureStatus.ON_SALE,
                         keyword, sorted);
+    }
+
+    /**
+     * 강의별 썸네일 조회 URL (#885, 검색 결과 카드처럼 강의 ID만 아는 화면용). 요청한 ID마다 키가 있다(중복은 한 번).
+     * 판매 중인 강의만 URL을 주고, 없는 강의·판매 중이 아닌 강의(비회원에게 보이지 않음, D5)·썸네일이 없거나 볼 수 없으면 null이다.
+     * 강의는 판매 중인지와 썸네일 파일 ID만 DB에서 골라 읽는다(D86).
+     */
+    public Map<Long, String> getThumbnailUrls(Collection<Long> lectureIds) {
+        Map<Long, Long> thumbnailFileIds = new HashMap<>();
+        for (LectureThumbnailRef ref : lectureRepository.findOnSaleThumbnailRefs(lectureIds)) {
+            if (ref.thumbnailFileId() != null) {
+                thumbnailFileIds.put(ref.lectureId(), ref.thumbnailFileId());
+            }
+        }
+        Map<Long, String> urls = lectureThumbnailSupport.urlsOf(thumbnailFileIds.values());
+        Map<Long, String> urlsByLecture = new LinkedHashMap<>();
+        for (Long lectureId : lectureIds) {
+            Long thumbnailFileId = thumbnailFileIds.get(lectureId);
+            urlsByLecture.put(lectureId, thumbnailFileId == null ? null : urls.get(thumbnailFileId));
+        }
+        return urlsByLecture;
     }
 
     /** 판매자 본인이 등록한 강의 (모든 상태, 삭제 포함). 최근 등록순이며 요청의 정렬은 무시한다. */

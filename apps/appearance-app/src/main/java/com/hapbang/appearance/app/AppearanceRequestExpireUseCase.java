@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -12,6 +13,7 @@ import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.shared.appearance.event.AppearanceRequestExpiredEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ public class AppearanceRequestExpireUseCase {
     private final HpTaskExecuteUseCase hpTaskExecuteUseCase;
     private final AppearanceBatchProperties batchProperties;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -71,6 +74,10 @@ public class AppearanceRequestExpireUseCase {
             return null;
         }
         request.expire(now);
-        return appearanceRequestReleaseRecorder.applyAndRecordRelease(request, HpTaskReason.REQUEST_EXPIRED, now);
+        Long taskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request, HpTaskReason.REQUEST_EXPIRED,
+                now);
+        eventPublisher.publishEvent(new AppearanceRequestExpiredEvent(AppearanceContractMapper.toRequestDto(request),
+                now));
+        return taskId;
     }
 }

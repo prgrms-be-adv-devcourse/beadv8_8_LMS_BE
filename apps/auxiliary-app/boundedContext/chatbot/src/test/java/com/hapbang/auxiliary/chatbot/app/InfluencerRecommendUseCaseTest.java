@@ -12,9 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.Candidate;
 import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRecommendation;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
+import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * 인플루언서 추천 후보 (#719). 가짜 임베딩으로 유사도를 정하고 실제 ES kNN과 사본 집계를 거친다.
@@ -26,6 +29,9 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
 
     @Autowired
     private InfluencerRecommendUseCase useCase;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @BeforeEach
     void setUpInfluencers() {
@@ -50,6 +56,7 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         InfluencerRecommendation result = useCase.recommend(1L, null);
 
         assertThat(result.needsInterest()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.PERSONALIZED);
         assertThat(result.items()).extracting(Candidate::memberId).containsExactly(2L, 4L, 3L, 8L, 7L);
         assertThat(result.items().get(0).reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY);
         assertThat(result.items().get(3).reasons()).containsExactly(InfluencerReason.POPULAR);
@@ -110,6 +117,7 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         InfluencerRecommendation result = useCase.recommend(9L, null);
 
         assertThat(result.needsInterest()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
         assertThat(result.items()).extracting(Candidate::memberId).containsExactly(4L, 3L, 2L, 1L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reasons()).contains(InfluencerReason.POPULAR));
         assertThat(result.items().getFirst().completedAppearances()).isEqualTo(2);
@@ -160,15 +168,49 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("index가 없으면(첫 색인 전·ES 오류로 검색 실패) 인기순으로 채운다. needsInterest는 false(입력이 없는 것이 아니다)")
+    @DisplayName("요청 회원이 마스킹이면 사본 상태가 ACTIVE여도 빈 결과(탈퇴 이벤트가 늦게 와 마스킹만 반영된 경우)")
+    void maskedRequester() {
+        rows.masked(1L);
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.needsInterest()).isFalse();
+        assertThat(result.requesterHidden()).isTrue();
+    }
+
+    @Test
+    @DisplayName("마스킹된 인플루언서는 사본 상태가 ACTIVE여도 맞춤 후보에서도, 인기순 채우기에서도 빠진다")
+    void maskedCandidates() {
+        // 7·8은 프로필이 비어 인기순 채우기로만 들어온다
+        member(7L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        member(8L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
+        rows.masked(2L);
+        rows.masked(8L);
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(result.items()).extracting(Candidate::memberId).containsExactly(4L, 3L, 7L);
+        // 4·3은 맞춤 후보(2가 빠진 자리), 7은 인기순 채우기(8이 빠진 자리)
+        assertThat(result.items().subList(0, 2))
+                .allSatisfy(item -> assertThat(item.reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY));
+        assertThat(result.items().get(2).reasons()).containsExactly(InfluencerReason.POPULAR);
+    }
+
+    @Test
+    @DisplayName("index가 없으면(첫 색인 전·ES 오류로 검색 실패) 인기순·POPULAR_TEMPORARY로 채우고 검색 장애로 센다. "
+            + "needsInterest는 false(입력이 없는 것이 아니다)")
     void searchFailsWithoutIndex() throws Exception {
         member(7L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
         member(8L, Role.INFLUENCER, UserStatus.ACTIVE, List.of(), null);
         deleteInfluencerIndex();
+        double searchErrors = searchErrors();
 
         InfluencerRecommendation result = useCase.recommend(1L, null);
 
         assertThat(result.needsInterest()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR_TEMPORARY);
+        assertThat(searchErrors()).isEqualTo(searchErrors + 1);
         assertThat(result.items()).hasSize(5).extracting(Candidate::memberId).doesNotContain(1L, 5L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reasons()).contains(InfluencerReason.POPULAR));
     }
@@ -191,6 +233,13 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         InfluencerRecommendation result = useCase.recommend(9L, "요리하는 사람");
 
         assertThat(result.needsInterest()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR_TEMPORARY);
         assertThat(result.items()).hasSize(4).allSatisfy(item -> assertThat(item.reasons()).contains(InfluencerReason.POPULAR));
+    }
+
+    private double searchErrors() {
+        var counter = meterRegistry.find("hapbang.chatbot.recommend.search.errors").tag("feature", "influencer_recommend")
+                .counter();
+        return counter == null ? 0 : counter.count();
     }
 }

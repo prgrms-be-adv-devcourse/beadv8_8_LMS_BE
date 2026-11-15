@@ -33,6 +33,7 @@ public class AppearanceConfirmUseCase {
 
     private final AppearanceSupport appearanceSupport;
     private final AppearanceConfirmRecorder appearanceConfirmRecorder;
+    private final AppearanceTitleSupport appearanceTitleSupport;
     private final AppearancePolicy appearancePolicy;
     private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
@@ -50,7 +51,8 @@ public class AppearanceConfirmUseCase {
         LocalDateTime now = LocalDateTime.now(clock);
         Appearance appearance = lockViewable(hostId, appearanceId);
         appearance.confirmByHost(hostId, appearancePolicy, now);
-        Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
+        Long taskId = appearanceConfirmRecorder.recordPayout(appearance, appearanceTitleSupport.titleOf(appearance),
+                now);
         appearanceSupport.flushOrConflict();
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
@@ -71,7 +73,8 @@ public class AppearanceConfirmUseCase {
         LocalDateTime now = LocalDateTime.now(clock);
         Appearance appearance = lockViewable(hostId, appearanceId);
         appearance.markAbsent(hostId, reason, appearancePolicy, now);
-        Long taskId = appearanceConfirmRecorder.recordAbsentRelease(appearance, now);
+        Long taskId = appearanceConfirmRecorder.recordAbsentRelease(appearance,
+                appearanceTitleSupport.titleOf(appearance), now);
         appearanceSupport.flushOrConflict();
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         // 불참 사유는 호스트가 쓴 본문이라 남기지 않는다

@@ -45,6 +45,7 @@ public class OrderHoldSettlement {
     private final LectureSyncEvents lectureSyncEvents;
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final OrderCouponEvents orderCouponEvents;
+    private final LectureOrderEvents lectureOrderEvents;
     private final Clock clock;
 
     public OrderHoldSettlement(LectureOrderRepository lectureOrderRepository,
@@ -52,7 +53,7 @@ public class OrderHoldSettlement {
                                LectureHpTaskSupport lectureHpTaskSupport, CartRepository cartRepository,
                                LectureSyncEvents lectureSyncEvents,
                                OrderCouponReleaseRegistration orderCouponReleaseRegistration,
-                               OrderCouponEvents orderCouponEvents,
+                               OrderCouponEvents orderCouponEvents, LectureOrderEvents lectureOrderEvents,
                                @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskRepository = lectureHpTaskRepository;
@@ -61,6 +62,7 @@ public class OrderHoldSettlement {
         this.lectureSyncEvents = lectureSyncEvents;
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.orderCouponEvents = orderCouponEvents;
+        this.lectureOrderEvents = lectureOrderEvents;
         this.clock = clock;
     }
 
@@ -134,6 +136,7 @@ public class OrderHoldSettlement {
                     lectureSyncEvents.purchasesChanged(order.getItems());
                     // 쿠폰을 쓴 항목은 쿠폰 모듈이 사용 완료로 바꾸도록 같은 트랜잭션에서 알린다
                     orderCouponEvents.itemsPaid(order, now);
+                    lectureOrderEvents.paid(order);
                     removeOrderedLecturesFromCart(order, now);
                 }
             }
@@ -142,6 +145,7 @@ public class OrderHoldSettlement {
                 if (tasks.isFailureSettled()) {
                     order.markHoldFailed();
                     lectureSyncEvents.purchasesChanged(order.getItems());
+                    lectureOrderEvents.holdFailed(order, now);
                     // 쿠폰 주문이면 보상 반환이 모두 끝난 이 트랜잭션에서 예약한 쿠폰의 해제 작업을 만든다
                     orderCouponReleaseRegistration.registerIfReserved(order, now);
                 }

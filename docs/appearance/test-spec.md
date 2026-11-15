@@ -1577,7 +1577,9 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
 | `AppearanceHpReconciliationTest` | 앱이 멈춰 1시간 넘게 `RUNNING`으로 남은 실행 (#821) | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행), `runs{INCOMPLETE}` +1 |
 | `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 배치는 건너뜀(null)·관리자 실행은 409 `HP_RECONCILIATION_RUNNING`, 새 실행·지갑 호출 없음, 중단 횟수 그대로, 막은 실행 ID를 WARN 로그로 남김 |
-| `AppearanceHpReconciliationTest` | 정리 기준 경계 (#821) | 기준 시각보다 먼저 시작한 실행만 `INCOMPLETE`, 기준 시각에 시작한 실행은 `RUNNING` |
+| `AppearanceHpReconciliationTest` | 정리 기준 경계 (#821) | 기준 시각보다 먼저 시작한 실행만 `INCOMPLETE`, 기준 시각에 시작한 실행은 `RUNNING`이고 그 실행 때문에 시작하지 않음 |
+| `AppearanceHpReconciliationTest` | 두 pod가 같은 순간에 시작: 다른 pod가 시작 구간을 지나 커밋 전에 멈춘 사이 배치 실행 (#911) | 배치는 잠금을 기다림(0.5초 안에 끝나지 않음) → 다른 pod 커밋 뒤 그 실행을 보고 건너뜀(null), `RUNNING` 실행 1개, 지갑 호출 없음 |
+| `AppearanceHpReconciliationTest` | 같은 상황에서 관리자 실행 (#911) | 잠금을 기다린 뒤 409 `HP_RECONCILIATION_RUNNING`, `RUNNING` 실행 1개, 지갑 호출 없음 |
 | `AppearanceHpReconciliationFinishFailureTest` | 결과 기록(`finish`) 실패 (#821) | `INCOMPLETE`("결과 기록 실패: QueryTimeoutException"), `runs{INCOMPLETE}` +1, 바로 다음 실행은 막히지 않고 `COMPLETED` |
 | `AppearanceHpReconciliationFinishFailureTest` | 기록 직전에 다른 pod가 이 실행을 정리함 (#821) | 다른 pod가 남긴 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) 그대로, 이 pod의 `runs{INCOMPLETE}`는 그대로(두 번 세지 않음) |
 | `AppearanceHpReconciliationFinishFailureTest` | 결과 기록과 미완료 처리가 모두 실패 (#821) | 예외를 던지고 `RUNNING`이 남음, 실행 중 표시는 풀림(1시간 안에는 건너뜀) → 1시간 뒤 다음 실행이 정리(+1)하고 `COMPLETED` |
@@ -1684,3 +1686,29 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceContractMapperTest` | `toRequestDto`·`toApplicationDto`(다른 모집글)·`toCancelRequestDto` | 값 그대로 / `IllegalArgumentException` |
 
 - 이벤트·내부 API 값이 바뀌지 않은 것은 기존 통합 테스트(`AppearanceChangedEventTest`, `AppearanceEventKafkaTest`, `AppearanceSyncInternalApiE2ETest`, 알림 이벤트 테스트)가 그대로 통과해 확인했다.
+
+## 42. 알림용 출연 이벤트 12종 Kafka 발행과 지급 작업 출처 제목 (#871)
+
+알림센터가 출연 요청·모집·출연 진행 알림과 예약 알림을 만들도록 12종을 `appearance.events.v1`로 내보낸다(구성은 `module.md` 11.1.1·11.3, 계약은 `docs/notification/event-contracts.md` 1장 M3). 위약금 정산·지급 HP 작업에 출처 제목을 남긴다(5.4).
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceNotificationEventTest` | 요청서 수락 / 거절 / 응답 전 취소 / 수락 기한 만료 배치 | 각각 1건. 요청서 DTO(요청서·호스트·게스트·제목·출연료), 수락은 성립한 출연 ID·방송 예정 일시. 사건 시각이 처리 전후 시계 사이, 만료 시각은 수락 기한 뒤. 다른 결과 이벤트는 없음 |
+| `AppearanceNotificationEventTest` | 게스트가 아닌 회원의 거절 | 예외, 거절 이벤트 없음 |
+| `AppearanceNotificationEventTest` | 지원 수락 / 거절 | 선정 1건(지원·모집글 제목·호스트·게스트·출연 ID·방송 예정 일시) / 미선정 1건, 반대 이벤트 없음 |
+| `AppearanceNotificationEventTest` | 모집글 올리기, 같은 보류 결과 다시 반영(재확인 배치 경로) | 모집 시작 1건(모집글·호스트·제목·DB의 마감 일시), 다시 반영해도 1건 그대로 |
+| `AppearanceNotificationEventTest` | 성립 1·대기 1에서 조기 마감 / 기한 마감 배치 | 마감 `EARLY`와 대기 지원만 미선정(마감 시각과 같은 시각) / 마감 `DEADLINE`, 마감 시각은 마감 일시 뒤 |
+| `AppearanceNotificationEventTest` | 모집 중 전체 취소(성립 1·대기 1) / 마감 뒤 전체 취소 | 모집 취소 1, 호스트 일방 취소 1(모집글 제목·위약금 9,000), 미선정 1, 마감 이벤트 없음, 위약금 작업 출처 제목 = 모집글 제목 / 미선정은 마감 때 1건뿐(다시 나가지 않음) |
+| `AppearanceNotificationEventTest` | 호스트 일방 취소 / 호스트 확인 / 불참 | 출연 DTO(요청서 제목·호스트·게스트·방송 예정 일시)와 위약금 9,000·`HOST`·불참 시각. 위약금·지급 작업 출처 제목 = 요청서 제목. 확인과 불참은 서로의 이벤트가 없음 |
+| `AppearanceNotificationEventTest` | 요청서 출처·모집 출처 출연을 함께 D+7 자동 확인 | 2건 모두 `AUTO`, 출연마다 제목이 각자의 출처 제목, 지급 작업 출처 제목도 같음. 제목은 회차 시작에 한 번에 읽고(`titlesByAppearanceIds` 1번), 출연마다 읽는 `titleOf`는 부르지 않음(N+1 방지) |
+| `AppearanceNotificationEventTest` | 호스트가 아닌 회원의 확인 | 예외, 확인 이벤트 없음 |
+| `AppearanceEventExternalizationConfigTest` | shared 출연 이벤트 중 `@Externalized` 전부(19종) | 모두 내보내는 대상이고 `eventType`(레코드 이름)·`eventVersion` 헤더가 붙음. 헤더 등록을 빠뜨리면 실패 |
+| `AppearanceEventExternalizationConfigTest` | 같은 19종의 key 식을 Kafka 없이 평가 | 모두 대상 ID로 끝나고, 알림용 12종은 정한 접두어(`appearance-request:`·`appearance-application:`·`appearance-recruit:`·`appearance:`). 접근자 이름이 틀리면 실패 |
+| `AppearanceEventKafkaTest` | 모집글 올리기 → 조기 마감 (각각 커밋) | key `appearance-recruit:<모집글 ID>`로 정확히 2건(모집 시작·마감 `eventType`), 본문의 `closeType`은 `"EARLY"`, 모집글 값 그대로 |
+| `AppearanceCopyEventListenerTest` (chatbot) | 요청서·모집글·출연 key 접두어의 새 이벤트 3종 뒤 출연 변경 | 세 건은 건너뛰고 출연 변경은 반영, DLT에 그 key 없음 |
+| `AppearanceBatchRulesTest` | 모집글 보류 결과 두 번 반영 | 처음만 true, 다음은 false (모집 시작을 다시 보내지 않음) |
+| `AppearanceConfirmTest`·`AppearanceHostCancelTest`·`HpTaskRepositoryTest` | 지급·위약금 작업 만들기·저장 | 출처 제목을 담고 저장 후 그대로 읽힘 |
+| `AppearanceContractMapperTest` | `toAppearanceDto`·`toRecruitDto` / 마감 방식·확인 방식 / 마감·확인 전 | 값 그대로 / 내부 값과 같은 이름으로 매핑, 모두 쓰임 / `IllegalStateException` |
+
+- 핵심 보장은 운영 코드를 일부러 깨서 위 테스트가 실패하는지 확인했다: 모집 시작 한 번 가드 제거, 마감·모집 취소 때 미선정 누락, 헤더 등록 누락, 지급 작업 제목 저장 누락, 자동 확인 배치의 제목 미리 읽기 누락, 자동 확인 배치가 출연마다 제목 읽기(N+1), key 식의 접근자 이름 오류, 지갑 요청에 제목 싣기 누락.
+- 작업 실행: 확인 흐름(요청서·모집 출처)의 지급 요청과 호스트 일방 취소의 위약금 정산 요청에 작업의 출처 제목이 `sourceTitle`로 실린다.

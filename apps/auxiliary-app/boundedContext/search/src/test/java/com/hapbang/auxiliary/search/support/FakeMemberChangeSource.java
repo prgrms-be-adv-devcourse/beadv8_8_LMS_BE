@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-import com.hapbang.auxiliary.search.influencer.out.MemberChangeSource;
+import com.hapbang.auxiliary.search.out.MemberChangeSource;
 import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.UserDto;
 

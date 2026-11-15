@@ -71,6 +71,8 @@ class AppearanceConfirmFlowTest {
     private static final Long GUEST2 = 3L;
     private static final Long OTHER = 4L;
     private static final long FEE = 30_000L;
+    private static final String REQUEST_TITLE = "주말 게임 합방 출연 요청";
+    private static final String RECRUIT_TITLE = "주말 게임 합방 게스트 모집";
 
     @Autowired
     AppearanceFacade appearanceFacade;
@@ -231,6 +233,7 @@ class AppearanceConfirmFlowTest {
                 assertThat(payout.sourceType()).isEqualTo(SettlementSourceType.APPEARANCE_REQUEST);
                 assertThat(payout.sourceId()).isEqualTo(established.appearanceId());
                 assertThat(payout.amountHp()).isEqualTo(FEE);
+                assertThat(payout.sourceTitle()).isEqualTo(REQUEST_TITLE);
             });
             assertThat(output.getAll().lines().filter(line -> line.contains("출연을 확인했다")))
                     .singleElement().satisfies(line -> assertThat(line)
@@ -255,6 +258,7 @@ class AppearanceConfirmFlowTest {
                 assertThat(payout.sourceType()).isEqualTo(SettlementSourceType.RECRUIT_APPEARANCE);
                 assertThat(payout.sourceId()).isEqualTo(first);
                 assertThat(payout.amountHp()).isEqualTo(FEE);
+                assertThat(payout.sourceTitle()).isEqualTo(RECRUIT_TITLE);
             });
             AppearanceResDto absent = appearanceFacade.markAbsent(HOST, second, null);
 

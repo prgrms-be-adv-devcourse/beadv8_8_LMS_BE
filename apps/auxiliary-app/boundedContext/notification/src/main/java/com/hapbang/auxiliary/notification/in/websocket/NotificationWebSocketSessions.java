@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,8 @@ import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
 import com.hapbang.auxiliary.notification.app.ConditionalOnNotificationRealtime;
 import com.hapbang.auxiliary.notification.app.dto.ConnectionTicket;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -41,13 +44,23 @@ public class NotificationWebSocketSessions implements WebSocketHandlerDecoratorF
     /** 연결 만료로 닫을 때의 종료 코드. FE는 새 티켓으로 다시 연결한다(채팅과 같은 코드) */
     public static final CloseStatus TOKEN_EXPIRED = new CloseStatus(4401, "TOKEN_EXPIRED");
 
+    /** 이 서버에 결합해 열어 둔 연결 수 Gauge */
+    public static final String SESSIONS_METRIC = "hapbang.notification.realtime.sessions";
+
     private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
     private final ThreadPoolTaskScheduler scheduler;
     private final Clock clock;
 
     public NotificationWebSocketSessions(
-            @Value("${hapbang.notification.realtime.websocket.expiry-sweep-interval:30s}") Duration sweepInterval) {
+            @Value("${hapbang.notification.realtime.websocket.expiry-sweep-interval:30s}") Duration sweepInterval,
+            ObjectProvider<MeterRegistry> meterRegistry) {
         this.clock = Clock.systemUTC();
+        // 이 서버에 결합해 열어 둔 연결 수(ND-162)
+        try {
+            meterRegistry.ifAvailable(registry -> Gauge.builder(SESSIONS_METRIC, bindings, Map::size).register(registry));
+        } catch (RuntimeException exception) {
+            log.warn("알림 웹소켓 연결 수 지표를 등록하지 못했다(연결에는 영향 없음)", exception);
+        }
         this.scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("notification-ws-expiry-");

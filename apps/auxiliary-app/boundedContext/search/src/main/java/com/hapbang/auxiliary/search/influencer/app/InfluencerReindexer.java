@@ -14,7 +14,7 @@ import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
-import com.hapbang.auxiliary.search.influencer.out.MemberListSource;
+import com.hapbang.auxiliary.search.out.MemberListSource;
 
 import io.micrometer.core.instrument.MeterRegistry;
 

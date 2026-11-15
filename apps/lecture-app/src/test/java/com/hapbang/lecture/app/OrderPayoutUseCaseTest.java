@@ -124,12 +124,26 @@ class OrderPayoutUseCaseTest {
             assertThat(call.transactionActive()).isFalse();
             assertThat(call.command()).isEqualTo(PayoutCommand.full(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
                     dueItemId, "LECTURE-PAYOUT-" + dueItemId, SELLER_ID, SettlementSourceType.LECTURE_ORDER_ITEM,
-                    dueItemId));
+                    dueItemId, TITLE));
         });
         assertThat(items(due)).singleElement().satisfies(item -> {
             assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
             assertThat(item.getPaidOutAt()).isAfterOrEqualTo(before);
         });
+    }
+
+    @Test
+    void 지급_요청의_출처_제목은_구매_때_저장한_강의_제목이고_강의_제목이_바뀌어도_그대로다() {
+        LectureOrder due = saveConfirmed(now().minusDays(32));
+        orderPayoutUseCase.payOutDueItems();
+        // 지급 작업을 만든 뒤 판매자가 강의 제목을 바꿨다. 작업에는 제목을 저장하지 않는다 (#872, D85 (6))
+        jdbcTemplate.update("update lectures.lecture set title = '바뀐 제목'");
+
+        lectureHpTaskBatchUseCase.runDue();
+
+        assertThat(billing.calls()).singleElement()
+                .extracting(call -> ((PayoutCommand) call.command()).sourceTitle()).isEqualTo(TITLE);
+        assertThat(items(due)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAID_OUT);
     }
 
     @Test

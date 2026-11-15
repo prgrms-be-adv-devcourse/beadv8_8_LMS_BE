@@ -106,10 +106,8 @@ public class CouponExceptionHandler {
      */
     ResponseEntity<ProblemDetail> respond(CouponErrorCode errorCode, String detail, Map<String, Object> properties,
                                           Throwable exception) {
-        String message = detail != null ? detail : errorCode.getMessage();
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(errorCode.getStatus(), message);
-        problemDetail.setProperty("code", errorCode.getCode());
-        properties.forEach(problemDetail::setProperty);
+        ProblemDetail problemDetail = problemDetail(errorCode, detail, properties);
+        String message = problemDetail.getDetail();
         if (errorCode.getStatus().is5xxServerError()) {
             log.error("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message, exception);
         } else if (errorCode == CouponErrorCode.COUPON_SOLD_OUT) {
@@ -118,5 +116,19 @@ public class CouponExceptionHandler {
             log.info("쿠폰 업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), message);
         }
         return ResponseEntity.status(errorCode.getStatus()).body(problemDetail);
+    }
+
+    /**
+     * 오류 코드의 응답 본문. 이 처리기와 매진 빠른 경로 필터({@code in.CouponSoldOutFastPathFilter})가 함께 써서 두 응답이 갈라지지 않게 한다.
+     *
+     * @param detail     응답의 detail. {@code null}이면 오류 코드의 기본 메시지
+     * @param properties 응답에 더할 속성
+     */
+    public static ProblemDetail problemDetail(CouponErrorCode errorCode, String detail, Map<String, Object> properties) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(errorCode.getStatus(),
+                detail != null ? detail : errorCode.getMessage());
+        problemDetail.setProperty("code", errorCode.getCode());
+        properties.forEach(problemDetail::setProperty);
+        return problemDetail;
     }
 }

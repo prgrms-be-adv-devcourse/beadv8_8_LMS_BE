@@ -21,7 +21,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,8 +35,11 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
+import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.HpReconciliationMismatch;
@@ -137,6 +142,9 @@ class AppearanceHpReconciliationTest {
 
     @Autowired
     AppearanceTestClock clock;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     /** 지갑 대역의 기록: (참조 유형, ID) → 조회 결과. 없으면 "기록 없음" */
     private final Map<String, HoldStateDto> wallet = new HashMap<>();
@@ -267,16 +275,16 @@ class AppearanceHpReconciliationTest {
         return at.atZone(AppearanceTime.ZONE).toEpochSecond();
     }
 
-    private HpReconciliationRun runAfterGrace() {
+    private HpReconciliationRunResDto runAfterGrace() {
         changedAt(clock.now().minusHours(3));
         return hpReconciliationUseCase.runScheduled();
     }
 
-    private List<HpReconciliationMismatch> mismatchesOf(HpReconciliationRun run) {
-        return mismatchRepository.findByRunIdOrderByIdAsc(run.getId());
+    private List<HpReconciliationMismatch> mismatchesOf(HpReconciliationRunResDto run) {
+        return mismatchRepository.findByRunIdOrderByIdAsc(run.id());
     }
 
-    private List<HpReconciliationRule> rulesOf(HpReconciliationRun run) {
+    private List<HpReconciliationRule> rulesOf(HpReconciliationRunResDto run) {
         return mismatchesOf(run).stream().map(HpReconciliationMismatch::getRule).toList();
     }
 
@@ -318,18 +326,18 @@ class AppearanceHpReconciliationTest {
                     settlement(SettlementSourceType.APPEARANCE_REQUEST, canceled, PayoutType.PENALTY, 5L, PENALTY));
             walletRequest(toAbsent.id(), hold(BillingHoldStatus.RELEASED, HOST, FEE, 0, FEE, 0), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
-            assertThat(run.getTriggerType()).isEqualTo(HpReconciliationTrigger.SCHEDULED);
-            assertThat(run.getCheckedCount()).isEqualTo(5);
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(run.triggerType()).isEqualTo(HpReconciliationTrigger.SCHEDULED);
+            assertThat(run.checkedCount()).isEqualTo(5);
             assertThat(rulesOf(run)).isEmpty();
-            assertThat(run.getMismatchCount()).isZero();
+            assertThat(run.mismatchCount()).isZero();
             for (HpReconciliationRule rule : HpReconciliationRule.values()) {
                 assertThat(hpReconciliationMetrics.mismatches(rule)).as(rule.name()).isZero();
             }
             assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
-                    .isEqualTo(epochSeconds(run.getFinishedAt()));
+                    .isEqualTo(epochSeconds(run.finishedAt()));
         }
 
         @Test
@@ -349,9 +357,9 @@ class AppearanceHpReconciliationTest {
                     settlement(SettlementSourceType.RECRUIT_APPEARANCE, confirmed, PayoutType.NORMAL, GUEST, FEE),
                     settlement(SettlementSourceType.RECRUIT_APPEARANCE, canceled, PayoutType.PENALTY, GUEST2, PENALTY));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getCheckedCount()).isEqualTo(1);
+            assertThat(run.checkedCount()).isEqualTo(1);
             assertThat(rulesOf(run)).isEmpty();
         }
 
@@ -367,9 +375,9 @@ class AppearanceHpReconciliationTest {
             long total = AppearanceRecruitFixture.TOTAL_FEE;
             walletRecruit(recruitId, hold(BillingHoldStatus.HELD, HOST, total, total, 0, 0));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getCheckedCount()).isEqualTo(1);
+            assertThat(run.checkedCount()).isEqualTo(1);
             assertThat(rulesOf(run)).isEmpty();
         }
 
@@ -386,9 +394,9 @@ class AppearanceHpReconciliationTest {
             walletRequest(ids.get(1), hold(BillingHoldStatus.RELEASED, HOST, FEE, 0, FEE, 0),
                     new HoldStateDto.Voided(HoldVoidOutcome.RELEASED, FEE));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getCheckedCount()).isEqualTo(2);
+            assertThat(run.checkedCount()).isEqualTo(2);
             assertThat(rulesOf(run)).isEmpty();
         }
     }
@@ -404,7 +412,7 @@ class AppearanceHpReconciliationTest {
             appearanceRequestFacade.reject(GUEST, sent.id(), "일정이 맞지 않습니다.");
             walletRequest(sent.id(), hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
             HpReconciliationMismatch mismatch = mismatchesOf(run).getFirst();
@@ -412,7 +420,7 @@ class AppearanceHpReconciliationTest {
             assertThat(mismatch.getReferenceId()).isEqualTo(sent.id());
             assertThat(mismatch.getAppearanceState()).contains("REJECTED", "작업 반환 30000");
             assertThat(mismatch.getWalletState()).contains("보류 HELD", "남은 30000");
-            assertThat(run.getMismatchCount()).isEqualTo(1);
+            assertThat(run.mismatchCount()).isEqualTo(1);
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(1);
             assertThat(output).contains(HpReconciliationUseCase.MISMATCH_LOG_TAG + " rule=HOLD_BALANCE_MISMATCH");
         }
@@ -426,7 +434,7 @@ class AppearanceHpReconciliationTest {
             appearanceFacade.confirm(HOST, appearanceId);
             walletRequest(sent.id(), hold(BillingHoldStatus.PAID, HOST, FEE, 0, 0, FEE), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.SETTLEMENT_MISSING);
             assertThat(mismatchesOf(run).getFirst().getAppearanceId()).isEqualTo(appearanceId);
@@ -440,7 +448,7 @@ class AppearanceHpReconciliationTest {
             appearanceFacade.hostCancel(HOST, appearanceId, false, null);
             walletRequest(sent.id(), hold(BillingHoldStatus.MIXED, HOST, FEE, 0, FEE - PENALTY, PENALTY), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.SETTLEMENT_MISSING);
             assertThat(mismatchesOf(run).getFirst().getAppearanceState()).contains("PENALTY");
@@ -455,7 +463,7 @@ class AppearanceHpReconciliationTest {
             long total = AppearanceRecruitFixture.TOTAL_FEE;
             walletRecruit(recruitId, hold(BillingHoldStatus.HELD, HOST, total, total - FEE, FEE, 0));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             // 출연 쪽 반환 작업은 빈자리 2명분(60,000)이다
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
@@ -471,7 +479,7 @@ class AppearanceHpReconciliationTest {
             long total = AppearanceRecruitFixture.TOTAL_FEE;
             walletRecruit(recruitId, hold(BillingHoldStatus.PARTIALLY_PROCESSED, HOST, total, FEE, total - FEE, 0));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HP_TASK_MISMATCH,
                     HpReconciliationRule.HOLD_BALANCE_MISMATCH);
@@ -485,7 +493,7 @@ class AppearanceHpReconciliationTest {
             walletRequest(sent.id(), hold(BillingHoldStatus.RELEASED, HOST, FEE, 0, FEE, 0),
                     new HoldStateDto.Voided(HoldVoidOutcome.RELEASED, FEE));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.VOIDED_WHILE_ACTIVE,
                     HpReconciliationRule.HOLD_BALANCE_MISMATCH);
@@ -498,7 +506,7 @@ class AppearanceHpReconciliationTest {
                     hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null, List.of());
             listed.put(BillingReferenceType.APPEARANCE_REQUEST, List.of(orphan));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.WALLET_ONLY_HOLD);
             HpReconciliationMismatch mismatch = mismatchesOf(run).getFirst();
@@ -515,7 +523,7 @@ class AppearanceHpReconciliationTest {
             AppearanceRequestResDto different = sendRequest(GUEST2);
             walletRequest(different.id(), hold(BillingHoldStatus.HELD, GUEST, FEE, FEE, 0, 0), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(mismatchesOf(run)).extracting(HpReconciliationMismatch::getReferenceId,
                             HpReconciliationMismatch::getRule)
@@ -535,7 +543,7 @@ class AppearanceHpReconciliationTest {
                     settlement(SettlementSourceType.APPEARANCE_REQUEST, appearanceId, PayoutType.NORMAL, GUEST2, FEE),
                     settlement(SettlementSourceType.APPEARANCE_REQUEST, appearanceId, PayoutType.PENALTY, GUEST, 1));
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.SETTLEMENT_MISMATCH,
                     HpReconciliationRule.SETTLEMENT_UNEXPECTED);
@@ -550,7 +558,7 @@ class AppearanceHpReconciliationTest {
             Long id = jdbcTemplate.queryForObject("select id from appearances.requests", Long.class);
             walletRequest(id, hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HOLD_NOT_CLOSED);
         }
@@ -567,10 +575,10 @@ class AppearanceHpReconciliationTest {
             appearanceRequestFacade.reject(GUEST, sent.id(), "일정이 맞지 않습니다.");
             walletRequest(sent.id(), hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null);
 
-            HpReconciliationRun run = hpReconciliationUseCase.runScheduled();
+            HpReconciliationRunResDto run = hpReconciliationUseCase.runScheduled();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
-            assertThat(run.getCheckedCount()).isZero();
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(run.checkedCount()).isZero();
             assertThat(rulesOf(run)).isEmpty();
             verify(billingClient, never()).queryHolds(any());
         }
@@ -587,9 +595,9 @@ class AppearanceHpReconciliationTest {
             walletAvailableAgain();
             assertThat(hpTaskRepository.findAll()).extracting(HpTask::getStatus).containsExactly(HpTaskStatus.PENDING);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getCheckedCount()).isZero();
+            assertThat(run.checkedCount()).isZero();
             verify(billingClient, never()).queryHolds(any());
         }
 
@@ -601,13 +609,13 @@ class AppearanceHpReconciliationTest {
             changedAt(clock.now().minusDays(7).minusMinutes(1));
             walletRequest(sent.id(), hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null);
 
-            HpReconciliationRun notInRange = hpReconciliationUseCase.runScheduled();
-            assertThat(notInRange.getCheckedCount()).isZero();
+            HpReconciliationRunResDto notInRange = hpReconciliationUseCase.runScheduled();
+            assertThat(notInRange.checkedCount()).isZero();
 
             listed.put(BillingReferenceType.APPEARANCE_REQUEST,
                     List.of(wallet.get(key(BillingReferenceType.APPEARANCE_REQUEST, sent.id()))));
-            HpReconciliationRun fromWallet = hpReconciliationUseCase.runScheduled();
-            assertThat(fromWallet.getCheckedCount()).isEqualTo(1);
+            HpReconciliationRunResDto fromWallet = hpReconciliationUseCase.runScheduled();
+            assertThat(fromWallet.checkedCount()).isEqualTo(1);
             assertThat(rulesOf(fromWallet)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
         }
 
@@ -618,12 +626,12 @@ class AppearanceHpReconciliationTest {
             appearanceRequestFacade.reject(GUEST, sent.id(), "일정이 맞지 않습니다.");
             jdbcTemplate.update("update appearances.hp_tasks set status = 'DEAD'");
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HP_TASK_DEAD);
-            assertThat(run.getCheckedCount()).isEqualTo(1);
-            assertThat(run.getDeadCount()).isEqualTo(1);
-            assertThat(run.getMismatchCount()).isZero();
+            assertThat(run.checkedCount()).isEqualTo(1);
+            assertThat(run.deadCount()).isEqualTo(1);
+            assertThat(run.mismatchCount()).isZero();
             assertThat(mismatchesOf(run).getFirst().getAppearanceState()).contains("DEAD [RELEASE#");
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HP_TASK_DEAD)).isEqualTo(1);
             verify(billingClient, never()).queryHolds(any());
@@ -647,15 +655,15 @@ class AppearanceHpReconciliationTest {
                 return new BillingCallResult.Succeeded<>(List.of(held));
             }).when(billingClient).queryHolds(any());
 
-            HpReconciliationRun changed = runAfterGrace();
+            HpReconciliationRunResDto changed = runAfterGrace();
 
-            assertThat(changed.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
-            assertThat(changed.getCheckedCount()).isZero();
+            assertThat(changed.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(changed.checkedCount()).isZero();
             assertThat(rulesOf(changed)).isEmpty();
 
             stubWallet();
-            HpReconciliationRun next = runAfterGrace();
-            assertThat(next.getCheckedCount()).isEqualTo(1);
+            HpReconciliationRunResDto next = runAfterGrace();
+            assertThat(next.checkedCount()).isEqualTo(1);
             assertThat(rulesOf(next)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
         }
 
@@ -673,9 +681,9 @@ class AppearanceHpReconciliationTest {
                         wallet.get(key(command.referenceType(), command.referenceIds().getFirst()))));
             }).when(billingClient).queryHolds(any());
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getCheckedCount()).isEqualTo(1);
+            assertThat(run.checkedCount()).isEqualTo(1);
             assertThat(rulesOf(run)).isEmpty();
         }
     }
@@ -694,11 +702,11 @@ class AppearanceHpReconciliationTest {
             // 지표는 앱 전체에 하나라 앞 테스트의 값이 남아 있을 수 있다. 바뀌지 않는지만 본다
             long before = hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-            assertThat(run.getFailureReason()).contains("지갑 보류 조회", "결과를 받지 못함");
-            assertThat(run.getFinishedAt()).isNotNull();
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+            assertThat(run.failureReason()).contains("지갑 보류 조회", "결과를 받지 못함");
+            assertThat(run.finishedAt()).isNotNull();
             assertThat(cursorRepository.findAll()).isEmpty();
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_BALANCE_MISMATCH))
                     .isEqualTo(before);
@@ -711,10 +719,10 @@ class AppearanceHpReconciliationTest {
             doReturn(Rejection.WALLET_NOT_FOUND.failed()).when(billingClient)
                     .listHolds(any(), any(), anyLong(), anyInt());
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-            assertThat(run.getFailureReason()).contains("지갑 보류 목록", "WALLET_NOT_FOUND");
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+            assertThat(run.failureReason()).contains("지갑 보류 목록", "WALLET_NOT_FOUND");
         }
 
         @Test
@@ -722,10 +730,10 @@ class AppearanceHpReconciliationTest {
         void circuitOpen() {
             doReturn(true).when(billingClient).isCircuitOpen();
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-            assertThat(run.getFailureReason()).isEqualTo("지갑 회로가 열려 있음");
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+            assertThat(run.failureReason()).isEqualTo("지갑 회로가 열려 있음");
             verify(billingClient, never()).listHolds(any(), any(), anyLong(), anyInt());
             verify(billingClient, never()).queryHolds(any());
         }
@@ -739,11 +747,11 @@ class AppearanceHpReconciliationTest {
             doThrow(BillingCallExceptions.unknownResult("timeout")).when(billingClient)
                     .listHolds(eq(BillingReferenceType.APPEARANCE_RECRUIT), any(), anyLong(), anyInt());
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
-            assertThat(run.getCheckedCount()).isEqualTo(1);
-            assertThat(run.getMismatchCount()).isEqualTo(1);
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.INCOMPLETE);
+            assertThat(run.checkedCount()).isEqualTo(1);
+            assertThat(run.mismatchCount()).isEqualTo(1);
             assertThat(rulesOf(run)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
         }
     }
@@ -762,9 +770,9 @@ class AppearanceHpReconciliationTest {
             doReturn(new BillingCallResult.Succeeded<>(new HoldStatePageDto(List.of(), last, 20L, false)))
                     .when(billingClient).listHolds(BillingReferenceType.APPEARANCE_REQUEST, first, 10L, 500);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
             assertThat(cursorRepository.findById(HpTaskRefType.APPEARANCE_REQUEST)).hasValueSatisfying(cursor -> {
                 assertThat(cursor.getUpdatedAfter()).isEqualTo(LocalDateTime.ofInstant(last, AppearanceTime.ZONE));
                 assertThat(cursor.getAfterId()).isEqualTo(20L);
@@ -796,7 +804,7 @@ class AppearanceHpReconciliationTest {
                                 new HoldStatePageDto(List.of(), Instant.EPOCH, 0, false));
                     }).when(billingClient).listHolds(eq(BillingReferenceType.APPEARANCE_REQUEST), any(), anyLong(),
                     anyInt());
-            CompletableFuture<HpReconciliationRun> first =
+            CompletableFuture<HpReconciliationRunResDto> first =
                     CompletableFuture.supplyAsync(() -> hpReconciliationUseCase.runManual(ADMIN));
             assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
 
@@ -808,10 +816,10 @@ class AppearanceHpReconciliationTest {
                     .containsExactly(HpReconciliationStatus.RUNNING);
 
             release.countDown();
-            HpReconciliationRun finished = first.get(10, TimeUnit.SECONDS);
-            assertThat(finished.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
-            assertThat(finished.getTriggerType()).isEqualTo(HpReconciliationTrigger.MANUAL);
-            assertThat(finished.getTriggeredBy()).isEqualTo(ADMIN);
+            HpReconciliationRunResDto finished = first.get(10, TimeUnit.SECONDS);
+            assertThat(finished.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(finished.triggerType()).isEqualTo(HpReconciliationTrigger.MANUAL);
+            assertThat(finished.triggeredBy()).isEqualTo(ADMIN);
             assertThat(hpReconciliationUseCase.runScheduled()).isNotNull();
         }
 
@@ -821,14 +829,14 @@ class AppearanceHpReconciliationTest {
             runningSince(clock.now().minusHours(1).minusMinutes(1));
             double incompleteBefore = hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE);
 
-            HpReconciliationRun run = runAfterGrace();
+            HpReconciliationRunResDto run = runAfterGrace();
 
             assertThat(runRepository.findAll()).extracting(HpReconciliationRun::getStatus, HpReconciliationRun::getFailureReason)
                     .containsExactlyInAnyOrder(
                             org.assertj.core.groups.Tuple.tuple(HpReconciliationStatus.INCOMPLETE,
                                     HpReconciliationSupport.ABANDONED_REASON),
                             org.assertj.core.groups.Tuple.tuple(HpReconciliationStatus.COMPLETED, null));
-            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(run.status()).isEqualTo(HpReconciliationStatus.COMPLETED);
             assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore + 1);
         }
 
@@ -853,19 +861,99 @@ class AppearanceHpReconciliationTest {
         }
 
         @Test
-        @DisplayName("정리 기준 경계: 기준 시각보다 먼저 시작한 실행만 정리하고, 기준 시각에 시작한 실행은 둔다 (#821)")
+        @DisplayName("정리 기준 경계: 기준 시각보다 먼저 시작한 실행만 정리하고, 기준 시각에 시작한 실행은 두며 그 실행 때문에 시작하지 않는다 (#821)")
         void abandonBoundary() {
-            LocalDateTime startedBefore = clock.now().withNano(0).minusHours(1);
-            Long older = runningSince(startedBefore.minusNanos(1_000));
-            Long atBoundary = runningSince(startedBefore);
+            LocalDateTime now = clock.now().withNano(0);
+            LocalDateTime boundary = now.minusHours(1);
+            Long older = runningSince(boundary.minusNanos(1_000));
+            Long atBoundary = runningSince(boundary);
 
-            List<Long> abandoned = hpReconciliationSupport.abandonRunningStartedBefore(startedBefore, clock.now());
+            HpReconciliationSupport.StartResult startResult =
+                    hpReconciliationSupport.start(HpReconciliationTrigger.SCHEDULED, null, now);
 
-            assertThat(abandoned).containsExactly(older);
+            assertThat(startResult.abandonedIds()).containsExactly(older);
+            assertThat(startResult).isInstanceOfSatisfying(HpReconciliationSupport.StartResult.Blocked.class,
+                    blocked -> assertThat(blocked.runningRuns()).extracting(HpReconciliationRunResDto::id)
+                            .containsExactly(atBoundary));
             assertThat(runRepository.findById(older).orElseThrow().getStatus())
                     .isEqualTo(HpReconciliationStatus.INCOMPLETE);
             assertThat(runRepository.findById(atBoundary).orElseThrow().getStatus())
                     .isEqualTo(HpReconciliationStatus.RUNNING);
+        }
+
+        @Test
+        @DisplayName("두 pod가 같은 순간에 시작하면 늦게 온 배치는 다른 pod가 커밋할 때까지 시작 구간 잠금을 기다린 뒤, 그 실행을 보고 건너뛴다(null). RUNNING 실행은 하나다 (#911)")
+        void concurrentStartSkipsScheduled() throws Exception {
+            OtherPod otherPod = otherPodInStartSection();
+
+            CompletableFuture<HpReconciliationRunResDto> batch =
+                    CompletableFuture.supplyAsync(() -> hpReconciliationUseCase.runScheduled());
+            // 잠그지 않으면 아직 커밋되지 않은 다른 pod의 실행을 보지 못해 바로 함께 시작한다
+            assertThatThrownBy(() -> batch.get(500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+
+            Long otherRunId = otherPod.commit();
+            assertThat(batch.get(10, TimeUnit.SECONDS)).isNull();
+            assertOnlyRunning(otherRunId);
+        }
+
+        @Test
+        @DisplayName("두 pod가 같은 순간에 시작하면 늦게 온 관리자 실행은 잠금을 기다린 뒤 409 HP_RECONCILIATION_RUNNING. RUNNING 실행은 하나다 (#911)")
+        void concurrentStartRejectsManual() throws Exception {
+            OtherPod otherPod = otherPodInStartSection();
+
+            CompletableFuture<HpReconciliationRunResDto> manual =
+                    CompletableFuture.supplyAsync(() -> hpReconciliationUseCase.runManual(ADMIN));
+            assertThatThrownBy(() -> manual.get(500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+
+            Long otherRunId = otherPod.commit();
+            assertThatThrownBy(() -> manual.get(10, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class)
+                    .cause().isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.HP_RECONCILIATION_RUNNING));
+            assertOnlyRunning(otherRunId);
+        }
+
+        /** 다른 pod가 시작 구간을 지나 새 실행을 저장하고, 커밋하기 전에 멈춘 상태(시작 구간 잠금을 쥔 채)를 만든다 */
+        private OtherPod otherPodInStartSection() throws InterruptedException {
+            CountDownLatch inSection = new CountDownLatch(1);
+            CountDownLatch commit = new CountDownLatch(1);
+            TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+            CompletableFuture<Long> runId = CompletableFuture.supplyAsync(() -> transaction.execute(status -> {
+                HpReconciliationSupport.StartResult startResult =
+                        hpReconciliationSupport.start(HpReconciliationTrigger.SCHEDULED, null, clock.now());
+                inSection.countDown();
+                awaitOrFail(commit);
+                return ((HpReconciliationSupport.StartResult.Started) startResult).runId();
+            }));
+            assertThat(inSection.await(10, TimeUnit.SECONDS)).isTrue();
+            return new OtherPod(runId, commit);
+        }
+
+        /** 시작 구간에서 멈춘 다른 pod */
+        private record OtherPod(
+                CompletableFuture<Long> runId,
+                CountDownLatch commitSignal
+        ) {
+
+            /** 커밋하게 하고 그 pod가 시작한 실행 ID를 돌려준다 */
+            Long commit() throws Exception {
+                commitSignal.countDown();
+                return runId.get(10, TimeUnit.SECONDS);
+            }
+        }
+
+        private void assertOnlyRunning(Long runId) {
+            assertThat(runRepository.findAll()).extracting(HpReconciliationRun::getId, HpReconciliationRun::getStatus)
+                    .containsExactly(org.assertj.core.groups.Tuple.tuple(runId, HpReconciliationStatus.RUNNING));
+            verify(billingClient, never()).listHolds(any(), any(), anyLong(), anyInt());
+        }
+
+        private static void awaitOrFail(CountDownLatch latch) {
+            try {
+                assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
         }
 
         /** 다른 pod가 시작해 RUNNING으로 남은 실행을 DB에 바로 넣는다 */

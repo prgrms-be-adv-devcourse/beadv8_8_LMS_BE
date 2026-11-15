@@ -51,6 +51,7 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     private final NotificationTicketHandshakeInterceptor ticketInterceptor;
     private final NotificationWebSocketSessions sessions;
     private final NotificationStompInterceptor stompInterceptor;
+    private final NotificationOutboundLatencyInterceptor outboundLatencyInterceptor;
     private final List<String> allowedOrigins;
     private final Duration sendTimeLimit;
     private final DataSize sendBufferSizeLimit;
@@ -63,6 +64,7 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
 
     public NotificationWebSocketConfig(NotificationTicketHandshakeInterceptor ticketInterceptor,
             NotificationWebSocketSessions sessions, NotificationStompInterceptor stompInterceptor,
+            NotificationOutboundLatencyInterceptor outboundLatencyInterceptor,
             @Value("${hapbang.notification.websocket.allowed-origins:}") String[] allowedOrigins,
             @Value("${hapbang.notification.realtime.websocket.send-time-limit:10s}") Duration sendTimeLimit,
             @Value("${hapbang.notification.realtime.websocket.send-buffer-size-limit:512KB}") DataSize sendBufferSizeLimit,
@@ -77,6 +79,7 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
         this.ticketInterceptor = ticketInterceptor;
         this.sessions = sessions;
         this.stompInterceptor = stompInterceptor;
+        this.outboundLatencyInterceptor = outboundLatencyInterceptor;
         this.allowedOrigins = Arrays.stream(allowedOrigins).map(String::trim).filter(s -> !s.isEmpty()).toList();
         this.sendTimeLimit = sendTimeLimit;
         this.sendBufferSizeLimit = sendBufferSizeLimit;
@@ -128,6 +131,8 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
 
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
+        // 서버 내부 STOMP outbound 처리 지연(ND-162)
+        registration.interceptors(outboundLatencyInterceptor);
         registration.executor(outboundExecutor);
     }
 

@@ -31,7 +31,7 @@ public final class CopyFixtures {
     }
 
     public static LectureSyncDto lecture(long id, long version) {
-        return new LectureSyncDto(id, 900L, "강의" + id, "소개", true, false,
+        return new LectureSyncDto(id, 900L, "강의" + id, "소개", 10_000L, true, false,
                 List.of(new LectureContentSyncDto(2L, "둘째", 2), new LectureContentSyncDto(1L, "첫째", 1)), version);
     }
 

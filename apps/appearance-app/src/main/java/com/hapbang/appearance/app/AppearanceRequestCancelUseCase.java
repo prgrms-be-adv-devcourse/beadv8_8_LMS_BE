@@ -4,12 +4,14 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.shared.appearance.event.AppearanceRequestCanceledEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ public class AppearanceRequestCancelUseCase {
     private final AppearanceRequestSupport appearanceRequestSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceRequestReleaseRecorder appearanceRequestReleaseRecorder;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -44,6 +47,8 @@ public class AppearanceRequestCancelUseCase {
         request.cancel(hostId, now);
         Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
                 HpTaskReason.REQUEST_CANCELED, now);
+        eventPublisher.publishEvent(new AppearanceRequestCanceledEvent(AppearanceContractMapper.toRequestDto(request),
+                now));
         AfterCommit.run(() -> {
             log.info("출연 요청을 취소했다 requestId={}, hostId={}, releaseTaskId={}", requestId, hostId, releaseTaskId);
         });

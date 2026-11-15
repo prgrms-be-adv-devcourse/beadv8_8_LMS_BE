@@ -4,12 +4,14 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.shared.appearance.event.AppearanceRequestRejectedEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +29,7 @@ public class AppearanceRequestRejectUseCase {
     private final AppearanceRequestSupport appearanceRequestSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceRequestReleaseRecorder appearanceRequestReleaseRecorder;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -44,6 +47,8 @@ public class AppearanceRequestRejectUseCase {
         request.reject(guestId, reason, now);
         Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
                 HpTaskReason.REQUEST_REJECTED, now);
+        eventPublisher.publishEvent(new AppearanceRequestRejectedEvent(AppearanceContractMapper.toRequestDto(request),
+                now));
         // 거절 사유는 게스트가 쓴 본문이라 남기지 않는다
         AfterCommit.run(() -> {
             log.info("출연 요청을 거절했다 requestId={}, guestId={}, releaseTaskId={}", requestId, guestId, releaseTaskId);

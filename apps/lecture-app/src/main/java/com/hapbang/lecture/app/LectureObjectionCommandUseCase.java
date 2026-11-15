@@ -31,7 +31,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>같은 명령 ID·같은 내용이 다시 오면 처음 결과를 재현한다. 항목도 이벤트도 다시 만들지 않는다.
  *     같은 명령 ID·다른 내용이면 이력을 바꾸지 않고 {@link LectureObjectionFailureCode#OBJECTION_COMMAND_CONFLICT}로 거절한다.</li>
  *     <li>업무 거절({@code OBJECTION_*})은 예외가 아니라 결과다. 거절도 이력에 남겨 다시 와도 같은 사유를 낸다.
- *     판단·철회의 결과는 강의 이벤트({@code lecture.events.v1})로 고객센터·알림에 알린다({@link LectureObjectionEvents}).</li>
+ *     판단·철회의 결과는 강의 이벤트({@code lecture.events.v1})로 고객센터·알림에 알린다({@link LectureObjectionEvents}).
+ *     접수는 응답으로 돌려주고, 접수했을 때만 알림용 접수 이벤트를 낸다(#872).</li>
  *     <li>낙관적 락 충돌·같은 명령의 동시 처리(명령 ID 유일 제약)·기술 실패는 예외다. 트랜잭션이 롤백되고, 호출한 쪽이
  *     같은 명령을 다시 보내면(HTTP 재시도, Kafka 재시도) 처음부터 다시 처리하거나 먼저 끝난 결과를 재현한다.</li>
  * </ul>
@@ -66,14 +67,21 @@ public class LectureObjectionCommandUseCase {
         this.clock = clock;
     }
 
-    /** 접수 (내부 HTTP). 결과는 응답으로 돌려주고 이벤트는 내지 않는다 */
+    /**
+     * 접수 (내부 HTTP). 결과는 응답으로 돌려준다. 이번에 접수했으면 알림용 접수 이벤트를 낸다(#872, 알림 ND-015).
+     * 거절과 같은 명령의 재현은 이벤트를 내지 않는다
+     */
     @Transactional
     public LectureObjectionCommandResult file(LectureObjectionFileRequest request) {
         String payloadHash = LectureObjectionCommand.fingerprint(LectureObjectionCommandType.FILE, request.inquiryId(),
                 request.orderItemId(), request.buyerUserId(), request.reason());
-        return process(request.commandId(), LectureObjectionCommandType.FILE, request.inquiryId(), request.orderItemId(),
-                payloadHash, () -> orderObjectionFileUseCase.fileObjection(request.orderItemId(), request.buyerUserId(),
-                        request.inquiryId(), request.reason())).result();
+        Processed processed = process(request.commandId(), LectureObjectionCommandType.FILE, request.inquiryId(),
+                request.orderItemId(), payloadHash, () -> orderObjectionFileUseCase.fileObjection(request.orderItemId(),
+                        request.buyerUserId(), request.inquiryId(), request.reason()));
+        if (processed.applied()) {
+            lectureObjectionEvents.filed(processed.item());
+        }
+        return processed.result();
     }
 
     /** 판단 (고객센터 이벤트). 결과를 강의 이벤트로 낸다 */

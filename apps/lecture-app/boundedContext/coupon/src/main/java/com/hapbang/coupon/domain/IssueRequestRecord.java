@@ -13,17 +13,18 @@ import java.util.Objects;
  * {@link #epoch()}는 {@code null}이고, 쓰는 쪽은 issue-control의 epoch로 대신한다. 옛 기록에 표식을 붙여도 epoch 필드를
  * 새로 만들지 않는다(모르는 값을 지어내지 않는다).
  * <ul>
- *     <li>{@code |PUBLISHED}: 접수 직후 Kafka 전송이 ACK를 받았다. DB 완료가 아니다. 재발행 판단은 DB를 기준으로 하고 이 표식은 보지 않는다</li>
+ *     <li>{@code |PUBLISHED}: 전송이 끝난 기록. 복구 재구축이 DB에 결과가 있는 요청에 붙인다. 접수 직후 전송은 ACK를 기다리지 않아 붙이지
+ *     않지만, 그 전에 쓴 기록에는 남아 있을 수 있다. 어떤 판정(재발행·보상·재응답)도 이 표식을 보지 않는다</li>
  *     <li>{@code |COMPENSATED}: 영구 거절의 Redis 보상(재고 복구·회원 기록 제거)을 마쳤다. 같은 요청을 다시 보상하지 않는다</li>
  * </ul>
  * 표식 순서는 정해 두지 않고(읽을 때 어느 순서든 받는다) 같은 표식은 두 번 붙지 않는다. {@link #format()}은 PUBLISHED, COMPENSATED 순서로
- * 쓴다. Lua(issue.lua, mark-published.lua, compensate.lua)도 같은 형식을 읽고 쓴다.
+ * 쓴다. Lua(issue.lua, compensate.lua, recovery-rebuild.lua)도 같은 형식을 읽고 쓴다.
  *
  * @param memberId    접수한 회원 ID
  * @param acceptedAt  최초 접수 시각(밀리초)
  * @param expiresAt   발급 쿠폰의 만료 시각(밀리초). 접수 때 Lua가 정한 값이다
  * @param epoch       접수 epoch. 옛 형식 기록이면 {@code null}
- * @param published   Kafka 전송 성공 표식
+ * @param published   전송 완료 표식
  * @param compensated 영구 거절 보상 완료 표식
  */
 public record IssueRequestRecord(long memberId, Instant acceptedAt, Instant expiresAt, Long epoch,
@@ -128,11 +129,6 @@ public record IssueRequestRecord(long memberId, Instant acceptedAt, Instant expi
             value.append(SEPARATOR).append(COMPENSATED);
         }
         return value.toString();
-    }
-
-    /** Kafka 전송 성공 표식을 붙인 기록. 이미 있으면 그대로다 */
-    public IssueRequestRecord markPublished() {
-        return published ? this : new IssueRequestRecord(memberId, acceptedAt, expiresAt, epoch, true, compensated);
     }
 
     private static long parseUnsigned(String part) {

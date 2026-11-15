@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.appearance.app.dto.HpReconciliationRunResDto;
+import com.hapbang.appearance.config.AppearanceHpReconciliationProperties;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRequest;
@@ -40,6 +42,9 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 서비스 간 HP 대사의 DB 읽기·기록 (#581). 메서드마다 트랜잭션을 연다. 지갑 호출은 이 클래스 밖(트랜잭션 밖)에서 한다.
+ * <p>
+ * 공개 메서드는 엔티티를 돌려주지 않는다. 실행은 트랜잭션 안에서 어긋난 건까지 담은 응답 record({@link HpReconciliationRunResDto})로
+ * 만들어 돌려준다 (#911). 받는 쪽은 트랜잭션 밖이라 엔티티를 고쳐도 저장되지 않고 오류도 나지 않기 때문이다.
  */
 @Service
 @RequiredArgsConstructor
@@ -55,6 +60,7 @@ public class HpReconciliationSupport {
     private final AppearanceRecruitRepository appearanceRecruitRepository;
     private final AppearanceRepository appearanceRepository;
     private final HpTaskRepository hpTaskRepository;
+    private final AppearanceHpReconciliationProperties properties;
 
     /** 지갑 보류 목록 커서. 저장한 적이 없으면 처음부터 ({@link Instant#EPOCH}, 0) */
     record Cursor(Instant updatedAfter, long afterId) {
@@ -63,38 +69,38 @@ public class HpReconciliationSupport {
     }
 
     /**
-     * 앱이 대사 도중 멈춰 실행 중으로 남은 실행을 {@code INCOMPLETE}로 끝낸다. 실행을 시작하기 전에 부른다.
-     * 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있어(maxSurge 1) 실행 중인 실행이 옛 pod가 아직 하고 있는 것일 수 있다.
-     * 그래서 {@code startedBefore} 전에 시작한 것만 끝낸다(#821).
-     *
-     * @return 끝낸 실행 ID
+     * 실행을 시작한다. 다른 실행이 실행 중이면 시작하지 않는다 (#911).
+     * <ol>
+     *     <li>시작 구간 잠금(트랜잭션 advisory lock)을 잡는다. 다른 pod가 이 구간에 있으면 그 트랜잭션이 끝날 때까지 기다린다</li>
+     *     <li>앱이 대사 도중 멈춰 실행 중으로 남은 실행을 {@code INCOMPLETE}로 끝낸다. 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있어
+     *     (maxSurge 1) 실행 중인 실행이 옛 pod가 아직 하고 있는 것일 수 있으므로 {@code abandon-after}보다 오래된 것만 끝낸다(#821)</li>
+     *     <li>그래도 실행 중인 실행이 남아 있으면 다른 pod가 하고 있는 것이다. 시작하지 않는다</li>
+     *     <li>없으면 새 실행을 {@code RUNNING}으로 저장한다</li>
+     * </ol>
+     * 세 단계를 한 트랜잭션에서 잠그고 하므로 두 pod가 같은 순간에 시작해도 {@code RUNNING} 실행은 하나만 생긴다. 기다린 쪽은 잠금을 잡은 뒤
+     * 먼저 시작한 실행을 읽는다(READ COMMITTED는 문장마다 새로 읽는다). 대사 전체는 잠그지 않는다. 지갑 API를 여러 번 부르는 동안
+     * 트랜잭션과 DB 연결을 쥐고 있게 되기 때문이다.
      */
     @Transactional
-    public List<Long> abandonRunningStartedBefore(LocalDateTime startedBefore, LocalDateTime now) {
+    public StartResult start(HpReconciliationTrigger trigger, Long adminId, LocalDateTime now) {
+        runRepository.lockStart();
+        LocalDateTime startedBefore = now.minus(properties.abandonAfter());
         List<Long> abandonedIds = new ArrayList<>();
+        List<HpReconciliationRunResDto> runningRuns = new ArrayList<>();
         for (HpReconciliationRun run : runRepository.findByStatus(HpReconciliationStatus.RUNNING)) {
             if (run.getStartedAt().isBefore(startedBefore)) {
                 run.abandon(ABANDONED_REASON, now);
                 abandonedIds.add(run.getId());
+            } else {
+                // 실행 중인 실행에는 어긋난 건이 아직 없다(끝날 때 남긴다)
+                runningRuns.add(HpReconciliationRunResDto.from(run, List.of()));
             }
         }
-        return abandonedIds;
-    }
-
-    /** 실행 중인 실행. 정리한 뒤에도 남아 있으면 다른 pod가 하고 있는 실행이다 */
-    @Transactional(readOnly = true)
-    public List<HpReconciliationRun> findRunning() {
-        return runRepository.findByStatus(HpReconciliationStatus.RUNNING);
-    }
-
-    /**
-     * 실행을 시작한다.
-     *
-     * @return 새 실행 ID
-     */
-    @Transactional
-    public Long start(HpReconciliationTrigger trigger, Long adminId, LocalDateTime now) {
-        return runRepository.save(HpReconciliationRun.start(trigger, adminId, now)).getId();
+        if (!runningRuns.isEmpty()) {
+            return new StartResult.Blocked(abandonedIds, runningRuns);
+        }
+        Long runId = runRepository.save(HpReconciliationRun.start(trigger, adminId, now)).getId();
+        return new StartResult.Started(runId, abandonedIds);
     }
 
     @Transactional(readOnly = true)
@@ -155,19 +161,21 @@ public class HpReconciliationSupport {
      * @param cursors       끝까지 읽은 지갑 보류 목록 커서 (완료일 때만 저장)
      */
     @Transactional
-    public HpReconciliationRun finish(Long runId, List<Mismatch> mismatches, int checkedCount, int deadCount,
-                                      String failureReason, Map<HpTaskRefType, Cursor> cursors, LocalDateTime now) {
-        HpReconciliationRun run = runRepository.findById(runId)
-                .orElseThrow(() -> new IllegalStateException("대사 실행이 없습니다: " + runId));
+    public HpReconciliationRunResDto finish(Long runId, List<Mismatch> mismatches, int checkedCount, int deadCount,
+                                            String failureReason, Map<HpTaskRefType, Cursor> cursors,
+                                            LocalDateTime now) {
+        HpReconciliationRun run = findRunOrThrow(runId);
+        List<HpReconciliationMismatch> savedMismatches = new ArrayList<>();
         for (Mismatch mismatch : mismatches) {
             HpReconciliationComparer.Finding finding = mismatch.finding();
-            mismatchRepository.save(new HpReconciliationMismatch(runId, mismatch.refType(), mismatch.refId(),
-                    finding.appearanceId(), finding.rule(), finding.appearanceState(), finding.walletState()));
+            savedMismatches.add(mismatchRepository.save(new HpReconciliationMismatch(runId, mismatch.refType(),
+                    mismatch.refId(), finding.appearanceId(), finding.rule(), finding.appearanceState(),
+                    finding.walletState())));
         }
         int mismatchCount = mismatches.size() - deadCount;
         if (failureReason != null) {
             run.incomplete(checkedCount, mismatchCount, deadCount, failureReason, now);
-            return run;
+            return HpReconciliationRunResDto.from(run, savedMismatches);
         }
         run.complete(checkedCount, mismatchCount, deadCount, now);
         cursors.forEach((refType, cursor) -> {
@@ -176,7 +184,7 @@ public class HpReconciliationSupport {
                     saved -> saved.moveTo(updatedAfter, cursor.afterId()),
                     () -> cursorRepository.save(new HpReconciliationCursor(refType, updatedAfter, cursor.afterId())));
         });
-        return run;
+        return HpReconciliationRunResDto.from(run, savedMismatches);
     }
 
     /**
@@ -195,9 +203,10 @@ public class HpReconciliationSupport {
         return true;
     }
 
+    /** 실행과 그 어긋난 건 */
     @Transactional(readOnly = true)
-    public HpReconciliationRun findRun(Long runId) {
-        return findRunOrThrow(runId);
+    public HpReconciliationRunResDto findRun(Long runId) {
+        return withMismatches(findRunOrThrow(runId));
     }
 
     private HpReconciliationRun findRunOrThrow(Long runId) {
@@ -205,14 +214,18 @@ public class HpReconciliationSupport {
                 .orElseThrow(() -> new IllegalStateException("대사 실행이 없습니다: " + runId));
     }
 
+    /** @return 마지막으로 시작한 실행과 그 어긋난 건. 실행 기록이 없으면 null */
     @Transactional(readOnly = true)
-    public HpReconciliationRun findLatestRun() {
-        return runRepository.findFirstByOrderByStartedAtDescIdDesc().orElse(null);
+    public HpReconciliationRunResDto findLatestRun() {
+        Optional<HpReconciliationRun> latest = runRepository.findFirstByOrderByStartedAtDescIdDesc();
+        if (latest.isEmpty()) {
+            return null;
+        }
+        return withMismatches(latest.get());
     }
 
-    @Transactional(readOnly = true)
-    public List<HpReconciliationMismatch> findMismatches(Long runId) {
-        return mismatchRepository.findByRunIdOrderByIdAsc(runId);
+    private HpReconciliationRunResDto withMismatches(HpReconciliationRun run) {
+        return HpReconciliationRunResDto.from(run, mismatchRepository.findByRunIdOrderByIdAsc(run.getId()));
     }
 
     /** 마지막으로 끝까지 비교한({@code COMPLETED}) 실행. 기동할 때 지표를 채우는 데 쓴다 (#821) */
@@ -237,6 +250,26 @@ public class HpReconciliationSupport {
      * @param mismatchRules 어긋난 건마다의 규칙({@code HP_TASK_DEAD} 표시 포함). 같은 규칙이 여러 번 나온다
      */
     record CompletedRun(Long runId, LocalDateTime finishedAt, List<HpReconciliationRule> mismatchRules) {
+    }
+
+    /** 실행 시작 결과 (#911). 어느 쪽이든 앱이 멈춰 남아 있어 이번에 {@code INCOMPLETE}로 끝낸 실행 ID를 담는다 */
+    sealed interface StartResult {
+
+        List<Long> abandonedIds();
+
+        /** 새 실행을 시작했다 */
+        record Started(
+                Long runId,
+                List<Long> abandonedIds
+        ) implements StartResult {
+        }
+
+        /** 다른 실행이 실행 중이라 시작하지 않았다 */
+        record Blocked(
+                List<Long> abandonedIds,
+                List<HpReconciliationRunResDto> runningRuns
+        ) implements StartResult {
+        }
     }
 
     /** 남길 어긋남 하나: 대상 + 비교 결과 */

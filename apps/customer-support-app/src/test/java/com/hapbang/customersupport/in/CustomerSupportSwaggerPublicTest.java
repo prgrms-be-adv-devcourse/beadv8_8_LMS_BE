@@ -103,16 +103,17 @@ class CustomerSupportSwaggerPublicTest {
         }
 
         @Test
-        void 운영_Swagger_목록에_6개_앱_명세가_있고_자기_앱이_기본이다() throws Exception {
+        void 운영_Swagger_목록에_7개_앱_명세가_있고_자기_앱이_기본이다() throws Exception {
             mockMvc.perform(get(API_DOCS + "/swagger-config"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.urls.length()").value(6))
+                    .andExpect(jsonPath("$.urls.length()").value(7))
                     .andExpect(jsonPath("$.urls[?(@.name == '회원')].url").value("/api/v1/members/v3/api-docs"))
                     .andExpect(jsonPath("$.urls[?(@.name == '강의')].url").value("/api/v1/lectures/v3/api-docs"))
                     .andExpect(jsonPath("$.urls[?(@.name == '출연')].url").value("/api/v1/appearances/v3/api-docs"))
                     .andExpect(jsonPath("$.urls[?(@.name == '지갑')].url").value("/api/v1/wallets/v3/api-docs"))
                     .andExpect(jsonPath("$.urls[?(@.name == '채팅')].url").value("/api/v1/chats/v3/api-docs"))
                     .andExpect(jsonPath("$.urls[?(@.name == '고객센터')].url").value("/api/v1/inquiries/v3/api-docs"))
+                    .andExpect(jsonPath("$.urls[?(@.name == '검색·챗봇·알림')].url").value("/api/v1/auxiliary/v3/api-docs"))
                     .andExpect(jsonPath("$['urls.primaryName']").value("고객센터"))
                     // access token을 브라우저 저장소에 남기지 않는다 (swagger-ui 기본값 false)
                     .andExpect(jsonPath("$.persistAuthorization").doesNotExist());

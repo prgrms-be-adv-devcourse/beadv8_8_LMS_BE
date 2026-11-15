@@ -59,7 +59,6 @@ class IssueRequestRecordTest {
 
         assertThat(record.epoch()).isNull();
         assertThat(record.format()).isEqualTo(BASE + "|PUBLISHED");
-        assertThat(record.markPublished().format()).isEqualTo(BASE + "|PUBLISHED");
     }
 
     @ParameterizedTest(name = "{0}")
@@ -79,13 +78,6 @@ class IssueRequestRecordTest {
     }
 
     @Test
-    void 전송_표식을_붙여도_접수_epoch를_지킨다() {
-        IssueRequestRecord marked = IssueRequestRecord.parse(WITH_EPOCH + "|COMPENSATED").markPublished();
-
-        assertThat(marked.format()).isEqualTo(WITH_EPOCH + "|PUBLISHED|COMPENSATED");
-    }
-
-    @Test
     void 이벤트에_실을_epoch는_접수_epoch이고_없으면_대신할_epoch다() {
         assertThat(IssueRequestRecord.parse(WITH_EPOCH).epochOr(9)).isEqualTo(3);
         assertThat(IssueRequestRecord.parse(BASE).epochOr(9)).isEqualTo(9);
@@ -97,16 +89,6 @@ class IssueRequestRecordTest {
                 .isEqualTo(BASE + "|PUBLISHED|COMPENSATED");
         assertThat(IssueRequestRecord.parse(BASE + "|COMPENSATED|PUBLISHED").format())
                 .isEqualTo(BASE + "|PUBLISHED|COMPENSATED");
-    }
-
-    @Test
-    void 전송_표식은_한_번만_붙고_보상_표식을_지키며_이미_있으면_같은_기록이다() {
-        IssueRequestRecord compensated = IssueRequestRecord.parse(BASE + "|COMPENSATED");
-
-        IssueRequestRecord marked = compensated.markPublished();
-
-        assertThat(marked.format()).isEqualTo(BASE + "|PUBLISHED|COMPENSATED");
-        assertThat(marked.markPublished()).isSameAs(marked);
     }
 
     @ParameterizedTest

@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
+import com.hapbang.auxiliary.notification.app.DailyPayout;
 import com.hapbang.auxiliary.notification.app.NotificationMaskingService;
 import com.hapbang.auxiliary.notification.app.NotificationRealtimeRelay;
 import com.hapbang.auxiliary.notification.app.NotificationUserSyncService;
@@ -62,7 +63,8 @@ import io.micrometer.core.instrument.MeterRegistry;
         "hapbang.notification.realtime.publish.failure-backoff=1s"})
 class NotificationRealtimeIntegrationTest {
 
-    private static final AtomicLong NEXT_ID = new AtomicLong(40_000);
+    /** NotificationConcurrencyTest(40_000)와 겹치지 않는 범위(같은 DB를 함께 쓴다) */
+    private static final AtomicLong NEXT_ID = new AtomicLong(45_000);
     private static final Instant T0 = Instant.parse("2026-11-10T00:00:00Z");
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final Duration QUIET = Duration.ofMillis(1500);
@@ -132,6 +134,28 @@ class NotificationRealtimeIntegrationTest {
                 .contains("\"unreadCount\":1");
         writer.save(draft(a, "s-2", 7L, "호스트", T0.plusSeconds(1)));
         assertThat(stomp.nextFrame(WAIT)).contains("\"targetId\":\"s-2\"").contains("\"unreadCount\":2");
+    }
+
+    @Test
+    void 하루_묶음은_만들_때와_갱신할_때마다_갱신된_알림과_안_읽은_수를_보내고_중복은_보내지_않는다() throws Exception {
+        long a = member();
+        RawStomp stomp = connect(a, Role.USER);
+        // KST 2026-11-10 09:00
+        DailyPayout first = new DailyPayout(NEXT_ID.incrementAndGet(), a, 1_000L, T0);
+
+        writer.addDailyPayout(first);
+        assertThat(stomp.nextFrame(WAIT)).contains("\"kind\":\"PAYOUT_COMPLETED_DAILY\"")
+                .contains("\"message\":\"11월 10일 강의 판매 수익 1,000 HP가 지급되었습니다. (1건)\"")
+                .contains("\"unreadCount\":1");
+        jdbcTemplate.update("update notification.notification set read_at = now() where receiver_user_id = ?", a);
+
+        writer.addDailyPayout(new DailyPayout(NEXT_ID.incrementAndGet(), a, 2_000L, T0.plusSeconds(60)));
+        assertThat(stomp.nextFrame(WAIT))
+                .contains("\"message\":\"11월 10일 강의 판매 수익 3,000 HP가 지급되었습니다. (2건)\"")
+                .contains("\"unreadCount\":1");
+
+        writer.addDailyPayout(first);
+        assertThat(stomp.nextFrame(QUIET)).isNull();
     }
 
     @Test

@@ -25,6 +25,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | inspection_requested_at | timestamp | **추가** |
 | inspected_at | timestamp | **추가** |
 | inspected_by | bigint | **추가**, 관리자 회원 ID |
+| inspection_count | integer | **추가** (#872, D85). 기본 1. 검수 회차. 등록이 1회차이고 재검수를 신청할 때마다 1 오른다. 검수 승인·반려 이벤트의 회차 |
 | version | bigint | **추가**. 낙관적 락 (같은 강의를 동시에 바꾸는 요청 직렬화) |
 | deleted_at | timestamp | Soft Delete |
 
@@ -210,6 +211,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 메서드 | 경로 | 권한 | 설명 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/lectures` | 모두(비회원 포함) | `ON_SALE` 목록. 검색어(제목), 정렬(최신·가격·평점), 페이징. 판매자 닉네임·평균 평점·리뷰 수 포함 |
+| GET | `/api/v1/lectures/thumbnails?ids=` | 모두(비회원 포함) | 강의 ID별 썸네일 조회 URL `{강의 ID: URL}`. 강의 검색 결과 카드용. 요청한 ID마다 키(중복은 한 번), `ON_SALE` 강의만 URL이고 없는 강의·판매 중이 아닌 강의·썸네일 없음은 `null`. ids 1~100개(넘으면 400) (D86) |
 | GET | `/api/v1/lectures/{lectureId}` | 회원 | 상세 + 콘텐츠 목록(제목·순서·종류, 파일 URL 없음). 판매자 본인은 비공개·삭제 상태도 조회하고, 수정에 다시 쓸 `thumbnailFileId`·`contents[].fileId`를 받는다(그 밖의 회원은 `null`, D53). 관리자는 8.2의 `/admin/{lectureId}`로 조회한다(D30). 보유 항목이 있는 구매자는 삭제된 강의도 조회한다(D38) |
 | POST | `/api/v1/lectures` | 인증된 인플루언서 | 등록 (메타 + 콘텐츠 목록) → `PENDING_INSPECTION` |
 | PATCH | `/api/v1/lectures/{lectureId}` | 판매자 본인 | 메타 수정 (재검수 없음). 썸네일을 유지하려면 상세의 `thumbnailFileId`를 다시 보낸다(`null`은 삭제, D53) |
@@ -319,7 +321,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 오류 코드는 D47을 따른다.
 
-> 비회원 목록 조회(`GET /api/v1/lectures`)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장).
+> 비회원 목록 조회(`GET /api/v1/lectures`)와 썸네일 일괄 조회(`GET /api/v1/lectures/thumbnails`, D86)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장).
 
 ### 8.6.1 판매 수익 내부 API (D63, #300)
 
@@ -382,7 +384,7 @@ aux-app AI context가 주 1회 처음부터 끝까지 읽어 이벤트 누락을
 
 | 기능 | 비회원 | 유저 | 인플루언서 | 인증된 인플루언서 | 관리자 |
 | --- | --- | --- | --- | --- | --- |
-| 강의 목록 | O | O | O | O | O |
+| 강의 목록, 판매 중 강의의 썸네일 일괄 조회 | O | O | O | O | O |
 | 강의 상세 | X | O | O | O | O |
 | 강의 등록·수정·삭제·재검수 신청 | X | X | X | O (본인) | X |
 | 검수 승인·반려 | X | X | X | X | O |

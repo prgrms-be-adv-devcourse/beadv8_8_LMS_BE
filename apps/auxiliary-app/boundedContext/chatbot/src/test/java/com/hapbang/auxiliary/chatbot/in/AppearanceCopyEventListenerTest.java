@@ -122,6 +122,29 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("알림용 출연 이벤트(#871: 요청서·모집글·출연 key 접두어 각각)는 건너뛰고 DLT로 보내지 않는다")
+    void skipsNotificationEvents() {
+        send("appearance-request:11", "AppearanceRequestAcceptedEvent", """
+                {"request":{"requestId":11,"hostId":10,"guestId":20,"title":"합방","fee":30000,
+                "scheduledAt":"2026-11-20T20:00:00","acceptDeadline":"2026-11-15T20:00:00"},"appearanceId":4,
+                "acceptedAt":"2026-11-10T10:00:00"}""");
+        send("appearance-recruit:12", "AppearanceRecruitOpenedEvent", """
+                {"recruit":{"recruitId":12,"hostId":10,"title":"모집","recruitDeadline":"2026-11-15T20:00:00"},
+                "openedAt":"2026-11-10T10:00:00"}""");
+        send("appearance:4", "AppearanceCanceledByHostEvent", """
+                {"appearance":{"appearanceId":4,"title":"합방","hostId":10,"guestId":20,
+                "scheduledAt":"2026-11-20T20:00:00"},"penaltyAmount":9000,"canceledAt":"2026-11-10T11:00:00"}""");
+        send("appearance:4", "AppearanceChangedEvent", """
+                {"appearance":{"id":4,"hostId":10,"guestId":20,"result":"CANCELED",
+                "scheduledAt":"2026-11-20T20:00:00","version":1}}""");
+
+        // 처리 순서와 DLT를 한 번 읽는 근거는 위 skipsCancelRequestEvents와 같다
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.appearance(4)).containsEntry("result", "CANCELED").containsEntry("version", 1L));
+        assertThat(deadLetterKeys()).doesNotContain("appearance-request:11", "appearance-recruit:12", "appearance:4");
+    }
+
+    @Test
     @DisplayName("필수 값이 빠진 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
     void invalidToDeadLetter() {
         send("appearance:2", "AppearanceChangedEvent", "{\"appearance\":{\"id\":2}}");

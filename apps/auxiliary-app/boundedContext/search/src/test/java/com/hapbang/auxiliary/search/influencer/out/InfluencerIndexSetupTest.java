@@ -45,7 +45,7 @@ class InfluencerIndexSetupTest {
     void notReadyWithoutAlias() throws Exception {
         assertThatThrownBy(setup::ensureReady).isInstanceOf(IndexNotReadyException.class);
 
-        assertThat(synonyms()).hasSize(10).contains("먹방, mukbang");
+        assertThat(synonyms()).hasSize(11).contains("먹방, mukbang");
         assertThat(setup.state().indices()).isEmpty();
 
         setup.switchAlias(List.of(), setup.createIndex());
@@ -63,6 +63,21 @@ class InfluencerIndexSetupTest {
     }
 
     @Test
+    @DisplayName("강의 용어는 사전으로 한 단어를 지키고, 합성어는 사전에 넣지 않아 낱말로 찾힌다. 버튜버·브이튜버는 동의어로 서로 찾힌다(#895)")
+    void lectureTerms() throws Exception {
+        SearchElasticsearch.createIndex(client);
+
+        assertThat(analyze("ko_index", "캡컷으로 쇼츠 편집하기")).containsExactly("캡컷", "쇼츠", "편집");
+        assertThat(analyze("ko_index", "트위치 방송 썸네일")).containsExactly("트위치", "방송", "썸네일");
+        // 트위치를 사전에 넣어도 따로 쓴 "위치"는 그대로다
+        assertThat(analyze("ko_index", "위치 기반 서비스")).contains("위치");
+        // 합성어를 사전에 넣으면 한 토큰이 되어 "편집"으로 찾지 못한다(user-dictionary.txt 머리말)
+        assertThat(analyze("ko_index", "컷편집 강의")).contains("컷", "편집");
+        assertThat(analyze("ko_search", "버튜버")).contains("버튜버", "브이튜버");
+        assertThat(analyze("ko_search", "브이튜버")).contains("버튜버", "브이튜버");
+    }
+
+    @Test
     @DisplayName("ES의 동의어 묶음이 레포 파일과 다르면 묶음 전체를 바꾼다")
     void replacesDifferentSynonyms() throws Exception {
         client.synonyms().putSynonym(p -> p.id(IndexDefinition.SYNONYMS_SET)
@@ -70,7 +85,7 @@ class InfluencerIndexSetupTest {
 
         setup.syncSynonyms();
 
-        assertThat(synonyms()).hasSize(10).doesNotContain("스타, 스타크래프트");
+        assertThat(synonyms()).hasSize(11).doesNotContain("스타, 스타크래프트");
     }
 
     @Test
@@ -83,7 +98,7 @@ class InfluencerIndexSetupTest {
         assertThatThrownBy(this::synonyms).isInstanceOf(co.elastic.clients.elasticsearch._types.ElasticsearchException.class);
 
         setup.resyncSynonyms();
-        assertThat(synonyms()).hasSize(10);
+        assertThat(synonyms()).hasSize(11);
     }
 
     @Test
@@ -100,7 +115,7 @@ class InfluencerIndexSetupTest {
 
         assertThatThrownBy(brokenSetup::resyncSynonyms).isInstanceOf(SynonymsRejectedException.class);
         brokenSetup.ensureReady();
-        assertThat(synonyms()).hasSize(10);
+        assertThat(synonyms()).hasSize(11);
     }
 
     @Test
@@ -178,7 +193,7 @@ class InfluencerIndexSetupTest {
     }
 
     private List<String> synonyms() throws Exception {
-        return client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET)).synonymsSet().stream()
+        return client.synonyms().getSynonym(g -> g.id(IndexDefinition.SYNONYMS_SET).size(10_000)).synonymsSet().stream()
                 .map(SynonymRuleRead::synonyms).toList();
     }
 

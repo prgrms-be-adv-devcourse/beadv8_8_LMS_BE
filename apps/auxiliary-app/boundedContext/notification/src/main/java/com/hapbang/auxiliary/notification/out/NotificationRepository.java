@@ -1,8 +1,10 @@
 package com.hapbang.auxiliary.notification.out;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,13 +18,35 @@ import com.hapbang.auxiliary.notification.domain.Notification;
  * 알림({@code notification.notification}). 행을 지우는 메서드를 두지 않는다(ND-022).
  * <p>
  * 동시성(#801 PR 리뷰): 같은 행을 여러 처리가 쓰므로 엔티티의 행 전체 덮어쓰기에 기대지 않는다. 읽음·전체 읽음·보존 정리는 자기 칸만
- * 바꾸는 조건부 벌크 UPDATE이고, 여러 행을 잠글 때는 언제나 ID 오름차순이다. 파기만 엔티티를 쓰며 행을 먼저 잠근다.
+ * 바꾸는 조건부 벌크 UPDATE이고, 여러 행을 잠글 때는 언제나 ID 오름차순이다. 파기만 엔티티를 쓰며 행을 먼저 잠근다. 하루 묶음 갱신
+ * ({@link #addToBundle})은 여러 칸을 조건 없이 바꾸므로 행을 먼저 잠근다(ND-103).
  */
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
     /** 같은 사건의 알림이 이미 있는지. 삭제된(밀려난) 행도 포함한다(ND-019·ND-022) */
     boolean existsBySourceEventTypeAndSourceTargetIdAndReceiverUserId(String sourceEventType, String sourceTargetId,
             Long receiverUserId);
+
+    /** 받는 사람·날짜의 하루 묶음 ID. 삭제된(밀려난) 묶음도 찾는다(ND-097·ND-103) */
+    @Query("""
+            select n.id from Notification n
+            where n.kind = :kind and n.receiverUserId = :receiverUserId and n.bundleKey = :bundleKey""")
+    Optional<Long> findBundleId(@Param("kind") String kind, @Param("receiverUserId") Long receiverUserId,
+            @Param("bundleKey") String bundleKey);
+
+    /**
+     * 하루 묶음에 지급을 더한다(ND-032·ND-097·ND-101). 값·문구·발생 시각을 바꾸고 다시 안 읽음으로, 밀려났으면 되살린다. 조건 없이
+     * 덮어쓰므로 반드시 {@link #lockInIdOrder}로 그 행을 잠그고 잠근 뒤의 값으로 새 값을 만든 다음 부른다(ND-103). 잠금 동안 읽음·보존
+     * 정리는 기다렸다가 이 결과 위에 조건부로 적용된다. 벌크 UPDATE라 수정 시각을 직접 채운다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Notification n set n.payload = :payload, n.message = :message, n.occurredAt = :occurredAt,
+                n.readAt = null, n.deletedAt = null, n.updatedAt = :updatedAt
+            where n.id = :id""")
+    int addToBundle(@Param("id") Long id, @Param("payload") Map<String, Object> payload,
+            @Param("message") String message, @Param("occurredAt") Instant occurredAt,
+            @Param("updatedAt") LocalDateTime updatedAt);
 
     /** 목록: 삭제되지 않은 최신 20개, 발생 시각 내림차순(ND-021·ND-022) */
     List<Notification> findTop20ByReceiverUserIdAndDeletedAtIsNullOrderByOccurredAtDescIdDesc(Long receiverUserId);

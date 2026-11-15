@@ -67,6 +67,7 @@ public class OrderCouponWorkAdminUseCase {
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final OrderCouponReleaseUseCase orderCouponReleaseUseCase;
     private final LectureSyncEvents lectureSyncEvents;
+    private final LectureOrderEvents lectureOrderEvents;
     private final CouponApiClient couponApiClient;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -77,6 +78,7 @@ public class OrderCouponWorkAdminUseCase {
                                        OrderCouponReleaseRegistration orderCouponReleaseRegistration,
                                        OrderCouponReleaseUseCase orderCouponReleaseUseCase,
                                        LectureSyncEvents lectureSyncEvents,
+                                       LectureOrderEvents lectureOrderEvents,
                                        CouponApiClient couponApiClient,
                                        PlatformTransactionManager transactionManager,
                                        @Qualifier(LectureConfig.CLOCK) Clock clock) {
@@ -86,6 +88,7 @@ public class OrderCouponWorkAdminUseCase {
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.orderCouponReleaseUseCase = orderCouponReleaseUseCase;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.lectureOrderEvents = lectureOrderEvents;
         this.couponApiClient = couponApiClient;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -191,6 +194,7 @@ public class OrderCouponWorkAdminUseCase {
             };
             locked.order().markHoldFailed();
             lectureSyncEvents.purchasesChanged(locked.order().getItems());
+            lectureOrderEvents.holdFailed(locked.order(), now);
             if (recorded == FailOutcome.RESERVED_RELEASING) {
                 orderCouponReleaseRegistration.registerIfReserved(locked.order(), now);
             }

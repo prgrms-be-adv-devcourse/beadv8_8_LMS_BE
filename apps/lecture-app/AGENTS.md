@@ -38,6 +38,12 @@
   - 리뷰 작성은 이의 제기 인정과 같은 주문 행을 먼저 잠근다(`LectureOrderSupport.lockOrderOfBuyerItem`). 잠그지 않으면 인정이 커밋 전 리뷰를 보지 못해 `counted` 재발행이 빠진다. 회원 입력으로 잠그는 경로는 본인 항목인지 먼저 확인하고 잠근다.
 - `OrderItemStatus`나 `LectureReviewRepository.VISIBLE_REVIEWS`를 바꾸면 `toPurchaseResult()`·`countsReview()`와 대조 테스트(`OrderItemStatusTest`, `LectureReviewRepositoryTest`)를 같이 고친다.
 
+## 알림 이벤트 (D85, #872)
+
+- 검수 승인·반려, 결제 완료·결제 실패, 구매 취소, 구매 확정, 이의 제기 접수는 상태를 바꾼 트랜잭션에서 `LectureInspectionEvents`·`LectureOrderEvents`·`LectureObjectionEvents`로 한 번 낸다. 같은 전이를 하는 새 경로를 더하면 거기서도 부른다.
+  - 결제 실패(`markHoldFailed`)는 지금 네 곳(`OrderHoldSettlement`, `OrderCouponReserveUseCase` 두 곳, `OrderCouponWorkAdminUseCase`)에서 `holdFailed`를 부른다. 구매 확정은 직접 확정·재생 동의·자동 확정 배치가 이번에 확정했을 때만 `itemConfirmed`를 부른다.
+- 새 전이는 `LectureNotificationEventTest`에 지점 테스트를 더한다. Kafka key·헤더는 `LectureSyncEventKafkaTest`가 확인한다.
+
 ## 테스트
 
 - 강의 등록 등 파일이 필요한 테스트는 `LectureFixture.uploadedFile(판매자, FileType)`을 `FileResourceRepository`로 저장해 ID를 쓴다 (S3 불필요).

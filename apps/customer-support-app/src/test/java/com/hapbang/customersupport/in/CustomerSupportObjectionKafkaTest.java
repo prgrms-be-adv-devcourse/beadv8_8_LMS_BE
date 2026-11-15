@@ -39,7 +39,9 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
+import com.hapbang.customersupport.app.LectureObjectionResultUseCase;
 import com.hapbang.customersupport.domain.HpReturnStatus;
+import com.hapbang.customersupport.domain.InquiryCategory;
 import com.hapbang.customersupport.domain.ObjectionLinkStatus;
 import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.global.config.CustomerSupportEventExternalizationConfig;
@@ -47,6 +49,7 @@ import com.hapbang.customersupport.global.config.CustomerSupportKafkaConfig;
 import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.customersupport.fixture.LectureObjectionResults;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
+import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
 import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 import com.hapbang.shared.lecture.dto.CartItemSyncDto;
 import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
@@ -72,8 +75,8 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
- * 판단 요청이 {@code customersupport.events.v1}에 key {@code inquiry:<문의 ID>}로 나가고, 강의가 {@code lecture.events.v1}에
- * 보낸 결과·반환 이벤트가 문의에 기록되는지 실제 Kafka로 확인한다 (#279).
+ * 판단 요청과 알림용 답변 도착·접수 불가 이벤트가 {@code customersupport.events.v1}에 key {@code inquiry:<문의 ID>}로 나가고,
+ * 강의가 {@code lecture.events.v1}에 보낸 결과·반환 이벤트가 문의에 기록되는지 실제 Kafka로 확인한다 (#279).
  * 테스트마다 다른 주문 항목·문의를 쓰고 자기 key의 메시지만 본다. 외부화와 리스너를 켠 설정이라 컨텍스트를 따로 띄우고 끝나면 닫는다.
  */
 @IntegrationTest
@@ -108,6 +111,9 @@ class CustomerSupportObjectionKafkaTest {
 
     @Autowired
     private InquiryUseCase inquiryUseCase;
+
+    @Autowired
+    private LectureObjectionResultUseCase lectureObjectionResultUseCase;
 
     @Autowired
     private InquiryRepository inquiryRepository;
@@ -166,6 +172,40 @@ class CustomerSupportObjectionKafkaTest {
                     assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED);
                     assertThat(inquiry.getHpReturnStatus()).isEqualTo(HpReturnStatus.COMPLETED);
                 }));
+        // 판단 안내 답변은 답변 도착 이벤트를 내지 않는다(판단 알림은 강의 결과 이벤트로 간다)
+        awaitExactly("inquiry:" + inquiryId, 1);
+    }
+
+    @Test
+    void 관리자_답변은_답변_도착_이벤트로_고객센터_토픽에_나간다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.SERVICE_COMPLAINT, "환전이 안 돼요", "내용", null)
+                .getId();
+
+        Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "확인했습니다.").getReplies().getLast().getId();
+
+        ConsumerRecord<String, String> record = awaitExactly("inquiry:" + inquiryId, 1).getFirst();
+        assertThat(header(record, CustomerSupportEventExternalizationConfig.EVENT_TYPE))
+                .isEqualTo(CustomerSupportEventExternalizationConfig.INQUIRY_ANSWERED);
+        assertThat(header(record, CustomerSupportEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
+        assertThat(record.value()).contains("\"inquiryId\":" + inquiryId, "\"replyId\":" + replyId,
+                "\"userId\":" + USER_ID, "\"title\":\"환전이 안 돼요\"", "\"category\":\"SERVICE_COMPLAINT\"",
+                "\"answeredAt\":");
+    }
+
+    @Test
+    void 재시도_배치의_접수_불가는_접수_불가_이벤트로_고객센터_토픽에_나간다() {
+        long orderItemId = 807L;
+        Long inquiryId = LectureObjectionFixture.filing(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+
+        lectureObjectionResultUseCase.recordFileRejected(inquiryId, LectureObjectionFailureCode.OBJECTION_PERIOD_EXPIRED,
+                false);
+
+        ConsumerRecord<String, String> record = awaitExactly("inquiry:" + inquiryId, 1).getFirst();
+        assertThat(header(record, CustomerSupportEventExternalizationConfig.EVENT_TYPE))
+                .isEqualTo(CustomerSupportEventExternalizationConfig.FILE_REJECTED);
+        assertThat(header(record, CustomerSupportEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
+        assertThat(record.value()).contains("\"inquiryId\":" + inquiryId, "\"orderItemId\":" + orderItemId,
+                "\"buyerUserId\":" + USER_ID, "\"fileRejectedAt\":");
     }
 
     // trace(#630): 관리자 요청 안에서 보낸 판단 요청은 커밋 뒤 다른 스레드에서 나가도 요청과 같은 trace를 싣고,
@@ -230,7 +270,7 @@ class CustomerSupportObjectionKafkaTest {
         OffsetDateTime at = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
         try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
             // 같은 key로 보내 같은 partition에서 결과보다 먼저 읽히게 한다
-            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, true, false,
+            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, 10_000L, true, false,
                     List.of(new LectureContentSyncDto(21L, "1강", 1)), 1L)));
             send(orderItemId, new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(orderItemId, USER_ID, 11L,
                     LecturePurchaseResult.PENDING, at, at, 2L)));

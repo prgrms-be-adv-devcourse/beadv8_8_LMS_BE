@@ -67,14 +67,14 @@ public class ChatbotFaqFacade {
     @PreAuthorize(ChatbotRoles.MEMBER)
     public FaqAnswer chat(long userId, String message) {
         acquire(userId, Feature.FAQ_CHAT);
-        return chatService.chat(message);
+        return chatService.chat(userId, message);
     }
 
     /** 호출 제한은 스트림을 만들기 전에 센다. 넘으면 SSE를 열지 않고 429다 */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public Flux<FaqStreamEvent> stream(long userId, String message) {
         acquire(userId, Feature.FAQ_STREAM);
-        return chatService.stream(message);
+        return chatService.stream(userId, message);
     }
 
     private void acquire(long userId, Feature feature) {

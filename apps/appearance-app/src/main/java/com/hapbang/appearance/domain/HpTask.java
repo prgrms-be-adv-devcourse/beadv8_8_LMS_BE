@@ -70,6 +70,13 @@ public class HpTask extends BaseEntity {
      */
     private Long payoutAmount;
 
+    /**
+     * 지급 알림에 보일 출처(요청서·모집글) 제목 (#871). 위약금 정산·지급 작업을 만들 때만 기록한다.
+     * 작업을 실행할 때 Billing 지급·위약금 정산 요청의 {@code sourceTitle}로 싣는다(#873 필드).
+     * 반환 작업과 이 값을 기록하기 전에 만든 작업은 null이고, 이때 요청 본문에 제목이 빠진다
+     */
+    private String sourceTitle;
+
     /** 작업 사유 (거절·취소·만료 등). 출연 내부 기록이며 Billing에는 보내지 않는다 */
     @Enumerated(EnumType.STRING)
     private HpTaskReason reason;
@@ -141,10 +148,11 @@ public class HpTask extends BaseEntity {
      * @param guestId       위약금을 받는 게스트
      * @param penaltyAmount 위약금 (1 이상, 기준액 이하)
      * @param appearanceId  출연 ID (Billing 지급 원천 ID)
+     * @param sourceTitle   출처 요청서·모집글 제목 (지급 알림용)
      */
     public static HpTask penalty(HpTaskRefType refType, Long refId, Long hostId, long baseAmount, Long guestId,
-                                 long penaltyAmount, Long appearanceId, HpTaskReason reason, String idempotencyKey,
-                                 LocalDateTime now) {
+                                 long penaltyAmount, Long appearanceId, String sourceTitle, HpTaskReason reason,
+                                 String idempotencyKey, LocalDateTime now) {
         if (penaltyAmount < 1 || penaltyAmount > baseAmount) {
             throw new IllegalArgumentException("위약금은 1 이상, 기준액 이하여야 합니다: penalty=%d, base=%d"
                     .formatted(penaltyAmount, baseAmount));
@@ -153,6 +161,7 @@ public class HpTask extends BaseEntity {
         task.receiverId = guestId;
         task.payoutAmount = penaltyAmount;
         task.appearanceId = appearanceId;
+        task.sourceTitle = sourceTitle;
         return task;
     }
 
@@ -163,9 +172,11 @@ public class HpTask extends BaseEntity {
      * @param amount       지급액 = 이 출연의 출연료
      * @param guestId      받는 게스트
      * @param appearanceId 출연 ID (Billing 지급 원천 ID)
+     * @param sourceTitle  출처 요청서·모집글 제목 (지급 알림용)
      */
     public static HpTask payout(HpTaskRefType refType, Long refId, Long hostId, long amount, Long guestId,
-                                Long appearanceId, HpTaskReason reason, String idempotencyKey, LocalDateTime now) {
+                                Long appearanceId, String sourceTitle, HpTaskReason reason, String idempotencyKey,
+                                LocalDateTime now) {
         if (amount < 1) {
             throw new IllegalArgumentException("지급 금액은 1 이상이어야 합니다: " + amount);
         }
@@ -173,6 +184,7 @@ public class HpTask extends BaseEntity {
         task.receiverId = guestId;
         task.payoutAmount = amount;
         task.appearanceId = appearanceId;
+        task.sourceTitle = sourceTitle;
         return task;
     }
 

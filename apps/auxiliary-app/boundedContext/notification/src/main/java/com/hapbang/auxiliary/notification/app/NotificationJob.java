@@ -9,7 +9,9 @@ import com.hapbang.auxiliary.global.scheduling.JobLockKey;
 public enum NotificationJob implements JobLockKey {
 
     /** 회원 복제본 Backfill: 기동 때 자동 실행과 관리자 재실행(#859, ND-078·ND-079) */
-    USER_BACKFILL(859_001L, "notification-user-backfill");
+    USER_BACKFILL(859_001L, "notification-user-backfill"),
+    /** 예약 배치: 보낼 시각이 지난 예약 발송과 끝난 예약 정리(#928, ND-029·ND-142) */
+    SCHEDULE_DISPATCH(928_001L, "notification-schedule-dispatch");
 
     private final long lockKey;
     private final String tag;

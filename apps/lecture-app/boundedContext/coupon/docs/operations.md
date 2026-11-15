@@ -83,7 +83,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `republish.max-consecutive-failures` | 3 | 한 쿠폰에서 연속 전송 실패가 이 수에 이르면 그 쿠폰의 남은 재발행을 다음 회차로 미룬다 |
 | `max-expiry-days` | 3650 | 만료 N일·고정 만료 상한. DB CHECK와 같으며 늘릴 때는 마이그레이션과 함께 |
 | `lecture-client.*` | 연결 2s·응답 5s, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s·open 30s·half-open 3 | 강의 조회 내부 API 클라이언트 |
-| `publish-ack-timeout` | 1s | 접수 직후 Kafka 전송 ACK 대기. 쿠폰 producer `max.block.ms`로도 씀 |
+| `publish-ack-timeout` | 1s | 쿠폰 producer `max.block.ms`. 접수 직후 전송은 ACK를 기다리지 않아(2026-11-12) 요청 스레드가 전송 때문에 기다리는 것은 전송 준비(메타데이터·버퍼)뿐이다. 이름은 설정 호환으로 유지 |
 | `producer-delivery-timeout` | 5s | 쿠폰 producer `delivery.timeout.ms` |
 | `republish-after` | 30s | 접수 뒤 이 시간이 지나고 DB에 없으면 재발행 대상 |
 | `republish.interval` | 1m | 재발행 배치 주기 |
@@ -219,8 +219,8 @@ Loki 쿼리는 `sum(count_over_time({namespace="hapbang-prod", app="lecture-app"
 
 | # | 항목 | 지금 | 누가·무엇으로 확인 |
 | --- | --- | --- | --- |
-| 1 | **운영 선착순 측정(Q41) 미실시 → 운영 발급 개방 불가** | 미실시 | 사용자 승인 뒤 백엔드가 `issue-race.js`를 운영에서 smoke → 본 측정(Q40 전용 데이터·팀 공지·끝나면 쿠폰 CLOSED), `coupon-issue.md` "운영 측정" 표를 채움 |
-| 2 | Q41 기준 통과(1,000명·재고 100, p95 ≤ 500 ms, 5xx < 1%, 과발급·중복 0, 2분 안 확정) | 로컬만 3회 중 2회 | 1의 결과로 판정 |
+| 1 | 운영 선착순 측정(Q41) | 2026-11-11 실시, 불합격(접수 p95 2.98·2.39·1.45 s, 2·3회차 503 1% 초과, 정합성 통과). 측정 전 개방(2026-11-10 사용자 결정, 재고 100 이하)은 그대로. 앱 개선(2026-11-12, decisions.md) 배포 뒤 같은 방식으로 다시 측정 | 사용자 승인 뒤 백엔드가 `issue-race.js`를 운영에서 smoke → 본 측정(Q40 전용 데이터·팀 공지·끝나면 쿠폰 CLOSED), `coupon-issue.md` "운영 측정" 표를 채움 |
+| 2 | Q41 기준 통과(1,000명·재고 100, p95 ≤ 500 ms, 5xx < 1%, 과발급·중복 0, 2분 안 확정) | 운영 1차(11-11) 불합격. 앱 개선 로컬 시제품(CPU 2개 제한) p95 1,025 → 146 ms, 운영 미확인 | 재측정 결과로 판정 |
 | 3 | Redis 명령 제한 시간 설정(후속 #826) | 반영(#826, 2s·연결 1s, 무응답 시 접수 약 4초 503) | 로컬 e2e(`withRedisPaused`)로 확인. 운영 측정 때 다시 |
 | 4 | 용량 상한(`limits.*`)이 운영 Redis 48 MB 안 | 계산상 안(6.9 MB/5만 건) | 운영 측정의 `MEMORY USAGE`로 다시 |
 | 5 | alert 등록("ERROR 로그 alert 표식"의 critical 표식·지표) | 미등록 | 인프라 담당이 `rules.yaml`에 등록, 오케스트레이터 확인 |

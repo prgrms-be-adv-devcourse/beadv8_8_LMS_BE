@@ -10,6 +10,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
+import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItem;
+import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
 import lombok.extern.slf4j.Slf4j;
@@ -29,15 +32,18 @@ public class OrderAutoConfirmUseCase {
 
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureOrderSupport lectureOrderSupport;
+    private final LectureOrderEvents lectureOrderEvents;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public OrderAutoConfirmUseCase(LectureOrderRepository lectureOrderRepository,
                                    LectureOrderSupport lectureOrderSupport,
+                                   LectureOrderEvents lectureOrderEvents,
                                    PlatformTransactionManager transactionManager,
                                    @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureOrderSupport = lectureOrderSupport;
+        this.lectureOrderEvents = lectureOrderEvents;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -48,8 +54,7 @@ public class OrderAutoConfirmUseCase {
         int failed = 0;
         for (Long itemId : itemIds) {
             try {
-                transaction.executeWithoutResult(status ->
-                        lectureOrderSupport.findOrderByItemId(itemId).autoConfirmItem(itemId, now));
+                transaction.executeWithoutResult(status -> confirm(itemId, now));
             } catch (RuntimeException exception) {
                 failed++;
                 log.warn("자동 구매 확정에 실패해 다음 실행에서 다시 처리한다 orderItemId={}", itemId, exception);
@@ -57,6 +62,20 @@ public class OrderAutoConfirmUseCase {
         }
         if (!itemIds.isEmpty()) {
             log.info("자동 구매 확정 배치를 마쳤다 itemCount={}, failed={}", itemIds.size(), failed);
+        }
+    }
+
+    /**
+     * 항목 하나를 자동 구매 확정한다. 배치가 조회한 뒤 직접 확정·재생 동의·구매 취소가 먼저 되었으면 그대로 두고(D41), 이번에 확정했을 때만
+     * 확정 이벤트를 낸다(#872)
+     */
+    private void confirm(Long itemId, LocalDateTime now) {
+        LectureOrder order = lectureOrderSupport.findOrderByItemId(itemId);
+        boolean purchased = order.getItems().stream()
+                .anyMatch(item -> item.getId().equals(itemId) && item.getStatus() == OrderItemStatus.PURCHASED);
+        OrderItem item = order.autoConfirmItem(itemId, now);
+        if (purchased && item.getStatus() == OrderItemStatus.CONFIRMED) {
+            lectureOrderEvents.itemConfirmed(item);
         }
     }
 }

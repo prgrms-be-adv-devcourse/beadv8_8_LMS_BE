@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 /** 챗봇 LLM 호출 공통 빈(#718 공통 기반, #715 FAQ 설정에서 옮김). 호출 장치는 {@code LlmCallGuard} */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(ChatbotLlmProperties.class)
+@EnableConfigurationProperties({ChatbotLlmProperties.class, ChatbotRecommendLlmProperties.class, ChatbotChatProperties.class})
 public class ChatbotLlmConfig {
 
     /** LLM 회로 빈 이름 */

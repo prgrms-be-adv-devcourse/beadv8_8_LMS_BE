@@ -114,6 +114,7 @@ import com.jayway.jsonpath.JsonPath;
 class LectureCouponOrderE2eTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
+    private static final Long LATE_BUYER_ID = 4L;
     private static final long DISCOUNT = 3_000L;
     private static final String COUPON_ORDER_GROUP = "lecture-app.coupon-order";
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
@@ -341,6 +342,21 @@ class LectureCouponOrderE2eTest {
         assertThat(JsonPath.<List<?>>read(walletTransactions(BUYER_ID), "$.data.content")).isEmpty();
     }
 
+    @Test
+    void 매진된_쿠폰의_발급_접수는_강의_앱_Gateway_헤더로_매진_필터가_본문을_읽기_전에_409로_응답한다() throws Exception {
+        issueSellerCoupon(saveOnSale(), DISCOUNT, 1);
+        long couponId = createdCouponIds.getLast();
+
+        // 정상 경로는 형식이 틀린 요청 ID에 400이다. 409면 매진 필터가 강의 앱이 받는 사용자 헤더를 발급 회원으로 읽었다.
+        // 접수 때 담긴 매진 아님 캐시가 TTL로 지나야 필터가 Redis 매진 표시를 읽는다
+        await().atMost(TIMEOUT).untilAsserted(() -> perform(post("/api/v1/coupons/{couponId}/issue-requests", couponId)
+                .with(GatewayLogin.as(LATE_BUYER_ID, Role.USER))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"issueRequestId\":\"!!\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_SOLD_OUT")));
+    }
+
     private void fundPromotion(long amount) {
         org.springframework.web.client.RestClient.create(billing.directBaseUrl()).post()
                 .uri("/api/v1/settlements/admin/promotion-wallet/fundings")
@@ -414,14 +430,18 @@ class LectureCouponOrderE2eTest {
 
     /** 판매자가 강의 대상 정액 쿠폰을 신청 → 심사 요청 → 관리자 승인(발급 열림) → 구매자가 발급 접수 → 발급 확정까지 기다린다 */
     private long issueSellerCoupon(Lecture lecture, long discountHp) throws Exception {
+        return issueSellerCoupon(lecture, discountHp, 10);
+    }
+
+    private long issueSellerCoupon(Lecture lecture, long discountHp, int quantity) throws Exception {
         Instant now = Instant.now();
         String created = perform(post("/api/v1/coupons/seller").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"name":"판매자 할인","targetType":"LECTURE","lectureId":%d,"discountType":"AMOUNT",
-                         "discountValue":%d,"quantity":10,"issueStartAt":"%s","issueEndAt":"%s",
+                         "discountValue":%d,"quantity":%d,"issueStartAt":"%s","issueEndAt":"%s",
                          "expiryType":"RELATIVE","expiryDays":30,"stackable":false}
-                        """.formatted(lecture.getId(), discountHp, now.minus(Duration.ofHours(1)),
+                        """.formatted(lecture.getId(), discountHp, quantity, now.minus(Duration.ofHours(1)),
                         now.plus(Duration.ofDays(7)))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

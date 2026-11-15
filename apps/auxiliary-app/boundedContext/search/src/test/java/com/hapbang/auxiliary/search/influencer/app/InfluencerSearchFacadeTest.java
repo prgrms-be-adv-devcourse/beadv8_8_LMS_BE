@@ -18,7 +18,6 @@ import org.springframework.data.domain.PageRequest;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
-import com.hapbang.auxiliary.search.common.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,7 +29,7 @@ class InfluencerSearchFacadeTest {
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
-    private final ZeroResultKeywords zeroResultKeywords = new ZeroResultKeywords();
+    private final InfluencerZeroResultKeywords zeroResultKeywords = new InfluencerZeroResultKeywords();
 
     private final InfluencerSearchFacade facade = new InfluencerSearchFacade(searcher, mock(RatingBaseline.class),
             new SearchMetrics(registry), zeroResultKeywords);

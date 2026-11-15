@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)** · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림 모듈 테스트를 **실제로 실행한** 기록만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 무엇을 검증해야 하는지(합격 기준)는 [test-spec.md](test-spec.md)의 `NT-*`에 있다.
-> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007, 리뷰 반영 NR-008·NR-009, N2 NR-010~NR-015) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
+> - **현재 상태(2026-11-14)**: 구현 작업 N1~N10(dev `cced81b7`)의 테스트 실행 기록이 NR-001~NR-082에 있다. 로컬 기동·자원 측정은 NR-005·NR-017이다. 각 기록은 그 실행 시점의 사실이며 고쳐 쓰지 않는다(1.1 3번).
 > - **설계 문서의 완료 증거를 실행 기록으로 옮기지 않는다.** [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거와 test-spec 3장의 매핑은 "무엇을 보여야 하는가"이지 실행 결과가 아니다. 증거를 실제로 실행·시연했을 때만 이 문서에 기록을 남긴다.
 
 ## 1. 작성 규칙과 기록 양식
@@ -85,6 +85,892 @@
 ## 3. 실행 기록
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
+
+#### NR-088 · 2026-11-14 · 통과 (N12 #944 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-088 |
+| 실행 날짜 | 2026-11-14 19:51~19:56 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-944` |
+| 커밋 | 미커밋 작업 트리(기준 `c0414dbd`) |
+| 작업 트리 변경 | NR-087 목록 + 연결 수 Gauge 등록 실패 격리, histogram 경계를 바꿀 수 없는 `List`로, `NotificationKafkaErrorHandlerConfig` 필드 위치, 테스트 import 정리, 새 `app.NotificationOutcomeRecorderIntegrationTest` |
+| 대상 기능 | N12 |
+| 관련 NT ID | NT-OBS-01~10, 회귀 전체 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --rerun-tasks -x :chatbot:test -x :search:test` |
+| 실행 환경 | NR-087과 같다 |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행 |
+| 건수 | `:notification` 441(NR-087 + 1), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 새 통합 시험은 집계를 commit 뒤로 걸지 않게 바꾼 뮤테이션에서 "expected 0.0 but was 1.0"으로 실패, 되돌린 뒤 통과. 뮤테이션 표식이 남지 않았음을 grep으로 확인 |
+| 미검증 항목 | NR-087과 같다(전체 check, 늦은 DLT 성공, 운영 수집) |
+| 관련 변경 | #944 |
+
+#### NR-087 · 2026-11-14 · 통과 (N12 #944 계측 보강 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-087 |
+| 실행 날짜 | 2026-11-14 19:37~19:42 (KST). RED·뮤테이션 확인은 그 전 19:2x~19:35 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-944` |
+| 커밋 | 미커밋 작업 트리(기준 `c0414dbd`) |
+| 작업 트리 변경 | 새 코드 `NotificationKafkaMetrics`·`NotificationOutcomeRecorder`·`NotificationOutboundLatencyInterceptor`, 수정 `NotificationKafkaConfig`·`NotificationKafkaErrorHandlerConfig`·`NotificationWriter`·`NotificationRealtimeRelay`·`NotificationRealtimeRedisListener`·`NotificationWebSocketConfig`·`NotificationWebSocketSessions`. 새 테스트 6개 클래스와 기존 테스트 4개(생성자 인자·발행 구간 2건) |
+| 대상 기능 | N12 |
+| 관련 NT ID | NT-OBS-01~10, 회귀 NT-KAF·NT-ERR·NT-IDEM·NT-RT 전부 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --rerun-tasks -x :chatbot:test -x :search:test` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0). OBS-02는 자동 생성을 끈 전용 Kafka 컨테이너(`apache/kafka:4.2.1`) |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행(`--rerun-tasks`) |
+| 건수 | `:notification` 440(기존 408 + 새 32), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | (1) OBS-08 계약 2건은 구현 전 코드에서 통과(계약 고정), 지표 2건은 기대대로 실패. (2) 새 클래스 3개가 없어 테스트 컴파일 실패. (3) 구현 뒤 뮤테이션 4개(`RetryListener` 제거, DLT 지표 listener 제거, 저장 결과 집계 제거, 수신 시각을 일반 Map 헤더로 넘김)로 통합 12건 중 7건이 기대한 이유로 실패. 마지막 뮤테이션은 계약 시험이 FE 프레임에 `notificationReceivedAt` 헤더가 새는 것을 잡았다. 뮤테이션은 되돌리고 표식이 남지 않았음을 grep으로 확인 |
+| 확인한 사실 | 역직렬화 실패도 `RetryListener.failedDelivery`로 온다(OBS-03, 대체 경로 불필요). DLT 발행이 실패하면 커밋 offset이 넘어가지 않고 DLT를 만들면 넘어간다(OBS-02) |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 복구기 대기 포기 뒤 브로커 늦은 성공(ND-159 한계) 재현 안 함. 운영 Prometheus 수집(배포 뒤) |
+| 관련 변경 | #944 |
+
+#### NR-086 · 2026-11-14 · 통과 (N11 #937 S6 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-086 |
+| 실행 날짜 | 2026-11-14 13:33~13:36 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | NR-085 목록 + `ScheduleDispatcherTest` import 묶음, `rules.yaml` 새 series 갈래 주석 |
+| 대상 기능 | N11 |
+| 관련 NT ID | NT-SCH-01~24 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, promtool `check rules`(NR-085와 같은 방법) |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure` 새로 실행. `:auxiliary-app:test`는 UP-TO-DATE(입력이 NR-085 뒤로 바뀌지 않음, 새 실행 아님). promtool `SUCCESS: 1 rules found` |
+| 건수 | `:notification` 408(새 실행), `:auxiliary-app` 13(NR-085 결과). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. Grafana 적용·실제 통보는 운영 적용 전 |
+| 관련 변경 | #937 |
+
+#### NR-085 · 2026-11-14 · 통과 (N11 #937 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-085 |
+| 실행 날짜 | 2026-11-14 13:26~13:30 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | NR-084 목록 + `app/ScheduleDispatcher.java`(record_failed 표식 ERROR, `Locale` import), `in/NotificationScheduleBatch.java`(잠금 시도 실패 ERROR), 시험 `ScheduleDispatcherTest`(같은 알림 sent, record_failed ERROR 확인)·`ScheduleDispatcherMetricsTest`(고른 뒤 끝난 예약 미집계)·새 `in/NotificationScheduleBatchTest`(로그 레벨 2건), 문서 |
+| 대상 기능 | N11 지표·로그 레벨(ND-150 S6 리뷰 반영) |
+| 관련 NT ID | NT-SCH-01~24 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`. NT-SCH-24: `docker run --rm --entrypoint promtool prom/prometheus:v2.53.0 check rules`(rules.yaml에서 새 규칙의 식을 뽑아 Prometheus 규칙 파일로 감쌈), YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0, 세 태스크 새로 실행). promtool `SUCCESS: 1 rules found`. 괄호를 뺀 식은 `parse error`로 실패해 검사가 문법 오류를 잡는 것을 확인 |
+| 건수 | `:notification` 408, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음. 반영 중 red: 로그 레벨 시험 2건이 WARN이라 실패(의도한 red), "이미 끝난 예약 미집계" 통합 시험이 뮤테이션(NOT_SCHEDULED→sent)을 잡지 못해 단위 시험으로 바꾼 뒤 뮤테이션 red 확인·복원 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. Grafana 적용·실제 통보는 운영 적용 전이라 미실행 |
+| 관련 변경 | #937 |
+
+#### NR-084 · 2026-11-14 · 통과 (N11 #937 예약 알림 지표 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-084 |
+| 실행 날짜 | 2026-11-14 13:06~13:16 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`) |
+| 작업 트리 변경 | `app/ScheduleDispatcher.java`(지표 두 개, 회차 결과, `recordFailure` 결과 반환), 시험 `app/ScheduleDispatcherTest.java`(지표 3건 추가)·`app/ScheduleDispatcherMetricsTest.java`(새 단위 5건), `k8s/platform/base/alerting/rules.yaml`, `docs/architecture/infrastructure/observability.md`, 알림 문서(decisions·test-spec·module·PROGRESS·이 문서) |
+| 대상 기능 | N11 예약 알림 지표(ND-150)와 alert 규칙(ND-151) |
+| 관련 NT ID | NT-SCH-01~23 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). 세 태스크 모두 새로 실행(결과 XML이 모두 이번 실행) |
+| 건수 | `:notification` 404, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. NT-SCH-24는 정적 확인만(YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}`). PromQL 문법·Grafana 적용·실제 통보는 미실행(promtool 없음, 운영 적용 전) |
+| 관련 변경 | #937 |
+
+#### NR-083 · 2026-11-14 · 실패 (N11 #937 의도한 red)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-083 |
+| 실행 날짜 | 2026-11-14 12:5x~13:0x (KST, 분 단위 미기록) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-937` |
+| 커밋 | 미커밋 작업 트리(기준 `011647be`). 지표 구현 전 |
+| 작업 트리 변경 | `app/ScheduleDispatcherTest.java`에 지표 시험 3건만 더함 |
+| 대상 기능 | N11 예약 결과 지표(ND-150) |
+| 관련 NT ID | NT-SCH-22 |
+| 명령 | `./gradlew :notification:test --tests "*ScheduleDispatcherTest.보낸_예약과*" --tests "*ScheduleDispatcherTest.계속_실패하는*" --tests "*ScheduleDispatcherTest.실패_횟수_기록마저*"` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 실패(의도한 red). 3건 모두 `AssertionFailedError`(카운터 증가 기대 1·2·1, 실제 0). 이어서 `ScheduleDispatcherMetricsTest`는 `:notification:compileTestJava`에서 생성자 인자(`ObjectProvider<MeterRegistry>`) 없음으로 컴파일 실패(의도한 red) |
+| 건수 | 3건 실행, 실패 3 |
+| 실패 원인 분류 | 기능 없음(의도한 red) |
+| 수정 내용 | NR-084 |
+| 재실행 결과 | NR-084 통과 |
+| 미검증 항목 | — |
+| 관련 변경 | #937 |
+
+#### NR-082 · 2026-11-13 · 통과 (N10 #928 PR #929 Bot 리뷰 반영 뒤 S6 재리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-082 |
+| 실행 날짜 | 2026-11-13 11:17~11:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `66f0af45`) |
+| 작업 트리 변경 | NR-081 목록 + `notification/PROGRESS.md`, `docs/notification/regression-log.md`, `domain/ScheduleTimes.java`(대체 기한 인자 이름), Flyway `V202611131000__create_notification_schedule.sql`(부분 인덱스 `ix_notification_schedule_expiring`, 아직 병합 전 파일). S6 재리뷰 반영: `JdbcScheduleStore.skipExpired` 바깥 `status='SCHEDULED'` 조건과 항목별 트랜잭션 규칙의 예외 근거, 시험 주석(공유 DB 시각 창, 시계 호출 순서), `module.md` |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~21, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 396, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928, PR #929 |
+
+#### NR-081 · 2026-11-13 · 통과 (N10 예약 알림 #928 PR #929 Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-081 |
+| 실행 날짜 | 2026-11-13 11:09~11:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `66f0af45`) |
+| 작업 트리 변경 | 수정: `notification/AGENTS.md`, `app/ScheduleDispatcher.java`, `app/ScheduleInputs.java`, `app/ScheduleStore.java`, `in/NotificationScheduleBatch.java`, `in/event/NotificationLectureEventListener.java`, `out/JdbcScheduleStore.java`(이상 `apps/auxiliary-app/boundedContext/notification/src/main/java/com/hapbang/auxiliary/notification/` 아래), 시험 `app/ScheduleDispatcherTest.java`·`app/ScheduleInputsTest.java`·`in/event/NotificationScheduleInputTest.java`, 문서 `docs/notification/{decisions,event-contracts,module,notification-catalog,test-spec}.md`. 새 파일: 시험 `app/ScheduleDispatcherSelectionTest.java`. 내용: 이의 제기 접수가 구매 취소 마감 임박 취소(ND-149), 기한 지난 예약 먼저 건너뜀·기한 남은 예약만 선택, 잠근 뒤 시각으로 판정·발생 시각(`runOnce(Clock)`), `runOnce` 선택 시험, NT-SCH-17 선행 조건 |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~21, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 396, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928, PR #929 |
+| 정정(NR-078~NR-080, 1.1-7) | 세 기록은 미커밋 작업 트리에서 실행했는데 파일 목록을 적지 않았다. 세 실행의 코드·시험은 커밋 `55990379`의 24개 파일과 같다(NR-078은 그중 ND-145·ND-146 반영 전, NR-079는 S6 리뷰 반영 전 상태). 문서는 `66f0af45`의 11개 파일이 실행 중에 함께 바뀌었다. 지난 기록은 고치지 않는다(1.1-3) |
+
+#### NR-080 · 2026-11-13 · 통과 (N10 예약 알림 #928 S6 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-080 |
+| 실행 날짜 | 2026-11-13 10:33~10:37 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | S6 리뷰 반영: 실패 횟수(`failure_count`, `REQUIRES_NEW`로 분리 기록, 3번 연속이면 건너뜀 + ERROR, ND-147), 예약 알림 발생 시각 = 보낸 시각(ND-148), 배치 실패 WARN, `NotificationJobTest`(락 번호), KST 상수 중복 제거, 배치가 먼저 잠근 경우의 동시성 시험 |
+| 대상 기능 | N10 전체 |
+| 관련 NT ID | NT-SCH-01~19, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 새로 실행 |
+| 건수 | `:notification` 390, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동(NT-SCH-10)은 같은 경로의 통합 시험만 |
+| 관련 변경 | #928 |
+
+#### NR-079 · 2026-11-13 · 통과 (N10 예약 알림 #928)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-079 |
+| 실행 날짜 | 2026-11-13 10:04~10:14 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | NR-078의 회귀 수정: 예약 생성에 알림 시작 시각(ND-145), 예약 받는 사람 복제본 없음은 DLT·모두 수신 제외면 DLT 없음(ND-146). `ScheduleCommand.Create`에 사건 시각. `NotificationAppearanceProgressAlertTest`의 "받을 수 없는 호스트 + 게스트 복제본 없음" 기대를 DLT로 바꾸고, "호스트·게스트 모두 받을 수 없음" 시험을 더했다 |
+| 대상 기능 | N10 예약 배치와 예약 알림 5종 전체 |
+| 관련 NT ID | NT-SCH-01~18, NT-GEN-12, NT-USR-03 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Docker Desktop 29.8.0, Testcontainers) |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`·`:auxiliary-app:check` 모두 새로 실행(UP-TO-DATE 아님) |
+| 건수 | `:notification` 386, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 실제 EC2 중지·기동 뒤 밀린 예약 발송(NT-SCH-10)은 같은 처리 경로의 통합 시험만 했다 |
+| 관련 변경 | #928 |
+
+#### NR-078 · 2026-11-13 · 실패 (N10 예약 알림 #928 첫 3명령)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-078 |
+| 실행 날짜 | 2026-11-13 09:58~10:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-928` |
+| 커밋 | 미커밋 작업 트리(기준 `c95d732d`) |
+| 작업 트리 변경 | N10 구현(Flyway `V202611131000`, 예약 시각·종류·명령·저장소·서비스·배치·문구, 출연·강의 리스너 연결)과 시험 |
+| 대상 기능 | N10 |
+| 관련 NT ID | NT-SCH-01~16 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 실패. `:notification:test` 383 중 2 실패로 멈춰 `verifyModuleStructure`·`:auxiliary-app:check`는 실행되지 않았다 |
+| 건수 | `:notification` 383, 실패 2 |
+| 실패 원인 분류 | 회귀(구현 결함 아님, 정책 공백). `NotificationAppearanceProgressAlertTest` 2건: 요청 수락에서 게스트 복제본이 없고 호스트가 받을 수 없거나 사건이 알림 시작 시각 전이면 DLT 없이 넘겨야 하는데, 게스트가 방송 임박 예약의 받는 사람이 되어 예약 생성이 `RECEIVER_NOT_REPLICATED`로 실패했다. 탐침(복제본 없으면 넘김)으로 원인을 확인하고 되돌렸다 |
+| 수정 내용 | 알림 담당 결정 ND-145·ND-146대로 고쳤다(NR-079) |
+| 재실행 결과 | NR-079 통과 |
+| 미검증 항목 | — |
+| 관련 변경 | #928 |
+
+#### NR-077 · 2026-11-12 · 통과 (N9 채팅 #921 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-077 |
+| 실행 날짜 | 2026-11-12 19:45~19:48 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 `164f9574`) |
+| 작업 트리 변경 | PR 리뷰 반영: `NotificationChatAlertTest`가 DLT 조회 헬퍼(`MemberEventKafka`, 생성할 때 producer를 만든다)를 조회 뒤 닫는다. 알림 모듈 `AGENTS.md` 현재 상태 줄과 3.2장(채팅 소비자도 Backfill 뒤 시작) |
+| 대상 기능 | NR-076과 같다 |
+| 관련 NT ID | NT-GEN-24, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:check`는 새로 실행, `:auxiliary-app:test`·`:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(NR-076 결과) |
+| 건수 | `:notification` 326(`NotificationChatAlertTest` 8 포함). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 같은 헬퍼를 닫지 않는 기존 시험 클래스(N5~N7)는 이번 범위 밖이라 그대로 |
+| 관련 변경 | #921 |
+
+#### NR-076 · 2026-11-12 · 통과 (N9 채팅 #921 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-076 |
+| 실행 날짜 | 2026-11-12 19:24~19:33 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | `03b29e9a`(origin/dev `384a871b` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 스테이징한 작업 트리) |
+| 작업 트리 변경 | origin/dev(회원 #915 PR #922, 검색 #923, 고객센터 #918 PR #926) 병합. 충돌 17파일은 dev 내용을 두고 채팅 변경을 다시 더해 풀었다(Kafka 설정·Starter·시험 설정은 고객센터 소비자 옆에 채팅 소비자). 채팅 번호를 ND-129~ND-132, NR-074·NR-075로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 회원 3종 + 고객센터 2종 + N9 채팅 3종, 소비자 시작 순서) |
+| 관련 NT ID | NT-GEN-08, NT-GEN-10, NT-GEN-15, NT-GEN-22, NT-GEN-23, NT-GEN-24, NT-KAF-06, NT-KAF-10, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 326, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 329. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #921 |
+
+#### NR-075 · 2026-11-12 · 통과 (N9 채팅 #921 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-075 (처음 NR-071로 적었다. NR-074와 같은 이유로 고쳤다) |
+| 실행 날짜 | 2026-11-12 17:02~17:06 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 origin/dev `84b349c3`) |
+| 작업 트리 변경 | NR-074 + S6 리뷰 반영: `GroupRoomAlerts` 변수 이름(`kickedUserId`), `NotificationChatEventListener` 주석(받는 사람마다 커밋), API 문서 2.2 `CHAT_ROOM` 행 |
+| 대상 기능 | NR-074와 같다 |
+| 관련 NT ID | NR-074와 같다 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(NR-074 결과) |
+| 건수 | `:notification` 303, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. origin/dev 병합 전(병합 뒤 검증은 NR-076) |
+| 관련 변경 | #921 |
+
+#### NR-074 · 2026-11-12 · 통과 (N9 채팅 단체방 3종 #921 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-074 (처음 NR-070으로 적었고, 회원 #915·고객센터 #918이 먼저 병합돼 dev의 다음 번호로 고쳤다) |
+| 실행 날짜 | 2026-11-12 16:39~16:50 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-921` (worktree `beadv8_8_LMS_BE-n9-chat`) |
+| 커밋 | 미커밋 작업 트리(기준 origin/dev `84b349c3`) |
+| 작업 트리 변경 | N9 구현: `GroupRoomAlerts`·`GroupRoomAlertTemplates`·`NotificationChatEventListener` 새로 추가, `NotificationTemplates`·Kafka 설정 4개·`NotificationAlertListenerStarter`·시험 설정 수정, 시험 `GroupRoomAlertsTest`·`NotificationChatAlertTest` 추가, `NotificationAlertListenerStarterTest`에 채팅 컨테이너 추가 |
+| 대상 기능 | 채팅 단체방 초대·강퇴·폐쇄 알림(새 그룹 `auxiliary-app.notification-chat-alert`), Backfill 뒤 시작 |
+| 관련 NT ID | NT-GEN-08, NT-GEN-10, NT-GEN-15, NT-GEN-24, NT-KAF-06, NT-USR-06 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 303(dev 287 + 채팅 16), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 없음. 앞선 RED 확인(구현 전 컴파일 오류, 리스너 처리기가 빈 상태의 Kafka 시험 실패)은 의도한 실패라 기록하지 않는다. RED2 첫 실행은 다른 터미널의 Gradle 데몬 중지로 중간에 끊겼다(F-ENV, 결과 파일 없음) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. origin/dev 병합 전(병합 뒤 검증은 NR-076) |
+| 관련 변경 | #921 |
+#### NR-073 · 2026-11-12 · 통과 (N7 고객센터 #918 PR 리뷰 반영: 테스트 설정의 고객센터 소비자 끄기)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-073 |
+| 실행 날짜 | 2026-11-12 17:35~17:39 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `9be8102b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 시험 설정: `hapbang-module-test.yaml`·`AuxiliaryApplicationTest`에 `hapbang.notification.customersupport-events.enabled=false`(고객센터 시험 클래스·Starter 시험만 켠다). 설명: Starter 게이지·`NotificationAlertService`·`NotificationKafkaConstants` 주석, Starter 시험 주석. 문서: 모듈 AGENTS 4장·6장·55행, decisions ND-128, PROGRESS |
+| 대상 기능 | Kafka가 없는 시험 컨텍스트에서 고객센터 소비자 빈·컨테이너를 만들지 않음 |
+| 관련 NT ID | NT-KAF-10, NT-GEN-23(회귀) |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-070과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-072) |
+| 건수 | 새로 실행: `:notification` 310, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 설정 누락을 직접 잡는 시험은 따로 없다(기존 시험이 모두 통과하는지로 확인) |
+| 관련 변경 | #918 PR 리뷰 |
+
+**메모**: 이번 실행은 3분 36초로 NR-072(15분 45초)보다 짧다. NR-072는 병합 뒤라 모든 모듈 시험을 새로 실행했고 이번에는 알림·앱 시험만 새로 실행했으므로, 시간 차이를 설정 수정의 효과로 보지 않는다.
+
+#### NR-072 · 2026-11-12 · 통과 (N7 고객센터 #918 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-072 |
+| 실행 날짜 | 2026-11-12 17:10~17:26 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `6f070e43`(origin/dev `71e413c6` 병합 커밋)과 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(강의 #910 PR #920, 회원 #915 PR #922, 검색 #919·#923) 병합. 충돌 9파일(`NotificationTemplates`, PROGRESS, 알림 문서 7개)은 dev 내용을 두고 고객센터 변경을 더해 풀었다. 결정·명세 번호는 dev 다음 번호라 그대로, 실행 기록만 NR-065·NR-066 → NR-070·NR-071로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 강의 7종·회원 3종 + 고객센터 2종, 템플릿 등록 합침) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-21, NT-GEN-22, NT-GEN-23, NT-KAF-09, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-070과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test` 모두 새로 실행(`UP-TO-DATE` 없음) |
+| 건수 | `:notification` 310, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 329. 실패 0·오류 0·건너뜀 0(XML 기준) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(사용자 결정, CI에서 확인) |
+| 관련 변경 | #918 |
+
+#### NR-071 · 2026-11-12 · 통과 (N7 고객센터 #918 S6 리뷰 반영: 빈 제목 DLT)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-071 (처음 NR-066으로 적었다가 dev 다음 번호로 고쳤다) |
+| 실행 날짜 | 2026-11-12 16:40~16:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `b38a267f` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-070 뒤: `CustomerSupportAlerts`(필수 값 이름표를 필드 이름으로, `replyId` 이중 검사 제거, 제목은 `isBlank`면 거절하고 정상 제목은 그대로(ND-127)), `NotificationTemplates` 줄 나눔, `NotificationKafkaConfig` 주석. 시험: 단위 2개(빈·공백 제목 거절, 앞뒤 공백 제목 그대로), 통합 DLT 시험에 공백 제목 추가. 문서(ND-127, kafka.md 30행 문구) |
+| 대상 기능 | 고객센터 2종 변환의 필수 값 검사 |
+| 관련 NT ID | NT-GEN-23, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-070과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-070) |
+| 건수 | 새로 실행: `:notification` 278(새 시험 2), `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다) |
+| 관련 변경 | #918 S6 리뷰 |
+
+**메모**: 시험을 먼저 바꾸고 두 시험 클래스만 돌려 단위 `문의_제목이_빈_문자열이나_공백뿐이면_거절한다`·통합 `필수_값이_빠진_고객센터_이벤트는_DLT로_보낸다`가 실패하는 것(RED)을 본 뒤 구현했다. 앞뒤 공백 제목 시험은 지금 동작을 고정하는 시험이라 처음부터 통과했다. 리뷰 반영 전 시작한 검증 실행은 코드를 고치기 전에 멈췄다(결과 없음, 기록하지 않음).
+
+#### NR-070 · 2026-11-12 · 통과 (N7 고객센터 #918 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-070 (처음 NR-065로 적었다가 강의 #910·회원 #915 병합 뒤 dev 다음 번호로 고쳤다, ND-105) |
+| 실행 날짜 | 2026-11-12 16:06~16:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-918` (worktree `beadv8_8_LMS_BE-n7-customersupport`) |
+| 커밋 | `b38a267f` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 운영: 새 `CustomerSupportAlerts`·`CustomerSupportAlertTemplates`·`NotificationCustomerSupportEventListener`, 수정 `NotificationTemplates`·`NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}`·`NotificationAlertListenerStarter`. 시험: 새 `CustomerSupportAlertsTest`(4)·`NotificationCustomerSupportAlertTest`(4), `NotificationAlertListenerStarterTest`에 고객센터 컨테이너 단언. 알림 문서(ND-122~ND-126 반영) |
+| 대상 기능 | 고객센터 2종 알림(문의 답변 도착·이의 제기 접수 불가), 새 소비자 그룹·DLT, Backfill 뒤 시작 |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-23, NT-KAF-10 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle 9.7.1(wrapper), Docker 29.8.0 실행 중, Testcontainers(각 시험 설정대로 PostgreSQL·Kafka 등) |
+| 결과 | 통과(종료 코드 0). `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test`가 모두 새로 실행됐다(`UP-TO-DATE` 없음) |
+| 건수 | `:notification` 276, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0(XML 기준) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다). 운영 Kafka에서 #875 이후 지난 M7 이벤트가 늦은 알림이 되는 것(ND-122)은 배포 뒤에만 확인할 수 있다 |
+| 관련 변경 | #918 |
+
+**메모**: 시험을 먼저 쓰고 컴파일 실패(RED: `CUSTOMERSUPPORT_EVENT_SETTINGS` 등 기호 없음)를 확인했다. 운영 코드 없이 동작으로 실패하는 단계는 건너뛰고 운영 코드를 쓴 뒤, 대신 변이로 시험을 확인했다(새 시험 3클래스만 실행): (1) 답변 도착 처리기가 저장하지 않음 → 통합 답변 시험 1개 실패 (2) Backfill 뒤 시작 목록에서 고객센터 리스너 제거 → Starter 시험 실패 (3) 답변 원본 대상 ID를 문의 ID로 → 단위 3개·통합 1개 실패. 변이는 되돌렸고 원본과 같은지 `cmp`로 확인했다.
+#### NR-069 · 2026-11-12 · 통과 (N7 회원 #915 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-069 |
+| 실행 날짜 | 2026-11-12 16:04~16:15 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | `8ee9f33c`(`4b5bccca` + origin/dev `84b349c3` 병합. 실행은 병합 커밋 직전의 같은 작업 트리) |
+| 작업 트리 변경 | origin/dev(출연 #908 PR #916, 검색 #914, 강의 #910 PR #920) 병합. 충돌 8파일(`NotificationTemplates`와 알림 문서 7개)은 dev 내용을 두고 회원 변경을 더해 풀었다. 겹친 실행 기록 번호만 NR-062~NR-064 → NR-066~NR-068로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 출연·강의·회원 알림이 함께 등록된 `NotificationTemplates`, 검색 #914) |
+| 관련 NT ID | NT-GEN-20·21·22, NT-GEN-10·15, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test` |
+| 건수 | `:notification` 300, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음(R-01의 JobLock 시험도 이번에는 통과) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ Q2 a) |
+| 관련 변경 | #915 |
+
+#### NR-068 · 2026-11-12 · 통과 (N7 회원 3종 #915 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-068 |
+| 실행 날짜 | 2026-11-12 15:24~15:28 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-066에 더해 `MemberReviewAlerts` import 순서(같은 패키지 선례), `NotificationMemberReviewAlertTest`에 같은 회차 채널 반려 재전송을 더했다 |
+| 대상 기능 | N7 회원 3종 알림 |
+| 관련 NT ID | NR-066와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`. `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(결과는 NR-067) |
+| 건수 | `:notification` 256, `:auxiliary-app` 13(새 실행). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
+#### NR-067 · 2026-11-12 · 통과 (N7 회원 3종 #915 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-067 |
+| 실행 날짜 | 2026-11-12 15:11~15:17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-066와 같다(바뀐 것 없음) |
+| 대상 기능 | NR-066에서 실패한 `:auxiliary-global:test` 재실행 |
+| 관련 NT ID | NR-066와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다. 다른 터미널의 출연·강의 worktree 빌드와 같은 시간대 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `verifyModuleStructure`, `:auxiliary-global:test`, `:chatbot:test`, `:search:test`. `:notification:test`·`:auxiliary-app:test`는 `UP-TO-DATE`(결과는 NR-066) |
+| 건수 | `:auxiliary-global` 110, `:chatbot` 245, `:search` 222(새 실행). `:notification` 256, `:auxiliary-app` 13(NR-066). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
+#### NR-066 · 2026-11-12 · 실패 (N7 회원 3종 #915)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-066 |
+| 실행 날짜 | 2026-11-12 15:05~15:09 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-915` |
+| 커밋 | origin/dev `ac27dfeb`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `MemberReviewAlerts`·`MemberReviewTemplates` 추가, `NotificationTemplates` 등록, `NotificationMemberEventListener` 처리기 3개. 시험 `MemberReviewAlertsTest`(7)·`NotificationMemberReviewAlertTest`(6) |
+| 대상 기능 | N7 회원 3종 알림(채널 인증 승인·반려, 승급 반려) |
+| 관련 NT ID | NT-GEN-22, NT-GEN-10·15(회원 3종), NT-GEN-14 (2) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다. 다른 터미널의 출연·강의 worktree 빌드와 같은 시간대 |
+| 결과 | 실패(종료 코드 1). `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`는 새로 실행해 통과. `:auxiliary-global:test` 110건 중 1건 실패로 `:chatbot`·`:search` 시험은 돌지 않음 |
+| 건수 | `:notification` 256, `:auxiliary-app` 13 통과(새 실행). `:auxiliary-global` 110 중 실패 1 |
+| 실패 원인 분류 | F-TEST(추정). `JobLockPostgresIntegrationTest.connectionLost`의 92행 `podB.tryAcquire(FIRST).orElseThrow()`가 `NoSuchElementException`. 시험이 `pg_terminate_backend(pid)`를 종료를 기다리지 않고 부른 뒤 곧바로 같은 advisory lock을 잡으므로, 백엔드 종료가 늦으면 락이 아직 남아 있을 수 있다. 이번 변경은 `:auxiliary-global`을 바꾸지 않았다 |
+| 수정 내용 | 없음. 시험은 auxiliary global(#798) 코드라 이 Issue 범위 밖 |
+| 재실행 결과 | 그 시험 클래스만 3회 단독 실행(`:auxiliary-global:test --tests "*JobLockPostgresIntegrationTest" --rerun-tasks`) 모두 5/5 통과. 전체 재실행은 NR-067 통과 |
+| 미검증 항목 | 추정 원인을 재현으로 확인하지 않았다(4장 R-01). 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #915 |
+
+#### NR-065 · 2026-11-12 · 통과 (N7 강의 #910 origin/dev 병합 뒤, 1차 실패 → 시험 격리 수정 뒤 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-065 |
+| 실행 날짜 | 1차 2026-11-12 15:27~15:31, 2차 15:33~15:44 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree `beadv8_8_LMS_BE-n7-lecture`) |
+| 커밋 | `6d738b9f`(origin/dev `b38a267f` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(지갑 #907 PR #912, 강의 #913, 검색 #914, 출연 #908 PR #916) 병합. 충돌 9파일(`NotificationTemplates`와 알림 문서 8개)은 dev 내용을 두고 강의 변경을 더해 풀었다. 지갑·출연이 먼저 병합돼 강의 결정을 ND-114~ND-117, 실행 기록을 NR-063·NR-064로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 지갑 4종 + 출연 10종 + 강의 7종) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-19, NT-GEN-20, NT-GEN-21, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차 실패(종료 코드 1, `:notification:test` 287개 중 6개 실패). 2차 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | 2차: `:notification` 287(dev 268 + 강의 19), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 290. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | F-TEST(시험 격리). `NotificationLectureProgressAlertTest`와 `NotificationAppearanceProgressAlertTest`가 둘 다 회원 ID를 800_000부터 만들어, 같은 DB에서 `pk_notification_user` 기본 키가 겹쳤다(`Key (id)=(800001) already exists`). 두 클래스만 함께 돌리면 순서에 따라 어느 한쪽 6개가 실패했다 |
+| 수정 내용 | 강의 Kafka 시험의 회원 ID 대역을 2_200_000으로 옮겼다(운영 코드 변경 없음). 두 클래스만 함께 돌려 통과를 확인한 뒤 2차 실행 |
+| 재실행 결과 | 2차 통과 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-064 · 2026-11-12 · 통과 (N7 강의 #910 자체 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-064 |
+| 실행 날짜 | 2026-11-12 14:18~14:22 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-063 + S6 리뷰 반영: `NotificationTemplates` 긴 줄 나눔, `module.md` 변경 이력 문장 |
+| 대상 기능 | NR-063과 같다 |
+| 관련 NT ID | NR-063과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0) |
+| 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13, `verifyModuleStructure`. `:auxiliary-global`·`:chatbot`·`:search`는 UP-TO-DATE(새 실행 아님, NR-063 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-063 · 2026-11-12 · 통과 (N7 강의 #910, M4 7종 소비)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-063 |
+| 실행 날짜 | 2026-11-12 14:02~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-910` (worktree) |
+| 커밋 | origin/dev `26b44b5b` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | `LectureProgressAlerts`·`LectureProgressTemplates` 추가, `NotificationTemplates` 등록, `NotificationLectureEventListener`에 M4 7종(이전 형식 판별 없음). 앞선 TDD 실행: RED 1 단위 시험 컴파일 오류(클래스 없음), RED 2 단위 11 통과·Kafka 6 실패(리스너가 7종을 건너뛰어 0행·DLT 없음), GREEN 새 시험 19와 이의 제기 회귀(`NotificationCancelRequestAndObjectionAlertTest` 14, `LectureObjectionAlertsTest` 6) 통과 |
+| 대상 기능 | N7 강의 알림 7종, ND-114~ND-117 |
+| 관련 NT ID | NT-GEN-21, NT-KAF-09 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 1차는 모든 시험 태스크를 새로 실행했으나 출력 파이프가 도구 시간 제한으로 끊겨, 같은 명령을 다시 돌려 종료 코드 0을 확인했다(2차는 모두 UP-TO-DATE, 새 실행 아님) |
+| 건수 | 1차 새로 실행: `:notification` 250, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #910 |
+
+#### NR-062 · 2026-11-12 · 통과 (N7 출연 #908 Bot 리뷰 반영: 상대 닉네임 읽는 순서 시험)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-062 |
+| 실행 날짜 | 2026-11-12 15:02~15:05 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `7e28fb12` + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 시험만 바꿨다(운영 코드 변경 없음). `NotificationAppearanceProgressAlertTest`·`NotificationCancelRequestAndObjectionAlertTest`에 각 3개: 받을 수 없는 호스트·시작 시각 전이면 상대 복제본이 없어도 DLT 없이 건너뜀, 받을 수 있는데 상대 복제본이 없으면 재시도 뒤 DLT. test-spec 4장 연결 표 |
+| 대상 기능 | `NotificationAlertService.createMentioning`(N7 출연)·`cancelRequested`(N6)의 순서: 시작 시각·받는 사람을 본 뒤 상대 닉네임을 읽는다 |
+| 관련 NT ID | NT-GEN-17, NT-GEN-20 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058과 같다 |
+| 결과 | 통과(종료 코드 0). `:notification:test`는 새로 실행, `:auxiliary-app`·`:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-061) |
+| 건수 | 새로 실행: `:notification` 268(새 시험 6). 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(CI에서 확인) |
+| 관련 변경 | #908 Bot 리뷰 |
+
+**메모**: 실행 전에 변이로 시험을 확인했다. 두 메서드가 상대 닉네임을 먼저 읽도록 잠시 바꾸고 두 시험 클래스를 돌리면 28개 중 4개(건너뜀 경로, 출연 2·N6 2)가 실패했다. 상대 복제본 없음 DLT 시험 2개는 순서와 상관없이 DLT로 가서 통과한다. 변이는 되돌렸고 원본과 diff가 없음을 확인했다.
+
+#### NR-061 · 2026-11-12 · 통과 (N7 출연 #908 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-061 |
+| 실행 날짜 | 2026-11-12 14:35~14:44 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `d8d7d47e`(origin/dev `ac27dfeb` 병합 커밋)와 같은 내용(실행 때는 병합 커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(지갑 #907 PR #912, 강의 #913) 병합. 충돌 8파일(`NotificationTemplates`와 알림 문서 7개)은 지갑 내용을 두고 출연 변경을 더해 풀었다. 지갑이 먼저 병합돼 출연 결정을 ND-110~ND-113, 실행 기록을 NR-058~NR-060으로 고쳤다 |
+| 대상 기능 | 병합 결과 회귀(N7 지갑 4종 + N7 출연 10종), #913 shared `LectureSyncDto` 변경 |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-19, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058과 같다. 실행 전 `./gradlew --status`로 바쁜 데몬이 없음을 확인 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 262(출연 250 + 지갑 시험 12), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(CI에서 확인) |
+| 관련 변경 | #908 |
+
+#### NR-060 · 2026-11-12 · 통과 (N7 출연 #908 자체 리뷰 반영 뒤 재검증)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-060 |
+| 실행 날짜 | 2026-11-12 14:02~14:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
+| 작업 트리 변경 | NR-058 + 자체 리뷰 반영: `NotificationAppearanceEventListener`의 알리지 않는 경우 로그를 DEBUG로 바꾸고 메시지의 `eventType`을 뺐다. `NotificationAppearanceProgressAlertTest`에 조기 마감·호스트 확인의 DLT 없음과 불참 이동 대상 확인을 더했다. module.md N7 행을 줄였다 |
+| 대상 기능 | N7 출연 10종 알림(ND-110~ND-113) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058와 같다. 다른 빌드가 돌지 않는 상태에서 혼자 실행 |
+| 결과 | 통과(종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행, `:auxiliary-global`·`:chatbot`·`:search` 시험은 입력이 바뀌지 않아 `UP-TO-DATE`(새 실행 아님, 마지막 실행은 NR-058) |
+| 건수 | 새로 실행: `:notification` 250, `:auxiliary-app` 13. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | NR-059의 재실행이다 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #908 |
+
+#### NR-059 · 2026-11-12 · 실패 (N7 출연 #908 자체 리뷰 반영 뒤 재검증, 빌드 겹침)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-059 |
+| 실행 날짜 | 2026-11-12 13:5x~14:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리(NR-060과 같다) |
+| 작업 트리 변경 | NR-060과 같다 |
+| 대상 기능 | N7 출연 10종 알림 |
+| 관련 NT ID | NR-060과 같다 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-058와 같다. 바로 전에 같은 명령을 셸에서 중단했는데 Gradle 데몬이 그 빌드를 계속 돌리고 있었다(로그 첫 줄 "3 busy Daemons could not be reused") |
+| 결과 | 실패(종료 코드 1). `:notification:test FAILED` — `NoSuchFileException: .../notification/build/test-results/test/binary/in-progress-results-generic.bin` |
+| 건수 | 결과 XML이 새로 쓰이지 않았다(실패한 시험 보고 없음) |
+| 실패 원인 분류 | F-ENV(같은 worktree에서 두 빌드가 같은 시험 결과 폴더를 함께 썼다) |
+| 수정 내용 | 없음(코드 결함 아님) |
+| 재실행 결과 | 겹친 빌드가 끝난 뒤 같은 명령을 혼자 다시 돌려 통과(NR-060) |
+| 미검증 항목 | — |
+| 관련 변경 | #908 |
+
+**메모**: 로그의 `java.net.ConnectException` 스택은 통과한 NR-058 로그에도 있던 잡음이라 실패 원인이 아니다. 시험 실행을 셸에서 중단하면 데몬이 빌드를 이어 갈 수 있으니, 다시 돌리기 전에 `./gradlew --status`로 바쁜 데몬이 없는지 본다.
+
+#### NR-058 · 2026-11-12 · 통과 (N7 출연 10종 #908 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-058 |
+| 실행 날짜 | 2026-11-12 12:41~12:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-908` (worktree `beadv8_8_LMS_BE-n7-appearance`) |
+| 커밋 | `26b44b5b`(origin/dev) + 커밋 전 작업 트리 |
+| 작업 트리 변경 | 새 파일 `app/AppearanceProgressAlerts.java`, `app/AppearanceProgressTemplates.java`, 시험 `app/AppearanceProgressAlertsTest.java`, `in/event/NotificationAppearanceProgressAlertTest.java`. 수정 `app/NotificationAlertService.java`, `app/NotificationTemplates.java`, `in/event/NotificationAppearanceEventListener.java`. 문서 decisions·catalog·test-spec·module·event-contracts·api 2.2·PROGRESS |
+| 대상 기능 | N7 출연 10종 알림(ND-110~ND-113) |
+| 관련 NT ID | NT-GEN-10, NT-GEN-15, NT-GEN-20, NT-KAF-09 |
+| 명령 | `./gradlew -p <worktree> :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다(Windows 10, JDK 25, Gradle 9.7.1, Docker, Testcontainers postgres·kafka·redis) |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 250(새 시험 19: `AppearanceProgressAlertsTest` 11, `NotificationAppearanceProgressAlertTest` 8), `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 222. 실패 0·오류 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 예약 입력(N10)은 범위 밖 |
+| 관련 변경 | #908 |
+
+**메모**: TDD red는 같은 날 단독 실행으로 확인했다(`AppearanceProgressAlertsTest`는 변환 클래스가 없어 컴파일 실패, `NotificationAppearanceProgressAlertTest`는 처리기가 없어 8개 모두 대기 시간 초과). NR 번호는 N7 지갑(#907)과 병합 순서에 따라 늦게 병합하는 쪽이 고친다(ND-110).
+
+#### NR-057 · 2026-11-12 · 통과 (N7 지갑 #907 PR 리뷰 반영: 충전 실패 값의 결제 금액 제거)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-057 |
+| 실행 날짜 | 2026-11-12 14:09~14:13 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `55d43c60`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts.chargeFailed`가 값에 `paymentAmountKrw`를 넣지 않고 키 상수도 지웠다. `WalletAlertsTest` 4건에 값 키 단언(`containsOnlyKeys`)을 더했다(먼저 `paymentAmountKrw`가 있어 실패하는 것을 확인) |
+| 대상 기능 | N7 지갑 4종 값 형식 |
+| 관련 NT ID | NT-GEN-19, NT-GEN-13 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `:notification:test`, `verifyModuleStructure`, `:auxiliary-app:test`. `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(결과는 NR-055·NR-056) |
+| 건수 | `:notification` 243, `:auxiliary-app` 13(새 실행). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 PR 리뷰 |
+
+#### NR-056 · 2026-11-12 · 통과 (N7 지갑 #907 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-056 |
+| 실행 날짜 | 2026-11-12 13:55~14:01 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | `9c2f0a7d`(`aa54fe41` + origin/dev `26b44b5b` 병합, 충돌 없음) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀(#906 검색 사본·색인과 `AuxiliaryApplicationTest`) |
+| 관련 NT ID | NR-055와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0). 새로 실행: `verifyModuleStructure`, `:auxiliary-app:test`, `:search:test`. `:notification:test`·`:auxiliary-global:test`·`:chatbot:test`는 `UP-TO-DATE`(병합이 입력을 바꾸지 않음, 결과는 NR-055) |
+| 건수 | `:auxiliary-app` 13, `:search` 222(새 실행). `:notification` 243, `:auxiliary-global` 110, `:chatbot` 245(이전 결과). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤ 승인 Q2 a) |
+| 관련 변경 | #907 |
+
+#### NR-055 · 2026-11-12 · 통과 (N7 지갑 4종 #907)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-055 |
+| 실행 날짜 | 1차 2026-11-12 12시 30분대(약 9분), 2차 12:45~12:48, 3차 13:43~13:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-907` |
+| 커밋 | origin/dev `973ccbe5`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `WalletAlerts`·`WalletAlertTemplates` 추가, `NotificationTemplates` 등록, `NotificationBillingEventListener` 처리기 4개. 시험 `WalletAlertsTest`(6)·`NotificationWalletAlertTest`(4). 2차는 1차 뒤 찾은 결함(변환 검증 실패가 재시도됨)을 `RejectedEventException`으로 바꾸고 `NotificationBillingEventListenerTest`(1)와 Kafka 필수 값 DLT 시험(1)을 더한 뒤. 3차는 S6 리뷰 반영으로 Kafka 건너뜀 시험에 탈퇴 회원을 더한 뒤 |
+| 대상 기능 | N7 지갑 4종 알림(충전 실패·환불 실패·환불 운영자 확인 필요·환전 승인) |
+| 관련 NT ID | NT-GEN-19, NT-GEN-10·15(지갑 4종) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차·3차 모두 통과(종료 코드 0). 1차는 모든 시험 태스크 새로 실행. 2차는 `:notification:test`·`verifyModuleStructure`·`:auxiliary-app:test`만 새로 실행했고 `:auxiliary-global`·`:chatbot`·`:search` 시험은 `UP-TO-DATE`(1차 결과). 3차는 `:notification:test`·`verifyModuleStructure`만 새로 실행(나머지 `UP-TO-DATE`) |
+| 건수 | 1차 `:notification` 241, 2차·3차 `:notification` 243. `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174(1차). 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음. TDD RED 확인(단위: 클래스 없음 컴파일 오류, Kafka: 알림 0건 3건 실패, 리스너: `IllegalArgumentException`)은 이 기록 밖 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #907 |
+
+#### NR-054 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤, #872 강의 지급 제목)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-054 |
+| 실행 날짜 | 2026-11-12 11:16~11:24 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `8c3e6148` + origin/dev `f17b91f0` 병합(커밋 전 작업 트리) |
+| 작업 트리 변경 | origin/dev(#872·#893·#894·#895) 병합. 충돌은 `notification-catalog.md` 강의 표 하나(강의 7종 행은 dev의 #872 구현 표시, `PAYOUT_COMPLETED_DAILY` 행은 이 브랜치). ND-104(묶음 문구는 제목 없이 유지)와 관련 서술, Kafka 시험의 강의 원천 지급 하나에 제목을 실어 문구가 바뀌지 않는지 확인 |
+| 대상 기능 | 병합 결과 회귀, ND-104 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 모든 시험 태스크 새로 실행) |
+| 건수 | `:notification` 231, `:auxiliary-app` 13, `:auxiliary-global` 110, `:chatbot` 245, `:search` 174. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+#### NR-053 · 2026-11-12 · 통과 (N8 #890 PR 리뷰 반영: 묶음 잠금 순서)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-053 |
+| 실행 날짜 | 1차 2026-11-12 10:50~10:53, 2차 10:57~11:00 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `d2cdf456`(커밋 전 작업 트리) |
+| 작업 트리 변경 | `NotificationWriter.addTo`가 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근다. NT-BUN-09 시험 2개(전체 읽음과 겹침). 2차는 S6 뒤 시험 단언(묶음 밖 알림 모두 읽음)·주석과 문서 보강 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) 잠금 순서 |
+| 관련 NT ID | NT-BUN-09, NT-BUN-01~08, NT-RET, NT-READ |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 1차·2차 모두 통과(종료 코드 0) |
+| 건수 | 1차 새로 실행: `:notification` 231, `:auxiliary-app` 13. 2차 새로 실행: `:notification` 231(`:auxiliary-app` test는 UP-TO-DATE, 1차 결과). 실패 0·건너뜀 0. `:auxiliary-global`·`:chatbot`·`:search` test는 UP-TO-DATE(마지막 실행 NR-052) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+**메모**: NT-BUN-09 시험 2개는 고치기 전 코드에서도 통과했다(10:4x `:notification:test --tests "*NotificationDailyPayoutTest"` 15/15). 이전 코드도 밀어냄이 일어나는 경우(되살림)에는 묶음 행이 전체 읽음의 잠금 대상이 아니고, 묶음 행이 대상인 경우(보이는 묶음 갱신)에는 밀어낼 행이 없어 교착에 이르지 않기 때문이다. 이번 수정은 잠금 순서 규칙을 코드가 직접 지키게 한 방어적 수정이고, 시험은 회귀 방지용이다.
+
+#### NR-052 · 2026-11-12 · 통과 (N8 #890 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-052 |
+| 실행 날짜 | 2026-11-12 10:30~10:38 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `5c6ca07c`(`5be856f4` Feat, `2ab396cf` Docs + origin/dev `b02e727c` 병합) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 결과 회귀 |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0, 세 태스크 모두 새로 실행) |
+| 건수 | 모두 새로 실행: `:notification` 229, `:auxiliary-app` 13, `:auxiliary-global` 109, `:chatbot` 245, `:search` 168. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(사용자 결정, CI에 맡김) |
+| 관련 변경 | #890 |
+
+#### NR-051 · 2026-11-12 · 통과 (N8 #890 자체 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-051 |
+| 실행 날짜 | 2026-11-12 10:16~10:19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `69240da8`(커밋 전 작업 트리) |
+| 작업 트리 변경 | NR-050 + S6 리뷰 반영: 로그 문장, 저장소 주석, 합산을 `PayoutDailyTemplate.added`로, `Outcome.UPDATED` 설명, 지급 항목 CHECK `> 0` → `>= 0`(0 HP 지급 허용, 롤백 시험은 음수), NT-BUN-08을 처음 보는 같은 지급 둘 + 재전달 셋의 경합으로 강화, NT-BUN-05에 되살린 뒤 재전달 확인 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) |
+| 관련 NT ID | NR-050과 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-050과 같다 |
+| 결과 | 통과(종료 코드 0) |
+| 건수 | 새로 실행: `:notification` 229, `:auxiliary-app` 13, `verifyModuleStructure`. 실패 0·건너뜀 0. `:auxiliary-global`·`:chatbot`·`:search` test는 UP-TO-DATE(입력 변경 없음, 새 실행 아님. 마지막 실행은 NR-050) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #890 |
+
+**메모**: 실행 전 잠금 검증 실험. `addDailyPayout`의 받는 사람 행 잠금(`findForUpdate`)을 잠금 없는 조회로 잠깐 바꾸면 `NotificationDailyPayoutTest` 13개 중 경합 4개(같은 지급 동시, 서로 다른 지급 동시, 되살림과 새 알림, 되살림과 재전달)가 실패했다. 되돌린 뒤 위 명령을 실행했다.
+
+#### NR-050 · 2026-11-12 · 통과 (N8 #890 하루 묶음, 1차 실패 → 시험 격리 수정 뒤 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-050 |
+| 실행 날짜 | 1차 2026-11-12 09:50~09:53, 재실행 10:01~10:10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-890` |
+| 커밋 | `69240da8`(커밋 전 작업 트리) |
+| 작업 트리 변경 | N8 구현(Flyway `V202611120950`, `DailyPayout`, `PayoutDailyTemplate`, `PayoutItemStore`·`JdbcPayoutItemStore`, `NotificationWriter`·`NotificationAlertService`·지갑 리스너·`Notification`·`NotificationRepository`), 새 시험 `DailyPayoutTest`·`NotificationDailyPayoutTest`, 시험 수정, 알림 문서 |
+| 대상 기능 | 강의 지급 하루 묶음(N8) |
+| 관련 NT ID | NT-BUN-01~08, NT-GEN-12(`PAYOUT_COMPLETED_DAILY`), NT-BND-03, NT-RT(묶음 프레임) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25.0.4.1, Gradle 9.7.1, Docker 29.8.0(Testcontainers postgres·kafka·redis) |
+| 결과 | 1차 실패(`:notification:test` 229 중 9 실패, 나머지 두 태스크 미실행) → 재실행 통과(종료 코드 0, 세 태스크 모두 새로 실행) |
+| 건수 | 재실행: `:notification` 229, `:auxiliary-app` 13, `:auxiliary-global` 109, `:chatbot` 244, `:search` 168. 실패 0·건너뜀 0 |
+| 실패 원인 분류 | 1차 9건 모두 F-TEST |
+| 수정 내용 | 시험 ID 범위가 겹치던 것을 나눴다: `NotificationMemberAlertTest` 700_000 → 750_000(`NotificationCancelRequestAndObjectionAlertTest`와 겹침), `NotificationRealtimeIntegrationTest` 40_000 → 45_000(`NotificationConcurrencyTest`와 겹침), 새 `NotificationDailyPayoutTest` 70_000 → 80_000(`NotificationHeartbeatTest`와 겹침). `NotificationUserSyncServiceTest`의 전체 행 수 단정(`count()==1`)을 그 회원 행만 보도록 바꿨다. 운영 코드는 바꾸지 않았다 |
+| 재실행 결과 | 위 명령 재실행 통과 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행. 운영 배포 뒤 실제 강의 지급 배치로 묶음이 생기는지 미확인 |
+| 관련 변경 | #890 |
+
+**실패 목록 (1차)**
+
+| 테스트 (클래스#메서드) | NT | 오류 요약 (첫 줄) | 원인 분류 | 근거 | 조치·Issue |
+| --- | --- | --- | --- | --- | --- |
+| `NotificationMemberAlertTest` 5건 | NT-GEN-06·16 | 다른 클래스 알림 행이 섞임(`Expected size: 1 but was: 2`), 복제본이 이미 있음 | F-TEST | `NotificationCancelRequestAndObjectionAlertTest`와 시작 ID가 같다. 같은 두 클래스를 `origin/dev`(`b02e727c`) 워크트리에서 돌리면 실행 순서가 반대라 통과하고, 이 브랜치에서는 `MemberAlert`가 먼저 돌아 `CancelRequest…`가 `pk_notification_user` 중복으로 실패한다 | 시작 ID 750_000 |
+| `NotificationUserSyncServiceTest` 2건 | NT-USR-01·02 | `expected: 1L but was: 60L` | F-TEST | 전체 복제본 수를 단정해 다른 클래스보다 먼저 돌 때만 통과 | 그 회원 행만 확인 |
+| `NotificationRealtimeIntegrationTest` 2건 | NT-RT-05, 묶음 프레임 | `Expecting actual not to be null`(프레임 없음) | F-TEST | `NotificationConcurrencyTest`와 시작 ID가 같다 | 시작 ID 45_000 |
+
+**메모**: 새 시험 클래스가 늘어 Gradle의 클래스 실행 순서가 바뀌면서 기존 범위 충돌이 드러났다. 새 시험 클래스를 만들 때 다른 클래스의 `NEXT_ID` 시작값과 겹치지 않는지 확인한다.
 
 #### NR-049 · 2026-11-11 · 통과 (N6 #862 origin/dev 병합 뒤)
 
@@ -1299,8 +2185,7 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 
 | 번호 | 처음 발견 | 테스트 / NT | 내용 | 원인 분류 | 관련 Issue | 상태 | 해결 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-
-아직 없음.
+| R-01 | NR-066 | `:auxiliary-global` `JobLockPostgresIntegrationTest.connectionLost`(알림 NT 밖) | 전체 검증 중 한 번 실패, 단독 3회·전체 재실행 통과. 추정 원인: 끊은 락 연결의 백엔드 종료를 기다리지 않고 다른 pod가 같은 락을 잡는다 | F-TEST(추정) | 없음(auxiliary global #798 담당에게 테스트 수정 Issue 제안) | 미해결 | — |
 
 변경 이력
 - 2026-11-06 처음 작성: 실행 기록 없음. 형식은 [지갑 회귀 실행 기록](../billing/regression-log.md)을 알림 모듈에 맞게 줄였다.
@@ -1311,3 +2196,4 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-10 NR-010·NR-011(N2 알림 저장·REST, #801)을 더했다.
 - 2026-11-10 NR-012·NR-013(ND-054 파기 표시, #801)을 더했다.
 - 2026-11-10 NR-014·NR-015(#801 PR 리뷰: 같은 알림 행의 동시 쓰기)를 더했다.
+- 2026-11-12 NR-066(실패, global JobLock 시험)·NR-067(N7 회원 3종, #915)과 4장 R-01을 더했다. 자체 리뷰 반영 뒤 NR-068을 더했다(작업 중 NR-062~NR-064였고 출연·강의 병합 뒤 고쳤다). origin/dev 병합 뒤 NR-069를 더했다.
