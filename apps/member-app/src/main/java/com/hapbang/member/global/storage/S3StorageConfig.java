@@ -68,7 +68,8 @@ class S3StorageConfig {
     }
 
     @Bean
-    S3FileStorage s3FileStorage(S3Client s3Client, S3Presigner s3Presigner, S3StorageProperties properties) {
-        return new S3FileStorage(s3Client, s3Presigner, properties);
+    S3FileStorage s3FileStorage(S3Client s3Client, S3Presigner s3Presigner, AwsCredentialsProvider s3CredentialsProvider,
+                                S3StorageProperties properties) {
+        return new S3FileStorage(s3Client, s3Presigner, s3CredentialsProvider, properties);
     }
 }

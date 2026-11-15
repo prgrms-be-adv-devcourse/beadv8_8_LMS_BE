@@ -84,7 +84,7 @@ class AppearanceConfigTest {
     }
 
     @Test
-    @DisplayName("appearance.yml의 HP 대사 값: 진행 중 유예 2시간, 비교 범위 7일, 지갑 조회 500건 (#581)")
+    @DisplayName("appearance.yml의 HP 대사 값: 진행 중 유예 2시간, 비교 범위 7일, 지갑 조회 500건 (#581), 멈춘 실행 정리 기준 1시간 (#821)")
     void bindsHpReconciliationFromYaml() {
         contextRunner.run(context -> {
             AppearanceHpReconciliationProperties properties =
@@ -93,11 +93,12 @@ class AppearanceConfigTest {
             assertThat(properties.settleGrace()).isEqualTo(Duration.ofHours(2));
             assertThat(properties.lookback()).isEqualTo(Duration.ofDays(7));
             assertThat(properties.pageSize()).isEqualTo(500);
+            assertThat(properties.abandonAfter()).isEqualTo(Duration.ofHours(1));
         });
     }
 
     @Test
-    @DisplayName("HP 대사: 유예가 음수, 비교 범위가 유예 이하, 지갑 조회 건수가 1~500 밖이면 앱이 뜨지 않는다 (#581)")
+    @DisplayName("HP 대사: 유예가 음수, 비교 범위가 유예 이하, 지갑 조회 건수가 1~500 밖, 멈춘 실행 정리 기준이 0 이하이면 앱이 뜨지 않는다 (#581, #821)")
     void hpReconciliationValidation() {
         contextRunner.withPropertyValues("appearance.hp-reconciliation.settle-grace=-1s")
                 .run(context -> assertThat(context).hasFailed());
@@ -106,6 +107,8 @@ class AppearanceConfigTest {
         contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=0")
                 .run(context -> assertThat(context).hasFailed());
         contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=501")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.abandon-after=0s")
                 .run(context -> assertThat(context).hasFailed());
         contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=1",
                         "appearance.hp-reconciliation.lookback=121m")

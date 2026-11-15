@@ -81,6 +81,27 @@ public class LectureOrder {
         return order;
     }
 
+    /**
+     * 주문할 수 있는 강의들인지 {@link #place}와 같은 순서로 검사한다. 쿠폰 주문은 쿠폰 할인 계산을 부르기 전에 먼저 검사해,
+     * 주문할 수 없는 강의는 쿠폰과 관계없이 같은 오류로 끝낸다.
+     */
+    public static void checkPlaceable(Long buyerUserId, List<Lecture> lectures, Set<Long> ownedLectureIds) {
+        validateLectures(buyerUserId, lectures, ownedLectureIds);
+    }
+
+    /**
+     * 강의 항목에 쿠폰 할인 스냅샷을 남긴다. 주문을 저장하기 전, 만든 직후에 부른다.
+     * 할인 합·부담 몫 규칙은 {@link OrderItem}이 검사한다.
+     */
+    public void applyItemDiscount(Long lectureId, long discountHp, long platformDiscountHp, long sellerDiscountHp) {
+        requireStatus(LectureOrderStatus.HOLD_PENDING);
+        OrderItem item = items.stream()
+                .filter(candidate -> candidate.getLectureId().equals(lectureId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("주문에 없는 강의입니다. lectureId=" + lectureId));
+        item.applyDiscount(discountHp, platformDiscountHp, sellerDiscountHp);
+    }
+
     public List<OrderItem> getItems() {
         return List.copyOf(items);
     }
@@ -180,6 +201,16 @@ public class LectureOrder {
         OrderItem item = findItem(orderItemId);
         item.completeReturn(now);
         closeIfAllItemsEnded(now);
+        return item;
+    }
+
+    /**
+     * 반환 지연: 이의 제기 인정 반환 작업이 멈췄다(DEAD, #818, D83). 항목의 반환 지연 회차를 1 올린다. 항목은 반환 처리 중에 남고
+     * 주문도 그대로라 주문을 잠그지 않는다(항목의 낙관적 락만 쓴다)
+     */
+    public OrderItem recordReturnDelay(Long orderItemId) {
+        OrderItem item = findItem(orderItemId);
+        item.recordReturnDelay();
         return item;
     }
 

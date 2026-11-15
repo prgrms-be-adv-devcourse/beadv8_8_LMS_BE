@@ -45,6 +45,13 @@ spring:
     clients:
       connect-timeout: 3s
       read-timeout: 5s
+  data:
+    redis:
+      # Lettuce 기본 명령 제한 시간은 60초라 Redis가 멈추면 쿠폰 발급 접수·상태 조회와 배치가 60초씩 묶이고, 요청 스레드가 쌓여
+      # 강의 API까지 느려진다. 로컬 측정에서 쿠폰 Lua(evalsha)는 평균 70 µs, 접수 p95는 수백 ms라 2초면 정상 경로를 끊지 않는다
+      # (docs/load-test/coupon-issue.md). 연결은 1초 안에 못 맺으면 실패로 본다
+      timeout: 2s
+      connect-timeout: 1s
   task:
     scheduling:
       pool:

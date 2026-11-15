@@ -31,6 +31,8 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
+
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.InvalidFormatException;
@@ -40,7 +42,9 @@ import tools.jackson.databind.exc.MismatchedInputException;
  * 모든 컨트롤러의 오류를 ProblemDetail(RFC 9457)로 응답하는 유일한 핸들러 (2026-10-12 회의). 모듈은 핸들러를 두지 않는다.
  * 모든 응답에 {@code code}가 있다.
  * <ul>
- *     <li>{@link BusinessException} → 오류 코드의 상태, detail, {@code code}({@link BaseErrorCode#getCode()}), 예외의 추가 속성</li>
+ *     <li>{@link BusinessException} → 오류 코드의 상태, detail, {@code code}({@link BaseErrorCode#getCode()}), 예외의 추가 속성.
+ *     로그는 4xx INFO, 5xx ERROR, 잠시 뒤 다시 보내면 되는 거절({@link BaseErrorCode#isRetryLater()})은 DEBUG</li>
+ *     <li>{@link RateLimitExceededException} → 429 {@code TOO_MANY_REQUESTS} + {@code Retry-After} 헤더(초, #715)</li>
  *     <li>요청 값 검증·형식 오류 → 400 {@code INVALID_REQUEST}, {@code errors: [{field, message}]}</li>
  *     <li>컨트롤러 안의 권한 거절({@code @PreAuthorize}) → 로그인했으면 403 {@code FORBIDDEN}, 아니면 401 {@code UNAUTHORIZED}</li>
  *     <li>그 밖의 Spring MVC 예외(405, 415, 없는 경로 404 등) → {@link ResponseEntityExceptionHandler} 기본 응답 + 상태에 맞는 {@code code}</li>
@@ -58,7 +62,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ProblemDetail handleBusinessException(BusinessException exception) {
         BaseErrorCode errorCode = exception.getErrorCode();
-        if (errorCode.getStatus().is5xxServerError()) {
+        if (errorCode.isRetryLater()) {
+            // 장애 동안 요청마다 몰리고 저절로 회복된다. 거절한 곳이 상태가 바뀔 때만 남긴다(docs/dev/logging.md)
+            log.debug("잠시 뒤 다시 보내면 되는 거절 code={}", errorCode.getCode());
+        } else if (errorCode.getStatus().is5xxServerError()) {
             log.error("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
         } else {
             // 4xx는 사용자 입력·정책상 거절한 정상 응답이라 WARN이 아니다. 문의를 조사할 때 쓰도록 사유는 INFO로 남긴다
@@ -68,6 +75,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problemDetail = problem(errorCode, exception.getMessage());
         exception.getProperties().forEach(problemDetail::setProperty);
         return problemDetail;
+    }
+
+    /**
+     * 요청 한도 초과(#715). 다시 시도할 수 있을 때까지 남은 초를 {@code Retry-After}에 넣는다.
+     * 거절은 모듈 지표로 보므로 요청마다 warn 로그를 남기지 않는다(남용 시 로그 폭주 방지).
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException exception) {
+        log.debug("요청 한도 초과 retryAfterSeconds={}", exception.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(exception.getRetryAfterSeconds()))
+                .body(problem(GlobalErrorCode.TOO_MANY_REQUESTS, GlobalErrorCode.TOO_MANY_REQUESTS.getMessage()));
     }
 
     /** 컨트롤러·서비스의 {@code @PreAuthorize} 거절. 비로그인 사용자면 403이 아니라 401로 응답한다 */

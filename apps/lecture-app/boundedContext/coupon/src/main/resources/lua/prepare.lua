@@ -7,10 +7,12 @@
 -- 만료 계산 입력(expiryType·expiryDays·fixedExpiresAt)은 issue.lua가 접수 시각으로 발급 쿠폰의 만료 시각을 계산할 때 쓴다.
 -- 같은 epoch로 다시 불러도 덮어 쓴다: 발행 조건은 발행 뒤 바뀌지 않아 같은 쿠폰이면 같은 값이고, stock과 달리 접수로 줄어드는 값이 아니다.
 -- 쓰지 않는 쪽 필드(RELATIVE의 fixedExpiresAt, FIXED의 expiryDays)는 지운다.
+-- runId: 지금 Redis 프로세스의 run_id(INFO server)를 issue-control에 쓴다. 프로세스 변경 감지(재시작·유실)가 이 값과 지금 run_id를 비교한다.
 -- KEYS[1] = coupon:<couponId>:issue-control (Hash), KEYS[2] = coupon:<couponId>:stock (String)
 -- ARGV: epoch, stock, startAtMs, endAtMs, keysExpireAtMs, fence, expiryType(RELATIVE|FIXED), expiryDays(RELATIVE, 아니면 ''),
 --       fixedExpiresAtMs(FIXED, 아니면 '')
 -- 반환: 1 준비함 | -1 같은 epoch가 이미 종료(CLOSED)되어 다시 준비하지 않음 | -9 인수·key 타입·fence 형식 오류(쓰기 없음)
+--       | -8 지금 Redis 프로세스의 run_id를 읽지 못함(쓰기 없음)
 
 local controlKey, stockKey = KEYS[1], KEYS[2]
 local epoch, stock, startAt, endAt, keysExpireAt, fence, expiryType, expiryDays, fixedExpiresAt =
@@ -34,6 +36,11 @@ elseif expiryType == 'FIXED' and isUint(fixedExpiresAt) and expiryDays == '' the
     expiryField, expiryValue, unusedExpiryField = 'fixedExpiresAt', fixedExpiresAt, 'expiryDays'
 else
     return -9
+end
+
+local runId = string.match(redis.call('INFO', 'server'), 'run_id:(%w+)')
+if not runId then
+    return -8
 end
 
 local controlType = redis.call('TYPE', controlKey)['ok']
@@ -66,7 +73,7 @@ if not (sameEpoch and stockType == 'string') then
 end
 redis.call('HSET', controlKey, 'ready', '1', 'status', status, 'epoch', epoch,
     'startAt', startAt, 'endAt', endAt, 'keysExpireAt', keysExpireAt, 'fence', fence,
-    'expiryType', expiryType, expiryField, expiryValue)
+    'expiryType', expiryType, expiryField, expiryValue, 'runId', runId)
 redis.call('HDEL', controlKey, unusedExpiryField)
 redis.call('PEXPIREAT', controlKey, keysExpireAt)
 redis.call('PEXPIREAT', stockKey, keysExpireAt)

@@ -26,7 +26,7 @@ public enum IssueResponseCode {
     NOT_IN_PERIOD(-3),
     /** 같은 요청 ID를 다른 회원이 이미 썼다 */
     REQUEST_ID_CONFLICT(-4),
-    /** 스크립트 오류(키 타입·인수 오류, Stream 기록 실패 뒤 되돌림). 접수하지 않았다 */
+    /** 스크립트 오류(키 타입·인수 오류, 쓰기 실패 뒤 되돌림). 접수하지 않았다 */
     ERROR(-9);
 
     private final long luaValue;

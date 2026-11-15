@@ -1,8 +1,10 @@
 package com.hapbang.billing.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -15,17 +17,20 @@ import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.PointType;
+import com.hapbang.billing.domain.WalletReconciliationRun;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-// 변경된 지갑의 잔액 대사(#607, BD-139): 대상 합치기, 오류 지갑 재시도·다음 회차 이월, 결과 지표, 창 설정.
+// 변경된 지갑의 잔액 대사(#607, BD-139): 대상 합치기, 오류 지갑 재시도, 결과 지표, 창 설정.
+// 실행 기록과 이월(#822, BD-146): 끝날 때 기록을 남기고, 다음 회차는 가장 최근 기록의 FAILED 지갑을 더한다. 기록 저장·읽기 실패는 대사를 멈추지 않는다.
 class ChangedWalletReconciliationUseCaseTest {
 
     private static final Instant NOW = Instant.parse("2026-11-03T19:02:45Z");
@@ -34,8 +39,9 @@ class ChangedWalletReconciliationUseCaseTest {
     private final WalletRepository walletRepository = mock(WalletRepository.class);
     private final PointLedgerRepository pointLedgerRepository = mock(PointLedgerRepository.class);
     private final WalletReconciliationUseCase reconciliation = mock(WalletReconciliationUseCase.class);
+    private final WalletReconciliationRunRecorder recorder = mock(WalletReconciliationRunRecorder.class);
     private final ChangedWalletReconciliationUseCase useCase = new ChangedWalletReconciliationUseCase(
-            walletRepository, pointLedgerRepository, reconciliation, WINDOW);
+            walletRepository, pointLedgerRepository, reconciliation, recorder, WINDOW);
 
     @Test
     @DisplayName("수정된 지갑과 원장이 기록된 지갑을 합쳐 지갑마다 한 번씩 대사한다")
@@ -69,35 +75,84 @@ class ChangedWalletReconciliationUseCaseTest {
         assertThat(result.mismatchedWalletIds()).containsExactly(3L);
         assertThat(result.failedWalletIds()).isEmpty();
         verify(reconciliation, times(2)).reconcile(2L);
-        assertThat(useCase.carriedOver()).isEmpty();
     }
 
     @Test
-    @DisplayName("재시도에도 실패한 지갑은 다음 회차에 창 밖이어도 다시 대사하고, 성공하면 목록에서 빠진다")
-    void carriesFailedWalletToNextRun() {
-        changedWallets(NOW, 1L, 2L);
+    @DisplayName("끝나면 실행 시작 시각과 결과를 기록한다")
+    void recordsRunAtEnd() {
+        changedWallets(NOW, 1L, 2L, 3L);
         when(reconciliation.reconcile(1L)).thenReturn(matched(1L));
         when(reconciliation.reconcile(2L)).thenThrow(new IllegalStateException("query timeout"));
+        when(reconciliation.reconcile(3L)).thenReturn(mismatched(3L));
 
-        ChangedWalletReconciliationUseCase.Result first = useCase.reconcileChanged(NOW);
+        ChangedWalletReconciliationUseCase.Result result = useCase.reconcileChanged(NOW);
 
-        assertThat(first.failedWalletIds()).containsExactly(2L);
-        verify(reconciliation, times(2)).reconcile(2L);
-        assertThat(useCase.carriedOver()).containsExactly(2L);
+        ArgumentCaptor<ChangedWalletReconciliationUseCase.Result> recorded =
+                ArgumentCaptor.forClass(ChangedWalletReconciliationUseCase.Result.class);
+        verify(recorder).record(eq(NOW), any(Instant.class), recorded.capture());
+        assertThat(recorded.getValue()).isEqualTo(result);
+        assertThat(result.failedWalletIds()).containsExactly(2L);
+    }
 
-        // 다음 날: 지갑 2는 창 밖으로 나갔다(조회 결과에 없음). 그래도 이어서 대사한다
-        Instant next = NOW.plus(Duration.ofDays(1));
-        doReturn(mismatched(2L)).when(reconciliation).reconcile(2L);
+    @Test
+    @DisplayName("가장 최근 실행 기록의 FAILED 지갑은 창 밖이어도 대사한다(pod 메모리가 아니라 기록에서 읽어 재시작에도 남는다)")
+    void carriesFailedWalletsFromLastRecord() {
+        changedWallets(NOW, 1L);
+        when(recorder.lastFailedWalletIds()).thenReturn(List.of(2L));
+        when(reconciliation.reconcile(1L)).thenReturn(matched(1L));
+        when(reconciliation.reconcile(2L)).thenReturn(mismatched(2L));
 
-        ChangedWalletReconciliationUseCase.Result second = useCase.reconcileChanged(next);
+        ChangedWalletReconciliationUseCase.Result result = useCase.reconcileChanged(NOW);
 
-        assertThat(second.mismatchedWalletIds()).containsExactly(2L);
-        assertThat(second.failedWalletIds()).isEmpty();
-        assertThat(useCase.carriedOver()).isEmpty();
+        assertThat(result.matched()).isEqualTo(1);
+        assertThat(result.mismatchedWalletIds()).containsExactly(2L);
+        verify(reconciliation, times(1)).reconcile(2L);
+    }
 
-        // 그다음 날에는 다시 대사하지 않는다
-        useCase.reconcileChanged(next.plus(Duration.ofDays(1)));
-        verify(reconciliation, times(3)).reconcile(2L);
+    @Test
+    @DisplayName("이월 지갑을 읽지 못해도 창 안의 지갑은 대사한다")
+    void carryOverReadFailureDoesNotStopRun() {
+        changedWallets(NOW, 1L);
+        when(recorder.lastFailedWalletIds()).thenThrow(new IllegalStateException("connection refused"));
+        when(reconciliation.reconcile(1L)).thenReturn(matched(1L));
+
+        ChangedWalletReconciliationUseCase.Result result = useCase.reconcileChanged(NOW);
+
+        assertThat(result.matched()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("기록 저장이 실패해도 지표를 바꾸고 대사 결과를 돌려준다(찾은 불일치의 alert를 놓치지 않게)")
+    void recordFailureStillUpdatesMetrics() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        useCase.bindTo(registry);
+        changedWallets(NOW, 3L);
+        when(reconciliation.reconcile(3L)).thenReturn(mismatched(3L));
+        doThrow(new IllegalStateException("connection refused")).when(recorder).record(any(), any(), any());
+
+        ChangedWalletReconciliationUseCase.Result result = useCase.reconcileChanged(NOW);
+
+        assertThat(result.mismatchedWalletIds()).containsExactly(3L);
+        assertThat(wallets(registry, "mismatched")).isEqualTo(1);
+        assertThat(lastSuccess(registry)).isEqualTo(NOW.getEpochSecond());
+    }
+
+    @Test
+    @DisplayName("이 인스턴스에서 대사가 이미 끝났으면 기동 시 복원이 더 오래된 기록으로 지표를 덮지 않는다")
+    void restoreDoesNotOverwriteRunInThisInstance() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        useCase.bindTo(registry);
+        changedWallets(NOW, 3L);
+        when(reconciliation.reconcile(3L)).thenReturn(mismatched(3L));
+        useCase.reconcileChanged(NOW);
+
+        useCase.restoreFrom(WalletReconciliationRun.create(
+                NOW.minus(Duration.ofDays(1)), NOW.minus(Duration.ofDays(1)), NOW.minus(Duration.ofDays(4)), 9, 0, 0));
+        useCase.restoreLastSuccess(NOW.minus(Duration.ofDays(1)));
+
+        assertThat(wallets(registry, "mismatched")).isEqualTo(1);
+        assertThat(wallets(registry, "matched")).isZero();
+        assertThat(lastSuccess(registry)).isEqualTo(NOW.getEpochSecond());
     }
 
     @Test
@@ -146,7 +201,6 @@ class ChangedWalletReconciliationUseCaseTest {
         assertThat(wallets(registry, "failed")).isEqualTo(3);
         assertThat(wallets(registry, "matched")).isZero();
         assertThat(lastSuccess(registry)).isZero();
-        assertThat(useCase.carriedOver()).containsExactly(1L, 2L, 3L);
     }
 
     @Test
@@ -170,6 +224,7 @@ class ChangedWalletReconciliationUseCaseTest {
                 .withBean(WalletRepository.class, () -> walletRepository)
                 .withBean(PointLedgerRepository.class, () -> pointLedgerRepository)
                 .withBean(WalletReconciliationUseCase.class, () -> reconciliation)
+                .withBean(WalletReconciliationRunRecorder.class, () -> recorder)
                 .withUserConfiguration(ChangedWalletReconciliationUseCase.class);
 
         runner.withPropertyValues("hapbang.billing.reconciliation.window=24h").run(context -> {
@@ -188,11 +243,11 @@ class ChangedWalletReconciliationUseCaseTest {
         when(walletRepository.findIdsUpdatedSince(now.minus(WINDOW))).thenReturn(List.of(walletIds));
     }
 
-    private static double wallets(SimpleMeterRegistry registry, String result) {
+    static double wallets(SimpleMeterRegistry registry, String result) {
         return registry.get(ChangedWalletReconciliationUseCase.WALLETS_METRIC).tag("result", result).gauge().value();
     }
 
-    private static double lastSuccess(SimpleMeterRegistry registry) {
+    static double lastSuccess(SimpleMeterRegistry registry) {
         return registry.get(ChangedWalletReconciliationUseCase.LAST_SUCCESS_METRIC).gauge().value();
     }
 

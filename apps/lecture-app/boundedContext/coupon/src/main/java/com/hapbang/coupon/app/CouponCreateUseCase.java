@@ -9,6 +9,7 @@ import com.hapbang.coupon.app.dto.CouponCreateCommand;
 import com.hapbang.coupon.app.dto.CouponView;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.config.CouponPolicyProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponTargetType;
@@ -25,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
  * 강의 조회는 트랜잭션 밖에서 하고, 저장은 그 뒤 저장 한 번(짧은 트랜잭션)이다.
  * 특정 강의 대상은 강의가 판매 중일 때만 발행한다(아니면 409). 판매자 쿠폰은 강의 판매자 확인을 먼저 한다.
  * 만료 상한은 설정({@link CouponPolicyProperties#maxExpiryDays()})을 도메인에 넘기고, 발급 종료 시각이 지난 쿠폰은 도메인이 거절한다(409).
+ * 수량이 쿠폰별 상한({@link CouponLimitsProperties#maxQuantityPerCoupon()})을 넘으면 강의를 조회하기 전에 400이다.
  */
 @Slf4j
 @Service
@@ -33,19 +35,22 @@ public class CouponCreateUseCase {
     private final CouponRepository couponRepository;
     private final CouponSupport couponSupport;
     private final CouponPolicyProperties policyProperties;
+    private final CouponLimitsProperties limitsProperties;
     private final Clock clock;
 
     public CouponCreateUseCase(CouponRepository couponRepository, CouponSupport couponSupport,
-                               CouponPolicyProperties policyProperties,
+                               CouponPolicyProperties policyProperties, CouponLimitsProperties limitsProperties,
                                @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponRepository = couponRepository;
         this.couponSupport = couponSupport;
         this.policyProperties = policyProperties;
+        this.limitsProperties = limitsProperties;
         this.clock = clock;
     }
 
     /** 판매자 쿠폰 신청. 대상 강의의 판매자 본인이어야 한다 */
     public CouponView createSeller(long sellerId, CouponCreateCommand command) {
+        CouponCapacitySupport.requireWithinPerCoupon(command.quantity(), limitsProperties);
         LectureSnapshot lecture = findTargetLecture(command);
         if (lecture != null && lecture.sellerId() != sellerId) {
             throw new CouponException(CouponErrorCode.NOT_LECTURE_SELLER);
@@ -60,6 +65,7 @@ public class CouponCreateUseCase {
 
     /** 플랫폼 쿠폰 발행. 판매자 확인은 하지 않는다 */
     public CouponView createPlatform(long adminId, CouponCreateCommand command) {
+        CouponCapacitySupport.requireWithinPerCoupon(command.quantity(), limitsProperties);
         LectureSnapshot lecture = findTargetLecture(command);
         requireOnSale(lecture);
         Coupon coupon = couponRepository.save(Coupon.createPlatform(adminId, terms(command, lecture),

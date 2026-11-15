@@ -53,7 +53,7 @@ public class AppearanceHostCancelUseCase {
         Long taskId = appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, hostId,
                 confirmPendingCancelRequest, reason, LocalDateTime.now(clock));
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
             log.info("호스트가 출연을 취소했다 appearanceId={}, hostId={}, penaltyTaskId={}", appearanceId, hostId, taskId);
         });

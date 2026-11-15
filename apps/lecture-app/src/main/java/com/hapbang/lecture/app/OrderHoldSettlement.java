@@ -26,7 +26,8 @@ import com.hapbang.lecture.out.LectureOrderRepository;
  * <ul>
  *     <li>주문 행을 먼저 잠가(D46) 같은 주문의 결과 기록을 한 줄로 세운다. 그래서 마지막으로 기록하는 쪽이 모든 작업 결과를 본다.</li>
  *     <li>모든 보류가 성공하면 결제 완료로 기록하고, 주문한 강의만 장바구니에서 뺀다(멱등).</li>
- *     <li>결제 취소 처리 중이면 성공한 보류마다 반환 작업을 만들고, 묶여 남은 HP가 없음이 확인되면 결제 실패다.</li>
+ *     <li>결제 취소 처리 중이면 성공한 보류마다 반환 작업을 만들고, 묶여 남은 HP가 없음이 확인되면 결제 실패다.
+ *     쿠폰 주문이면 그때 예약한 쿠폰의 해제 작업을 만든다.</li>
  *     <li>관리자가 보류를 보류 무효화로 끝내면 확정 거절과 같이 결제 취소 처리 중으로 바꾸고 무효화 작업을 만든다 (D73).</li>
  * </ul>
  * 반환·무효화 작업의 실행은 주문 요청(트랜잭션 밖)이나 HP 작업 재시도 배치가 한다.
@@ -42,17 +43,24 @@ public class OrderHoldSettlement {
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final CartRepository cartRepository;
     private final LectureSyncEvents lectureSyncEvents;
+    private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
+    private final OrderCouponEvents orderCouponEvents;
     private final Clock clock;
 
     public OrderHoldSettlement(LectureOrderRepository lectureOrderRepository,
                                LectureHpTaskRepository lectureHpTaskRepository,
                                LectureHpTaskSupport lectureHpTaskSupport, CartRepository cartRepository,
-                               LectureSyncEvents lectureSyncEvents, @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                               LectureSyncEvents lectureSyncEvents,
+                               OrderCouponReleaseRegistration orderCouponReleaseRegistration,
+                               OrderCouponEvents orderCouponEvents,
+                               @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskRepository = lectureHpTaskRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.cartRepository = cartRepository;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
+        this.orderCouponEvents = orderCouponEvents;
         this.clock = clock;
     }
 
@@ -99,6 +107,15 @@ public class OrderHoldSettlement {
         return voidTask;
     }
 
+    /**
+     * 보류 작업을 등록한 뒤(쿠폰 주문의 예약 성공 기록) 결제 단계를 다시 본다. 보류가 필요한 항목이 없으면(모든 항목 구매자 금액 0)
+     * 이 트랜잭션에서 바로 결제 완료다. 호출한 쪽이 주문 행을 잠근다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void settleRegistered(LectureOrder order) {
+        settle(order, LocalDateTime.now(clock));
+    }
+
     /** 결제 처리 중이면 결제 취소 처리 중으로 바꾸고, 한 번도 실행하지 않은 보류는 닫는다. 이미 시도한 보류는 끝까지 확인한다 (D69 (5)) */
     private void startCompensation(LectureOrder order, LocalDateTime now) {
         if (order.getStatus() == LectureOrderStatus.HOLD_PENDING) {
@@ -111,9 +128,12 @@ public class OrderHoldSettlement {
         OrderHoldTasks tasks = OrderHoldTasks.of(lectureHpTaskRepository.findByOrderIdIn(List.of(order.getId())));
         switch (order.getStatus()) {
             case HOLD_PENDING -> {
-                if (tasks.allHoldsSucceeded()) {
+                if (tasks.allHoldsSucceeded(order.getItems().stream()
+                        .filter(OrderItem::requiresBuyerHpTask).map(OrderItem::getId).toList())) {
                     order.markPaid(now);
                     lectureSyncEvents.purchasesChanged(order.getItems());
+                    // 쿠폰을 쓴 항목은 쿠폰 모듈이 사용 완료로 바꾸도록 같은 트랜잭션에서 알린다
+                    orderCouponEvents.itemsPaid(order, now);
                     removeOrderedLecturesFromCart(order, now);
                 }
             }
@@ -122,6 +142,8 @@ public class OrderHoldSettlement {
                 if (tasks.isFailureSettled()) {
                     order.markHoldFailed();
                     lectureSyncEvents.purchasesChanged(order.getItems());
+                    // 쿠폰 주문이면 보상 반환이 모두 끝난 이 트랜잭션에서 예약한 쿠폰의 해제 작업을 만든다
+                    orderCouponReleaseRegistration.registerIfReserved(order, now);
                 }
             }
             // 결제 단계가 끝난 뒤 다시 기록된 결과(관리자 재시도 등)는 바꿀 것이 없다

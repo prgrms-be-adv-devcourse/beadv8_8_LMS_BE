@@ -1,5 +1,7 @@
 package com.hapbang.billing.app;
 
+import java.time.Instant;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
@@ -14,12 +16,16 @@ import com.hapbang.billing.domain.Settlement;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.event.ChargeCompletedEvent;
+import com.hapbang.shared.billing.event.ChargeFailedEvent;
+import com.hapbang.shared.billing.event.ExchangeApprovedEvent;
 import com.hapbang.shared.billing.event.ExchangeCompletedEvent;
 import com.hapbang.shared.billing.event.ExchangeFinalFailedEvent;
 import com.hapbang.shared.billing.event.ExchangePayoutFailedEvent;
 import com.hapbang.shared.billing.event.ExchangeRejectedEvent;
 import com.hapbang.shared.billing.event.PayoutCompletedEvent;
 import com.hapbang.shared.billing.event.RefundCompletedEvent;
+import com.hapbang.shared.billing.event.RefundFailedEvent;
+import com.hapbang.shared.billing.event.RefundManualReviewRequiredEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -40,16 +46,29 @@ public class BillingEventPublisher {
                 charge.getAmountHp(), charge.getPaymentAmountKrw(), charge.getCompletedAt()));
     }
 
-    // 지급 건(정상·위약금)을 처음 저장한 직후. 재요청(replay)에서는 부르지 않는다
-    void payoutCompleted(Settlement settlement) {
-        eventPublisher.publishEvent(new PayoutCompletedEvent(settlement.getId(), settlement.getReceiverUserId(),
-                settlement.getPayoutType(), settlement.getSourceType(), settlement.getSourceId(),
-                settlement.getPaidAmountHp(), settlement.getSettledAt()));
+    // 충전 실패 확정(PROCESSING → FAILED) 직후 (#873, BD-162). 이미 끝난 충전에는 부르지 않는다
+    void chargeFailed(PointCharge charge) {
+        eventPublisher.publishEvent(new ChargeFailedEvent(charge.getId(), userIdOf(charge.getWalletId()),
+                charge.getAmountHp(), charge.getPaymentAmountKrw(), charge.getFailedAt()));
     }
 
-    // 환불 요청을 끝낸 직후. 환불한 금액이 있는 결과(COMPLETED·PARTIALLY_COMPLETED)만 발행한다
+    // 지급 건(정상·위약금)을 처음 저장한 직후. 재요청(replay)에서는 부르지 않는다.
+    // 출처 제목은 지급 요청 값을 그대로 담고 지급 건에 저장하지 않는다 (#873, BD-163)
+    void payoutCompleted(Settlement settlement, String sourceTitle) {
+        eventPublisher.publishEvent(new PayoutCompletedEvent(settlement.getId(), settlement.getReceiverUserId(),
+                settlement.getPayoutType(), settlement.getSourceType(), settlement.getSourceId(),
+                settlement.getPaidAmountHp(), settlement.getSettledAt(), sourceTitle));
+    }
+
+    // 환불 요청을 끝낸 직후. 환불한 금액이 있으면(COMPLETED·PARTIALLY_COMPLETED) 완료 이벤트를,
+    // 환불한 금액 없이 끝났으면(FAILED) 실패 이벤트를 발행한다 (#873, BD-162)
     void refundClosed(PointRefundRequest request) {
         PointRefundRequestStatus status = request.getStatus();
+        if (status == PointRefundRequestStatus.FAILED) {
+            eventPublisher.publishEvent(new RefundFailedEvent(request.getId(), userIdOf(request.getWalletId()),
+                    request.getRequestedAmountHp(), request.getCompletedAt()));
+            return;
+        }
         if (status != PointRefundRequestStatus.COMPLETED && status != PointRefundRequestStatus.PARTIALLY_COMPLETED) {
             return;
         }
@@ -57,11 +76,23 @@ public class BillingEventPublisher {
                 request.getRequestedAmountHp(), request.getCompletedAmountHp(), request.getCompletedAt()));
     }
 
+    // 환불 요청이 운영자 확인 필요로 바뀐 직후(요청마다 한 번) (#873, BD-162). 시각은 그 충전 건 환불의 운영자 확인 시각이다
+    void refundManualReviewRequired(PointRefundRequest request, Instant manualReviewAt) {
+        eventPublisher.publishEvent(new RefundManualReviewRequiredEvent(request.getId(),
+                userIdOf(request.getWalletId()), request.getRequestedAmountHp(), manualReviewAt));
+    }
+
     // 환전 송금 완료(송금액 0원 완료 포함) 직후
     void exchangeCompleted(Exchange exchange) {
         eventPublisher.publishEvent(new ExchangeCompletedEvent(exchange.getId(), exchange.getUserId(),
                 exchange.getRequestedAmountHp(), exchange.getFeeAmountHp(), exchange.getPayoutAmountKrw(),
                 exchange.getCompletedAt()));
+    }
+
+    // 관리자 승인 직후 (#873, BD-162). 정산 예정 시각은 승인 때 정한 회차다. 같은 관리자의 재승인에서는 부르지 않는다
+    void exchangeApproved(Exchange exchange) {
+        eventPublisher.publishEvent(new ExchangeApprovedEvent(exchange.getId(), exchange.getUserId(),
+                exchange.getRequestedAmountHp(), exchange.getPayoutScheduledAt(), exchange.getApprovedAt()));
     }
 
     // 관리자 거절 직후

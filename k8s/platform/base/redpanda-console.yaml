@@ -32,7 +32,8 @@ spec:
       labels:
         app.kubernetes.io/name: redpanda-console
     spec:
-      # 관측성 도구라 medium에 둔다(docs/deploy/aws-k3s.md).
+      # Kafka와 같은 large(core-data)에 둔다. 처음에는 관측성 도구라 medium에 두었지만 medium 메모리 예산 때문에 옮겼다(#774).
+      # 운영 7일 최대 working set 86Mi.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -40,7 +41,7 @@ spec:
               - matchExpressions:
                   - key: hapbang.io/pool
                     operator: In
-                    values: [app-observe]
+                    values: [core-data]
       containers:
         - name: console
           image: docker.redpanda.com/redpandadata/console:v3.13.1

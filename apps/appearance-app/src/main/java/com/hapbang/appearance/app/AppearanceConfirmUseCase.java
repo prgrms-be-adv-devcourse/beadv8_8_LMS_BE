@@ -52,7 +52,7 @@ public class AppearanceConfirmUseCase {
         appearance.confirmByHost(hostId, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
             log.info("출연을 확인했다 appearanceId={}, hostId={}, payoutTaskId={}", appearanceId, hostId, taskId);
         });
@@ -73,7 +73,7 @@ public class AppearanceConfirmUseCase {
         appearance.markAbsent(hostId, reason, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordAbsentRelease(appearance, now);
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         // 불참 사유는 호스트가 쓴 본문이라 남기지 않는다
         AfterCommit.run(() -> {
             log.info("출연 불참을 기록했다 appearanceId={}, hostId={}, releaseTaskId={}", appearanceId, hostId, taskId);

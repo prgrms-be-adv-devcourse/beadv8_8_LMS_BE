@@ -44,6 +44,7 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.ExchangeApprovedEvent;
 import com.hapbang.shared.billing.event.ExchangeRejectedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -138,6 +139,25 @@ class ExchangeReviewIntegrationTest {
         assertThat(count("billing.exchange_payout")).isZero();
         assertThat(count("billing.mock_payout_transfer")).isZero();
         assertConsistent(walletId);
+        // 승인 이벤트는 승인 때 정한 정산 예정 시각을 담는다 (#873, BD-162)
+        assertThat(applicationEvents.stream(ExchangeApprovedEvent.class)).containsExactly(new ExchangeApprovedEvent(
+                exchangeId, INFLUENCER, 5_000L, scheduledAt(exchangeId), result.approvedAt()));
+    }
+
+    @Test
+    @DisplayName("정산일 당일 승인으로 회차가 옮겨지면 승인 이벤트는 옮긴 회차를 담고, 같은 관리자의 재승인은 이벤트를 다시 내지 않는다 (#873)")
+    void approvedEventCarriesMovedRoundOnce() {
+        influencer(Role.INFLUENCER, UserStatus.ACTIVE, 5_000L);
+        Long exchangeId = request(5_000L);
+        Instant approvedAt = scheduledAt(exchangeId).plusSeconds(3_600);
+        doReturn(approvedAt).when(exchangePayoutClock).now();
+
+        reviewUseCase.approve(ADMIN, exchangeId);
+        reviewUseCase.approve(ADMIN, exchangeId);
+
+        assertThat(applicationEvents.stream(ExchangeApprovedEvent.class)).singleElement()
+                .isEqualTo(new ExchangeApprovedEvent(exchangeId, INFLUENCER, 5_000L,
+                        ExchangeSettlementRound.firstRoundAfter(approvedAt), approvedAt));
     }
 
     // ---------------------------------------------------------------------------------------------

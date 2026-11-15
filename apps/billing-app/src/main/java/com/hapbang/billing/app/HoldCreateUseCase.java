@@ -5,6 +5,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.domain.BudgetReservation;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointCharge;
 import com.hapbang.billing.domain.PointChargeStatus;
@@ -24,12 +26,15 @@ import com.hapbang.billing.domain.PointChargeUsage;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointType;
+import com.hapbang.billing.domain.PromotionHold;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.out.BudgetReservationRepository;
 import com.hapbang.billing.out.HoldVoidRepository;
 import com.hapbang.billing.out.PointChargeRepository;
 import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
+import com.hapbang.billing.out.PromotionHoldRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
@@ -37,6 +42,10 @@ import lombok.RequiredArgsConstructor;
 
 // 참조 대상 하나의 최초 HP 보류를 만든다. 수익 HP를 먼저, 부족분은 충전 HP를 충전 건 FIFO로 배분하고
 // 보류·충전 원금 배분·원장·지갑 잔액을 한 트랜잭션에서 바꾼다. 반환·지급은 하지 않는다.
+// 플랫폼 쿠폰의 플랫폼 몫(promotions)이 있으면 같은 트랜잭션에서 쿠폰마다 그 쿠폰의 예산 예약 남은 예산을 프로모션 지갑 보류 칸으로
+// 옮기고 프로모션 보류를 남긴다. 어느 하나라도 실패하면(예약 없음·예산 부족·잔액 부족 등) 구매자 보류까지 전부 롤백된다.
+// 락 순서: 관련 지갑 전부(구매자·프로모션)를 지갑 ID 오름차순 → 예약 행을 쿠폰 ID 오름차순 → 충전 건.
+// 구매자 몫이 0이면 금액 0의 보류를 앵커로 만들고 원장·충전 배분을 만들지 않는다(0 HP 원장 금지). 플랫폼 몫이 없으면 지금까지와 같다.
 @Service
 @RequiredArgsConstructor
 public class HoldCreateUseCase {
@@ -56,6 +65,8 @@ public class HoldCreateUseCase {
     private final PointChargeUsageRepository pointChargeUsageRepository;
     private final PointLedgerRepository pointLedgerRepository;
     private final HoldVoidRepository holdVoidRepository;
+    private final BudgetReservationRepository budgetReservationRepository;
+    private final PromotionHoldRepository promotionHoldRepository;
     private final LedgerRecordUseCase ledgerRecordUseCase;
 
     // 지갑 락 → 기존 원장·보류 확인 → 배분 계산 → 충전 건 락·원금 대조 → 보류 저장·FIFO 배분 → 원장 기록 순으로 처리한다.
@@ -64,7 +75,7 @@ public class HoldCreateUseCase {
     public HoldResult hold(PaymentHoldCommand command) {
         BillingCommandValidator.verify(command);
         return hold(command.userId(), command.referenceType(), command.referenceId(), command.amountHp(),
-                PointHoldType.MIXED);
+                PointHoldType.MIXED, command.promotions());
     }
 
     // Billing 내부 보류(#241): 환불은 충전 HP만(CHARGE_ONLY), 환전은 수익 HP만(REVENUE_ONLY) 보류한다. 나머지 규칙(충전 원금 FIFO 배분,
@@ -73,18 +84,27 @@ public class HoldCreateUseCase {
     public HoldResult hold(InternalHoldCommand command) {
         BillingCommandValidator.requirePositive(command.amountHp());
         return hold(command.userId(), command.referenceType(), command.referenceId(), command.amountHp(),
-                command.holdType());
+                command.holdType(), List.of());
     }
 
     private HoldResult hold(Long userId, BillingReferenceType referenceType, Long referenceId, long amountHp,
-            PointHoldType holdType) {
+            PointHoldType holdType, List<PaymentHoldPromotion> promotions) {
         // 금융 거래에서는 지갑을 자동 생성하지 않는다.
         Long walletId = walletRepository.findByUserId(userId)
                 .map(Wallet::getId)
                 .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
         // 같은 지갑의 보류·원장 기록은 이 락으로 직렬화되므로, 락 이후의 조회는 먼저 커밋된 보류와 원장을 본다.
         // 다른 지갑의 같은 참조 대상 보류는 이 락으로 막히지 않고, 보류 멱등키 UNIQUE가 최종으로 막는다.
-        Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
+        // 플랫폼 몫이 있으면 구매자 지갑과 프로모션 지갑을 함께 지갑 ID 오름차순으로 잠근다(다른 여러 지갑 작업과 같은 순서).
+        Long promotionWalletId = null;
+        Wallet wallet;
+        if (promotions.isEmpty()) {
+            wallet = ledgerRecordUseCase.lockWallet(walletId);
+        } else {
+            promotionWalletId = PromotionWalletQueryUseCase.promotionWallet(walletRepository).getId();
+            Map<Long, Wallet> locked = ledgerRecordUseCase.lockWallets(List.of(walletId, promotionWalletId));
+            wallet = locked.get(walletId);
+        }
 
         // 보류 무효화된 참조 대상에는 보류를 만들지 않는다(뒤늦게 도착한 보류 방지, #479). 무효화와 같은 지갑 락 아래에서 확인한다.
         // 무효화 전에 만든 보류의 재요청도 거절한다: 호출한 쪽은 이미 이 보류를 포기했다.
@@ -99,7 +119,7 @@ public class HoldCreateUseCase {
         boolean ledgerExists = !pointLedgerRepository.findAllByOperationKeyOrderByIdAsc(key).isEmpty();
         Optional<PointHold> existing = pointHoldRepository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
-            return replay(amountHp, holdType, wallet, existing.get());
+            return replay(amountHp, holdType, wallet, existing.get(), promotions);
         }
         // 보류 없이 원장만 있는 상태는 정상 재요청이 아니므로 새로 보류하지 않는다.
         if (ledgerExists) {
@@ -109,27 +129,74 @@ public class HoldCreateUseCase {
         // 확인하므로 둘 중 하나만 이긴다. 닫기 전에 만든 보류의 재요청은 위에서 처음 결과를 돌려준다(이미 생긴 보류를 실패로 알리지 않는다).
         wallet.requireOpen();
 
-        HoldSplit split = HoldSplit.of(holdType, wallet.getRevenueBalanceHp(), wallet.getChargeBalanceHp(), amountHp);
-        // 지갑 락을 잡은 뒤에 충전 건을 잠근다(지갑 → 충전 건 순서).
-        List<PointCharge> charges = pointChargeRepository.findAllocatableForUpdate(walletId,
-                ALLOCATABLE_CHARGE_STATUSES);
-        verifyChargePrincipal(wallet, charges);
+        // 지갑 락 다음에 예약 행을 쿠폰 ID 오름차순으로 잠그고 남은 예산을 확인한다(지갑 → 예약 행 순서).
+        List<BudgetReservation> reservations = lockReservations(promotions);
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        PointHold hold = save(PointHold.held(walletId, referenceType, referenceId, split.chargeHp(),
-                split.revenueHp(), key, now, holdType));
-        List<HoldResult.ChargeAllocation> allocations = allocate(hold, charges, split.chargeHp());
-        // record()는 시작할 때 flush하므로 위의 보류·배분·충전 원금 변경도 원장보다 먼저 같은 트랜잭션에서 DB에 반영된다.
-        // 지갑은 여기까지 바꾸지 않았으므로 record()의 refresh가 지울 변경이 없고, 잔액은 record()가 원장으로만 바꾼다.
-        ledgerRecordUseCase.record(new LedgerOperation(key, LedgerTransactionType.HOLD, referenceType,
-                referenceId, DESCRIPTION, now, ledgerEntries(walletId, split)));
-        return HoldResult.of(hold, allocations, false);
+        PointHold hold;
+        List<HoldResult.ChargeAllocation> allocations;
+        if (amountHp == 0) {
+            // 구매자 몫 0(플랫폼 몫만 있는 보류): 금액 0의 보류를 앵커로 둔다. 원장·충전 배분은 만들지 않는다
+            hold = save(PointHold.held(walletId, referenceType, referenceId, 0L, 0L, key, now, holdType));
+            allocations = List.of();
+        } else {
+            HoldSplit split = HoldSplit.of(holdType, wallet.getRevenueBalanceHp(), wallet.getChargeBalanceHp(),
+                    amountHp);
+            // 지갑 락을 잡은 뒤에 충전 건을 잠근다(지갑 → 충전 건 순서).
+            List<PointCharge> charges = pointChargeRepository.findAllocatableForUpdate(walletId,
+                    ALLOCATABLE_CHARGE_STATUSES);
+            verifyChargePrincipal(wallet, charges);
+
+            hold = save(PointHold.held(walletId, referenceType, referenceId, split.chargeHp(), split.revenueHp(), key,
+                    now, holdType));
+            allocations = allocate(hold, charges, split.chargeHp());
+            // record()는 시작할 때 flush하므로 위의 보류·배분·충전 원금 변경도 원장보다 먼저 같은 트랜잭션에서 DB에 반영된다.
+            // 지갑은 여기까지 바꾸지 않았으므로 record()의 refresh가 지울 변경이 없고, 잔액은 record()가 원장으로만 바꾼다.
+            ledgerRecordUseCase.record(new LedgerOperation(key, LedgerTransactionType.HOLD, referenceType,
+                    referenceId, DESCRIPTION, now, ledgerEntries(walletId, split)));
+        }
+        List<PromotionHold> promotionHolds = holdPromotions(hold, promotions, reservations, promotionWalletId, now);
+        return HoldResult.of(hold, allocations, promotionHolds, false);
+    }
+
+    // 플랫폼 몫마다(쿠폰 ID 오름차순) 그 쿠폰의 예산 예약을 쓰기 락으로 찾는다. 예약이 없으면 BUDGET_RESERVATION_NOT_FOUND,
+    // 남은 예산이 플랫폼 몫보다 적으면 PROMOTION_BUDGET_INSUFFICIENT로 아무것도 쓰기 전에 거절한다.
+    private List<BudgetReservation> lockReservations(List<PaymentHoldPromotion> promotions) {
+        List<BudgetReservation> reservations = new ArrayList<>();
+        for (PaymentHoldPromotion promotion : promotions) {
+            BudgetReservation reservation = budgetReservationRepository.findByCouponIdForUpdate(promotion.couponId())
+                    .orElseThrow(() -> new BillingException(BillingErrorCode.BUDGET_RESERVATION_NOT_FOUND));
+            if (reservation.getRemainingHp() < promotion.amountHp()) {
+                throw new BillingException(BillingErrorCode.PROMOTION_BUDGET_INSUFFICIENT);
+            }
+            reservations.add(reservation);
+        }
+        return reservations;
+    }
+
+    // 플랫폼 몫마다 예약의 남은 예산을 보류 중으로 옮기고 프로모션 보류와 원장(PROMOTION_HOLD: 예약 − / 보류 +)을 남긴다.
+    private List<PromotionHold> holdPromotions(PointHold hold, List<PaymentHoldPromotion> promotions,
+            List<BudgetReservation> reservations, Long promotionWalletId, Instant now) {
+        List<PromotionHold> promotionHolds = new ArrayList<>();
+        for (int i = 0; i < promotions.size(); i++) {
+            PaymentHoldPromotion promotion = promotions.get(i);
+            BudgetReservation reservation = reservations.get(i);
+            reservation.hold(promotion.amountHp());
+            PromotionHold promotionHold = promotionHoldRepository.saveAndFlush(PromotionHold.held(hold.getId(),
+                    reservation.getId(), promotion.couponId(), promotion.memberCouponId(), promotion.generation(),
+                    promotion.amountHp()));
+            ledgerRecordUseCase.record(PromotionLedgerOperations.promotionHold(promotionWalletId, promotionHold, now));
+            promotionHolds.add(promotionHold);
+        }
+        return promotionHolds;
     }
 
     // 이미 있는 보류가 같은 지갑·같은 금액이면 다시 바꾸지 않고 처음 결과를 돌려주고, 다르면 IDEMPOTENCY_KEY_CONFLICT로 거절한다.
     // 보류는 있는데 원장 줄 수나 충전 원금 배분 합계가 맞지 않으면 HOLD_STATE_INCONSISTENT로 거절한다.
     // 보류 종류가 다른 재요청(같은 참조 대상)도 다른 내용이므로 IDEMPOTENCY_KEY_CONFLICT다.
-    private HoldResult replay(long amountHp, PointHoldType holdType, Wallet wallet, PointHold hold) {
+    // 플랫폼 몫 목록(쿠폰·발급 쿠폰·세대·금액)이 처음과 다르면(없던 것이 생기거나 있던 것이 빠져도) IDEMPOTENCY_KEY_CONFLICT다.
+    private HoldResult replay(long amountHp, PointHoldType holdType, Wallet wallet, PointHold hold,
+            List<PaymentHoldPromotion> promotions) {
         if (!hold.getWalletId().equals(wallet.getId()) || hold.originalTotalHp() != amountHp
                 || hold.getHoldType() != holdType) {
             throw new BillingException(BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
@@ -140,10 +207,40 @@ public class HoldCreateUseCase {
         if (allocatedHp != hold.getOriginalChargeHp() || ledgerLines != expectedLedgerLines(hold)) {
             throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
         }
+        List<PromotionHold> promotionHolds = promotionHoldRepository.findAllByPointHoldIdOrderByCouponIdAsc(
+                hold.getId());
+        if (!samePromotions(promotionHolds, promotions)) {
+            throw new BillingException(BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+        // 프로모션 보류마다 원장(예약 −, 보류 +) 두 줄이 있어야 한다
+        for (PromotionHold promotionHold : promotionHolds) {
+            if (pointLedgerRepository.findAllByOperationKeyOrderByIdAsc(
+                    BillingKeys.promotionHold(promotionHold.getId())).size() != 2) {
+                throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+            }
+        }
         List<HoldResult.ChargeAllocation> allocations = usages.stream()
                 .map(usage -> new HoldResult.ChargeAllocation(usage.getChargeId(), usage.getAmountHp()))
                 .toList();
-        return HoldResult.of(hold, allocations, true);
+        return HoldResult.of(hold, allocations, promotionHolds, true);
+    }
+
+    // 저장된 프로모션 보류와 요청한 플랫폼 몫이 쿠폰 ID 오름차순으로 하나씩 같은지 확인한다.
+    private static boolean samePromotions(List<PromotionHold> stored, List<PaymentHoldPromotion> requested) {
+        if (stored.size() != requested.size()) {
+            return false;
+        }
+        for (int i = 0; i < stored.size(); i++) {
+            PromotionHold hold = stored.get(i);
+            PaymentHoldPromotion promotion = requested.get(i);
+            if (!hold.getCouponId().equals(promotion.couponId())
+                    || !hold.getMemberCouponId().equals(promotion.memberCouponId())
+                    || hold.getGeneration() != promotion.generation()
+                    || hold.getAmountHp() != promotion.amountHp()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // 배분 가능한 충전 건의 가용 원금 합계가 지갑의 충전 HP 가용 잔액과 다르면 CHARGE_PRINCIPAL_MISMATCH로 거절한다.

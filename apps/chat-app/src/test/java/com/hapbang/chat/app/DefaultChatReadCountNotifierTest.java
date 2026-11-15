@@ -23,6 +23,8 @@ import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 /**
  * 안 읽은 사람 수 갱신 묶음(설계 Q36): 로컬 구독이 있는 방만 표시, 방별로 합쳐 묶음마다 집계 한 번, 현재 세대·활성·채팅 가능한
  * 구독에만, 구독 회원의 가시 범위로 자르기, 0인 순번은 빼기, 같은 범위 구독은 payload 한 번, 참여 변경 버전으로 참여 캐시 다시 읽기,
@@ -38,7 +40,8 @@ class DefaultChatReadCountNotifierTest {
     private final ChatUnreadMemberCounter counter = mock(ChatUnreadMemberCounter.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels(), 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, 100, Duration.ofHours(1));
+    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+            Duration.ofHours(1));
     private final ChatReadCountNotifier notifier = new DefaultChatReadCountNotifier(subscriptions, cache, counter,
             sender, 100);
 

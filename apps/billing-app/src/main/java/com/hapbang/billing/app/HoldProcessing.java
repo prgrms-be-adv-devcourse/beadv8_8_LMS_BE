@@ -102,11 +102,18 @@ class HoldProcessing {
         long allocatedHp = usages.stream().mapToLong(PointChargeUsage::getAmountHp).sum();
         long processedChargeHp = details.stream().mapToLong(PointHoldDetail::getChargeAmountHp).sum();
         long processedRevenueHp = details.stream().mapToLong(PointHoldDetail::getRevenueAmountHp).sum();
+        boolean anchor = hold.originalTotalHp() == 0;
+        if (anchor && (hold.getReferenceType() != BillingReferenceType.LECTURE_ORDER_ITEM
+                || hold.getHoldType() != PointHoldType.MIXED || !usages.isEmpty() || !details.isEmpty()
+                || (hold.getStatus() != PointHoldStatus.HELD && hold.getStatus() != PointHoldStatus.PAID
+                    && hold.getStatus() != PointHoldStatus.RELEASED))) {
+            throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        }
         if (allocatedHp != hold.getOriginalChargeHp()
                 || processedChargeHp != hold.getOriginalChargeHp() - hold.getHeldChargeHp()
                 || processedRevenueHp != hold.getOriginalRevenueHp() - hold.getHeldRevenueHp()
-                || details.isEmpty() != (hold.getStatus() == PointHoldStatus.HELD)
-                || hold.isOpen() != (hold.heldTotalHp() > 0)) {
+                || (!anchor && (details.isEmpty() != (hold.getStatus() == PointHoldStatus.HELD)
+                || hold.isOpen() != (hold.heldTotalHp() > 0)))) {
             throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
         }
         ChargeUsageHistory history = ChargeUsageHistory.replay(

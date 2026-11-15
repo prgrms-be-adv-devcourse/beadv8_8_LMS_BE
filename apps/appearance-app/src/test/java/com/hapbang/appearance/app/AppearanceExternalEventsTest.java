@@ -22,20 +22,15 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 class AppearanceExternalEventsTest {
 
     @Test
-    @DisplayName("요청 도착·지원 도착·리뷰 공개(#513)·출연 변경(#713)은 내보낸다")
+    @DisplayName("요청 도착·지원 도착·리뷰 공개(#513)·출연 변경(#713)·출연 취소 요청 3종(#817)은 내보낸다")
     void externalized() {
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceRequestSentEvent.class)).isTrue();
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceApplicationSubmittedEvent.class)).isTrue();
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceReviewPublishedEvent.class)).isTrue();
         assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceChangedEvent.class)).isTrue();
-    }
-
-    @Test
-    @DisplayName("출연 취소 요청 이벤트 3종은 받는 곳이 없어 내보내지 않는다")
-    void cancelRequestEventsNotExternalized() {
-        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestedEvent.class)).isFalse();
-        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestAcceptedEvent.class)).isFalse();
-        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestRejectedEvent.class)).isFalse();
+        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestedEvent.class)).isTrue();
+        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestAcceptedEvent.class)).isTrue();
+        assertThat(AppearanceExternalEvents.isExternalizedType(AppearanceCancelRequestRejectedEvent.class)).isTrue();
     }
 
     @Test

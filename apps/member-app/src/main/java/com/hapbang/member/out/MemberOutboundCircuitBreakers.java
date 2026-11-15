@@ -17,13 +17,15 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.MeterBinder;
 
 /**
- * 회원이 다른 앱을 부르는 호출의 circuit breaker (#654, AGENTS.md 2장). shared Client는 고치지 않고 회원 쪽에서 감싼다
+ * 회원이 다른 앱과 Redis(프로필 사진 주소 캐시, #770)를 부르는 호출의 circuit breaker (#654, AGENTS.md 2장). shared Client는 고치지 않고 회원 쪽에서 감싼다
  * (지갑 OutboundCircuitBreakers #562와 같은 방식). 지갑 호출은 shared BillingApiClient에 이미 들어 있어 여기서 감싸지 않는다.
  * <ul>
  *     <li>회로는 상대 앱마다 하나다: {@code appearance}(받은 출연 리뷰 목록 #555 + 탈퇴 확인), {@code lecture}(탈퇴 확인).
  *     같은 앱의 호출을 하나로 묶어, 드물게 부르는 탈퇴 확인도 자주 부르는 리뷰 목록이 감지한 장애로 바로 실패한다.</li>
- *     <li>shared {@code *ApiCallException}의 {@code UNAVAILABLE}(5xx·시간 초과·연결 실패·읽을 수 없는 응답)만 실패로 센다.
+ *     <li>다른 앱 회로는 shared {@code *ApiCallException}의 {@code UNAVAILABLE}(5xx·시간 초과·연결 실패·읽을 수 없는 응답)만 실패로 센다.
  *     {@code REJECTED}(4xx: 내부 API 키·계약 불일치)는 상대가 정상으로 판단한 것이라 성공으로 센다.</li>
+ *     <li>{@code profile-image-url-cache}(Redis): 모든 예외(시간 초과·연결 실패·앱 종료 중 오류)를 실패로 센다. 느린 호출 기준만
+ *     따로 짧게 둔다(profileImageUrlCacheSlowCallDuration). 열리면 캐시 없이 서명한다.</li>
  *     <li>회로가 열려 있으면 호출하지 않고 {@link CallNotPermittedException}을 던진다(요청을 보내지 않은 것이 확실하다).
  *     열린 회로는 시간이 지나면 스스로 HALF_OPEN이 된다.</li>
  *     <li>지표: {@code resilience4j.circuitbreaker.*}({@code name} 태그)를 Prometheus로 낸다.</li>
@@ -36,7 +38,9 @@ public class MemberOutboundCircuitBreakers implements MeterBinder {
     /** 회로 이름 = 상대 앱 */
     public enum Target {
         APPEARANCE("appearance"),
-        LECTURE("lecture");
+        LECTURE("lecture"),
+        /** Redis 프로필 사진 주소 캐시 (#770) */
+        PROFILE_IMAGE_URL_CACHE("profile-image-url-cache");
 
         private final String circuitName;
 
@@ -52,21 +56,18 @@ public class MemberOutboundCircuitBreakers implements MeterBinder {
     private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     public MemberOutboundCircuitBreakers(MemberOutboundResilienceProperties properties) {
-        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
-                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
-                .slidingWindowSize(properties.slidingWindowSize())
-                .minimumNumberOfCalls(properties.minimumNumberOfCalls())
-                .failureRateThreshold(properties.failureRateThreshold())
+        CircuitBreakerConfig appConfig = baseConfig(properties)
                 .slowCallDurationThreshold(properties.slowCallDuration())
-                .slowCallRateThreshold(properties.slowCallRateThreshold())
-                .waitDurationInOpenState(properties.openDuration())
-                .permittedNumberOfCallsInHalfOpenState(properties.halfOpenCalls())
-                .automaticTransitionFromOpenToHalfOpenEnabled(true)
                 .recordException(MemberOutboundCircuitBreakers::unavailable)
                 .build();
-        this.circuitBreakerRegistry = CircuitBreakerRegistry.of(config);
+        // Redis 캐시는 어떤 예외든 실패로 센다(recordException 기본값)
+        CircuitBreakerConfig redisConfig = baseConfig(properties)
+                .slowCallDurationThreshold(properties.profileImageUrlCacheSlowCallDuration())
+                .build();
+        this.circuitBreakerRegistry = CircuitBreakerRegistry.of(appConfig);
         for (Target target : Target.values()) {
-            circuitBreakerRegistry.circuitBreaker(target.circuitName());
+            circuitBreakerRegistry.circuitBreaker(target.circuitName(),
+                    target == Target.PROFILE_IMAGE_URL_CACHE ? redisConfig : appConfig);
         }
     }
 
@@ -87,6 +88,19 @@ public class MemberOutboundCircuitBreakers implements MeterBinder {
     @Override
     public void bindTo(MeterRegistry registry) {
         TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(circuitBreakerRegistry).bindTo(registry);
+    }
+
+    /** 상대마다 같은 값: 창 크기·실패율·느린 호출 비율·열림 시간·HALF_OPEN 시험 수 */
+    private static CircuitBreakerConfig.Builder baseConfig(MemberOutboundResilienceProperties properties) {
+        return CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(properties.slidingWindowSize())
+                .minimumNumberOfCalls(properties.minimumNumberOfCalls())
+                .failureRateThreshold(properties.failureRateThreshold())
+                .slowCallRateThreshold(properties.slowCallRateThreshold())
+                .waitDurationInOpenState(properties.openDuration())
+                .permittedNumberOfCallsInHalfOpenState(properties.halfOpenCalls())
+                .automaticTransitionFromOpenToHalfOpenEnabled(true);
     }
 
     /** 상대가 처리하지 못했거나 결과를 모르는 실패인지(5xx·시간 초과·연결 실패·읽을 수 없는 응답) */

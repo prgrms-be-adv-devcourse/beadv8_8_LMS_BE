@@ -53,6 +53,20 @@ class LectureHpTaskTest {
         }
     }
 
+    @Test
+    void 구매자_0원_앵커의_보류_반환_무효화는_등록하고_지급_0원과_음수는_거절한다() {
+        for (LectureHpTaskPurpose purpose : LectureHpTaskPurpose.values()) {
+            if (purpose.getTaskType() == LectureHpTaskType.PAYOUT) {
+                assertThatThrownBy(() -> LectureHpTask.create(purpose, "zero", 3L, 31L, 7L, 9L, 0L, NOW))
+                        .isInstanceOf(IllegalArgumentException.class);
+            } else {
+                assertThat(LectureHpTask.create(purpose, "zero", 3L, 31L, 7L, null, 0L, NOW).getAmountHp()).isZero();
+            }
+        }
+        assertThatThrownBy(() -> LectureHpTask.create(LectureHpTaskPurpose.CANCEL, "negative", 3L, 31L, 7L,
+                null, -1L, NOW)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static LectureHpTask task(LectureHpTaskPurpose purpose) {
         Long receiverUserId = purpose.getTaskType() == LectureHpTaskType.PAYOUT ? 9L : null;
         return LectureHpTask.create(purpose, purpose + "-31", 3L, 31L, 7L, receiverUserId, 10_000L, NOW);

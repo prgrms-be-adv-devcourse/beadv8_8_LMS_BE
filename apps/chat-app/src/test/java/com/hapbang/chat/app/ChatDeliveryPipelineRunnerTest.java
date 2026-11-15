@@ -138,17 +138,27 @@ class ChatDeliveryPipelineRunnerTest extends ChatDeliveryTestSupport {
         assertThat(context.getBean(ChatDeliveryPipelineRunner.class).isRunning()).isTrue();
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch deliveryRelayBlocked = new CountDownLatch(1);
+        AtomicBoolean blockDeliveryEnqueue = new AtomicBoolean();
+        // 실행 중인 worker·relay의 큐 호출과 spy 설정이 겹치지 않게 멈춘 상태에서 설정하고, 적재 멈춤은 2)에서 켠다
+        runner.stop();
+        try {
+            doAnswer(invocation -> {
+                if (blockDeliveryEnqueue.get()) {
+                    deliveryRelayBlocked.countDown();
+                    release.await(30, TimeUnit.SECONDS);
+                }
+                return invocation.callRealMethod();
+            }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+        } finally {
+            runner.start();
+        }
         try {
             // 1) 전달 발행이 멈춘다: worker와, 일정 시간 뒤 그 항목을 회수한 전달 회수 작업이 모두 발행에서 멈춘다
             fanout.blockMessagesUntil(release);
             send("멈출 메시지");
             await().atMost(WAIT).until(() -> fanout.blockedMessagePublishes() >= 2);
             // 2) 전달 적재도 멈춘다: 다음 전달 relay가 XADD에서 멈춘다
-            doAnswer(invocation -> {
-                deliveryRelayBlocked.countDown();
-                release.await(30, TimeUnit.SECONDS);
-                return invocation.callRealMethod();
-            }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+            blockDeliveryEnqueue.set(true);
             send("적재가 멈출 메시지");
             assertThat(deliveryRelayBlocked.await(5, TimeUnit.SECONDS)).isTrue();
 

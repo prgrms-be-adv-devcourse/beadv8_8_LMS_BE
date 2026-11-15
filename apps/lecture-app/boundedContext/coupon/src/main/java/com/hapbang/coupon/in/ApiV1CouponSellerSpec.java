@@ -1,15 +1,28 @@
 package com.hapbang.coupon.in;
 
+import java.util.List;
+
 import com.hapbang.coupon.app.dto.CouponView;
+import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.global.response.RsData;
 import com.hapbang.coupon.in.dto.CouponCreateRequest;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 판매자 쿠폰 API Swagger 명세. 매핑은 {@link ApiV1CouponSellerController} */
-@Tag(name = "판매자 쿠폰", description = "인증 인플루언서의 자기 강의 쿠폰 신청·심사 요청·중단")
+@Tag(name = "판매자 쿠폰", description = "인증 인플루언서의 자기 강의 쿠폰 신청·심사 요청·중단·조회")
 public interface ApiV1CouponSellerSpec {
+
+    @Operation(summary = "신청한 쿠폰 목록", description = "VERIFIED_INFLUENCER. 본인이 신청한 판매자 쿠폰. 최신순, 최대 100건.")
+    RsData<List<CouponView>> myCoupons(Long sellerId,
+                                       @Parameter(description = "쿠폰 상태(DRAFT·REVIEW·REJECTED·OPEN·SUSPENDED·CLOSED). 없으면 전체")
+                                       CouponStatus status);
+
+    @Operation(summary = "신청한 쿠폰 상세",
+            description = "VERIFIED_INFLUENCER. 본인이 신청한 쿠폰이 아니면 403 NOT_COUPON_OWNER, 없으면 404 COUPON_NOT_FOUND.")
+    RsData<CouponView> myCoupon(Long sellerId, Long couponId);
 
     @Operation(summary = "판매자 쿠폰 신청",
             description = "VERIFIED_INFLUENCER. 자기 강의(targetType LECTURE)만. 강의 가격을 조회해 snapshot하고 DRAFT로 만든다(201). "

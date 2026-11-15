@@ -17,6 +17,10 @@ public record OrderItemResponse(
         String lectureTitle,
         @Schema(description = "주문 시점 가격")
         long priceHp,
+        @Schema(description = "쿠폰 할인 합. 쿠폰을 쓰지 않았으면 0")
+        long discountHp,
+        @Schema(description = "구매자가 낸 HP = 가격 − 할인. 구매 취소·반환하면 이 금액이 돌아온다")
+        long buyerAmountHp,
         OrderItemStatus status,
         @Schema(nullable = true, description = "처리 중 항목에만 있다. 결제 단계는 주문의 처리 상태와 같고, "
                 + "구매 취소·반환·지급 처리 중은 그 항목의 작업으로 정한다 (D69, D70)")
@@ -46,7 +50,7 @@ public record OrderItemResponse(
 
     public static OrderItemResponse of(OrderItem item, ProcessingStatus processingStatus) {
         return new OrderItemResponse(item.getId(), item.getLectureId(), item.getLectureTitleSnapshot(),
-                item.getPriceHp(), item.getStatus(), processingStatus, item.getPurchasedAt(), item.getConfirmedAt(),
+                item.getPriceHp(), item.getDiscountHp(), item.buyerAmountHp(), item.getStatus(), processingStatus, item.getPurchasedAt(), item.getConfirmedAt(),
                 item.getConfirmationType(), item.getAutoConfirmAt(), item.getPayoutScheduledAt(),
                 item.getCanceledAt(), item.getReturnedAt(), item.getObjectionStatus());
     }

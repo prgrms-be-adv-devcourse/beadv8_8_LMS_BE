@@ -3,8 +3,9 @@ package com.hapbang.shared.coupon.event;
 import java.time.Instant;
 
 /**
- * 선착순 발급 접수 한 건. 쿠폰 모듈이 Redis 발급 Stream에 싣고, 이후 Kafka 토픽 {@code coupon.events.v1}(key = couponId)으로도
- * 같은 모양을 쓴다. 접수는 완료가 아니며, 소비자가 DB에 발급을 확정한다.
+ * 선착순 발급 접수 한 건. 쿠폰 모듈이 Redis 접수 직후, 그리고 DB에 확정되지 않은 접수를 재발행할 때 Kafka 토픽
+ * {@link CouponEventTopic#NAME}(key = couponId)으로 보낸다. 같은 요청은 같은 ID·같은 값으로 다시 보낸다. 접수는 완료가 아니며,
+ * 소비자가 DB에 발급을 확정한다.
  *
  * @param issueRequestId 발급 요청 ID(클라이언트가 정한 멱등 키)
  * @param couponId       쿠폰 정책 ID

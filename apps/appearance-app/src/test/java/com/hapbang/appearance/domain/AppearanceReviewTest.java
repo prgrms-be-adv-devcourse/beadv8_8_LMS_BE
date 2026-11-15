@@ -15,9 +15,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
-import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
-import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
-import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
 /**
  * 출연 리뷰 규칙 (#512, ISSUE.md APR-45): 쓸 수 있는 출연(당사자·확인됨·작성 기한), 별점·본문, 받는 사람, 블라인드 공개.
@@ -265,50 +262,8 @@ class AppearanceReviewTest {
     }
 
     @Nested
-    @DisplayName("공개 이벤트 (#513)")
-    class PublishedEvent {
-
-        @Test
-        @DisplayName("공개된 리뷰는 본문 없이 리뷰·출연·쓴 사람·받은 사람·역할·별점·공개 시각을 담는다")
-        void published() {
-            AppearanceReview review = AppearanceReview.write(confirmed(), GUEST, 3, "본문은 이벤트에 없음");
-            ReflectionTestUtils.setField(review, "id", 77L);
-            review.publish(CONFIRMED_AT.plusDays(1));
-
-            assertThat(review.toPublishedEvent()).isEqualTo(new AppearanceReviewPublishedEvent(77L, 30L, GUEST, HOST,
-                    AppearanceParticipantRole.HOST, 3, CONFIRMED_AT.plusDays(1)));
-        }
-
-        @Test
-        @DisplayName("공개 전 리뷰로 만들면 IllegalStateException")
-        void notPublished() {
-            AppearanceReview review = AppearanceReview.write(confirmed(), HOST, 5, null);
-
-            assertThatThrownBy(review::toPublishedEvent).isInstanceOf(IllegalStateException.class);
-        }
-
-        @Test
-        @DisplayName("동기화 사본(#713)은 리뷰·출연·받은 사람·별점만 담고, 공개 이벤트의 같은 이름 필드와 값이 같다")
-        void syncDto() {
-            AppearanceReview review = AppearanceReview.write(confirmed(), GUEST, 3, "본문은 사본에 없음");
-            ReflectionTestUtils.setField(review, "id", 77L);
-            review.publish(CONFIRMED_AT.plusDays(1));
-
-            AppearanceReviewSyncDto sync = review.toSyncDto();
-            AppearanceReviewPublishedEvent published = review.toPublishedEvent();
-
-            assertThat(sync).isEqualTo(new AppearanceReviewSyncDto(77L, 30L, HOST, 3));
-            assertThat(sync).isEqualTo(new AppearanceReviewSyncDto(published.reviewId(), published.appearanceId(),
-                    published.revieweeUserId(), published.rating()));
-        }
-
-        @Test
-        @DisplayName("공개 전 리뷰로 동기화 사본을 만들면 IllegalStateException")
-        void syncDtoNotPublished() {
-            AppearanceReview review = AppearanceReview.write(confirmed(), HOST, 5, null);
-
-            assertThatThrownBy(review::toSyncDto).isInstanceOf(IllegalStateException.class);
-        }
+    @DisplayName("공개 시각 (#513)")
+    class PublishedAt {
 
         @Test
         @DisplayName("공개 시각은 DB 컬럼과 같은 마이크로초까지만 둔다")

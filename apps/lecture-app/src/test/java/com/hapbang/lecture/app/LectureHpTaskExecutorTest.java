@@ -28,6 +28,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureHpAttemptResult;
+import com.hapbang.lecture.domain.OrderItemCoupon;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
+import com.hapbang.shared.billing.dto.PromotionBudgetReserveCommand;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskAttempt;
 import com.hapbang.lecture.domain.LectureHpTaskOutcome;
@@ -35,20 +40,17 @@ import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fake.RecordingCancelResultHandler;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingApiClient;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
 import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -76,7 +78,10 @@ class LectureHpTaskExecutorTest {
     private LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
+
+    @Autowired
+    private OrderItemCouponRepository orderItemCouponRepository;
 
     // 실행기만 확인하도록 운영 CANCEL 처리기 자리에 결과만 남기는 처리기를 넣는다
     @TestBean(methodName = RecordingCancelResultHandler.FACTORY)
@@ -101,6 +106,10 @@ class LectureHpTaskExecutorTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(7L, 1_000_000L, 0L);
+        seedHold(31L, AMOUNT);
+        seedHold(32L, AMOUNT);
+        billing.clearCalls();
         cancelHandler().reset();
     }
 
@@ -183,8 +192,8 @@ class LectureHpTaskExecutorTest {
         Long itemId = order.getItems().getFirst().getId();
         Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
                 order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        billing.reset();
+        billing.wallet(7L, 0L, 0L);
 
         executor.execute(id);
 
@@ -207,8 +216,9 @@ class LectureHpTaskExecutorTest {
         Long itemId = order.getItems().getFirst().getId();
         Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
                 order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
-                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+        billing.reset();
+        billing.wallet(7L, 0L, 0L);
+        billing.closeWallet(7L);
 
         executor.execute(id);
 
@@ -225,8 +235,9 @@ class LectureHpTaskExecutorTest {
     @Test
     void 불변식_위반과_결과_금액_불일치는_바로_DEAD다() {
         Long invariant = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_ALREADY_CLOSED,
-                "남은 보류 HP가 없어 더 처리할 수 없습니다.", 409, "HOLD_ALREADY_CLOSED"));
+        assertThat(billing.client().release(ReleaseCommand.full(7L, BillingReferenceType.LECTURE_ORDER_ITEM,
+                31L, "PREEXISTING-RETURN-31"))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
 
         executor.execute(invariant);
 
@@ -238,7 +249,9 @@ class LectureHpTaskExecutorTest {
         });
 
         Long mismatch = register(task(LectureHpTaskPurpose.CANCEL, "LECTURE-CANCEL-32", AMOUNT));
-        billing.setSettledHp(9_000L);
+        assertThat(billing.client().release(ReleaseCommand.partial(7L, BillingReferenceType.LECTURE_ORDER_ITEM,
+                32L, "PREEXISTING-RETURN-32", 1_000L))).isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
         executor.execute(mismatch);
 
         assertThat(find(mismatch).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
@@ -249,9 +262,7 @@ class LectureHpTaskExecutorTest {
     @Test
     void 결과_불명이면_다음_시도_시각을_정하고_PENDING으로_돌린다() {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 500, "HOLD_STATE_INCONSISTENT");
-        });
+        billing.dropResponses(1);
         LocalDateTime before = LocalDateTime.now(clock);
 
         executor.execute(id);
@@ -265,7 +276,7 @@ class LectureHpTaskExecutorTest {
         assertThat(task.getClaimToken()).isNull();
         assertThat(attempts(id)).singleElement().satisfies(attempt -> {
             assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.UNKNOWN_RESULT);
-            assertThat(attempt.getRawErrorCode()).isEqualTo("HOLD_STATE_INCONSISTENT");
+            assertThat(attempt.getRawErrorCode()).isNull();
         });
         assertThat(cancelHandler().events()).isEmpty();
     }
@@ -274,9 +285,7 @@ class LectureHpTaskExecutorTest {
     void 선점한_뒤_회로가_막혀_CIRCUIT_OPEN이면_한_번으로_센다() {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
         // 선점 전 확인 때는 닫혀 있었지만, 호출할 때는 시험 호출 몫이 없어 Client가 보내지 않았다 (D79 드문 예외)
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.RETRYABLE, 0, BillingApiClient.CIRCUIT_OPEN);
-        });
+        billing.duringNextCall(billing::openCircuit);
 
         executor.execute(id);
 
@@ -292,7 +301,7 @@ class LectureHpTaskExecutorTest {
     @Test
     void 회로가_열려_있으면_선점하지_않아_시도_횟수와_시도_행이_그대로다() {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
-        billing.setCircuitOpen(true);
+        billing.openCircuit();
 
         for (int i = 0; i < 20; i++) {
             executor.execute(id);
@@ -305,7 +314,7 @@ class LectureHpTaskExecutorTest {
         assertThat(attempts(id)).isEmpty();
         assertThat(billing.calls()).isEmpty();
 
-        billing.setCircuitOpen(false);
+        billing.closeCircuit();
         executor.execute(id);
 
         assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
@@ -316,12 +325,16 @@ class LectureHpTaskExecutorTest {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
         double deadBefore = deadCount();
 
-        for (int i = 0; i < 10; i++) {
-            billing.respond(command -> {
-                throw BillingCallExceptions.of(BillingCallFailureKind.RETRYABLE, 0, null);
-            });
-            executor.execute(id);
-            makeDue(id);
+        billing.disconnect();
+        try {
+            for (int i = 0; i < 10; i++) {
+                // 실제 통신 장애를 열 번 보내되 각 작업 시도 전 실제 회로를 닫는다.
+                billing.closeCircuit();
+                executor.execute(id);
+                makeDue(id);
+            }
+        } finally {
+            billing.reconnect();
         }
 
         LectureHpTask task = find(id);
@@ -374,7 +387,7 @@ class LectureHpTaskExecutorTest {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
         AtomicBoolean first = new AtomicBoolean(true);
         // 첫 호출이 응답하기 전에 선점이 만료되고, 다른 실행이 다시 선점해 끝낸다
-        billing.setDuringCall(() -> {
+        billing.duringNextCall(() -> {
             if (first.getAndSet(false)) {
                 makeDue(id);
                 executor.execute(id);
@@ -413,7 +426,7 @@ class LectureHpTaskExecutorTest {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
         CountDownLatch calling = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        billing.setDuringCall(() -> {
+        billing.duringNextCall(() -> {
             calling.countDown();
             await(release);
         });
@@ -434,8 +447,75 @@ class LectureHpTaskExecutorTest {
         assertThat(attempts(id)).hasSize(1);
     }
 
+    @Test
+    void 구매자_0원도_플랫폼_보류를_보내고_쿠폰_예약_세대를_대조한다() {
+        LectureOrder order = platformOrder(PRICE_HP);
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "anchor-hold-" + itemId,
+                order.getId(), itemId, 7L, null, 0L, LocalDateTime.now(clock)));
+
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+        assertThat(billing.calls()).singleElement().satisfies(call -> {
+            assertThat(call.transactionActive()).isFalse();
+            assertThat((HoldCommand) call.command()).extracting(HoldCommand::amountHp).isEqualTo(0L);
+            assertThat(((HoldCommand) call.command()).promotions())
+                    .containsExactly(new HoldPromotionDto(42, 901, 3, PRICE_HP));
+        });
+    }
+
+    @Test
+    void 두_재원이_모두_0인_작업은_지갑을_부르지_않고_불변식_오류로_멈춘다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, "zero", 0));
+        executor.execute(id);
+        assertThat(billing.calls()).isEmpty();
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(find(id).getLastErrorCode()).isEqualTo("PROMOTION_PAYLOAD_INVALID");
+    }
+
+    @Test
+    void 반환_총액이_맞아도_플랫폼_복구의_사용_세대가_다르면_완료하지_않는다() {
+        LectureOrder order = platformOrder(1_000);
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL, "platform-cancel-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP - 1_000, LocalDateTime.now(clock)));
+        // billing에만 이전 예약 세대가 보류되어 실제 반환도 그 세대로 돌아온다.
+        assertThat(billing.client().hold(new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
+                PRICE_HP - 1_000L, List.of(new HoldPromotionDto(42L, 901L, 2L, 1_000L)))))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
+
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(find(id).getLastErrorCode()).isEqualTo(LectureHpTaskExecutor.AMOUNT_MISMATCH);
+    }
+
+    private LectureOrder platformOrder(long platformHp) {
+        billing.promotionWallet(PRICE_HP);
+        assertThat(billing.client().reserveBudget(new PromotionBudgetReserveCommand("RESERVE-42", 42L, 1, PRICE_HP)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
+        LectureOrder order = LectureOrderFixture.pending(7L, List.of(withId(onSaleLecture(), 10L)),
+                LocalDateTime.now(clock));
+        order.applyItemDiscount(10L, platformHp, platformHp, 0L);
+        LectureOrder saved = lectureOrderRepository.save(order);
+        OrderItemCoupon coupon = OrderItemCoupon.create(saved.getItems().getFirst().getId(), 901L, 42L, "PLATFORM",
+                0, PRICE_HP, platformHp, platformHp, 0, 2, 1);
+        coupon.recordReserved(3L);
+        orderItemCouponRepository.save(coupon);
+        return saved;
+    }
+
+    private void seedHold(long itemId, long amountHp) {
+        assertThat(billing.client().hold(new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
+                amountHp))).isInstanceOf(BillingCallResult.Succeeded.class);
+    }
+
     private LectureHpTask task(LectureHpTaskPurpose purpose, String requestId, long amount) {
-        return LectureHpTask.create(purpose, requestId, 3L, 31L, 7L, null, amount, LocalDateTime.now(clock));
+        return LectureHpTask.create(purpose, requestId, 3L, requestId.endsWith("-32") ? 32L : 31L, 7L, null,
+                amount, LocalDateTime.now(clock));
     }
 
     private static List<String> lines(CapturedOutput output, String text) {

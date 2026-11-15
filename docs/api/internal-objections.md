@@ -61,12 +61,13 @@
 | --- | --- | --- | --- |
 | `LectureObjectionResolutionRequestedEvent` | `customersupport.events.v1` · `inquiry:<문의 ID>` | `commandId`, `inquiryId`, `orderItemId`, `accepted`, `adminUserId` | 강의 `lecture-app.objection-command` |
 | `LectureObjectionWithdrawalRequestedEvent` | `customersupport.events.v1` · `inquiry:<문의 ID>` | `commandId`, `inquiryId`, `orderItemId`, `buyerUserId` | 강의 `lecture-app.objection-command` |
-| `LectureObjectionResolvedEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `commandId`, `inquiryId`, `orderItemId`, `accepted` | 고객센터 `customer-support-app.objection-result` |
-| `LectureObjectionWithdrawnEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `commandId`, `inquiryId`, `orderItemId` | 고객센터 |
+| `LectureObjectionResolvedEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `commandId`, `inquiryId`, `orderItemId`, `accepted`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `resolvedAt` | 고객센터 `customer-support-app.objection-result`, 알림 |
+| `LectureObjectionWithdrawnEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `commandId`, `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `withdrawnAt` | 고객센터, 알림 |
 | `LectureObjectionRequestRefusedEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `commandId`, `inquiryId`, `orderItemId`, `commandType`(`RESOLVE`·`WITHDRAW`), `failureCode` | 고객센터 |
-| `LectureObjectionReturnCompletedEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `inquiryId`, `orderItemId` | 고객센터 |
-| `LectureObjectionReturnActionRequiredEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `inquiryId`, `orderItemId` | 고객센터 |
+| `LectureObjectionReturnCompletedEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `returnedAt` | 고객센터, 알림 |
+| `LectureObjectionReturnActionRequiredEvent` | `lecture.events.v1` · `order-item:<주문 항목 ID>` | `inquiryId`, `orderItemId`, `buyerUserId`, `sellerUserId`, `lectureTitle`, `returnDelaySequence`, `occurredAt` | 고객센터, 알림 |
 
+- 결과 이벤트 4종의 `buyerUserId`·`sellerUserId`·`lectureTitle`·사건 시각·`returnDelaySequence`는 알림센터용이다(#818, 강의 D83). 기존 필드 뒤에 붙였고 고객센터는 쓰지 않는다. 강의 제목은 구매할 때의 제목, 사건 시각은 KST offset(`+09:00`)이다. 사건 시각은 판단이 항목의 판단 시각, 철회가 철회 명령을 처리한 시각, 반환 완료가 항목의 반환 시각, 반환 지연이 반환 작업을 DEAD로 바꾼 시각이다. 반환 지연 회차는 항목마다 반환이 멈출 때마다 1부터 1씩 늘고 항목에 저장된다. #818 배포 전에 저장된 발행 기록을 다시 보낸 메시지에는 새 필드가 없다(받으면 `null`).
 - 판단·철회 거절 사유(`failureCode`): `OBJECTION_NOT_BUYER`(철회), `OBJECTION_NOT_FILED`, `OBJECTION_INQUIRY_MISMATCH`, `OBJECTION_COMMAND_CONFLICT`.
 - 인정 결과는 HP 반환 완료가 아니다. 인정하면 항목은 반환 처리 중이고, 반환은 강의 HP 작업 배치가 한다. 반환이 끝나면 `ReturnCompletedEvent`, 자동 처리가 멈추면 `ReturnActionRequiredEvent`가 나간다. 관리자가 반환 작업을 다시 시도해 또 멈추면 다시 나간다.
 - 같은 key라도 재발행 때 순서가 바뀔 수 있다. 고객센터는 처리 중인 명령(명령 ID가 같음)의 결과만 기록하고, HP 반환 상태는 `PENDING < ACTION_REQUIRED < COMPLETED` 순서로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.

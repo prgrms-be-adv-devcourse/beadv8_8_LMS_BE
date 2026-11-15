@@ -11,9 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
-import com.hapbang.shared.appearance.domain.AppearanceResult;
-import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
-import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 
 class AppearanceTest {
 
@@ -60,40 +57,5 @@ class AppearanceTest {
         AppearanceRequest request = requested();
         request.accept(2L, 0L, ACCEPTED_AT);
         return Appearance.establishFrom(request, ACCEPTED_AT);
-    }
-
-    @Test
-    @DisplayName("동기화 사본(#713): ID·호스트·게스트·공개 결과·방송 예정 일시·version. 변경 이벤트도 같은 값을 감싼다")
-    void syncDto() {
-        Appearance appearance = established();
-        ReflectionTestUtils.setField(appearance, "id", 30L);
-        ReflectionTestUtils.setField(appearance, "version", 3L);
-
-        AppearanceSyncDto expected = new AppearanceSyncDto(30L, 1L, 2L, AppearanceResult.SCHEDULED,
-                appearance.getScheduledAt(), 3L);
-        assertThat(appearance.toSyncDto()).isEqualTo(expected);
-        assertThat(appearance.toChangedEvent()).isEqualTo(new AppearanceChangedEvent(expected));
-    }
-
-    @Test
-    @DisplayName("동기화 사본의 방송 예정 일시는 DB 컬럼과 같은 마이크로초까지만 둔다 (이벤트 값 = 내부 API 값)")
-    void syncDtoScheduledAtMicros() {
-        Appearance appearance = established();
-        ReflectionTestUtils.setField(appearance, "id", 30L);
-        ReflectionTestUtils.setField(appearance, "version", 0L);
-        LocalDateTime scheduledAt = appearance.getScheduledAt();
-        ReflectionTestUtils.setField(appearance, "scheduledAt", scheduledAt.plusNanos(1_234_567));
-
-        assertThat(appearance.toSyncDto().scheduledAt()).isEqualTo(scheduledAt.plusNanos(1_234_000));
-    }
-
-    @Test
-    @DisplayName("DB에 반영되기 전(ID·version 없음)에는 동기화 사본을 만들 수 없다 (flush 전에 만든 이벤트를 막는다)")
-    void syncDtoNeedsFlush() {
-        Appearance appearance = established();
-
-        assertThatThrownBy(appearance::toSyncDto).isInstanceOf(IllegalStateException.class);
-        ReflectionTestUtils.setField(appearance, "id", 30L);
-        assertThatThrownBy(appearance::toChangedEvent).isInstanceOf(IllegalStateException.class);
     }
 }

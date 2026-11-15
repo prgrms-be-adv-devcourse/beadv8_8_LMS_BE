@@ -90,7 +90,7 @@ public class AppearanceRequestHoldUseCase {
         if (changed) {
             // 보내기와 보류 재확인 배치가 같은 결과를 함께 반영해도 요청 도착은 한 번만 알린다.
             // 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener)
-            eventPublisher.publishEvent(new AppearanceRequestSentEvent(request.toDto()));
+            eventPublisher.publishEvent(new AppearanceRequestSentEvent(AppearanceContractMapper.toRequestDto(request)));
         }
         return AppearanceRequestResDto.from(request);
     }

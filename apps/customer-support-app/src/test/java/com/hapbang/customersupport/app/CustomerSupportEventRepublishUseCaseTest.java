@@ -18,9 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.IncompleteEventPublications;
 
+import com.hapbang.customersupport.fixture.LectureObjectionResults;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 
 /** 고객센터 이벤트 Kafka 재발행 배치가 고르는 조건 (#279). 미완료 기록은 Modulith처럼 발행 시각 순으로 조건에 넘긴다 */
 class CustomerSupportEventRepublishUseCaseTest {
@@ -37,7 +37,7 @@ class CustomerSupportEventRepublishUseCaseTest {
         EventPublication first = publication(new LectureObjectionResolutionRequestedEvent("RESOLVE:1", 1L, 10L, true,
                 9L), 10);
         // 고객센터가 받기만 하는 강의 이벤트는 다시 보내지 않는다
-        EventPublication received = publication(new LectureObjectionReturnCompletedEvent(1L, 10L), 9);
+        EventPublication received = publication(LectureObjectionResults.returnCompleted(1L, 10L), 9);
         EventPublication second = publication(new LectureObjectionWithdrawalRequestedEvent("WITHDRAW:2", 2L, 20L, 1L), 8);
         EventPublication overLimit = publication(new LectureObjectionWithdrawalRequestedEvent("WITHDRAW:3", 3L, 30L, 1L),
                 7);

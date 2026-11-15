@@ -12,9 +12,25 @@ final class BillingCommandValidator {
     private BillingCommandValidator() {
     }
 
-    // 보류 금액이 0 이하이면 INVALID_POINT_AMOUNT로 거절한다.
+    // 보류 금액이 0 이하이면 INVALID_POINT_AMOUNT로 거절한다. 플랫폼 몫이 있으면 구매자 몫 0은 받고(0원 앵커 보류), 음수와
+    // 0 이하 플랫폼 몫, 합계 long 초과를 INVALID_POINT_AMOUNT로 거절한다. 플랫폼 몫이 하나라도 있으면 합계는 0보다 크다.
     static void verify(PaymentHoldCommand command) {
-        requirePositive(command.amountHp());
+        if (!command.hasPromotions()) {
+            requirePositive(command.amountHp());
+            return;
+        }
+        if (command.amountHp() < 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        long totalHp = command.amountHp();
+        for (PaymentHoldPromotion promotion : command.promotions()) {
+            requirePositive(promotion.amountHp());
+            try {
+                totalHp = Math.addExact(totalHp, promotion.amountHp());
+            } catch (ArithmeticException exception) {
+                throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT, exception);
+            }
+        }
     }
 
     // 부분 반환 금액이 0 이하이면 INVALID_POINT_AMOUNT로 거절한다. 금액이 없으면 전체 반환이다.

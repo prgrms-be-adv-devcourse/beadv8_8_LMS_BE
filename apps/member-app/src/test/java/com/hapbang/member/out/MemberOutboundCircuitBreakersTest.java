@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,7 @@ import com.hapbang.shared.lecture.out.LectureApiCallException;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 
 /**
  * 회원의 다른 앱 호출 circuit breaker (#654). 장애(UNAVAILABLE)만 실패로 세고, 최근 10번 이상 중 절반 넘게 실패하면 열려
@@ -60,6 +62,50 @@ class MemberOutboundCircuitBreakersTest {
         circuitBreakers.circuitBreaker(MemberOutboundCircuitBreakers.Target.APPEARANCE).transitionToOpenState();
 
         assertThat(circuitBreakers.call(MemberOutboundCircuitBreakers.Target.LECTURE, () -> "ok")).isEqualTo("ok");
+    }
+
+    @Test
+    @DisplayName("Redis 사진 캐시 회로는 어떤 예외든 실패로 세어 10번이면 열린다 (#770)")
+    void profileImageUrlCacheCountsAnyException() {
+        IllegalStateException stopped = new IllegalStateException("LettuceConnectionFactory is STOPPED");
+        for (int i = 0; i < 10; i++) {
+            assertThatThrownBy(() -> circuitBreakers.call(MemberOutboundCircuitBreakers.Target.PROFILE_IMAGE_URL_CACHE, () -> {
+                throw stopped;
+            })).isSameAs(stopped);
+        }
+
+        assertThat(state(MemberOutboundCircuitBreakers.Target.PROFILE_IMAGE_URL_CACHE)).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(state(MemberOutboundCircuitBreakers.Target.APPEARANCE)).isEqualTo(CircuitBreaker.State.CLOSED);
+    }
+
+    @Test
+    @DisplayName("다른 앱 회로는 앱 호출 오류가 아닌 예외를 실패로 세지 않는다 (Redis 회로와 기준이 다르다)")
+    void appCircuitIgnoresOtherExceptions() {
+        IllegalStateException other = new IllegalStateException("other");
+        for (int i = 0; i < 20; i++) {
+            assertThatThrownBy(() -> circuitBreakers.call(MemberOutboundCircuitBreakers.Target.LECTURE, () -> {
+                throw other;
+            })).isSameAs(other);
+        }
+
+        assertThat(state(MemberOutboundCircuitBreakers.Target.LECTURE)).isEqualTo(CircuitBreaker.State.CLOSED);
+    }
+
+    @Test
+    @DisplayName("느린 호출 기준은 Redis 사진 캐시 0.5초, 다른 앱 4초이고, 나머지 값은 같다")
+    void slowCallDurationPerTarget() {
+        CircuitBreakerConfig redis = config(MemberOutboundCircuitBreakers.Target.PROFILE_IMAGE_URL_CACHE);
+        CircuitBreakerConfig appearance = config(MemberOutboundCircuitBreakers.Target.APPEARANCE);
+
+        assertThat(redis.getSlowCallDurationThreshold()).isEqualTo(Duration.ofMillis(500));
+        assertThat(appearance.getSlowCallDurationThreshold()).isEqualTo(Duration.ofSeconds(4));
+        assertThat(redis.getSlidingWindowSize()).isEqualTo(appearance.getSlidingWindowSize());
+        assertThat(redis.getMinimumNumberOfCalls()).isEqualTo(appearance.getMinimumNumberOfCalls());
+        assertThat(redis.getFailureRateThreshold()).isEqualTo(appearance.getFailureRateThreshold());
+    }
+
+    private CircuitBreakerConfig config(MemberOutboundCircuitBreakers.Target target) {
+        return circuitBreakers.circuitBreaker(target).getCircuitBreakerConfig();
     }
 
     private CircuitBreaker.State state(MemberOutboundCircuitBreakers.Target target) {

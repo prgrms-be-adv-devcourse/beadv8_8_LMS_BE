@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Arrays;
+import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,6 +46,35 @@ class BillingCommandsTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> penalty(referenceType, "C1", 7_000L, 3_000L))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("보류 요청의 플랫폼 몫은 없으면 빈 목록이고, 같은 쿠폰이 두 번 있거나 쿠폰·발급 쿠폰 ID가 양수가 아니거나 세대가 음수면 거절한다")
+    void holdPromotions() {
+        assertThat(new HoldCommand(1L, ITEM, 1L, 1_000L).promotions()).isEmpty();
+        assertThat(new HoldCommand(1L, ITEM, 1L, 1_000L, null).promotions()).isEmpty();
+        assertThat(new HoldCommand(1L, ITEM, 1L, 0L, List.of(new HoldPromotionDto(42L, 901L, 0L, 0L))).promotions())
+                .containsExactly(new HoldPromotionDto(42L, 901L, 0L, 0L));
+        assertThatThrownBy(() -> new HoldCommand(1L, ITEM, 1L, 1_000L,
+                List.of(new HoldPromotionDto(42L, 901L, 0L, 1L), new HoldPromotionDto(42L, 902L, 0L, 1L))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HoldPromotionDto(0L, 901L, 0L, 1L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HoldPromotionDto(42L, 0L, 0L, 1L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HoldPromotionDto(42L, 901L, -1L, 1L)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new HoldResultDto(ITEM, 1L, 1_000L, false).promotions()).isEmpty();
+        assertThat(new HoldResultDto(ITEM, 1L, 1_000L, false).promotionHeldHp()).isZero();
+    }
+
+    @Test
+    @DisplayName("출연 요청·모집에는 플랫폼 쿠폰 몫을 붙일 수 없고 null 항목도 거절한다")
+    void promotionOnlyBelongsToLectureOrderItem() {
+        HoldPromotionDto promotion = new HoldPromotionDto(42L, 901L, 0L, 1L);
+        for (BillingReferenceType type : List.of(REQUEST, BillingReferenceType.APPEARANCE_RECRUIT)) {
+            assertThatThrownBy(() -> new HoldCommand(1L, type, 1L, 1L, List.of(promotion)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> new HoldCommand(1L, ITEM, 1L, 1L, Arrays.asList(promotion, null)))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test

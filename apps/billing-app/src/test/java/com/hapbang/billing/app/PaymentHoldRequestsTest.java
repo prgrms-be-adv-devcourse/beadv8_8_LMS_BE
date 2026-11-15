@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldPromotionDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 // billing app에 복사해 둔 HP 결제 보류 규칙(참조 유형 목록·요청 ID 형식)이 shared HTTP 계약과 같은지 고정한다 (#494).
@@ -32,6 +33,25 @@ class PaymentHoldRequestsTest {
             boolean internal = accepts(() -> new PaymentHoldCommand(1L, type, 1L, 1L));
             assertThat(internal).as(type.name()).isEqualTo(shared);
         }
+    }
+
+    @Test
+    @DisplayName("플랫폼 몫은 강의 주문 항목만 받고 출연과 null 항목은 shared와 내부 요청 모두 거절한다")
+    void promotionStructureMatchesContract() {
+        HoldPromotionDto sharedPromotion = new HoldPromotionDto(42L, 901L, 0L, 1L);
+        PaymentHoldPromotion internalPromotion = new PaymentHoldPromotion(42L, 901L, 0L, 1L);
+        for (BillingReferenceType type : HoldCommand.HOLDABLE_REFERENCE_TYPES) {
+            boolean shared = accepts(() -> new HoldCommand(1L, type, 1L, 0L, List.of(sharedPromotion)));
+            boolean internal = accepts(() -> new PaymentHoldCommand(1L, type, 1L, 0L, List.of(internalPromotion)));
+            assertThat(internal).as(type.name()).isEqualTo(shared)
+                    .isEqualTo(type == BillingReferenceType.LECTURE_ORDER_ITEM);
+        }
+        assertThatThrownBy(() -> new PaymentHoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1L, 0L,
+                Arrays.asList(internalPromotion, null))).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new PaymentHoldPromotion(0L, 901L, 0L, 1L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PaymentHoldPromotion(42L, -1L, 0L, 1L))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

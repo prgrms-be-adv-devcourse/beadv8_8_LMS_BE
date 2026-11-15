@@ -26,3 +26,12 @@ configMapGenerator:
       - dashboards/kubernetes.json
     options:
       disableNameSuffixHash: true
+  # Grafana alert provisioning(#781). 차트의 extraConfigmapMounts가 이 이름을 참조하므로 hash를 붙이지 않는다.
+  # dashboard와 달리 Grafana가 기동할 때만 읽으므로, 고친 뒤 Grafana를 다시 띄운다(observability.md "Alert 정책").
+  - name: grafana-alerting-hapbang
+    files:
+      - alerting/contactpoints.yaml
+      - alerting/policies.yaml
+      - alerting/rules.yaml
+    options:
+      disableNameSuffixHash: true

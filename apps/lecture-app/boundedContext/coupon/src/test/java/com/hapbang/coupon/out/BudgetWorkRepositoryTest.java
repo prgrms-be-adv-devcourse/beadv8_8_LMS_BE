@@ -28,6 +28,25 @@ class BudgetWorkRepositoryTest {
     private EntityManager entityManager;
 
     @Test
+    void 작업_lease는_한번만_선점되고_만료_뒤에는_새_attempt로_재선점한다() {
+        Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        String id = BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW).getWorkId();
+        budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
+        entityManager.clear();
+        assertThat(budgetWorkRepository.claim(id, NOW, NOW.plusSeconds(60))).isEqualTo(1);
+        assertThat(budgetWorkRepository.claim(id, NOW.plusSeconds(59), NOW.plusSeconds(120))).isZero();
+        entityManager.clear();
+        assertThat(budgetWorkRepository.findById(id).orElseThrow().getAttempt()).isEqualTo(1);
+        assertThat(budgetWorkRepository.claim(id, NOW.plusSeconds(60), NOW.plusSeconds(120))).isEqualTo(1);
+        entityManager.clear();
+        BudgetWork work = budgetWorkRepository.findById(id).orElseThrow();
+        assertThat(work.getAttempt()).isEqualTo(2);
+        work.markDone("PB-1", NOW.plusSeconds(61));
+        entityManager.flush();
+        assertThat(budgetWorkRepository.claim(id, NOW.plusSeconds(130), NOW.plusSeconds(190))).isZero();
+    }
+
+    @Test
     void 재시도는_결정적_작업_ID로_기존_작업을_찾고_같은_ID를_새로_저장하지_않는다() {
         Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         budgetWorkRepository.save(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));

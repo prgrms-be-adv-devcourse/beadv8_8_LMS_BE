@@ -25,6 +25,15 @@ final class BillingKeys {
     static final String EXCHANGE_PAYOUT_CAPTURE_REQUEST_PREFIX = "EXCHANGE-PAYOUT-";
     static final String EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX = "EXCHANGE-PAYOUT-FAIL-";
     static final String EXCHANGE_FEE_PREFIX = "EXCHANGE_FEE";
+    static final String PROMOTION_FUND_PREFIX = "PROMOTION_FUND";
+    static final String PROMOTION_WITHDRAW_PREFIX = "PROMOTION_WITHDRAW";
+    static final String BUDGET_RESERVE_PREFIX = "BUDGET_RESERVE";
+    static final String BUDGET_RELEASE_PREFIX = "BUDGET_RELEASE";
+    static final String PROMOTION_HOLD_PREFIX = "PROMOTION_HOLD";
+
+    static String promotionRestore(Long promotionHoldId) {
+        return "PROMOTION_RESTORE:" + promotionHoldId;
+    }
 
     private BillingKeys() {
     }
@@ -110,6 +119,32 @@ final class BillingKeys {
     // 원장 멱등키는 줄 번호를 붙인 EXCHANGE_FEE:{exchangeId}:1이다 (#336).
     static String exchangeFee(Long exchangeId) {
         return EXCHANGE_FEE_PREFIX + ":" + exchangeId;
+    }
+
+    // 프로모션 지갑 충전의 원장 작업 키 PROMOTION_FUND:{충전 기록 ID}. 충전 기록은 충전 작업 ID당 한 건이라 한 번만 기록된다.
+    // 호출한 쪽이 정한 작업 ID 대신 DB ID를 써서 작업 ID 형식과 관계없이 키 형식이 고정된다.
+    static String promotionFund(Long fundingId) {
+        return PROMOTION_FUND_PREFIX + ":" + fundingId;
+    }
+
+    // 프로모션 지갑 회수의 원장 작업 키 PROMOTION_WITHDRAW:{회수 기록 ID}. 회수 기록은 회수 작업 ID당 한 건이다.
+    static String promotionWithdraw(Long withdrawalId) {
+        return PROMOTION_WITHDRAW_PREFIX + ":" + withdrawalId;
+    }
+
+    // 쿠폰 예산 예약의 원장 작업 키 BUDGET_RESERVE:{예약 ID}. 예약은 쿠폰당 한 건이고 예약 원장도 예약마다 한 번이다.
+    static String budgetReserve(Long reservationId) {
+        return BUDGET_RESERVE_PREFIX + ":" + reservationId;
+    }
+
+    // 쿠폰 예산 해제의 원장 작업 키 BUDGET_RELEASE:{해제 기록 ID}. 해제 기록은 해제 작업 ID당 한 건이다.
+    static String budgetRelease(Long budgetReleaseId) {
+        return BUDGET_RELEASE_PREFIX + ":" + budgetReleaseId;
+    }
+
+    // 프로모션 보류의 원장 작업 키 PROMOTION_HOLD:{프로모션 보류 ID}. 프로모션 보류는 보류 × 쿠폰당 한 건이다.
+    static String promotionHold(Long promotionHoldId) {
+        return PROMOTION_HOLD_PREFIX + ":" + promotionHoldId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

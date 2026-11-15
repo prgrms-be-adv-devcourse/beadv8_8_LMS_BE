@@ -1187,12 +1187,12 @@ class ExchangePayoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("플랫폼 지갑은 회원 ID가 없어 회원 기능(user_id로 지갑 조회)으로는 찾을 수 없다")
+    @DisplayName("플랫폼·프로모션 지갑은 회원 ID가 없어 회원 기능(user_id로 지갑 조회)으로는 찾을 수 없다")
     void platformWalletNotReachableByMember() {
         influencer(20_000L);
 
         assertThat(jdbcTemplate.queryForList("SELECT wallet_type FROM billing.wallet WHERE user_id IS NULL",
-                String.class)).containsExactly("PLATFORM");
+                String.class)).containsExactlyInAnyOrder("PLATFORM", "PROMOTION");
         assertThat(walletRepository.findByUserId(INFLUENCER).orElseThrow().isPlatform()).isFalse();
     }
 

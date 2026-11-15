@@ -7,14 +7,15 @@ spec:
   valuesContent: |
     tempo:
       # 128Mi에서 운영 3일 최대 working set 115Mi(90%)라 160Mi로 올렸다(#532). GOMEMLIMIT은 limit의 약 85%다
+      # 160Mi에서는 2026-11-06 k6 부하(trace 100%) 블록(18.6MB·8.7MB)을 compaction하다 OOMKilled가 반복돼 256Mi로 올렸다(#774)
       resources:
         requests:
           cpu: 50m
-          memory: 160Mi
+          memory: 256Mi
         limits:
-          memory: 160Mi
+          memory: 256Mi
       extraEnv:
       - name: GOMEMLIMIT
-        value: 136MiB
+        value: 218MiB
       - name: GOMAXPROCS
         value: '2'

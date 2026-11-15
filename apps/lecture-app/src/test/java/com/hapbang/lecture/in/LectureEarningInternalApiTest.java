@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,17 @@ class LectureEarningInternalApiTest {
                 .andExpect(jsonPath("$.data.processing.count").value(0))
                 .andExpect(jsonPath("$.data.failed.count").value(0))
                 .andExpect(jsonPath("$.data.asOf").value(endsWith("+09:00")));
+    }
+
+    @Test
+    void 쿠폰_할인_항목의_수익_금액은_판매자_지급액이다() throws Exception {
+        LectureOrder discounted = save(now, 3_000L);
+
+        mockMvc.perform(internal(get(SUMMARY).param("userId", SELLER_ID.toString())))
+                .andExpect(jsonPath("$.data.confirmationPending.amountHp").value(PRICE_HP - 3_000L));
+        mockMvc.perform(internal(get(EARNINGS).param("userId", SELLER_ID.toString())))
+                .andExpect(jsonPath("$.data.content[0].sourceId").value(itemId(discounted)))
+                .andExpect(jsonPath("$.data.content[0].amountHp").value(PRICE_HP - 3_000L));
     }
 
     @Test
@@ -209,6 +221,17 @@ class LectureEarningInternalApiTest {
         lecture.approve(ADMIN_ID, NOW);
         return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lectureRepository.save(lecture)),
                 purchasedAt));
+    }
+
+    /** 판매자 쿠폰으로 {@code sellerDiscount}만큼 할인받아 산 주문 */
+    private LectureOrder save(LocalDateTime purchasedAt, long sellerDiscount) {
+        Lecture lecture = Lecture.register(SELLER_ID, TITLE, DESCRIPTION, PRICE_HP, null, contentSpecs(), NOW);
+        lecture.approve(ADMIN_ID, NOW);
+        Lecture saved = lectureRepository.save(lecture);
+        LectureOrder order = LectureOrder.place(BUYER_ID, List.of(saved), Set.of(), purchasedAt);
+        order.applyItemDiscount(saved.getId(), sellerDiscount, 0L, sellerDiscount);
+        order.markPaid(purchasedAt);
+        return lectureOrderRepository.save(order);
     }
 
     /** 구매 시각에 바로 구매 확정한 주문 */

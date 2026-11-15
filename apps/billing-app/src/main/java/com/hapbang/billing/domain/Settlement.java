@@ -33,7 +33,9 @@ import com.hapbang.shared.billing.domain.PayoutType;
         })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Check(constraints = "(paid_amount_hp >= 0 AND paid_amount_hp <= gross_amount_hp)")
+@Check(constraints = "(paid_amount_hp >= 0 AND paid_amount_hp <= gross_amount_hp)"
+        + " AND (buyer_paid_hp >= 0 AND promotion_paid_hp >= 0)"
+        + " AND (gross_amount_hp::numeric = buyer_paid_hp::numeric + promotion_paid_hp)")
 public class Settlement extends BillingUpdatedEntity {
 
     @Column(name = "receiver_user_id", nullable = false)
@@ -61,6 +63,13 @@ public class Settlement extends BillingUpdatedEntity {
 
     @Column(name = "paid_amount_hp", nullable = false)
     private Long paidAmountHp;
+
+    // 지급 총액을 구매자 보류와 플랫폼 쿠폰 재원으로 구분한다. 기존 지급은 전부 구매자 몫이다.
+    @Column(name = "buyer_paid_hp", nullable = false)
+    private Long buyerPaidHp;
+
+    @Column(name = "promotion_paid_hp", nullable = false)
+    private Long promotionPaidHp;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -92,6 +101,8 @@ public class Settlement extends BillingUpdatedEntity {
             PayoutType payoutType,
             Long grossAmountHp,
             Long paidAmountHp,
+            Long buyerPaidHp,
+            Long promotionPaidHp,
             SettlementStatus status,
             String idempotencyKey,
             Instant scheduledAt,
@@ -107,6 +118,8 @@ public class Settlement extends BillingUpdatedEntity {
         this.payoutType = payoutType;
         this.grossAmountHp = grossAmountHp;
         this.paidAmountHp = paidAmountHp;
+        this.buyerPaidHp = buyerPaidHp == null ? grossAmountHp : buyerPaidHp;
+        this.promotionPaidHp = promotionPaidHp == null ? 0L : promotionPaidHp;
         this.status = status;
         this.idempotencyKey = idempotencyKey;
         this.scheduledAt = scheduledAt;
@@ -119,6 +132,15 @@ public class Settlement extends BillingUpdatedEntity {
     public static Settlement completed(Long receiverUserId, Long receiverWalletId, Long pointHoldId,
             SettlementSourceType sourceType, Long sourceId, PayoutType payoutType, long amountHp,
             String idempotencyKey, Instant settledAt) {
+        return completed(receiverUserId, receiverWalletId, pointHoldId, sourceType, sourceId, payoutType, amountHp,
+                0L, idempotencyKey, settledAt);
+    }
+
+    // 구매자 보류와 프로모션 보류를 합쳐 지급한다. 총액과 재원별 금액을 같은 지급 건에 남긴다.
+    public static Settlement completed(Long receiverUserId, Long receiverWalletId, Long pointHoldId,
+            SettlementSourceType sourceType, Long sourceId, PayoutType payoutType, long buyerPaidHp,
+            long promotionPaidHp, String idempotencyKey, Instant settledAt) {
+        long amountHp = Math.addExact(buyerPaidHp, promotionPaidHp);
         return Settlement.builder()
                 .receiverUserId(receiverUserId)
                 .receiverWalletId(receiverWalletId)
@@ -128,6 +150,8 @@ public class Settlement extends BillingUpdatedEntity {
                 .payoutType(payoutType)
                 .grossAmountHp(amountHp)
                 .paidAmountHp(amountHp)
+                .buyerPaidHp(buyerPaidHp)
+                .promotionPaidHp(promotionPaidHp)
                 .status(SettlementStatus.COMPLETED)
                 .idempotencyKey(idempotencyKey)
                 .scheduledAt(settledAt)

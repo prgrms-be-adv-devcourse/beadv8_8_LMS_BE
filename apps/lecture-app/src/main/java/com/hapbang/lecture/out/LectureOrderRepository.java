@@ -193,8 +193,9 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     }
 
     // 분류 식을 group by에 다시 쓰면 :now가 다른 바인드 변수가 되어 PostgreSQL이 같은 식으로 보지 않는다. 파생 테이블로 한 번만 쓴다
-    @Query("select new com.hapbang.lecture.out.EarningStatusTotal(e.status, count(*), sum(e.priceHp)) "
-            + "from (select " + EARNING_STATUS + " as status, i.priceHp as priceHp from OrderItem i "
+    // 판매 수익 금액은 판매자 지급액(가격 − 판매자 부담 할인)이다. 플랫폼 부담 할인은 판매자 몫을 줄이지 않는다
+    @Query("select new com.hapbang.lecture.out.EarningStatusTotal(e.status, count(*), sum(e.payoutHp)) "
+            + "from (select " + EARNING_STATUS + " as status, i.priceHp - i.sellerDiscountHp as payoutHp from OrderItem i "
             + "where i.sellerUserId = :sellerUserId and " + SOLD + ") e "
             + "where e.status in :statuses group by e.status")
     List<EarningStatusTotal> summarizeEarningsByName(@Param("sellerUserId") Long sellerUserId,

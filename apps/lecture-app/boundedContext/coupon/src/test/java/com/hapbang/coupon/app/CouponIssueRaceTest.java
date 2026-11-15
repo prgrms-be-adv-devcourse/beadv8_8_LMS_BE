@@ -39,7 +39,7 @@ import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
+import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.out.BudgetWorkRepository;
@@ -80,8 +80,9 @@ class CouponIssueRaceTest {
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 10_000L, "ON_SALE")));
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, store);
         @SuppressWarnings("unchecked")
-        ObjectProvider<PromotionBudgetPort> budgetPortProvider = mock();
-        openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), store, budgetPortProvider,
+        ObjectProvider<PromotionBudget> promotionBudgetProvider = mock();
+        openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), mock(CouponBudgetWorkUseCase.class), store,
+                mock(CouponCapacitySupport.class), promotionBudgetProvider,
                 new CouponRedisProperties(null), db.transactionManager(), clock);
         operateUseCase = new CouponOperateUseCase(support, store, db.transactionManager(), clock);
 

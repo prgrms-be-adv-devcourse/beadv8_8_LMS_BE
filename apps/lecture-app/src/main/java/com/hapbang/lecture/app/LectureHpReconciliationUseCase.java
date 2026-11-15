@@ -282,6 +282,7 @@ public class LectureHpReconciliationUseCase {
                 counts.merge(mismatch.finding().rule(), 1L, Long::sum);
             }
             metrics.updateMismatches(counts);
+            metrics.updateLastCompleted(run.getFinishedAt());
             log.info("강의 HP 대사를 마쳤다 runId={}, checkedCount={}, mismatchCount={}, deadCount={}", run.getId(),
                     run.getCheckedCount(), run.getMismatchCount(), run.getDeadCount());
         } else {

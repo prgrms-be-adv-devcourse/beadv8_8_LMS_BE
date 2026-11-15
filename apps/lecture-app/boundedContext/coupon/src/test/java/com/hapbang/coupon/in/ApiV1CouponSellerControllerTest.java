@@ -9,11 +9,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,6 +37,8 @@ import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.global.config.CouponWebMvcConfig;
+import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 
@@ -63,7 +67,7 @@ class ApiV1CouponSellerControllerTest {
                         .with(seller()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"targetType":"LECTURE","lectureId":7,"discountType":"RATE","discountValue":10,
+                                {"name":"겨울 특강 할인","targetType":"LECTURE","lectureId":7,"discountType":"RATE","discountValue":10,
                                  "quantity":100,"issueStartAt":"2026-11-07T00:00:00Z","issueEndAt":"2026-11-14T00:00:00Z",
                                  "expiryType":"RELATIVE","expiryDays":30,"stackable":false}
                                 """))
@@ -76,7 +80,7 @@ class ApiV1CouponSellerControllerTest {
 
         ArgumentCaptor<CouponCreateCommand> command = ArgumentCaptor.forClass(CouponCreateCommand.class);
         verify(couponSellerFacade).create(eq(SELLER_ID), command.capture());
-        assertThat(command.getValue()).isEqualTo(new CouponCreateCommand(CouponTargetType.LECTURE, 7L,
+        assertThat(command.getValue()).isEqualTo(new CouponCreateCommand("겨울 특강 할인", CouponTargetType.LECTURE, 7L,
                 DiscountType.RATE, 10, null, 100, START, END, ExpiryType.RELATIVE, 30, null, false));
     }
 
@@ -87,7 +91,7 @@ class ApiV1CouponSellerControllerTest {
                         .with(seller()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"targetType":"LECTURE","lectureId":7,"discountType":"RATE","discountValue":10,
+                                {"name":"겨울 특강 할인","targetType":"LECTURE","lectureId":7,"discountType":"RATE","discountValue":10,
                                  "issueStartAt":"2026-11-07T00:00:00Z","issueEndAt":"2026-11-14T00:00:00Z",
                                  "expiryType":"RELATIVE","expiryDays":30,"stackable":false}
                                 """))
@@ -110,12 +114,42 @@ class ApiV1CouponSellerControllerTest {
                 .andExpect(jsonPath("$.data.status").value("SUSPENDED"));
     }
 
+    @Test
+    void 신청한_쿠폰_목록은_상태로_거르고_상태가_없으면_전체다() throws Exception {
+        given(couponSellerFacade.myCoupons(SELLER_ID, CouponStatus.REVIEW)).willReturn(List.of(view(CouponStatus.REVIEW)));
+        given(couponSellerFacade.myCoupons(SELLER_ID, null)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/coupons/seller").param("status", "REVIEW").with(seller()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("겨울 특강 할인"))
+                .andExpect(jsonPath("$.data[0].status").value("REVIEW"));
+        mockMvc.perform(get("/api/v1/coupons/seller").with(seller()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 신청한_쿠폰_상세는_본인_것이_아니면_403이다() throws Exception {
+        given(couponSellerFacade.myCoupon(SELLER_ID, COUPON_ID)).willReturn(view(CouponStatus.OPEN));
+        given(couponSellerFacade.myCoupon(SELLER_ID, 43L))
+                .willThrow(new CouponException(CouponErrorCode.NOT_COUPON_OWNER));
+
+        mockMvc.perform(get("/api/v1/coupons/seller/{couponId}", COUPON_ID).with(seller()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.couponId").value(COUPON_ID));
+        mockMvc.perform(get("/api/v1/coupons/seller/{couponId}", 43L).with(seller()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_COUPON_OWNER"));
+    }
+
     private static RequestPostProcessor seller() {
         return user(String.valueOf(SELLER_ID)).roles("VERIFIED_INFLUENCER");
     }
 
     private static CouponView view(CouponStatus status) {
-        return new CouponView(COUPON_ID, CouponType.SELLER, SELLER_ID, CouponTargetType.LECTURE, 7L, 10_000L,
+        return new CouponView(COUPON_ID, "겨울 특강 할인", CouponType.SELLER, SELLER_ID, CouponTargetType.LECTURE, 7L, 10_000L,
                 DiscountType.RATE, 10, null, 100, 0, START, END, ExpiryType.RELATIVE, 30, null, false, 1, status, null);
     }
 }

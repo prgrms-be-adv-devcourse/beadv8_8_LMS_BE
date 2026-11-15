@@ -34,22 +34,17 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.domain.ProcessingStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
-import com.hapbang.shared.billing.out.BillingCallResult;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 주문 생성을 HP 보류 작업(Fake 지갑 Client)과 DB까지 확인한다 (D58, D68, D69). 검증 순서·기한 계산 규칙은 LectureOrderTest가,
+ * 주문 생성을 HP 보류 작업(실제 billing HTTP)과 DB까지 확인한다 (D58, D68, D69). 검증 순서·기한 계산 규칙은 LectureOrderTest가,
  * 결제 단계 판정은 OrderHoldTasksTest가 맡는다.
  */
 @IntegrationTest
@@ -71,7 +66,7 @@ class OrderCreateUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
@@ -86,7 +81,8 @@ class OrderCreateUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -140,7 +136,7 @@ class OrderCreateUseCaseTest {
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
         cartFacade.addItem(BUYER_ID, first.getId());
         cartFacade.addItem(BUYER_ID, second.getId());
-        billing.respond(command -> insufficientBalance());
+        insufficientWallet(0L);
 
         assertInsufficientBalance(List.of(first.getId(), second.getId()));
 
@@ -155,8 +151,7 @@ class OrderCreateUseCaseTest {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
         Lecture third = saveOnSale("조명 세팅", PRICE_HP);
-        billing.respond(this::heldInFull);
-        billing.respond(command -> insufficientBalance());
+        insufficientWallet(PRICE_HP);
 
         assertInsufficientBalance(List.of(first.getId(), second.getId(), third.getId()));
 
@@ -176,9 +171,7 @@ class OrderCreateUseCaseTest {
     void 보류_결과를_모르면_결제_처리_중으로_응답하고_배치가_구매_완료로_마무리한다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
         cartFacade.addItem(BUYER_ID, lecture.getId());
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
 
@@ -204,11 +197,8 @@ class OrderCreateUseCaseTest {
     void 반환이_끝나지_않으면_결제_취소_처리_중으로_응답하고_배치가_결제_실패로_마무리한다() {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
-        billing.respond(this::heldInFull);
-        billing.respond(command -> insufficientBalance());
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        insufficientWallet(PRICE_HP);
+        billing.duringCall(ReleaseCommand.class::isInstance, () -> billing.dropResponses(1));
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId()));
 
@@ -228,10 +218,8 @@ class OrderCreateUseCaseTest {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
         Lecture third = saveOnSale("조명 세팅", PRICE_HP);
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
-        billing.respond(command -> insufficientBalance());
+        insufficientWallet(PRICE_HP);
+        billing.dropResponses(1);
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID,
                 List.of(first.getId(), second.getId(), third.getId()));
@@ -255,18 +243,15 @@ class OrderCreateUseCaseTest {
     void 반환_결과를_기록하지_못해도_같은_요청_ID로_다시_반환해_결제_실패로_수렴한다() {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
-        billing.respond(this::heldInFull);
-        billing.respond(command -> insufficientBalance());
+        insufficientWallet(PRICE_HP);
         // 반환을 호출하는 동안 다른 실행이 선점을 가져가, 첫 반환 결과는 늦은 결과로 버려진다
-        billing.setDuringCall(() -> jdbcTemplate.update("""
+        billing.duringCall(ReleaseCommand.class::isInstance, () -> jdbcTemplate.update("""
                 update lectures.lecture_hp_task set claim_token = gen_random_uuid()
                 where purpose = 'HOLD_COMPENSATION' and status = 'PROCESSING'"""));
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId()));
 
         assertThat(response.status()).isEqualTo(LectureOrderStatus.HOLD_COMPENSATING);
-        billing.setDuringCall(() -> {
-        });
 
         runDueTasks();
 
@@ -452,7 +437,7 @@ class OrderCreateUseCaseTest {
 
     private List<HoldCommand> holds() {
         return billing.calls().stream()
-                .map(FakeBillingApiClient.Call::command)
+                .map(RealBillingTestFixture.Call::command)
                 .filter(HoldCommand.class::isInstance)
                 .map(HoldCommand.class::cast)
                 .toList();
@@ -460,21 +445,16 @@ class OrderCreateUseCaseTest {
 
     private List<ReleaseCommand> releases() {
         return billing.calls().stream()
-                .map(FakeBillingApiClient.Call::command)
+                .map(RealBillingTestFixture.Call::command)
                 .filter(ReleaseCommand.class::isInstance)
                 .map(ReleaseCommand.class::cast)
                 .toList();
     }
 
-    private BillingCallResult<?> heldInFull(Object command) {
-        HoldCommand hold = (HoldCommand) command;
-        return new BillingCallResult.Succeeded<>(new HoldResultDto(
-                hold.referenceType(), hold.referenceId(), hold.amountHp(), false));
-    }
-
-    private static BillingCallResult<?> insufficientBalance() {
-        return new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE, "HP 잔액이 부족합니다.", 409,
-                "INSUFFICIENT_BALANCE");
+    private void insufficientWallet(long chargeHp) {
+        billing.reset();
+        billing.wallet(BUYER_ID, chargeHp, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     private List<Long> cartLectureIds() {

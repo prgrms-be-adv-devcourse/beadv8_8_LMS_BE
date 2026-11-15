@@ -3,9 +3,6 @@ package com.hapbang.appearance.domain;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
-import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
-import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
-import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Entity;
@@ -115,32 +112,6 @@ public class AppearanceReview extends BaseEntity {
 
     public boolean isPublished() {
         return publishedAt != null;
-    }
-
-    /**
-     * 다른 모듈에 알리는 공개 이벤트 (#513). 본문은 담지 않는다.
-     *
-     * @throws IllegalStateException 아직 공개되지 않은 리뷰
-     */
-    public AppearanceReviewPublishedEvent toPublishedEvent() {
-        if (!isPublished()) {
-            throw new IllegalStateException("공개된 리뷰만 공개 이벤트로 알릴 수 있습니다: " + id);
-        }
-        return new AppearanceReviewPublishedEvent(id, appearanceId, reviewerId, revieweeId,
-                AppearanceParticipantRole.valueOf(revieweeRole.name()), rating, publishedAt);
-    }
-
-    /**
-     * 다른 모듈에 알리는 동기화용 사본 (#713). 공개 이벤트({@link #toPublishedEvent()})의 같은 이름 필드와 값이 같다.
-     * 리뷰는 공개 뒤 바뀌지 않으므로 version을 싣지 않는다.
-     *
-     * @throws IllegalStateException 아직 공개되지 않은 리뷰
-     */
-    public AppearanceReviewSyncDto toSyncDto() {
-        if (!isPublished()) {
-            throw new IllegalStateException("공개된 리뷰만 동기화 사본으로 만들 수 있습니다: " + id);
-        }
-        return new AppearanceReviewSyncDto(id, appearanceId, revieweeId, rating);
     }
 
     private static int requireRating(Integer rating) {

@@ -140,7 +140,7 @@ class AppearanceReviewEventListenerTest {
     void ignoreOtherTypes() {
         User user = userRepository.save(MemberFixture.user());
 
-        send(user.getId(), new AppearanceCancelRequestedEvent(null));
+        send(user.getId(), new AppearanceCancelRequestedEvent(null, null));
         send(user.getId(), review(user.getId(), AppearanceParticipantRole.HOST, 4));
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(memberAppearanceRatingUseCase.find(user.getId()).asHost())

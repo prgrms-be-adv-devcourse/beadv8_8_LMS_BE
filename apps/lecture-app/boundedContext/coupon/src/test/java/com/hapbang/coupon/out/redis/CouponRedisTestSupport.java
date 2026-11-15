@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +22,7 @@ import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /**
- * 실제 Redis(Testcontainers)에 쿠폰 저장소만 올린다. 테스트끼리 Redis를 같이 쓰므로 쿠폰 ID·Stream key를 테스트마다 새로 만들고
+ * 실제 Redis(Testcontainers)에 쿠폰 저장소만 올린다. 테스트끼리 Redis를 같이 쓰므로 쿠폰 ID를 테스트마다 새로 만들고
  * 자기가 만든 key만 지운다.
  */
 @SpringJUnitConfig(CouponRedisTestSupport.Config.class)
@@ -56,8 +55,8 @@ abstract class CouponRedisTestSupport {
         return couponId;
     }
 
-    String newStreamKey() {
-        String key = "coupon-test:stream:" + UUID.randomUUID();
+    /** 쿠폰별 key가 아닌 테스트용 key도 끝나면 지운다 */
+    String track(String key) {
         createdKeys.add(key);
         return key;
     }

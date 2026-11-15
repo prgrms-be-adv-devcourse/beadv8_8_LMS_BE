@@ -16,9 +16,9 @@ import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.ProcessingStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /** 주문 요청 시간 예산 (D68). 예산을 넘기면 남은 보류는 요청 안에서 시도하지 않고 배치에 넘긴다 */
 @IntegrationTest
@@ -38,7 +38,7 @@ class OrderHoldBudgetTest {
     private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -46,6 +46,8 @@ class OrderHoldBudgetTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -53,7 +55,7 @@ class OrderHoldBudgetTest {
         Lecture first = saveOnSale("OBS 방송 세팅");
         Lecture second = saveOnSale("마이크 고르기");
         // 첫 보류가 예산보다 오래 걸린다. 시작한 호출은 끊지 않는다
-        billing.setDuringCall(() -> sleep(300));
+        billing.duringNextCall(() -> sleep(300));
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId()));
 
@@ -61,8 +63,6 @@ class OrderHoldBudgetTest {
         assertThat(response.processingStatus()).isEqualTo(ProcessingStatus.PROCESSING);
         assertThat(billing.calls()).hasSize(1);
 
-        billing.setDuringCall(() -> {
-        });
         lectureHpTaskBatchUseCase.runDue();
 
         assertThat(lectureOrderFacade.getOrder(BUYER_ID, response.orderId()).status())

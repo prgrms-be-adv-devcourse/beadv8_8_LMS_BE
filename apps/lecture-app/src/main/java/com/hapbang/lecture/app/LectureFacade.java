@@ -45,12 +45,20 @@ public class LectureFacade {
                 contentSpecs);
     }
 
-    /** 강의 정보 수정 */
+    /**
+     * 강의 정보 수정. 가격을 올리면 트랜잭션 밖에서 쿠폰의 가격 인상 제한을 먼저 확인한다. 플랫폼 쿠폰이 걸려 있으면 409
+     * {@code LECTURE_PRICE_RAISE_BLOCKED}, 확인할 수 없으면 503 {@code LECTURE_PRICE_RAISE_UNAVAILABLE}이다.
+     * 확인한 뒤 그 사이 가격이 바뀌었으면 409 {@code LECTURE_PRICE_CHANGED}다. 내리거나 같은 가격이면 쿠폰을 부르지 않는다
+     */
     @PreAuthorize(VERIFIED_INFLUENCER)
-    @Transactional
     public void updateInfo(Long sellerUserId, Long lectureId, String title, String description, long priceHp,
                            Long thumbnailFileId) {
-        lectureUpdateInfoUseCase.updateInfo(sellerUserId, lectureId, title, description, priceHp, thumbnailFileId);
+        long currentPriceHp = lectureUpdateInfoUseCase.currentPrice(sellerUserId, lectureId);
+        if (priceHp > currentPriceHp) {
+            lectureUpdateInfoUseCase.requireRaisable(lectureId);
+        }
+        lectureUpdateInfoUseCase.updateInfo(sellerUserId, lectureId, title, description, priceHp, thumbnailFileId,
+                currentPriceHp);
     }
 
     /** 콘텐츠 목록 교체 */

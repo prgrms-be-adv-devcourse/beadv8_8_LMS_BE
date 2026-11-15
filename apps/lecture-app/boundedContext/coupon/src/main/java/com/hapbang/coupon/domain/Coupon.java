@@ -51,6 +51,10 @@ public class Coupon {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 쿠폰 이름. 앞뒤 공백을 뺀 1~50자({@link CouponTerms#MAX_NAME_LENGTH}) */
+    @Column(nullable = false, length = CouponTerms.MAX_NAME_LENGTH)
+    private String name;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private CouponType type;
@@ -80,8 +84,12 @@ public class Coupon {
     @Column(nullable = false)
     private int quantity;
 
-    /** DB에 확정된 발급 수 */
-    @Column(nullable = false)
+    /**
+     * DB에 확정된 발급 수. 발급 확정 소비자의 조건부 UPDATE({@code CouponRepository.incrementIssuedCount})만 바꾼다.
+     * 엔티티 UPDATE에서 빼 둔다(updatable = false): 빼지 않으면 관리자 상태 변경(중단·종료 등)이 읽어 둔 옛 값으로 덮는다
+     * (조건부 UPDATE는 {@code @Version}을 올리지 않으므로 낙관적 락으로 걸러지지 않는다).
+     */
+    @Column(nullable = false, updatable = false)
     private int issuedCount;
 
     @Column(nullable = false)
@@ -138,6 +146,7 @@ public class Coupon {
     private Coupon(CouponType type, Long applicantId, CouponTerms terms, int maxExpiryDays, Instant now) {
         terms.validateFor(type, maxExpiryDays);
         requireIssueNotEnded(terms.issueEndAt(), now);
+        this.name = terms.name();
         this.type = type;
         this.applicantId = Objects.requireNonNull(applicantId, "applicantId");
         this.targetType = terms.targetType();
@@ -201,7 +210,7 @@ public class Coupon {
 
     /** 이 쿠폰의 발행 조건 */
     public CouponTerms terms() {
-        return new CouponTerms(targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
+        return new CouponTerms(name, targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
                 quantity, issueStartAt, issueEndAt, expiryType, expiryDays, fixedExpiresAt, stackable);
     }
 
@@ -341,6 +350,22 @@ public class Coupon {
     /** 최초 접수 시각으로 정한 발급 쿠폰의 만료 시각 */
     public Instant expiresAtFor(Instant firstAcceptedAt) {
         return terms().expiresAtFor(firstAcceptedAt);
+    }
+
+    /**
+     * Redis 유실 복구의 재개: 새 epoch를 활성화한다. 지금 epoch의 다음 값({@link IssueEpochRule#next})만 받고, 이미 그 epoch면 아무것도
+     * 바꾸지 않는다(재개 재시도). 이 뒤에 온 이전 epoch의 발급 요청은 {@link IssueEpochRule}이 STALE로 판정한다.
+     */
+    public void activateRecoveredEpoch(long newEpoch, Instant now) {
+        if (epoch == newEpoch) {
+            return;
+        }
+        if (newEpoch != IssueEpochRule.next(epoch)) {
+            throw new CouponDomainException(CouponDomainError.INVALID_STATUS_TRANSITION,
+                    "활성화할 epoch가 지금 epoch의 다음 값이 아닙니다 epoch=" + epoch + ", newEpoch=" + newEpoch);
+        }
+        this.epoch = newEpoch;
+        this.updatedAt = now;
     }
 
     /** 아직 DB에 확정되지 않은 수량 */

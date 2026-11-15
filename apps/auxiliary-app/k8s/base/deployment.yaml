@@ -54,6 +54,14 @@ spec:
                 name: auxiliary-app-config
             - secretRef:
                 name: auxiliary-app-secrets
+          # Elasticsearch CA(ECK 자체 서명). application-prod.yaml의 SSL bundle(elasticsearch)이 읽는다(#715).
+          # ConfigMap은 인프라가 hapbang-platform의 공개 인증서를 복사해 둔다(docs/deploy/k8s.md "CA를 앱 namespace로 복사").
+          # 로컬 k3d도 같은 명령(--context k3d-hapbang)으로 복사한다. optional로 두지 않는다: 없으면 pod가 ContainerCreating에
+          # 머물러 바로 보이고, optional이면 pod는 뜨지만 SSL bundle이 CA 파일을 못 찾아 앱 기동이 실패해 원인이 늦게 보인다.
+          volumeMounts:
+            - name: elasticsearch-ca
+              mountPath: /etc/hapbang/elasticsearch-ca
+              readOnly: true
           # #684 예산: -Xmx256m(kustomization.yaml) + heap 밖 약 370Mi(chat-app 실측) + 여유. 띄운 뒤 실측으로 고친다.
           resources:
             requests:
@@ -83,3 +91,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 10001
             allowPrivilegeEscalation: false
+      volumes:
+        - name: elasticsearch-ca
+          configMap:
+            name: elasticsearch-ca

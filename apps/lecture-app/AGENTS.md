@@ -19,6 +19,7 @@
   - 완료 상태(`PAID`·`CANCELED`·`RETURNED`·`PAID_OUT`)는 목적별 결과 처리기(`LectureHpTaskResultHandler`)가 결과 기록 트랜잭션에서만 쓴다. 목적마다 처리기는 하나다.
   - 요청 안에서 한 번 시도하는 것은 주문 보류·보상(D58, 예산 D68)과 구매 취소(D59)다. 이의 제기 인정 반환과 지급은 HP 작업 배치가 실행한다(D70).
   - 지갑 회로가 열려 있으면 `LectureHpTaskExecutor`가 선점하지 않는다(`canCallBilling()`, D79). 지갑을 부르는 새 경로도 `execute`를 거쳐 이 확인을 지나게 한다.
+- 플랫폼 쿠폰 재원은 `OrderItemCoupon`의 예약 generation·금액으로 만들고 결과를 대조한다(D84). 구매자 0·플랫폼 양수도 HP 작업을 실행한다. 취소·반환 이벤트의 복구 목록은 대조한 billing 응답을 같은 결과기록 트랜잭션에서 전달한다.
 - billing 지급 예정 건(`Settlement` SCHEDULED)이 남아 있으면 그 항목의 지급이 `PAYOUT_ALREADY_SETTLED`로 거절되고 작업이 `DEAD`가 된다.
 - 서비스 간 HP 대사(D74, integration.md 10.1)는 지갑 조회(`queryHolds`·`listHolds`)만 하고 HP를 움직이지 않는다. 비교 규칙은 `LectureHpReconciliationComparer` 한 곳에 둔다. 항목 상태나 HP 작업 흐름을 바꾸면 규칙 표와 테스트(`LectureHpReconciliationComparerTest`)도 같이 고친다.
 
@@ -44,10 +45,10 @@
   - HP 보류·반환까지 확인할 때는 `LectureOrderFacade.createOrder`로 만든다.
   - 기한이 지난 주문이나 HP와 무관한 주문은 `LectureOrderFixture.order(구매자, 저장한 강의 목록, 구매 시각)`로 만들어 `LectureOrderRepository`로 저장한다 (결제가 끝난 주문, HP 작업 없음). 결제 처리 중 주문은 `pending`, HP 작업 없이 상태만 끝낼 때는 `cancel`·`payOut`·`acceptAndReturn`을 쓴다.
   - 기한 경계는 도메인 메서드에 `now`를 넘기는 단위 테스트로 확인한다.
-- 지갑은 테스트 소스 `fake/FakeBillingApiClient`(HTTP 없음)다. `@Component`로 두지 않고 `FakeBillingApiClientConfig`의 `@Bean`으로 등록한다.
-  - 기본은 성공이다(보류는 요청 금액, 반환·지급은 `setSettledHp`). `respond`로 다음 응답(실패·예외)을, `setDuringCall`로 호출 중 할 일(늦은 결과·동시 실행)을 정한다. `@BeforeEach`에서 `reset()`한다.
-  - `setCircuitOpen(true)`로 지갑 회로가 열린 상태를 만든다(D79). `reset()`이 닫는다.
-  - `BillingCallException`은 테스트 소스 `shared.billing.out.BillingCallExceptions`로 만든다.
+- 지갑 통합은 `RealBillingTestFixture`와 별도 JVM·DB의 실제 billing 서버를 쓴다. 기동·데이터 준비·장애·정리 규칙은 [`docs/dev/testing.md`의 강의·billing HTTP 통합 테스트](../../docs/dev/testing.md#강의billing-http-통합-테스트)를 따른다. billing 엔티티·Repository를 강의 테스트에 가져오지 않는다.
+  - `wallet(userId, chargeHp, revenueHp)`로 충전·수익 HP를 더하고 `snapshot(userId)`의 실제 원장·충전 원금·대사 결과를 확인한다. 업무 거절은 잔액 부족·지갑 폐쇄 등 실제 상태로 만든다. 테스트마다 공통 리스너가 billing을 초기화한다.
+  - `calls()`의 명령·`transactionActive`로 호출과 트랜잭션 밖 실행을 관찰한다. 동시 실행은 `duringCall`·`duringNextCall`로 순서를 제어한다.
+  - 통신 장애는 `disconnect`·`reconnect`·`dropNextResponse`를 쓰고, 회로는 `openCircuit`·`closeCircuit`으로 제어한다(D79). 금융 성공·실패 응답은 실제 서버가 만든다.
   - 배치가 할 일은 `LectureHpTaskBatchUseCase.runDue()`로 실행한다. 재시도를 기다리는 작업은 `next_attempt_at`·`lease_until`을 당긴다.
   - 실행기 자체만 확인할 때는 `@TestBean(methodName = RecordingCancelResultHandler.FACTORY)`로 운영 `CANCEL` 처리기를 바꿔 끼운다. 같은 팩토리를 써야 테스트 컨텍스트가 늘지 않는다.
 

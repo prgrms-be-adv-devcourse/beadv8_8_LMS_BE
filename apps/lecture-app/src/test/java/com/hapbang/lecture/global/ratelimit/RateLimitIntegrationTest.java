@@ -19,12 +19,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.lecture.domain.Lecture;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.jayway.jsonpath.JsonPath;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -52,7 +52,7 @@ class RateLimitIntegrationTest {
     private LectureOrderRepository lectureOrderRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -62,8 +62,9 @@ class RateLimitIntegrationTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
         userId = nextUserId++;
+        billing.wallet(userId, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -96,6 +97,7 @@ class RateLimitIntegrationTest {
         cancel(orderId, 999_999L).andExpect(status().isTooManyRequests());
 
         long otherUser = nextUserId++;
+        billing.wallet(otherUser, PRICE_HP, 0L);
         mockMvc.perform(post("/api/v1/lectures/orders")
                         .with(GatewayLogin.as(otherUser, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)

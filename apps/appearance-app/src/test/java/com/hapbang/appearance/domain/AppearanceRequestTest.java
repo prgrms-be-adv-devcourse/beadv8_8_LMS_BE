@@ -11,10 +11,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
-import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
 class AppearanceRequestTest {
 
@@ -260,22 +258,5 @@ class AppearanceRequestTest {
         void visibleStatus(AppearanceRequestStatus status) {
             assertThat(status.isVisible()).isTrue();
         }
-    }
-
-    @Test
-    @DisplayName("다른 모듈에 넘기는 요청서 정보: 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한")
-    void toDto() {
-        AppearanceRequest request = requested();
-        ReflectionTestUtils.setField(request, "id", 10L);
-
-        AppearanceRequestDto dto = request.toDto();
-
-        assertThat(dto.requestId()).isEqualTo(10L);
-        assertThat(dto.hostId()).isEqualTo(HOST);
-        assertThat(dto.guestId()).isEqualTo(GUEST);
-        assertThat(dto.title()).isEqualTo(request.getTitle());
-        assertThat(dto.fee()).isEqualTo(AppearanceRequestFixture.FEE);
-        assertThat(dto.scheduledAt()).isEqualTo(request.getScheduledAt());
-        assertThat(dto.acceptDeadline()).isEqualTo(request.getAcceptDeadline());
     }
 }

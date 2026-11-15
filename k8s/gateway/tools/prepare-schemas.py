@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Extract schemas from the exact upstream releases used by HelmChart (PyYAML required)."""
 
+import http.client
 import json
 import pathlib
 import sys
+import time
+import urllib.error
 import urllib.request
 
 import yaml
@@ -31,6 +34,27 @@ urls.append(
 )
 
 
+ATTEMPTS = 5
+
+
+def fetch(url, attempts=ATTEMPTS, delay=5.0):
+    """GitHub 다운로드가 504로 실패한 적이 있어(2026-11-09, #792) 5xx·429·연결 오류는 다시 시도한다. 404 등은 바로 실패한다."""
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code < 500 and error.code != 429:
+                raise
+            reason = f"HTTP {error.code}"
+        except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead, ConnectionError) as error:
+            reason = type(error).__name__
+        if attempt == attempts:
+            raise RuntimeError(f"{url}: {attempts}번 시도해도 받지 못했다({reason})")
+        print(f"{url}: {reason}, {delay * attempt:.0f}초 뒤 다시 시도 ({attempt}/{attempts})", file=sys.stderr)
+        time.sleep(delay * attempt)
+
+
 def strict(schema):
     if isinstance(schema, dict):
         if "properties" in schema and not schema.get(
@@ -48,8 +72,7 @@ output = pathlib.Path(sys.argv[1])
 output.mkdir(parents=True, exist_ok=True)
 count = 0
 for url in urls:
-    with urllib.request.urlopen(url, timeout=30) as response:
-        documents = list(yaml.safe_load_all(response.read()))
+    documents = list(yaml.safe_load_all(fetch(url)))
     for document in documents:
         if not document or document.get("kind") != "CustomResourceDefinition":
             continue

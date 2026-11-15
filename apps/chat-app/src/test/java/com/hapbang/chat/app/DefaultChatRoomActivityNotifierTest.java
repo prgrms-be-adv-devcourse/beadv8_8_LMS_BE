@@ -33,6 +33,8 @@ import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 /**
  * 새 메시지 알림 묶음(설계 Q15·Q21): 방별 묶음, 회원별 셈(자기 메시지·가시 범위 밖 제외), 구독 세션 제외, 접속 정보, 퇴장 회원 제외,
  * 1000명 방에서 묶음마다 DB 조회 없음·접속 확인 1회, 기록과 묶음 교체가 겹쳐도 메시지를 잃지 않음.
@@ -46,7 +48,8 @@ class DefaultChatRoomActivityNotifierTest {
     private final ChatPresence presence = mock(ChatPresence.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(provider(null), 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, 100, Duration.ofHours(1));
+    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+            Duration.ofHours(1));
     private final ChatRoomActivityNotifier notifier = new DefaultChatRoomActivityNotifier(cache, connections, subscriptions,
             provider(presence), sender, 1000);
 

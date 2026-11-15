@@ -94,7 +94,7 @@ public class PenaltySettlementUseCase {
         Settlement penalty = holdProcessing.saveSettlement(Settlement.completed(command.receiverUserId(),
                 receiverWalletId, hold.getId(), command.sourceType(), command.sourceId(), PayoutType.PENALTY,
                 command.payoutAmountHp(), settlementKey, now));
-        billingEventPublisher.payoutCompleted(penalty);
+        billingEventPublisher.payoutCompleted(penalty, command.sourceTitle());
         // 반환·지급 원장을 각자의 작업 키로 같은 트랜잭션에 기록한다. 두 작업 키는 정산 키(취소 ID)를 접두사로 공유한다.
         if (releaseSplit != null) {
             ledgerRecordUseCase.record(new LedgerOperation(releaseKey, LedgerTransactionType.RELEASE,

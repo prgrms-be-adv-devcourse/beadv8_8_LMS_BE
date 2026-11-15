@@ -23,12 +23,12 @@ import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureOrderStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.ObjectionCommands;
 import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
@@ -37,6 +37,7 @@ import com.hapbang.shared.lecture.dto.LectureSyncDto;
 import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
  * AI 추천용 강의·구매 동기화 이벤트(#712, D82)가 바뀌는 지점마다 바뀐 뒤 상태로 나가는지 Facade부터 DB까지 확인한다.
@@ -83,7 +84,7 @@ class LectureSyncEventTest {
     private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -94,7 +95,8 @@ class LectureSyncEventTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
@@ -186,7 +188,7 @@ class LectureSyncEventTest {
     @Test
     void 주문하면_결제_처리_중인_항목이_PENDING과_주문_시각으로_나간다() {
         // 지갑 회로가 열려 있으면 보류를 시도하지 않아 결제 처리 중에 남는다 (D79)
-        billing.setCircuitOpen(true);
+        billing.openCircuit();
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         assertThat(order.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
 
@@ -220,8 +222,8 @@ class LectureSyncEventTest {
 
     @Test
     void 보류가_확정_거절되어_결제에_실패하면_FAILED로_나간다() {
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
-                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        billing.reset();
+        billing.wallet(BUYER_ID, 0L, 0L);
 
         Lecture lecture = saveOnSale("OBS 방송 세팅");
 
@@ -236,9 +238,13 @@ class LectureSyncEventTest {
 
     @Test
     void 보류_무효화로_결제에_실패해도_FAILED로_나간다() {
-        // 다시 보내도 결과가 같은 지갑 4xx 불변식 위반이라 보류가 바로 DEAD다
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.IDEMPOTENCY_KEY_CONFLICT,
-                "같은 멱등 키로 다른 요청이 왔습니다.", 409, "IDEMPOTENCY_KEY_CONFLICT"));
+        // 같은 참조 대상에 다른 금액의 실제 보류가 먼저 생기면 멱등 키 충돌로 DEAD가 된다.
+        billing.duringNextCall(() -> {
+            Long conflictingItemId = jdbcTemplate.queryForObject("select order_item_id from lectures.lecture_hp_task "
+                    + "where purpose = 'ORDER_HOLD'", Long.class);
+            assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                    conflictingItemId, PRICE_HP + 1L))).isInstanceOf(BillingCallResult.Succeeded.class);
+        });
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long itemId = order.items().getFirst().orderItemId();
         LectureHpTask dead = lectureHpTaskRepository.findByOrderIdIn(List.of(order.orderId())).stream()

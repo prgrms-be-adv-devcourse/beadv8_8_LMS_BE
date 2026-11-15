@@ -4,6 +4,7 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,24 +27,21 @@ import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureHpTaskType;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.ProcessingStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
+import com.hapbang.shared.billing.dto.HoldStateDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
-import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
 import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 결과를 확정하지 못한 주문 보류를 관리자가 보류 무효화로 끝내는 흐름을 Fake 지갑 Client와 DB까지 확인한다 (D73, #535).
+ * 결과를 확정하지 못한 주문 보류를 관리자가 보류 무효화로 끝내는 흐름을 실제 billing HTTP와 DB까지 확인한다 (D73, #535).
  * 실패 분류는 LectureHpTaskClassifierTest, 결제 단계 판정은 OrderHoldTasksTest, HTTP 응답은 LectureHpTaskAdminApiTest가 맡는다.
  */
 @IntegrationTest
@@ -67,7 +65,7 @@ class OrderHoldVoidTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
@@ -78,13 +76,14 @@ class OrderHoldVoidTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
     void DEAD_보류를_무효화하면_결제_취소_처리_중을_거쳐_결제_실패이고_같은_강의를_다시_살_수_있다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        billing.respond(command -> invariantViolation());
+        conflictNextHold();
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
         assertThat(order.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
         assertThat(order.processingStatus()).isEqualTo(ProcessingStatus.ACTION_REQUIRED);
@@ -122,12 +121,61 @@ class OrderHoldVoidTest {
     }
 
     @Test
+    void 지갑에_도달하지_않은_DEAD_보류는_0_HP로_무효화하고_원장을_바꾸지_않으며_다시_살_수_있다() {
+        Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
+        Map<String, Object> before = billing.snapshot(BUYER_ID);
+        billing.disconnect();
+        OrderResponse order;
+        try {
+            order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
+        } finally {
+            billing.reconnect();
+        }
+        assertThat(order.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
+        LectureHpTask hold = task(order.orderId(), LectureHpTaskPurpose.ORDER_HOLD);
+        assertThat(hold.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(hold.getLastErrorCode()).isEqualTo("RETRYABLE");
+        // 실제 연결 거부로 보류가 도달하지 않은 상태에서 자동 재시도 한도를 다 쓴 전제를 만든다.
+        jdbcTemplate.update("update lectures.lecture_hp_task set status = 'DEAD', attempt_count = 10 where id = ?",
+                hold.getId());
+
+        LectureHpTaskResponse voidTask = lectureHpTaskAdminFacade.voidHold(ADMIN_ID, hold.getId());
+        runDueTasks();
+
+        BillingCallResult<List<HoldStateDto>> queried = billing.client().queryHolds(new HoldQueryCommand(
+                BillingReferenceType.LECTURE_ORDER_ITEM, List.of(hold.getOrderItemId())));
+        assertThat(queried).isInstanceOf(BillingCallResult.Succeeded.class);
+        assertThat(((BillingCallResult.Succeeded<List<HoldStateDto>>) queried).value()).singleElement()
+                .satisfies(state -> {
+                    assertThat(state.hold()).isNull();
+                    assertThat(state.voided()).isNotNull().satisfies(voided -> {
+                        assertThat(voided.outcome()).isEqualTo(HoldVoidOutcome.VOIDED);
+                        assertThat(voided.releasedHp()).isZero();
+                    });
+                    assertThat(state.settlements()).isEmpty();
+                });
+        assertThat(lectureHpTaskRepository.findById(voidTask.id())).hasValueSatisfying(completed -> {
+            assertThat(completed.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+            assertThat(completed.getOutcome()).isEqualTo(LectureHpTaskOutcome.SUCCEEDED);
+        });
+        OrderResponse failed = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
+        assertThat(failed.status()).isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(failed.processingStatus()).isNull();
+        assertThat(billing.snapshot(BUYER_ID))
+                .containsEntry("wallet", before.get("wallet"))
+                .containsEntry("ledgers", before.get("ledgers"))
+                .containsEntry("charges", before.get("charges"))
+                .containsEntry("chargePrincipalHp", before.get("chargePrincipalHp"));
+        assertThat(lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId())).status())
+                .isEqualTo(LectureOrderStatus.PAID);
+    }
+
+    @Test
     void 지갑에_보류가_있었으면_무효화가_반환하고_결제_실패다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        billing.respond(command -> unknownResultAfterRetries());
+        billing.dropResponses(1);
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
         markHoldsDead(order.orderId());
-        billing.respond(command -> voided((HoldVoidCommand) command, HoldVoidOutcome.RELEASED, PRICE_HP));
 
         lectureHpTaskAdminFacade.voidHold(ADMIN_ID, deadHold(order.orderId()).getId());
         runDueTasks();
@@ -144,9 +192,8 @@ class OrderHoldVoidTest {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
         Lecture third = saveOnSale("조명 세팅", PRICE_HP);
-        billing.respond(this::heldInFull);
-        billing.respond(command -> invariantViolation());
-        billing.respond(this::heldInFull);
+        billing.duringNextCall(() -> { });
+        conflictNextHold();
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID,
                 List.of(first.getId(), second.getId(), third.getId()));
         assertThat(order.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
@@ -167,15 +214,10 @@ class OrderHoldVoidTest {
     @Test
     void 무효화_결과를_모르면_재시도하고_처음_결과를_돌려받아_결제_실패로_마무리한다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        billing.respond(command -> invariantViolation());
+        conflictNextHold();
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
         lectureHpTaskAdminFacade.voidHold(ADMIN_ID, deadHold(order.orderId()).getId());
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 500, "HOLD_STATE_INCONSISTENT");
-        });
-        billing.respond(command -> new BillingCallResult.Succeeded<>(new HoldVoidResultDto(
-                BillingReferenceType.LECTURE_ORDER_ITEM, ((HoldVoidCommand) command).referenceId(),
-                HoldVoidOutcome.RELEASED, PRICE_HP, true)));
+        billing.dropResponses(1);
 
         runDueTasks();
 
@@ -193,12 +235,13 @@ class OrderHoldVoidTest {
     @Test
     void 무효화가_DEAD면_결제_취소_처리_중에_남고_무효화_작업을_재시도해_마무리한다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        billing.respond(command -> invariantViolation());
+        conflictNextHold();
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
         LectureHpTaskResponse voidTask = lectureHpTaskAdminFacade.voidHold(ADMIN_ID,
                 deadHold(order.orderId()).getId());
-        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_OWNER_MISMATCH,
-                "다른 회원의 보류입니다.", 409, "HOLD_OWNER_MISMATCH"));
+        // 보류한 회원과 다른 payer를 가진 작업은 실제 billing이 거절한다.
+        jdbcTemplate.update("update lectures.lecture_hp_task set payer_user_id = ? where id = ?",
+                SELLER_ID, voidTask.id());
 
         runDueTasks();
 
@@ -208,6 +251,8 @@ class OrderHoldVoidTest {
         assertThat(stuck.status()).isEqualTo(LectureOrderStatus.HOLD_COMPENSATING);
         assertThat(stuck.processingStatus()).isEqualTo(ProcessingStatus.ACTION_REQUIRED);
 
+        jdbcTemplate.update("update lectures.lecture_hp_task set payer_user_id = ? where id = ?",
+                BUYER_ID, voidTask.id());
         lectureHpTaskAdminFacade.retry(ADMIN_ID, voidTask.id());
         runDueTasks();
 
@@ -220,15 +265,22 @@ class OrderHoldVoidTest {
     void 예상과_다른_무효화_결과도_DEAD로_두지_않고_결제_실패로_끝낸다(CapturedOutput output) {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
-        billing.respond(command -> invariantViolation());
-        billing.respond(command -> invariantViolation());
+        billing.dropResponses(2);
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId()));
+        markHoldsDead(order.orderId());
         for (LectureHpTask dead : deadHolds(order.orderId())) {
             lectureHpTaskAdminFacade.voidHold(ADMIN_ID, dead.getId());
         }
         // 반환 금액이 항목 가격과 다르거나, 보류가 이미 끝나 있었다 (D73 (4))
-        billing.respond(command -> voided((HoldVoidCommand) command, HoldVoidOutcome.RELEASED, PRICE_HP - 1));
-        billing.respond(command -> voided((HoldVoidCommand) command, HoldVoidOutcome.ALREADY_CLOSED, 0L));
+        Long firstItemId = order.items().getFirst().orderItemId();
+        Long secondItemId = order.items().getLast().orderItemId();
+        assertThat(billing.client().release(ReleaseCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, firstItemId, "PREEXISTING-RETURN-" + firstItemId, 1L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        assertThat(billing.client().release(ReleaseCommand.full(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, secondItemId, "PREEXISTING-RETURN-" + secondItemId)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
 
         runDueTasks();
 
@@ -248,7 +300,7 @@ class OrderHoldVoidTest {
     @Test
     void 무효화한_보류는_다시_보내거나_다시_무효화할_수_없다() {
         Lecture lecture = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        billing.respond(command -> invariantViolation());
+        conflictNextHold();
         OrderResponse order = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()));
         Long holdTaskId = deadHold(order.orderId()).getId();
         lectureHpTaskAdminFacade.voidHold(ADMIN_ID, holdTaskId);
@@ -310,31 +362,20 @@ class OrderHoldVoidTest {
 
     private <T> List<T> commands(Class<T> type) {
         return billing.calls().stream()
-                .map(FakeBillingApiClient.Call::command)
+                .map(RealBillingTestFixture.Call::command)
                 .filter(type::isInstance)
                 .map(type::cast)
                 .toList();
     }
 
-    private BillingCallResult<?> heldInFull(Object command) {
-        HoldCommand hold = (HoldCommand) command;
-        return new BillingCallResult.Succeeded<>(new HoldResultDto(
-                hold.referenceType(), hold.referenceId(), hold.amountHp(), false));
-    }
-
-    /** 다시 보내도 결과가 같은 지갑 4xx 불변식 위반. 보류는 바로 DEAD다 */
-    private static BillingCallResult<?> invariantViolation() {
-        return new BillingCallResult.Failed<>(BillingFailureCode.IDEMPOTENCY_KEY_CONFLICT,
-                "같은 멱등 키로 다른 요청이 왔습니다.", 409, "IDEMPOTENCY_KEY_CONFLICT");
-    }
-
-    private static BillingCallResult<?> unknownResultAfterRetries() {
-        throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 500, "HOLD_STATE_INCONSISTENT");
-    }
-
-    private static BillingCallResult<?> voided(HoldVoidCommand command, HoldVoidOutcome outcome, long releasedHp) {
-        return new BillingCallResult.Succeeded<>(new HoldVoidResultDto(command.referenceType(),
-                command.referenceId(), outcome, releasedHp, false));
+    /** 실제 보류가 같은 참조 대상에 다른 금액으로 먼저 들어가 원래 요청을 멱등 키 충돌로 거절한다. */
+    private void conflictNextHold() {
+        billing.duringNextCall(() -> {
+            Long itemId = jdbcTemplate.queryForObject("select order_item_id from lectures.lecture_hp_task "
+                    + "where purpose = 'ORDER_HOLD' and status = 'PROCESSING'", Long.class);
+            assertThat(billing.client().hold(new HoldCommand(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                    itemId, PRICE_HP + 1L))).isInstanceOf(BillingCallResult.Succeeded.class);
+        });
     }
 
     private Lecture saveOnSale(String title, long priceHp) {

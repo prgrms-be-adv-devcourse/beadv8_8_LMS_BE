@@ -9,11 +9,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -65,7 +67,7 @@ class ApiV1CouponAdminControllerTest {
                         .with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"targetType":"ANY_LECTURE","discountType":"RATE","discountValue":10,"maxDiscountAmount":3000,
+                                {"name":"신규 회원 할인","targetType":"ANY_LECTURE","discountType":"RATE","discountValue":10,"maxDiscountAmount":3000,
                                  "quantity":100,"issueStartAt":"2026-11-07T00:00:00Z","issueEndAt":"2026-11-14T00:00:00Z",
                                  "expiryType":"FIXED","fixedExpiresAt":"2026-12-31T00:00:00Z","stackable":true}
                                 """))
@@ -73,6 +75,23 @@ class ApiV1CouponAdminControllerTest {
                 .andExpect(jsonPath("$.statusCode").value(201))
                 .andExpect(jsonPath("$.data.type").value("PLATFORM"))
                 .andExpect(jsonPath("$.data.status").value("DRAFT"));
+    }
+
+    @Test
+    void 이름_길이는_요청에서_세지_않고_도메인에_맡긴다() throws Exception {
+        // 앞뒤 공백을 붙인 50자, 이모지 50자(UTF-16 100단위)는 도메인 기준으로 정상이라 요청 검증에서 막지 않는다
+        given(couponAdminFacade.createPlatform(eq(ADMIN_ID), any())).willReturn(view(CouponStatus.DRAFT));
+        for (String name : new String[] {"  " + "가".repeat(50) + "  ", "😀".repeat(50)}) {
+            mockMvc.perform(post("/api/v1/coupons/admin")
+                            .with(admin()).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"name":"%s","targetType":"ANY_LECTURE","discountType":"RATE","discountValue":10,"maxDiscountAmount":3000,
+                                     "quantity":100,"issueStartAt":"2026-11-07T00:00:00Z","issueEndAt":"2026-11-14T00:00:00Z",
+                                     "expiryType":"FIXED","fixedExpiresAt":"2026-12-31T00:00:00Z","stackable":true}
+                                    """.formatted(name)))
+                    .andExpect(status().isCreated());
+        }
     }
 
     @Test
@@ -122,12 +141,42 @@ class ApiV1CouponAdminControllerTest {
         verify(couponAdminFacade, never()).reject(anyLong(), anyLong(), anyString());
     }
 
+    @Test
+    void 쿠폰_목록은_상태로_거르고_상태가_없으면_전체다() throws Exception {
+        given(couponAdminFacade.coupons(CouponStatus.OPEN)).willReturn(List.of(view(CouponStatus.OPEN)));
+        given(couponAdminFacade.coupons(null)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/coupons/admin").param("status", "OPEN").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("신규 회원 할인"))
+                .andExpect(jsonPath("$.data[0].status").value("OPEN"));
+        mockMvc.perform(get("/api/v1/coupons/admin").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 쿠폰_상세는_없으면_404다() throws Exception {
+        given(couponAdminFacade.coupon(COUPON_ID)).willReturn(view(CouponStatus.DRAFT));
+        given(couponAdminFacade.coupon(43L)).willThrow(new CouponException(CouponErrorCode.COUPON_NOT_FOUND));
+
+        mockMvc.perform(get("/api/v1/coupons/admin/{couponId}", COUPON_ID).with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.couponId").value(COUPON_ID))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"));
+        mockMvc.perform(get("/api/v1/coupons/admin/{couponId}", 43L).with(admin()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+    }
+
     private static RequestPostProcessor admin() {
         return user(String.valueOf(ADMIN_ID)).roles("ADMIN");
     }
 
     private static CouponView view(CouponStatus status) {
-        return new CouponView(COUPON_ID, CouponType.PLATFORM, ADMIN_ID, CouponTargetType.ANY_LECTURE, null, null,
+        return new CouponView(COUPON_ID, "신규 회원 할인", CouponType.PLATFORM, ADMIN_ID, CouponTargetType.ANY_LECTURE, null, null,
                 DiscountType.RATE, 10, 3_000L, 100, 0, START, END, ExpiryType.RELATIVE, 30, null, false, 1, status, null);
     }
 }

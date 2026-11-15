@@ -43,6 +43,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | API Gateway (Envoy Gateway) | 도입. edge nginx와 k3s 내장 Traefik은 쓰지 않음 | TLS 종료, 모듈별 routing, JWT 서명 검증, 내부 API 차단, trace 시작점 |
 | JWT 인증 | 세션을 대체. member-app이 발급(RS256·JWKS), Envoy가 검증, 앱이 `@PreAuthorize`로 인가 | stateless 인증, Gateway 인증 위임과 헤더 위조 방지 |
 | Resilience4j | 각 앱의 rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker | 남용 경로 보호, 장애 전파 차단 |
+| Caffeine | 앱 안 메모리 캐시. Spring Cache 추상화 없이 직접 쓰고 의존은 쓰는 앱에만(첫 적용: chat-app 방 참여 캐시, 2026-11-09) | 크기 상한·W-TinyLFU 퇴출, 키별 단일 계산, Micrometer 캐시 지표 |
 | Graceful Shutdown | 모든 workload에 도입 | 신규 작업 차단, in-flight drain, 종료 순서와 제한 시간 |
 | Grafana observability stack | 도입 | Prometheus metrics, Alloy 수집, Loki logs, Tempo traces, Grafana dashboard·alert |
 | Mimir·Elastic Observability | 제외 | 단일 Prometheus와 기능이 겹치고 2노드 메모리·디스크를 추가로 사용 |

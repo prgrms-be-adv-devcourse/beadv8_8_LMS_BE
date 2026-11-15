@@ -1,16 +1,21 @@
 package com.hapbang.auxiliary.global.exception;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ContextConfiguration;
@@ -28,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.hapbang.auxiliary.global.config.SecurityConfig;
+import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
@@ -47,6 +53,7 @@ import lombok.RequiredArgsConstructor;
         "spring.security.oauth2.client.registration.google.client-secret=test"
 })
 @Import({SecurityConfig.class, GlobalExceptionHandler.class, GlobalExceptionHandlerTest.SampleController.class})
+@ExtendWith(OutputCaptureExtension.class)
 class GlobalExceptionHandlerTest {
 
     @Autowired
@@ -62,6 +69,30 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("SAMPLE_NOT_FOUND"))
                 .andExpect(jsonPath("$.detail").value("샘플을 찾을 수 없습니다."));
+    }
+
+    @Test
+    void 요청_한도_초과는_429와_Retry_After_헤더로_응답한다() throws Exception {
+        mockMvc.perform(asUser(get("/api/v1/samples/rate-limited")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "7"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.detail").value(GlobalErrorCode.TOO_MANY_REQUESTS.getMessage()));
+    }
+
+    @Test
+    void 잠시_뒤_다시_보내면_되는_5xx는_그_상태로_응답하고_ERROR_로그를_남기지_않는다(CapturedOutput output) throws Exception {
+        mockMvc.perform(asUser(get("/api/v1/samples/busy")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("SAMPLE_BUSY"))
+                .andExpect(jsonPath("$.detail").value("잠시 후 다시 시도해 주세요."));
+        mockMvc.perform(asUser(get("/api/v1/samples/broken")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("SAMPLE_BROKEN"));
+
+        // 다른 5xx는 그대로 ERROR다
+        assertThat(output.getOut()).doesNotContain("SAMPLE_BUSY").contains("ERROR").contains("code=SAMPLE_BROKEN");
     }
 
     @Test
@@ -203,7 +234,14 @@ class GlobalExceptionHandlerTest {
     @RequiredArgsConstructor
     enum SampleErrorCode implements BaseErrorCode {
         SAMPLE_NOT_FOUND(HttpStatus.NOT_FOUND, "샘플을 찾을 수 없습니다."),
-        SAMPLE_ALREADY_CLOSED(HttpStatus.CONFLICT, "이미 닫힌 샘플입니다.");
+        SAMPLE_ALREADY_CLOSED(HttpStatus.CONFLICT, "이미 닫힌 샘플입니다."),
+        SAMPLE_BROKEN(HttpStatus.INTERNAL_SERVER_ERROR, "샘플 처리에 실패했습니다."),
+        SAMPLE_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "잠시 후 다시 시도해 주세요.") {
+            @Override
+            public boolean isRetryLater() {
+                return true;
+            }
+        };
 
         private final HttpStatus status;
         private final String message;
@@ -235,6 +273,21 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/api/v1/samples/module-code")
         void moduleCode() {
             throw new BusinessException(SampleErrorCode.SAMPLE_NOT_FOUND);
+        }
+
+        @GetMapping("/api/v1/samples/rate-limited")
+        void rateLimited() {
+            throw new RateLimitExceededException(7);
+        }
+
+        @GetMapping("/api/v1/samples/busy")
+        void busy() {
+            throw new BusinessException(SampleErrorCode.SAMPLE_BUSY);
+        }
+
+        @GetMapping("/api/v1/samples/broken")
+        void broken() {
+            throw new BusinessException(SampleErrorCode.SAMPLE_BROKEN);
         }
 
         @GetMapping("/api/v1/samples/module-code-detail")

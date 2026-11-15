@@ -31,3 +31,8 @@ secretGenerator:
       - chat=local-chat-password
       - customersupport=local-customersupport-password
       - auxiliary=local-auxiliary-password
+  # Grafana Slack contact point(#781). 로컬은 Slack으로 보내지 않도록 닿지 않는 주소를 둔다.
+  - name: grafana-alerting
+    namespace: hapbang-platform
+    literals:
+      - SLACK_WEBHOOK_URL=http://127.0.0.1:9/local-no-slack

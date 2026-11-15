@@ -31,6 +31,8 @@ resilience4j-ratelimiter = { module = "io.github.resilience4j:resilience4j-ratel
 resilience4j-timelimiter = { module = "io.github.resilience4j:resilience4j-timelimiter", version.ref = "resilience4j" }
 resilience4j-bulkhead = { module = "io.github.resilience4j:resilience4j-bulkhead", version.ref = "resilience4j" }
 resilience4j-micrometer = { module = "io.github.resilience4j:resilience4j-micrometer", version.ref = "resilience4j" }
+# 앱 안 메모리 캐시. Spring Boot BOM이 버전을 관리하므로 버전을 적지 않는다. Spring Cache 추상화(@Cacheable) 없이 직접 쓴다
+caffeine = { module = "com.github.ben-manes.caffeine:caffeine" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

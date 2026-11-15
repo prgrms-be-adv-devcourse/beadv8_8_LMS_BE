@@ -375,6 +375,23 @@ class MemberWithdrawalUseCaseTest {
     }
 
     @Test
+    @DisplayName("콘텐츠 분야·자기소개를 고른 회원이 탈퇴·복구해도 두 이벤트에 그 값이 그대로 실린다 (#711)")
+    void withdrawAndRestore_keepContentProfile() {
+        User user = MemberFixture.user();
+        user.changeContentCategories(List.of("MAPLESTORY", "GAME"));
+        user.changeBio("메이플 위주");
+        userRepository.save(user);
+
+        memberWithdrawalUseCase.withdraw(user.getId());
+        memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(events.stream(UserModifiedEvent.class)).hasSize(2).allSatisfy(event -> {
+            assertThat(event.user().contentCategories()).containsExactly("MAPLESTORY", "GAME");
+            assertThat(event.user().bio()).isEqualTo("메이플 위주");
+        });
+    }
+
+    @Test
     @DisplayName("복구하면 탈퇴 때 닫은 지갑을 다시 열고 회원을 정상으로 되돌리며 이벤트를 남긴다")
     void restore() {
         User user = userRepository.save(MemberFixture.user());

@@ -11,7 +11,7 @@
 | Gradle 프로젝트 | 경로 | 역할 | 의존 |
 | --- | --- | --- | --- |
 | `:lecture-app` | `apps/lecture-app` | 실행 진입점 `LectureApplication`, `application.yaml`, Dockerfile, Flyway, **기존 강의 모듈 코드(`com.hapbang.lecture`) 그대로** | `:shared`, `runtimeOnly(project(":coupon"))` |
-| `:coupon` | `apps/lecture-app/boundedContext/coupon` | 쿠폰 모듈(`com.hapbang.coupon`) | `:shared`와, 쿠폰 코드가 컴파일에 필요한 것을 `:coupon/build.gradle.kts`에 직접 선언: `:kafka`, `:redis`(패키지 `com.hapbang.common`), data-jpa, webmvc, validation, security-core 등. 루트 Gradle의 공통 적용은 `-app` 프로젝트에만 걸리므로 하위 프로젝트는 스스로 선언한다 |
+| `:coupon` | `apps/lecture-app/boundedContext/coupon` | 쿠폰 모듈(`com.hapbang.coupon`) | `:shared`와, 쿠폰 코드가 컴파일에 필요한 것을 `:coupon/build.gradle.kts`에 직접 선언: `:kafka`, `:redis`(패키지 `com.hapbang.common`), data-jpa, webmvc, validation, security-core, swagger-annotations, resilience4j-circuitbreaker, `micrometer-core`(지표), `compileOnly postgresql`(UNIQUE 제약 이름으로 멱등 판별). `caffeine`(매진 캐시)만 새 라이브러리이고 decisions.md의 2026-11-09 결정으로 들였다. 나머지는 lecture-app이 이미 실어 오는 것이다. 루트 Gradle의 공통 적용은 `-app` 프로젝트에만 걸리므로 하위 프로젝트는 스스로 선언한다 |
 
 - `:lecture-app` → `:coupon`은 **`runtimeOnly`**다. 같은 jar·같은 JVM에 실리되 강의 코드가 쿠폰 클래스를 컴파일 시점에 볼 수 없다. 쿠폰은 강의를 전혀 의존하지 않는다.
 - 두 모듈이 주고받는 **HTTP DTO·Kafka 이벤트 schema는 `common/shared`**에 둔다. 팀 규칙(shared에는 DTO·이벤트·Enum·오류 코드·공통 HTTP Client만)과 같고, 다른 앱 사이와 같은 방식이다. 이벤트 소유권 문제(순환)는 생기지 않는다.
@@ -36,7 +36,7 @@ hapbang-backend/
    ├─ src/main/java/com/hapbang/lecture/     # 기존 강의 코드 그대로
    │  ├─ LectureApplication.java             # scan 범위에 com.hapbang.coupon 추가
    │  ├─ app/ config/ domain/ global/ in/
-   │  └─ out/coupon/CouponClient.java       # 쿠폰 내부 API를 부르는 @HttpExchange 클라이언트
+   │  └─ out/coupon/                         # LectureCouponInternalApi(@HttpExchange), CouponApiClient(circuit breaker coupon, 결과 4가지)
    ├─ src/main/resources/
    │  ├─ application.yaml                    # flyway.schemas += coupon, locations += db/migration/coupon, hapbang.coupon.base-url
    │  └─ db/migration/                       # 강의 마이그레이션 그대로
@@ -47,7 +47,7 @@ hapbang-backend/
          ├─ src/main/java/com/hapbang/coupon/
          │  ├─ package-info.java             # @ApplicationModule(displayName = "Coupon", allowedDependencies = {})
          │  ├─ domain/                       # Coupon, MemberCoupon, CouponUsage, CouponIssueRequest, 상태·금액 규칙
-         │  ├─ app/                          # 계산·예약·해제·발급·복원 UseCase, 만료·대사 배치, Stream 작업자
+         │  ├─ app/                          # 계산·예약·해제·발급·복원 UseCase, 만료·대사·재발행 배치
          │  ├─ config/                       # Redis·Kafka·Flyway 위치·HTTP 클라이언트 설정
          │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답, 배치 켜기 애노테이션, 인증 principal 읽기)
          │  ├─ in/                           # 들어오는 것: 컨트롤러·리스너 (lecture-app 규칙)
@@ -59,8 +59,8 @@ hapbang-backend/
          │  │  └─ event/                     # Kafka 소비자: OrderItemPaid·OrderItemCancelCompleted(lecture.events.v1)·CouponIssueRequested(coupon.events.v1)
          │  └─ out/                          # 나가는 것: Repository·클라이언트
          │     ├─ CouponRepository.java, MemberCouponRepository.java, … (@Table(schema = "coupon"))
-         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, Stream XADD/XREADGROUP
-         │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행 (Stream 작업자가 사용)
+         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행)
+         │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행 (접수 직후 앱이 전송, 재발행 배치가 재사용)
          │     └─ billing/                   # billing 내부 API를 부르는 @HttpExchange 클라이언트 (계약은 사용자 담당)
          ├─ src/main/resources/
          │  ├─ lua/                          # issue.lua, compensate.lua, cache-single-flight-swr.lua, release-lock.lua
@@ -76,7 +76,7 @@ hapbang-backend/
 - 배포 단위는 지금처럼 **lecture-app pod 하나**다. 이미지·Dockerfile·k8s 매니페스트는 그대로이고 jar 안에 강의와 쿠폰이 함께 들어간다.
 - `LectureApplication`의 scan 범위에 `com.hapbang.coupon`을 추가해 쿠폰 빈·`@KafkaListener`·배치가 같은 컨텍스트에서 뜬다. 설정은 `application.yaml`의 `hapbang.coupon.*`(코드 기본값 우선, Spring·라이브러리 설정만 yaml)에 둔다.
 - 쿠폰 내부 API의 base URL은 `hapbang.coupon.base-url`이며 기본값은 같은 서버(`http://localhost:<server.port>`)다. 쿠폰을 별도 pod로 빼면 이 값만 바뀐다.
-- pod 메모리(704Mi) 안에서 쿠폰 모듈·Stream 작업자·Kafka 소비자가 더 쓰는 heap을 측정한다(운영 문서).
+- pod 메모리(704Mi) 안에서 쿠폰 모듈·Kafka 생산자·소비자가 더 쓰는 heap을 측정한다(운영 문서).
 
 ### Spring Modulith
 
@@ -106,12 +106,26 @@ hapbang-backend/
 - 다른 스키마를 직접 읽지 않는다(JOIN·FK·Repository 접근 금지). 강의 상태 확인은 제공 계약을 통해 수행한다.
 - 통합 테스트는 한 모듈 롤백이 다른 모듈 커밋을 되돌리지 않음을 확인한다(운영 문서 "경계" 시나리오). HTTP·Kafka만 쓰므로 구조상 묶일 수 없지만, 실수로 Java 직접 호출이 들어오면 Modulith `verify()`가 잡는다.
 
+### 용어: 포트·어댑터·클라이언트 (2026-11-10)
+
+이 레포에서 "포트"는 두 뜻으로 쓰인다. 문서에서는 아래처럼 구분해 쓴다.
+
+| 용어 | 뜻 | 쿠폰·강의 예 |
+| --- | --- | --- |
+| 포트(port), 포트 인터페이스 | app 코드가 바깥에 기대하는 동작을 적은 **Java 인터페이스**. app이 상대가 누구인지·어떻게 통신하는지 모르게 한다. 물리적 연결이 아니다. `app/port` 패키지에 둔다 | `LectureCatalog`, `PromotionBudget`, `CouponIssueStore` |
+| 어댑터(adapter) | 포트를 구현하는 **클래스**. `out` 패키지에 두고, 안에서 클라이언트·Redis·Kafka를 써서 실제로 통신한다 | `HttpLectureCatalog`(→ `LectureCatalog`), `RedisCouponIssueStore`, `KafkaCouponIssueEventPublisher` |
+| 클라이언트(client) | 상대 앱 HTTP API의 모양을 그대로 옮긴 것. `@HttpExchange` 인터페이스(`<호출자><상대>InternalApi`)나, 그것·RestClient를 감싸 오류·결과를 정리하는 클래스(`<상대>ApiClient`). 어댑터가 쓴다. 포트가 없는 모듈(강의)에서는 app이 `…ApiClient`를 바로 부른다 | `CouponLectureInternalApi`, `LectureCouponInternalApi`, 강의 `CouponApiClient`, 공용 `BillingApiClient` |
+| 내부 포트, 내부 API 포트 | **네트워크 포트 번호**. 앱 간 내부 HTTP API만 받는 포트(8081). 외부 API 포트는 8080이다. 항상 "내부 포트(8081)"처럼 번호와 함께 쓴다 | `http://billing-app:8081` |
+
+- 쿠폰과 billing은 다른 JVM(다른 앱)이다. `PromotionBudget`의 어댑터는 billing-app 내부 포트(8081)의 HTTP API를 클라이언트로 부른다. 쿠폰과 강의도 같은 pod지만 JVM이 나뉜 것처럼 HTTP로만 부른다.
+- 이름 규칙: 포트는 할 일을 나타내는 이름에 접미사를 붙이지 않는다(`LectureCatalog`, `PromotionBudget`). 어댑터는 `<기술>` + 포트 이름(`Http`·`Redis`·`Kafka`). `@HttpExchange` 클라이언트는 `<호출자><상대>InternalApi`, 그것을 감싸는 클래스는 `<상대>ApiClient`. 2026-11-10 리팩토링으로 기존 이름도 이 규칙에 맞췄다(`PromotionBudgetPort` → `PromotionBudget`, 강의 `CouponClient` → `CouponApiClient`). 설정 키 `lecture.coupon-client.*`·circuit breaker 이름 `coupon`은 운영 설정이라 그대로 둔다.
+
 ## 발행과 플랫폼 예산
 
 1. 판매자는 판매자 쿠폰만 신청하고 관리자 심사를 거친다. 플랫폼 쿠폰은 관리자가 발행한다. 신청자와 유형은 따로 기록한다. 특정 강의 대상은 강의 조회 내부 API로 판매 상태를 확인해 판매 중(ON_SALE)인 강의만 신청·발행·승인할 수 있다.
 2. 특정 강의 가격·할인율·수량으로 예산을 산출한다. 10,000 HP × 10% × 100장 = 100,000 HP다. 정액은 강의 가격 범위에서 장당 할인액 × 수량이다.
 3. 플랫폼 쿠폰이면 플랫폼이 billing 프로모션 지갑에 재원을 충전하고 해당 쿠폰 예산으로 예약한다. 충전과 예약은 다른 작업이며 각각 원장·멱등 ID·결과를 남긴다. 판매자가 대신 충전하지 않는다.
-4. 예산 확보와 Redis 초기화를 확인한 뒤 발급을 연다. 중간 실패(응답 불명)는 동일 작업으로 조회·재시도하며 준비 전에는 열지 않는다. billing이 예약을 거절(FAILED)한 뒤 관리자가 다시 열면 attempt 번호를 붙인 새 작업 ID로 재예약하고 이전 작업 이력은 남긴다.
+4. 예산 확보와 Redis 초기화를 확인한 뒤 발급을 연다. 중간 실패(응답 불명)는 동일 작업으로 조회·재시도하며 준비 전에는 열지 않는다. billing이 예약을 거절(FAILED)한 뒤 관리자가 다시 열면 attempt 번호를 붙인 새 작업 ID로 재예약하고 이전 작업 이력은 남긴다. 관리자 열기와 예산 배치는 모두 `CouponBudgetWorkUseCase.execute(workId)`의 같은 lease·attempt fence를 사용한다. 이미 선점된 PENDING 작업은 HTTP를 중복 호출하지 않는다. 관리자는 실행 뒤 DB의 최신 결과를 읽어 DONE일 때만 열기를 이어 가고, FAILED는 409, PENDING은 503으로 응답한다. 늦은 성공·거절 응답이 다른 attempt의 확정 결과를 덮지 않는다.
 5. **DB와 Redis 상태의 순서·fence:** Redis 초기화는 "준비됨·접수 차단" 상태로만 하고, DB가 OPEN으로 커밋된 **뒤에** Redis를 접수 허용으로 바꾼다(응답 유실로 DB는 REVIEW인데 Redis만 열리는 것을 막는다). `issue-control`에 fence(쿠폰 DB version)를 두고 Redis 상태 쓰기마다 그 커밋의 version을 넘긴다. Lua는 열기는 fence보다 클 때만, 막기는 같거나 클 때만 반영해 늦게 도착한 옛 쓰기(늦은 resume, 늦은 suspend)를 무시한다. 이미 OPEN인 쿠폰의 open·approve·resume 재호출은 Redis 열기만 다시 하는 멱등 성공이다.
 
 일반적인 '정률 최대 3,000 HP'와 같은 별도 상한은 특정 강의 쿠폰에서는 필수가 아니다. 대신 **가격 인상 제한**이 예산을 지킨다: 강의 모듈의 가격 수정은 쿠폰 모듈의 `priceRaiseBlocked(lectureId)`를 호출해 특정 강의 대상 플랫폼 쿠폰이 `OPEN`이거나 미사용 발급 쿠폰이 남아 있으면 인상을 거부한다. 인하는 허용한다.
@@ -120,19 +134,21 @@ hapbang-backend/
 
 **예산 해제 규칙:** 최대 할인액 `M`(특정 강의는 가격 × 할인율), 실제 사용액 `F`일 때 (1) 발급되지 않은 수량의 `M`은 발급 종료(`CLOSED`)와 진행 중 발급 정리 뒤 해제, (2) 발급됐지만 사용 안 한 쿠폰의 `M`은 `expiresAt` 뒤 해제, (3) 사용한 쿠폰의 `M − F`는 `expiresAt` 뒤 해제, (4) 보류 중인 `F`는 기한과 무관하게 지급 또는 반환으로만 끝난다. 복원 가능 기간 = 그 발급 쿠폰의 `expiresAt`까지다(복원은 `expiresAt > now`일 때만 하므로). 처리 중 작업이 있으면 그 작업이 끝난 뒤 해제한다.
 
+예외로, 한 번도 OPEN되지 않은 PLATFORM DRAFT가 `issueEndAt <= now`이고 `issuedCount = 0`이며 예산 예약 ID가 확정돼 있으면 미발급 전액을 해제한다. 쿠폰 행을 잠근 트랜잭션에서 이 조건을 확인하고 `coupon-{쿠폰ID}-release-unissued-v{정책버전}`·`UNISSUED:{수량}`으로 해제 작업을 저장한다. DRAFT는 OPEN 이력이 없고 Redis 접수 허용은 OPEN 커밋 뒤에만 하므로 발급되지 않았다는 근거가 있다. 예약 결과가 불명인 동안에는 성공·실패를 추정하지 않는다. 예약 DONE 기록·쿠폰 예약 ID 저장과 만료 DRAFT 해제 작업 등록을 같은 트랜잭션에 둔다. 이미 DONE이지만 Redis 준비 실패로 DRAFT에 남은 쿠폰도 만료 뒤 배치가 같은 조건으로 수집한다. 이 예외는 정상 CLOSED의 진행 중 발급 대사와 Redis 유실 시 보류 원칙을 바꾸지 않는다.
+
 쿠폰 사용 잔액은 없다. 단, 중첩·정액 제한 때문에 실제 플랫폼 부담이 예상보다 작아질 수 있으므로 billing은 실제 사용액과 예약 재원을 별도로 추적해야 한다. 이 차액을 회원이 재사용할 쿠폰 잔액으로 표시하지 않는다. 복원 가능 쿠폰의 재사용을 보장할 예산을 유지하고, 만료·종료 시 더 이상 필요 없는 재원을 해제한다. 구체 필요액은 확정된 가격 기준으로 계산하며 임의 최대 할인 정책으로 대체하지 않는다.
 
 ## 발급
 
-1. 인증·권한·형식을 확인하고 안정적인 issueRequestId를 받는다. **접수 경로는 DB를 읽지 않는다.** epoch·발급 기간·만료 계산 입력(방식·N일·고정 시각)은 발급 준비(`prepare`) 때 `issue-control`에 넣어 두고, Lua가 그 값으로 `expiresAt`을 계산해 Stream 필드에 쓴다. 쿠폰 존재·운영 상태 확인은 Lua의 `-2`로 충분하다(Hikari pool을 강의 API와 공유하므로 선착순 핫패스에 SELECT를 두지 않는다).
+1. 인증·권한·형식을 확인하고 안정적인 issueRequestId를 받는다. **접수 경로는 DB를 읽지 않는다.** epoch·발급 기간·만료 계산 입력(방식·N일·고정 시각)은 발급 준비(`prepare`) 때 `issue-control`에 넣어 두고, Lua가 그 값으로 `expiresAt`을 계산해 요청 기록(requests)에 쓰고 반환한다. 쿠폰 존재·운영 상태 확인은 Lua의 `-2`로 충분하다(Hikari pool을 강의 API와 공유하므로 선착순 핫패스에 SELECT를 두지 않는다).
 2. 기존 요청이면 내용·소유자를 대조해 결과를 반환한다. 기간 종료·매진 뒤 재시도도 기존 결과를 조회할 수 있다.
 3. 신규 요청은 Lua에서 운영 상태·준비 상태·epoch·시작/종료 시각·회원 중복·재고를 확인한다. SWR 캐시를 최종 판정에 쓰지 않는다.
-4. 재고 차감·회원/요청 기록·Stream 기록을 한 Lua에서 처리한다. 모든 키 타입·인수를 쓰기 전에 검사한다. 쓰기 순서는 재고 `DECR` → 회원·요청 기록 → `XADD`이며, **`XADD`는 `redis.pcall`로 감싸 실패(OOM 등)하면 같은 스크립트 안에서 `INCR`·`SREM`·요청 기록 삭제로 되돌리고 오류를 반환한다.** 스크립트 하나가 atomic이라 되돌리기도 다른 요청과 섞이지 않는다. Lua는 오류 시 자동 롤백되지 않으므로 되돌리기 자체가 실패한 부분 기록 의심은 쿠폰 차단·대사로 처리한다. 마지막 1장이면 매진 플래그를 남기고, 앱은 짧은 메모리 캐시로 매진 뒤 요청을 Redis 호출 없이 거절한다(F12). 반환값: `1` 접수, `2` 같은 회원·같은 요청 ID 재응답, `0` 매진, `-1` 이미 발급, `-2` 접수 불가(issue-control 없음·READY·SUSPENDED·CLOSED·epoch 불일치), `-3` 기간 아님, `-4` 요청 ID 충돌(다른 회원이 같은 요청 ID → 409), `-9` 쓰기 실패(되돌린 뒤).
-5. 접수 응답은 ACCEPTED이며 완료가 아니다. Stream 작업자가 Kafka ACK 후 XACK한다. ACK 불명은 동일 ID로 재전송한다.
+4. 재고 차감·회원 기록·요청 기록을 한 Lua에서 처리한다. 모든 키 타입·인수를 쓰기 전에 검사한다. 쓰기 순서는 재고 `DECR` → 회원 `SADD` → 요청 `HSET`(회원·접수 시각·만료 시각)이며, **뒤의 쓰기는 `redis.pcall`로 감싸 실패(OOM 등)하면 같은 스크립트 안에서 앞의 쓰기를 되돌리고 오류를 반환한다.** Redis Stream은 두지 않는다(2026-11-08). 요청 기록이 Lua와 같은 atomic 단위에 남으므로 그것이 접수의 복구 근거다. 스크립트 하나가 atomic이라 되돌리기도 다른 요청과 섞이지 않는다. Lua는 오류 시 자동 롤백되지 않으므로 되돌리기 자체가 실패한 부분 기록 의심은 쿠폰 차단·대사로 처리한다. 마지막 1장이면 매진 플래그를 남기고, 앱은 짧은 메모리 캐시로 매진 뒤 요청을 Redis 호출 없이 거절한다(F12). 캐시는 인스턴스마다 Caffeine 캐시 하나(`expireAfterWrite` = `sold-out-cache-ttl`, `maximumSize` = `sold-out-cache-max-entries`, 만료는 단조 시계 `Ticker.systemTicker()`, 재사용 판정은 쿠폰 시계로 `SoldOutSignal.freshAt`)이고, 상한을 넘으면 덜 쓰는 항목을 내보낸다(W-TinyLFU). 내보낸 쿠폰은 다음 확인 때 Redis를 다시 읽는다. TTL이 0이면 캐시를 쓰지 않고 sold_out도 읽지 않는다(판정은 Lua). 이 캐시는 요청 ID를 보지 않으므로, 캐시가 매진을 들고 있는 짧은 창(TTL) 동안에는 이미 접수된 요청의 재전송도 `ALREADY_ACCEPTED`가 아니라 매진(409)으로 응답한다. 클라이언트는 같은 요청 ID로 이미 보낸 적이 있으면 매진 응답 뒤 상태 조회로 결과를 확인한다. 검사 순서와 반환값: 인수·key 타입 → **같은 요청 ID를 가장 먼저** 본다(같은 회원이면 `2` 재응답으로 최초 접수의 expiresAt·접수 epoch를 돌려주고 기록을 바꾸지 않는다, 다른 회원이면 `-4` 충돌 → 409). 그 뒤는 신규 요청만: issue-control(없음·ready≠1·OPEN 아님 → `-2`) → 기간(`-3`) → hold(RECOVERY·RECONCILE·BACKLOG 보류 중이면 `-2`) → 회원 중복(`-1`) → 재고(`0` 매진) → 쓰기(실패는 되돌린 뒤 `-9`) → `1` 접수. 같은 요청을 준비·기간·hold보다 먼저 보므로 중단·기간 종료·issue-control 유실·보류 뒤에도 응답을 잃은 재시도는 최초 결과를 그대로 받는다(I4). 반환은 `{code, expiresAtMs, epoch}`이며 `2`는 기록의 접수 epoch(epoch 필드가 없는 옛 형식이면 0), 그 밖의 코드는 둘 다 0이다. 대사가 ISSUED 기록을 정리한 뒤 같은 요청 ID를 다시 보내면 `2`가 아니라 `-1`이다(재고는 안전하고 상태 조회는 DB 기준 ISSUED).
+5. 접수 응답은 ACCEPTED이며 완료가 아니다. 앱은 Lua 성공 직후 `CouponIssueRequested`를 Kafka로 보내고 ACK를 짧게 기다린다(설정, 기본 1초). 성공이면 requests 값에 `PUBLISHED` 표식을 더한다(실패해도 무해). 전송 실패·시간 초과·앱 중단이어도 응답은 ACCEPTED이고 재고를 되돌리지 않는다. **재발행 배치**가 OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 `HSCAN`해 접수 뒤 N초(설정, 기본 30초)가 지났는데 DB `coupon_issue_request`에 없는 요청을 같은 ID로 다시 발행한다. 한 쿠폰에서 연속 실패가 N건(설정, 기본 3)에 이르면 그 쿠폰의 남은 전송을 멈추고 다음 쿠폰으로 넘어간다(broker 장애 때 회차가 끝나지 않는 것을 막는다). DB 미확정 요청이 남은 쿠폰은 key 만료를 늦춰 복구 근거를 지키며(operations.md "작업자와 배치"), 중복 전달은 소비자 멱등이 흡수한다.
 6. 소비자가 요청 결과·member_coupon INSERT·총량 이하 조건의 발급 수 증가를 한 DB 트랜잭션으로 저장한다. epoch 검증도 동일 트랜잭션에 포함한다.
 7. 제한 재시도 뒤 DLT에 격리한다. 영구 거절을 DB에 확정한 뒤 요청별 Redis 보상 표식과 수량 복구를 한 Lua로 수행한다. DB 보상 완료 기록 전에 종료돼도 Redis 표식으로 중복 복구를 막는다. 이전 epoch 보상은 재구축 재고를 변경하지 않는다.
 
-Kafka key는 couponId로 한다. 같은 요청이 Stream·Kafka·DLT에 있어도 한 번만 집계한다. DB 조건부 카운터와 유일성 제약은 최종 방어다.
+Kafka key는 couponId로 한다. 같은 요청이 Kafka에 두 번 있거나 DLT에 있어도 한 번만 집계한다. DB 조건부 카운터와 유일성 제약은 최종 방어다.
 
 ## 계산과 주문
 

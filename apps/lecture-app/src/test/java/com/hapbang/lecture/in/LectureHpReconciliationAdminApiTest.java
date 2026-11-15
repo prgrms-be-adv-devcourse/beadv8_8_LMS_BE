@@ -7,8 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -18,16 +16,13 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.lecture.app.LectureHpReconciliationUseCase;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.support.GatewayLogin;
-import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldStateDto;
-import com.hapbang.shared.billing.dto.HoldStatePageDto;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 // 관리자의 서비스 간 HP 대사 실행·결과 조회 API를 HTTP부터 DB까지 확인한다 (D74, #580).
 // 비교 규칙·제외·커서는 LectureHpReconciliationComparerTest·LectureHpReconciliationTest가 맡는다.
@@ -42,7 +37,7 @@ class LectureHpReconciliationAdminApiTest {
     private MockMvc mockMvc;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private LectureHpReconciliationUseCase lectureHpReconciliationUseCase;
@@ -50,15 +45,15 @@ class LectureHpReconciliationAdminApiTest {
     @BeforeEach
     void setUp() {
         billing.reset();
+        billing.wallet(OTHER_USER_ID, 1_000_000L, 0L);
     }
 
     @Test
     void 관리자가_수동_실행하면_실행_결과와_어긋난_건을_주고_latest로_다시_본다() throws Exception {
-        HoldStateDto.Amount price = new HoldStateDto.Amount(PRICE_HP, 0, PRICE_HP);
-        HoldStateDto.Amount zero = new HoldStateDto.Amount(0, 0, 0);
-        billing.addHoldPage(new HoldStatePageDto(List.of(new HoldStateDto(BillingReferenceType.LECTURE_ORDER_ITEM,
-                WALLET_ONLY_ID, new HoldStateDto.Hold(BillingHoldStatus.HELD, OTHER_USER_ID, price, price, zero, zero,
-                zero), null, List.of())), Instant.parse("2026-11-03T00:00:00Z"), 1L, false));
+        assertThat(billing.client().hold(new HoldCommand(OTHER_USER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, WALLET_ONLY_ID, PRICE_HP)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
+        billing.clearCalls();
 
         mockMvc.perform(post(BASE).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
@@ -84,9 +79,8 @@ class LectureHpReconciliationAdminApiTest {
 
     @Test
     void 지갑_조회가_실패해도_200이고_INCOMPLETE와_이유를_준다() throws Exception {
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        // GET의 내부 재전송도 실제 응답을 받지 못하게 해 조회 실패를 유지한다.
+        billing.dropResponses(100);
 
         mockMvc.perform(post(BASE).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
@@ -104,7 +98,7 @@ class LectureHpReconciliationAdminApiTest {
     @Test
     void 실행_중이면_수동_실행은_409_HP_RECONCILIATION_RUNNING이고_latest는_RUNNING이다() throws Exception {
         AtomicBoolean once = new AtomicBoolean();
-        billing.setDuringCall(() -> {
+        billing.duringNextCall(() -> {
             if (once.compareAndSet(false, true)) {
                 try {
                     mockMvc.perform(post(BASE).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))

@@ -139,10 +139,13 @@ class MemberEventKafkaIntegrationTest {
                 "eventType", "UserJoinedEvent",
                 "eventVersion", "1"));
         assertThat(userJson(record))
-                .containsOnlyKeys("id", "nickname", "role", "status", "version")
+                .containsOnlyKeys("id", "nickname", "role", "status", "version", "contentCategories", "bio")
                 .containsEntry("nickname", "카프카가입")
                 .containsEntry("role", "USER")
-                .containsEntry("status", "ACTIVE");
+                .containsEntry("status", "ACTIVE")
+                // 분야는 없어도 빈 배열로 나가고(null 아님), 자기소개는 null로 나간다 (#711)
+                .containsEntry("contentCategories", List.of())
+                .containsEntry("bio", null);
         // shared 레코드 그대로라 같은 클래스로 되돌리면 원본 회원 정보와 같다
         assertThat(jsonMapper.readValue(record.value(), UserJoinedEvent.class))
                 .isEqualTo(new UserJoinedEvent(find(user).toDto()));
@@ -153,7 +156,7 @@ class MemberEventKafkaIntegrationTest {
     void modify() {
         User user = userRepository.save(MemberFixture.user());
 
-        memberFacade.updateProfile(user.getId(), "카프카수정");
+        memberFacade.updateProfile(user.getId(), "카프카수정", null, null);
 
         ConsumerRecord<String, byte[]> record = awaitRecords(user.getId(), 1).getFirst();
 
@@ -175,7 +178,7 @@ class MemberEventKafkaIntegrationTest {
 
         // 요청 하나(HTTP server span)를 대신한다. Modulith 외부화는 커밋 뒤 @Async로 보내므로 trace가 스레드를 넘어가야 한다
         Observation.createNotStarted("member-trace-request", observationRegistry)
-                .observe(() -> memberFacade.updateProfile(user.getId(), "카프카추적"));
+                .observe(() -> memberFacade.updateProfile(user.getId(), "카프카추적", null, null));
 
         ConsumerRecord<String, byte[]> record = awaitRecords(user.getId(), 1).getFirst();
         RecordedSpans.await(() -> !spans.named("member-trace-request").isEmpty());
@@ -197,7 +200,7 @@ class MemberEventKafkaIntegrationTest {
         String nickname = user.getNickname();
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            memberFacade.updateProfile(user.getId(), "롤백될닉네임");
+            memberFacade.updateProfile(user.getId(), "롤백될닉네임", null, null);
             // 커밋 전, 업무 트랜잭션 안에서 Kafka 외부화 발행 기록이 이미 보인다
             assertThat(incompletePublications(user.getId()))
                     .filteredOn(publication -> publication.getTargetIdentifier().getValue().contains(EXTERNALIZER))
@@ -209,7 +212,7 @@ class MemberEventKafkaIntegrationTest {
         assertThat(find(user).getNickname()).isEqualTo(nickname);
 
         // 같은 key는 같은 파티션이라, 롤백된 이벤트가 나갔다면 이 이벤트보다 먼저 읽힌다
-        memberFacade.updateProfile(user.getId(), "커밋닉네임");
+        memberFacade.updateProfile(user.getId(), "커밋닉네임", null, null);
 
         assertThat(awaitRecords(user.getId(), 1)).singleElement()
                 .satisfies(record -> assertThat(userJson(record)).containsEntry("nickname", "커밋닉네임"));

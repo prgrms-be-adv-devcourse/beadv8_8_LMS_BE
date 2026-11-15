@@ -29,10 +29,9 @@ import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.customersupport.support.GatewayLogin;
+import com.hapbang.customersupport.fixture.LectureObjectionResults;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
-import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
 import com.hapbang.shared.lecture.out.LectureApiCallExceptions;
 import com.hapbang.shared.lecture.out.LectureApiClient;
 import com.hapbang.shared.member.domain.Role;
@@ -472,7 +471,7 @@ class ApiV1InquiryControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OBJECTION_IN_PROGRESS"));
 
-        results.apply(new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, 100L, true));
+        results.apply(LectureObjectionResults.resolved(inquiryId, 100L, true));
 
         resolve(inquiryId, true, "확인 결과 반환합니다.")
                 .andExpect(status().isOk())
@@ -518,7 +517,7 @@ class ApiV1InquiryControllerTest {
                 .andExpect(jsonPath("$.message").value("이의 제기 철회를 처리하는 중입니다."))
                 .andExpect(jsonPath("$.data.objectionLinkStatus").value("WITHDRAWAL_PENDING"));
 
-        results.apply(new LectureObjectionWithdrawnEvent("WITHDRAW:" + inquiryId, inquiryId, 100L));
+        results.apply(LectureObjectionResults.withdrawn(inquiryId, 100L));
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNoContent());

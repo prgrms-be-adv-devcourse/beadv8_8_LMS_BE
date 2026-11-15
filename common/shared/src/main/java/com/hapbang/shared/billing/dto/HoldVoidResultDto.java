@@ -1,15 +1,28 @@
 package com.hapbang.shared.billing.dto;
 
+import java.util.List;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 
-// 보류 무효화 결과 (#479). releasedHp는 이 무효화가 반환한 금액이다(RELEASED일 때만 0보다 크다).
-// replayed가 true면 같은 참조 대상으로 다시 보내 처음 결과를 돌려받은 것이다.
+// 무효화가 직접 반환한 구매자 몫과 플랫폼 예산 복구 결과를 최초 값 그대로 재생한다.
 public record HoldVoidResultDto(
         BillingReferenceType referenceType,
         Long referenceId,
         HoldVoidOutcome outcome,
         long releasedHp,
+        @JsonInclude(JsonInclude.Include.NON_DEFAULT) Long promotionRestoredHp,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<PromotionRestorationDto> promotionRestorations,
         boolean replayed
 ) {
+    public HoldVoidResultDto {
+        promotionRestoredHp = promotionRestoredHp == null ? 0L : promotionRestoredHp;
+        promotionRestorations = promotionRestorations == null ? List.of() : List.copyOf(promotionRestorations);
+    }
+
+    public HoldVoidResultDto(BillingReferenceType referenceType, Long referenceId, HoldVoidOutcome outcome,
+            long releasedHp, boolean replayed) {
+        this(referenceType, referenceId, outcome, releasedHp, 0L, List.of(), replayed);
+    }
 }

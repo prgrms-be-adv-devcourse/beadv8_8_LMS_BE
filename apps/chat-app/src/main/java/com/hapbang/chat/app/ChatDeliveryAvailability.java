@@ -36,6 +36,8 @@ import lombok.extern.slf4j.Slf4j;
  * 재확인 권한은 허락 결과({@link WritePermit}·{@link PublishPermit})의 토큰으로만 결과를 알리고 돌려준다. 재확인 권한이 없는
  * 호출(게이트가 열려 있을 때 시작해 늦게 끝난 호출 등)은 규칙대로 게이트를 열거나 닫을 수는 있지만 다른 호출의 재확인 권한을
  * 지우지 않는다. 그래서 재확인은 장애마다 한 번에 하나만 진행한다. 장애가 끝나면(게이트가 열리면) 그 장애의 재확인 권한은 무효다.
+ * 게이트가 열려 있으면 허락 진입점은 잠금 없이 멈춤 표시만 읽고 허락한다. 그 직후 다른 호출이 게이트를 닫아도 이 허락은 게이트가
+ * 열려 있을 때 시작한 호출이다. 멈춘 게이트의 재확인 시각·권한 판단과 결과 알림은 잠금 안에서 한다.
  * <p>
  * Redis 연결 재확인은 PING이 아니라 TTL이 있는 작은 쓰기({@link ChatDeliveryQueue#ping()})로 한다. READONLY(복제본·failover)·
  * LOADING·MASTERDOWN에서도 PING은 성공하지만 XADD·XREADGROUP은 계속 실패하므로, PING으로 열면 1초마다 열고 닫기를 되풀이한다.
@@ -81,6 +83,9 @@ public class ChatDeliveryAvailability {
      * Redis를 써도 되는지. 멈춘 상태면 재확인 시각에 한 스레드만 작은 쓰기로 확인한다.
      */
     public boolean redisAvailable() {
+        if (!redis.down) {
+            return true;
+        }
         long token;
         synchronized (this) {
             if (!redis.down) {
@@ -180,6 +185,9 @@ public class ChatDeliveryAvailability {
         if (!redisAvailable()) {
             return WritePermit.CLOSED;
         }
+        if (!writes.down) {
+            return WritePermit.OPEN;
+        }
         synchronized (this) {
             if (!writes.down) {
                 return WritePermit.OPEN;
@@ -244,12 +252,7 @@ public class ChatDeliveryAvailability {
 
     /** 이 큐의 새 작업을 읽어도 되는지(Redis 연결과 자기 구독이 모두 정상) */
     public boolean mayConsume(ChatJobStream stream) {
-        if (!redisAvailable()) {
-            return false;
-        }
-        synchronized (this) {
-            return !subscriptions.get(stream).down;
-        }
+        return redisAvailable() && !subscriptions.get(stream).down;
     }
 
     /**
@@ -270,8 +273,11 @@ public class ChatDeliveryAvailability {
         if (!redisAvailable()) {
             return new PublishPermit(stream, false, 0);
         }
+        Probe subscription = subscriptions.get(stream);
+        if (!subscription.down) {
+            return new PublishPermit(stream, true, 0);
+        }
         synchronized (this) {
-            Probe subscription = subscriptions.get(stream);
             if (!subscription.down) {
                 return new PublishPermit(stream, true, 0);
             }
@@ -422,7 +428,10 @@ public class ChatDeliveryAvailability {
         }
     }
 
-    /** 멈춤 상태와 다음 재확인 시각. {@code down}만 게이지가 잠금 없이 읽고, 나머지는 바깥 객체의 잠금 아래에서만 바꾼다 */
+    /**
+     * 멈춤 상태와 다음 재확인 시각. {@code down}만 게이지와 게이트 진입점이 잠금 없이 읽고, 나머지는 바깥 객체의 잠금 아래에서만
+     * 바꾼다
+     */
     private static final class Probe {
         private volatile boolean down;
         /** 이번 장애에서 재확인이 실패한 횟수. 재확인 간격을 정한다 */

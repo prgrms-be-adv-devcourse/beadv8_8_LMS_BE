@@ -1,3 +1,5 @@
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+
 plugins {
     id("org.springframework.boot")
 }
@@ -42,4 +44,21 @@ tasks.bootJar {
 // 공통 로컬 인프라(docker/compose.yaml)와 .env는 저장소 루트 기준이다.
 tasks.bootRun {
     workingDir = rootDir
+}
+
+// 별도 JVM에서 실제 BillingApplication을 실행하는 HTTP E2E 전용 서버.
+// 일반 test 클래스/리소스는 넣지 않으며 production app.jar에도 fixture를 넣지 않는다.
+val e2eServer by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + configurations.runtimeClasspath.get()
+    runtimeClasspath += output + compileClasspath
+}
+
+tasks.register<BootJar>("e2eServerJar") {
+    targetJavaVersion.set(JavaVersion.VERSION_25)
+    group = "verification"
+    description = "실제 billing 엔진과 격리 DB fixture API만 담은 E2E 서버를 만든다."
+    archiveFileName.set("billing-e2e-server.jar")
+    mainClass.set("com.hapbang.billing.e2e.BillingE2eServer")
+    classpath(e2eServer.runtimeClasspath)
+    dependsOn(e2eServer.classesTaskName)
 }

@@ -8,6 +8,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.lecture.app.dto.OrderCouponSelection;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
@@ -27,6 +28,9 @@ public class LectureOrderFacade {
 
     private final LectureOrderSupport lectureOrderSupport;
     private final OrderCreateUseCase orderCreateUseCase;
+    private final OrderCouponQuoteUseCase orderCouponQuoteUseCase;
+    private final OrderCouponReserveUseCase orderCouponReserveUseCase;
+    private final OrderCouponReleaseUseCase orderCouponReleaseUseCase;
     private final OrderConfirmUseCase orderConfirmUseCase;
     private final OrderCancelUseCase orderCancelUseCase;
     private final OrderPlayConsentUseCase orderPlayConsentUseCase;
@@ -37,8 +41,29 @@ public class LectureOrderFacade {
      * 결제가 끝나면 {@code PAID}, 아직 결제 단계면 처리 중 주문을 돌려주고, 결제 실패면 {@code INSUFFICIENT_BALANCE}(탈퇴로 닫힌 지갑이 거절했으면 {@code WALLET_CLOSED}, D76)다.
      */
     public OrderResponse createOrder(Long userId, List<Long> lectureIds) {
-        OrderCreateUseCase.Placement placement = orderCreateUseCase.place(userId, lectureIds);
-        orderCreateUseCase.tryHolds(placement);
+        return createOrder(userId, lectureIds, List.of(), null);
+    }
+
+    /**
+     * 쿠폰을 고를 수 있는 주문. 쿠폰을 고르지 않았으면 쿠폰 모듈을 부르지 않고 위 주문과 같다.
+     * 쿠폰을 골랐으면 트랜잭션 밖에서 쿠폰 할인을 다시 계산해 구매자가 본 금액({@code expectedBuyerAmountHp})과 맞춰 본 뒤,
+     * 주문·할인 스냅샷·쿠폰 예약 작업을 저장하고, 쿠폰을 예약한 뒤에야 보류 작업을 등록해 보류를 시도한다.
+     * 예약이 거절되면 {@code COUPON_RESERVATION_REJECTED}(409)이고, 예약 결과를 모르면 결제 처리 중 주문을 돌려준다.
+     * 예약 뒤 결제 실패로 끝나면 예약한 쿠폰의 해제를 한 번 보낸다.
+     */
+    public OrderResponse createOrder(Long userId, List<Long> lectureIds, List<OrderCouponSelection> coupons,
+                                     Long expectedBuyerAmountHp) {
+        if (coupons == null || coupons.isEmpty()) {
+            OrderCreateUseCase.Placement placement = orderCreateUseCase.place(userId, lectureIds);
+            orderCreateUseCase.tryHolds(placement);
+            return orderCreateUseCase.result(userId, placement.orderId());
+        }
+        OrderCouponQuote quote = orderCouponQuoteUseCase.quote(userId, lectureIds, coupons, expectedBuyerAmountHp);
+        OrderCreateUseCase.Placement placement = orderCreateUseCase.placeWithCoupons(userId, lectureIds, quote);
+        List<Long> holdTaskIds = orderCouponReserveUseCase.reserve(placement.orderId());
+        orderCreateUseCase.tryHolds(new OrderCreateUseCase.Placement(placement.orderId(), holdTaskIds));
+        // 결제 실패로 끝났으면 예약한 쿠폰을 바로 한 번 해제해 본다. 결과를 모르면 쿠폰 작업 재전송 배치가 잇는다
+        orderCouponReleaseUseCase.release(placement.orderId());
         return orderCreateUseCase.result(userId, placement.orderId());
     }
 

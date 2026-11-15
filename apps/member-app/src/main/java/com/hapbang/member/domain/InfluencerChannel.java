@@ -83,6 +83,13 @@ public class InfluencerChannel extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String rejectionReason;
 
+    /**
+     * 심사 회차 (#874, ND-045). 심사가 시작된 횟수다: 등록하며 자동 승인되면 1, 승인 요청마다 1씩 는다 (등록만 되면 0).
+     * 승인·반려 이벤트가 이 값을 담아, 같은 채널의 심사 결과를 {@code <채널 ID>:<회차>}로 구분하게 한다
+     */
+    @Column(nullable = false)
+    private int reviewCount;
+
     private LocalDateTime deletedAt;
 
     private InfluencerChannel(User user, ChannelPlatform platform, String channelIdentifier, String channelName) {
@@ -93,13 +100,15 @@ public class InfluencerChannel extends BaseEntity {
         this.channelUrl = platform.channelUrl(channelIdentifier);
     }
 
-    /** 채널 등록. 팔로워 기준을 넘으면 바로 승인, 아니면 등록만 */
+    /** 채널 등록. 팔로워 기준을 넘으면 바로 승인(심사 1회차), 아니면 등록만 */
     public static InfluencerChannel register(User user, ChannelPlatform platform, String channelIdentifier,
                                              String channelName, int followerCount, LocalDateTime now) {
         InfluencerChannel channel = new InfluencerChannel(user, platform, channelIdentifier, channelName);
         channel.followerCount = followerCount;
         channel.followerCountUpdatedAt = now;
         if (meetsFollowerCount(followerCount)) {
+            // 승인 요청을 거치지 않은 자동 승인도 심사 한 번으로 센다 (#874)
+            channel.reviewCount = 1;
             channel.approveAutomatically(now);
         } else {
             channel.verificationStatus = ChannelVerificationStatus.REGISTERED;
@@ -107,11 +116,12 @@ public class InfluencerChannel extends BaseEntity {
         return channel;
     }
 
-    /** 승인 요청 (등록만 됐거나 반려된 채널). 팔로워 기준을 넘으면 바로 승인, 아니면 관리자 심사 대기 */
+    /** 승인 요청 (등록만 됐거나 반려된 채널). 심사 회차가 1 늘고, 팔로워 기준을 넘으면 바로 승인, 아니면 관리자 심사 대기 */
     public void requestApproval(int followerCount, LocalDateTime now) {
         if (!canRequestApproval()) {
             throw new MemberException(MemberErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED);
         }
+        this.reviewCount++;
         this.followerCount = followerCount;
         this.followerCountUpdatedAt = now;
         this.requestedAt = now;

@@ -15,6 +15,7 @@
 #                                PR CI가 테스트할 앱(#488). changed와 같고 아래만 다르다. 배포는 changed를 쓴다(발행은 source 태그의 이미지가 없는 앱을 고른다)
 #                                - apps/<앱>/k8s/**, *.md                 → 판정에서 뺀다(manifests job이 검사, 문서)
 #                                - .github/workflows/ci.yml, .github/scripts/apps.sh, gradlew → 전체 앱
+#                                - billing-app 변경 → 실제 billing E2E를 실행하는 lecture-app도 테스트
 #                                규칙을 바꾸면 apps-test.sh에 사례를 더한다(changes job이 실행)
 #   apps.sh source <앱> <rev>   rev 시점의 그 앱 내용을 마지막으로 바꾼 커밋(40자). 이미지 태그 sha-<커밋>에 쓴다
 #                                발행은 head가 아니라 이 커밋으로 태그를 붙이고, 배포도 같은 커밋으로 이미지를 찾는다.
@@ -95,9 +96,16 @@ tested() {
     return
   fi
 
+  # 강의·쿠폰 통합 테스트가 billing의 별도 실행 산출물과 실제 엔진에 의존한다.
+  local billing_changed=false
+  if ! git diff --quiet "$base" "$head" -- apps/billing-app/ "${TESTED_EXCLUDES[@]}"; then
+    billing_changed=true
+  fi
+
   local app
   for app in "${APPS[@]}"; do
-    if ! git diff --quiet "$base" "$head" -- "apps/$app/" "${TESTED_EXCLUDES[@]}"; then
+    if [[ "$app" == lecture-app && "$billing_changed" == true ]] \
+      || ! git diff --quiet "$base" "$head" -- "apps/$app/" "${TESTED_EXCLUDES[@]}"; then
       echo "$app"
     fi
   done

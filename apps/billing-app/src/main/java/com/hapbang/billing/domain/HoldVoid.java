@@ -29,7 +29,7 @@ import org.hibernate.annotations.Immutable;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Immutable
-@Check(constraints = "((outcome = 'RELEASED' AND released_hp > 0) OR (outcome <> 'RELEASED' AND released_hp = 0))")
+@Check(constraints = "released_hp >= 0 AND promotion_restored_hp >= 0 AND ((outcome = 'RELEASED' AND (released_hp > 0 OR promotion_restored_hp > 0)) OR (outcome <> 'RELEASED' AND released_hp = 0 AND promotion_restored_hp = 0))")
 public class HoldVoid extends BillingCreatedEntity {
 
     @Column(name = "user_id", nullable = false, updatable = false)
@@ -52,22 +52,32 @@ public class HoldVoid extends BillingCreatedEntity {
     @Column(name = "released_hp", nullable = false, updatable = false)
     private Long releasedHp;
 
+    @Column(name = "promotion_restored_hp", nullable = false, updatable = false)
+    private Long promotionRestoredHp;
+
     private HoldVoid(Long userId, Long walletId, BillingReferenceType referenceType, Long referenceId,
-            HoldVoidOutcome outcome, long releasedHp) {
+            HoldVoidOutcome outcome, long releasedHp, long promotionRestoredHp) {
         this.userId = userId;
         this.walletId = walletId;
         this.referenceType = referenceType;
         this.referenceId = referenceId;
         this.outcome = outcome;
         this.releasedHp = releasedHp;
+        this.promotionRestoredHp = promotionRestoredHp;
     }
 
     // 무효화 결과를 기록한다. 반환한 금액은 RELEASED일 때만 0보다 크다.
     public static HoldVoid of(Long userId, Long walletId, BillingReferenceType referenceType, Long referenceId,
             HoldVoidOutcome outcome, long releasedHp) {
-        if ((outcome == HoldVoidOutcome.RELEASED) != (releasedHp > 0)) {
+        return of(userId, walletId, referenceType, referenceId, outcome, releasedHp, 0L);
+    }
+
+    public static HoldVoid of(Long userId, Long walletId, BillingReferenceType referenceType, Long referenceId,
+            HoldVoidOutcome outcome, long releasedHp, long promotionRestoredHp) {
+        if (releasedHp < 0 || promotionRestoredHp < 0
+                || (outcome == HoldVoidOutcome.RELEASED) != (releasedHp > 0 || promotionRestoredHp > 0)) {
             throw new IllegalArgumentException("반환한 금액은 RELEASED일 때만 0보다 큽니다.");
         }
-        return new HoldVoid(userId, walletId, referenceType, referenceId, outcome, releasedHp);
+        return new HoldVoid(userId, walletId, referenceType, referenceId, outcome, releasedHp, promotionRestoredHp);
     }
 }

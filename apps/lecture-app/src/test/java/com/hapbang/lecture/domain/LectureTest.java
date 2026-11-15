@@ -181,6 +181,28 @@ class LectureTest {
     }
 
     @Test
+    void 지금_가격보다_클_때만_가격_인상이다() {
+        Lecture lecture = onSaleLecture();
+
+        assertThat(lecture.isPriceRaise(PRICE_HP + 1_000L)).isTrue();
+        assertThat(lecture.isPriceRaise(PRICE_HP)).isFalse();
+        assertThat(lecture.isPriceRaise(PRICE_HP - 1_000L)).isFalse();
+    }
+
+    @Test
+    void 가격_인상_제한을_확인할_때_읽은_가격이_그대로일_때만_정보를_바꾼다() {
+        Lecture lecture = onSaleLecture();
+
+        assertThatThrownBy(() -> lecture.updateInfo(SELLER_ID, PRICE_HP + 1_000L, "새 제목", null, 20_000L, null, NOW))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.LECTURE_PRICE_CHANGED);
+        assertThat(lecture.getPriceHp()).isEqualTo(PRICE_HP);
+
+        lecture.updateInfo(SELLER_ID, PRICE_HP, "새 제목", null, 20_000L, null, NOW);
+        assertThat(lecture.getPriceHp()).isEqualTo(20_000L);
+    }
+
+    @Test
     void 판매자가_아니면_수정_삭제_재검수_신청을_할_수_없다() {
         Lecture lecture = pendingLecture();
 

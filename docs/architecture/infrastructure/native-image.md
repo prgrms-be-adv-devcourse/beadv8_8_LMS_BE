@@ -122,6 +122,7 @@ agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러�
 - **native는 `JAVA_TOOL_OPTIONS`를 읽지 않는다.** 로컬에서 `JAVA_TOOL_OPTIONS=-Xmx24m`은 GC를 일으키지 않았고, 인자 `-Xmx24m`은 기동 0.07초 안에 GC 10회를 일으켰다(`-XX:+PrintGC`). 운영 ConfigMap의 `-XX:MaxRAMPercentage=60`은 native에 효과가 없다.
 - **heap 상한 기본값은 메모리의 80%다**(빌드 출력 `Serial GC (max heap size: 80% of RAM)`). 256 MiB면 약 205 MiB라 heap 밖을 더하면 limit을 넘을 수 있어 `-Xmx`를 명시한다. 128 MiB는 관측 최대 84 MiB의 약 1.5배다.
 - 256 MiB 안의 구성: heap 상한 128 + heap 밖 약 30(RSS 111 − heap 82) + page cache 최대 69(회수 가능) ≈ 227 MiB.
+- **`-XX:+ExitOnOutOfMemoryError`도 실행 인자로 준다(#854).** JVM 앱은 `JAVA_TOOL_OPTIONS`로 주지만 native는 읽지 않는다. Native Image는 GraalVM 22.2부터 이 옵션을 실행 시점 옵션(`SubstrateGCOptions`의 `RuntimeOptionKey`)으로 지원한다(GR-38413). Java heap이 부족해 `OutOfMemoryError`가 나면 `Terminating due to java.lang.OutOfMemoryError`를 남기고 종료 코드 3으로 끝나, 컨테이너가 다시 시작하고 Grafana 컨테이너 재시작 alert가 받는다(`OutOfMemoryUtil`의 `LibC.exit(3)`). 이 동작은 **소스 기준이다.** 운영 native 이미지는 로컬에서 GHCR로 받을 권한이 없어 실행해 보지 않았고, 배포 뒤 정상 기동(옵션을 읽지 못하면 기동이 실패한다)만 확인한다.
 - medium node 스케줄러 요청 합계가 3,712 MiB(96%)에서 3,520 MiB(92%)가 된다.
 - 적용 뒤 1시간 15분(2026-11-04 06:54~08:09 UTC): 재시작 0, heap 최대 48.5 MiB(상한 128 MiB의 38%), working set 최대 108 MiB(limit의 42%), RSS 최대 78 MiB, `UnsupportedFeatureError`·`OutOfMemoryError` 0. 같은 시간 운영 요청: 문의 목록 200 ×108, 등록 201 ×16·409 ×86(`OBJECTION_ALREADY_FILED`, 같은 주문 항목 반복 시험), 강의 내부 API 이의 제기 접수 200 ×3·409 ×86. native에서 고친 강의 Client record 직렬화가 운영에서도 동작했다. 이의 제기 판단·철회 이벤트 발행과 강의 결과 이벤트 받기는 아직 운영에서 돌지 않았다.
 

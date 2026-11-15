@@ -3,6 +3,31 @@ spring:
     url: "${DB_URL}"
     username: "${DB_USERNAME}"
     password: "${DB_PASSWORD}"
+  # 챗봇 운영 모델은 OpenAI다(#715). 키는 Secret(auxiliary-app-secrets의 OPENAI_API_KEY)으로만 받는다
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+    openai:
+      api-key: "${OPENAI_API_KEY}"
+      chat:
+        model: gpt-4o-mini
+        temperature: 0.2
+      embedding:
+        model: text-embedding-3-small
+  # ES는 hapbang-platform의 ECK(자체 서명 CA)다. 주소는 ConfigMap(SPRING_ELASTICSEARCH_URIS), 키는 Secret(ES_API_KEY),
+  # CA는 hapbang-prod의 ConfigMap elasticsearch-ca를 마운트한 파일이다(docs/deploy/k8s.md "Elasticsearch 앱 접근")
+  elasticsearch:
+    api-key: "${ES_API_KEY}"
+    restclient:
+      ssl:
+        bundle: elasticsearch
+  ssl:
+    bundle:
+      pem:
+        elasticsearch:
+          truststore:
+            certificate: file:/etc/hapbang/elasticsearch-ca/ca.crt
 server:
   forward-headers-strategy: native
 logging:
@@ -10,3 +35,31 @@ logging:
     format:
       # 운영 로그는 JSON 한 줄(Boot 내장 logstash 형식)로 쓴다. 필드·MDC 키·조회는 docs/dev/logging.md (#582)
       console: logstash
+hapbang:
+  notification:
+    websocket:
+      # 알림 웹소켓 핸드셰이크를 허용할 프론트 출처(chat-app과 같은 값). Gateway route는 N4에서 연다
+      allowed-origins: https://hapbang.duckdns.org
+    # 알림 시작 시각(hapbang.notification.alert.start-at, ND-076)은 운영에서 설정하지 않는다. 앱이 처음 뜰 때의 시각을
+    # notification.notification_runtime_setting에 한 번 기록해 재배포·재시작에도 그 값을 쓴다(ND-095). 설정하면 그 값이 기록보다 앞선다
+  chatbot:
+    faq:
+      index-name: chatbot-faq-openai-1536
+      dimensions: 1536
+      # 임시값. 배포 전에 평가셋을 OpenAI로 한 번 돌려 정한다(README "평가")
+      similarity-threshold: 0.4
+    index:
+      lecture-name: chatbot-lectures-openai-1536
+      influencer-name: chatbot-influencers-openai-1536
+      dimensions: 1536
+    recommend:
+      lecture:
+        # 관심사 비율 α와 인기 비율 β. 임베딩 모델마다 유사도가 퍼지는 구간이 달라 프로필마다 둔다(기본값 없음).
+        # 임시값. 식에서 정한 추정 시작값이고, 추천 가중치 보정(#867)에서 다시 정한다
+        interest-weight: 0.3
+        popularity-weight: 0.05
+  search:
+    elasticsearch:
+      # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806)
+      api-key: "${ES_SEARCH_API_KEY}"
+      ssl-bundle: elasticsearch

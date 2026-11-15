@@ -13,6 +13,7 @@ public final class CouponFixture {
     public static final Instant NOW = Instant.parse("2026-11-06T03:00:00Z");
     public static final Instant ISSUE_START = NOW.plusSeconds(3_600);
     public static final Instant ISSUE_END = NOW.plusSeconds(86_400 * 7);
+    public static final String COUPON_NAME = "겨울 특강 할인";
 
     private CouponFixture() {
     }
@@ -51,6 +52,7 @@ public final class CouponFixture {
 
     public static final class TermsBuilder {
 
+        private String name = COUPON_NAME;
         private CouponTargetType targetType;
         private Long lectureId;
         private Long basePrice;
@@ -64,6 +66,11 @@ public final class CouponFixture {
         private Integer expiryDays = 30;
         private Instant fixedExpiresAt;
         private boolean stackable;
+
+        public TermsBuilder name(String value) {
+            this.name = value;
+            return this;
+        }
 
         public TermsBuilder targetType(CouponTargetType value) {
             this.targetType = value;
@@ -133,7 +140,7 @@ public final class CouponFixture {
         }
 
         public CouponTerms build() {
-            return new CouponTerms(targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
+            return new CouponTerms(name, targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
                     quantity, issueStartAt, issueEndAt, expiryType, expiryDays, fixedExpiresAt, stackable);
         }
     }

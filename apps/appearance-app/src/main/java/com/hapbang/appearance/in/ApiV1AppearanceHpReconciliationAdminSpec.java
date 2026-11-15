@@ -24,7 +24,8 @@ public interface ApiV1AppearanceHpReconciliationAdminSpec {
     @Operation(summary = "HP 대사 지금 실행", description = """
             대사를 실행하고 끝날 때까지 기다려 결과(실행 1회와 어긋난 건)를 돌려준다.
             - 지갑 조회가 실패해도 오류 응답이 아니라 200이고 `status`가 `INCOMPLETE`, 이유는 `failureReason`이다
-            - 이미 실행 중이면(매일 배치 포함) 409 `HP_RECONCILIATION_RUNNING`
+            - 이미 실행 중이면(매일 배치 포함) 409 `HP_RECONCILIATION_RUNNING`. 배포 중 다른 pod가 실행하고 있을 때와,
+              1시간 안에 시작했는데 끝나지 않은(`RUNNING`) 실행이 남아 있을 때도 409다. 1시간이 지나면 그 실행을 `INCOMPLETE`로 정리하고 실행한다
             - 처음 실행은 지갑 보류 목록을 처음부터 읽어 오래 걸릴 수 있다. 응답 전에 연결이 끊겨도(Gateway 응답 시간 초과 등)
               서버에서는 끝까지 실행되므로 `GET /latest`로 결과를 확인한다""")
     RsData<HpReconciliationRunResDto> run(Long adminId);

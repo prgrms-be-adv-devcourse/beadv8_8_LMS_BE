@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -49,6 +51,37 @@ class BillingCommandValidatorTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    @DisplayName("구매자 몫이 0이어도 양수 플랫폼 몫이 있으면 보류할 수 있다")
+    void zeroBuyerAmountWithPromotion() {
+        assertThatCode(() -> BillingCommandValidator.verify(holdWithPromotions(0L, 1L)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> BillingCommandValidator.verify(holdWithPromotions(Long.MAX_VALUE - 1, 1L)))
+                .doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0L, -1L, Long.MIN_VALUE})
+    @DisplayName("플랫폼 몫이 0 이하이면 구매자 금액과 관계없이 INVALID_POINT_AMOUNT다")
+    void nonPositivePromotionAmounts(long amountHp) {
+        assertBillingError(() -> BillingCommandValidator.verify(holdWithPromotions(0L, amountHp)),
+                BillingErrorCode.INVALID_POINT_AMOUNT);
+        assertBillingError(() -> BillingCommandValidator.verify(holdWithPromotions(1L, amountHp)),
+                BillingErrorCode.INVALID_POINT_AMOUNT);
+    }
+
+    @Test
+    @DisplayName("플랫폼 몫이 있어도 구매자 몫은 음수일 수 없고 모든 재원 합이 long을 넘으면 거절한다")
+    void invalidBuyerAmountAndPromotionTotal() {
+        assertBillingError(() -> BillingCommandValidator.verify(holdWithPromotions(-1L, 1L)),
+                BillingErrorCode.INVALID_POINT_AMOUNT);
+        assertBillingError(() -> BillingCommandValidator.verify(holdWithPromotions(Long.MAX_VALUE, 1L)),
+                BillingErrorCode.INVALID_POINT_AMOUNT);
+        assertBillingError(() -> BillingCommandValidator.verify(new PaymentHoldCommand(1L, ITEM, 1L, 0L,
+                List.of(new PaymentHoldPromotion(42L, 901L, 0L, Long.MAX_VALUE),
+                        new PaymentHoldPromotion(43L, 902L, 0L, 1L)))), BillingErrorCode.INVALID_POINT_AMOUNT);
+    }
+
     @ParameterizedTest
     @CsvSource({
             "7000, 3000, 10000",
@@ -88,6 +121,11 @@ class BillingCommandValidatorTest {
 
     private static PaymentPenaltyCommand penalty(long releaseHp, long payoutHp) {
         return new PaymentPenaltyCommand(1L, REQUEST, 7L, "C1", 2L, SOURCE, 7L, releaseHp, payoutHp);
+    }
+
+    private static PaymentHoldCommand holdWithPromotions(long buyerHp, long promotionHp) {
+        return new PaymentHoldCommand(1L, ITEM, 1L, buyerHp,
+                List.of(new PaymentHoldPromotion(42L, 901L, 0L, promotionHp)));
     }
 
     private static void assertBillingError(Executable action, BillingErrorCode errorCode) {

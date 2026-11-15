@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: grafana-alerting
+  namespace: hapbang-platform
+spec:
+  encryptedData:
+    SLACK_WEBHOOK_URL: AgALveWdSKZa+jMZ+qYHtfgGcuL2Q33S5LYAINctP5OTarTBv84V2V/Mee2Qyl9J298Ah66gfBSbxJ7jJ9KGlAZStM1gWJzCx6k0g9Z2bLU9/R380cKZmXXry8xb+vqO7YUaJ/sN+92OleFTowZdLSYGaY7jMHgtkeRgc3o4qGrqhaQZr59Z0leYXmSbNcUxLwbTjBYjeKTQidktsVL+N7Im4ZjkJ6fFon1MzYhCZqDoAdoMlmyam2ehRGOegS72uE/p+IHaoxAhXposOmL3aFzJPHMyinuABOX8kqVMKTDCp+Y+coozl0qYgHxB2et3yocSZ8vhUfckzfptJMhDxocFlQTy622u2kbfAHMH/9vBrDdDdbhtMyrSFHSv1uoNc+//9aRYYRwlgooaQ1Y/N0cttTUw9lH3I53rBAcGxL0UHdUK0RUYL15T6uq2FC3NiP7uJ/8EFJyrg4V67d7jIJGHeblkT0r6rxL9hxCfKzLyyCvoUGJcEJobiNgFceDC4pz2H73dr0nlkICnn1U12aCQVnlsQju1jfezHEizyq4fjfnf0ebyviKR5W0O3cBZ8xzwFrBh5ZXlQ20WwAiMAi9jzPB69xR3dqBkqp1kXvC9iYvZUHP/GZ8jt34JJUXnek4fGmkMn9U+9Z6Zvq421Pvnu9xJAbtKN/6027ReZsYa2c91zhAvNyHmBxwkW+ev02dM8yfUOLutY2DwEH9+/NOgxunSipA5iVIsDlXJw4ocY8W9e6ApDJQmSSjKw45M0B0m76BPeP77/MfRLff1f5rSP4JQujVGr5pWpbS5oBwC0eQ=
+  template:
+    metadata:
+      name: grafana-alerting
+      namespace: hapbang-platform

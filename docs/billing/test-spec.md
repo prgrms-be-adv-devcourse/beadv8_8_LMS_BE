@@ -42,6 +42,7 @@ S 명령은 클래스를 하나씩 적는다. `global.config.*`로 고르면 같
   --tests 'com.hapbang.billing.app.BillingKeysTest' \
   --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' \
   --tests 'com.hapbang.billing.app.ChangedWalletReconciliationUseCaseTest' \
+  --tests 'com.hapbang.billing.app.WalletReconciliationMetricsRestorerTest' \
   --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' \
   --tests 'com.hapbang.billing.app.BillingUserBackfillUseCaseTest' \
   --tests 'com.hapbang.billing.app.ChargeUsageHistoryTest' \
@@ -192,7 +193,8 @@ Unit은 "실패 0"만으로 합격으로 보지 않는다. 테스트가 빠지�
 | BT-LED-07 | 원장 append-only | SQL UPDATE·DELETE 거부(트리거) | INV-2 | R | `BillingConstraintsTest#원장은_SQL로도_수정하거나_삭제할_수_없다` | 없음 | 유효 |
 | BT-LED-08 | 잔액 대사 | 일치·캐시 불일치·원장 불일치 탐지, 동시 작업 중 같은 스냅숏, 수수료 수입 칸(FEE 가용, #336) | BD-20, INV-1 | I | `WalletReconciliationIntegrationTest`, `ExchangePayoutIntegrationTest`의 플랫폼 지갑 대사(BT-EXP-08) | 없음 | 유효 |
 | BT-LED-09 | 원장 기록의 트랜잭션 참여 | 지갑 앱 안 호출자 트랜잭션에 참여한다(`REQUIRED`). 다른 앱 트랜잭션 참여는 검증 대상이 아니다(BD-143) | BD-53 (지갑 안 호출 부분. 다른 앱 참여 부분은 BD-143으로 대체) | I | `LedgerRecordIntegrationTest#joinsCallerTransaction`, `#multipleRecordsInSameTransaction_keepPendingChanges` | 없음 (Billing 내부 호출) | 유효 |
-| BT-LED-10 | 잔액 대사 자동 실행 (#607) | 창(72시간) 안에서 수정된 지갑만 대사하고 창 밖은 대사 안 함, 원장만 생긴 지갑·캐시만 바뀐 지갑을 불일치로 잡음, 고치지 않음, 수정·원장이 함께 있어도 한 번만, 한 지갑의 오류에도 계속, 오류 지갑은 끝에 1회 재시도, 재시도에도 실패하면 다음 회차에 창 밖이어도 대사하고 성공하면 빠짐, 결과별 지갑 수(다음 실행은 덮어씀)·마지막 성공 시각(failed 0일 때만, 전부 실패면 그대로, 대상 0개는 성공), 창 설정값 적용(24h)·기본 72h, 다른 pod가 락을 쥐면 실행 안 함 | BD-139, BD-20, INV-1 | U, I | `ChangedWalletReconciliationIntegrationTest`, `ChangedWalletReconciliationUseCaseTest`, `BillingBatchJobLockTest`(대사 배치), `ManagementPortTest`(지표 노출) | 없음 | 유효 |
+| BT-LED-10 | 잔액 대사 자동 실행 (#607) | 창(72시간) 안에서 수정된 지갑만 대사하고 창 밖은 대사 안 함, 원장만 생긴 지갑·캐시만 바뀐 지갑을 불일치로 잡음, 고치지 않음, 수정·원장이 함께 있어도 한 번만, 한 지갑의 오류에도 계속, 오류 지갑은 끝에 1회 재시도, 재시도에도 실패하면 다음 회차에 창 밖이어도 대사하고 성공하면 빠짐, 결과별 지갑 수(다음 실행은 덮어씀)·마지막 성공 시각(failed 0일 때만, 전부 실패면 그대로, 대상 0개는 성공), 창 설정값 적용(24h)·기본 72h, 다른 pod가 락을 쥐면 실행 안 함 | BD-139, BD-146(이월 원본), BD-20, INV-1 | U, I | `ChangedWalletReconciliationIntegrationTest`, `ChangedWalletReconciliationUseCaseTest`, `BillingBatchJobLockTest`(대사 배치), `ManagementPortTest`(지표 노출) | 없음 | 유효 |
+| BT-LED-11 | 잔액 대사 실행 기록과 기동 시 지표 복원 (#822) | 대사가 끝나면 실행 기록 1행(시작·끝 시각, 기준 시각, matched·mismatched·failed 수)과 불일치·실패 지갑마다 1행(일치 지갑은 없음)을 남김, 직전 실행 기록의 FAILED 지갑을 다음 회차에 창 밖이어도 대사(새로 뜬 인스턴스에서도), 그보다 오래된 실행의 FAILED 지갑은 창 밖이면 대사 안 함(가장 최근 실행만), 기록 저장이 실패해도 지표는 갱신하고 대사 결과를 돌려줌. 기동 시 복원: 가장 최근 실행의 결과별 지갑 수, failed 0인 가장 최근 실행의 시작 시각(최근 실행이 실패여도 그 앞 성공 시각), 실행 기록이 없으면 그대로 0, DB를 읽지 못해도 기동 계속, 이 인스턴스에서 대사가 끝난 뒤의 복원은 결과별 수를 덮지 않고 마지막 성공 시각을 뒤로 돌리지 않음, 이월 지갑을 읽지 못해도 창 안의 지갑은 대사 | BD-146, BD-139 | U, I | `WalletReconciliationRunIntegrationTest`, `WalletReconciliationMetricsRestorerTest`, `ChangedWalletReconciliationUseCaseTest#recordsRunAtEnd`·`#carriesFailedWalletsFromLastRecord`·`#carryOverReadFailureDoesNotStopRun`·`#recordFailureStillUpdatesMetrics`·`#restoreDoesNotOverwriteRunInThisInstance`, `BillingSchemaTest`·`BillingEnumStorageTest`(새 테이블·CHECK) | 없음 | 유효 |
 
 ### 4.3 보류·반환·지급·위약금·확정 차감 (HLD·REL·PAY·PEN·CAP)
 
@@ -239,7 +241,9 @@ Unit은 "실패 0"만으로 합격으로 보지 않는다. 테스트가 빠지�
 | BT-PORT-07 | 대사용 보류·지급 조회 (#577) | 참조 대상별 조회: 요청 순서·중복 한 번·없는 ID 빈 기록, 보류만·일부 반환·지급·위약금·무효화만, 충전·수익 HP별 금액과 합계, 최초 = 남은 + 반환 + 지급 + 확정 차감, 지급 건, 0개·501개·보류 불가 유형 400, 키 없음 401. 목록: 바뀐 순서·`hasMore`가 false가 될 때까지 커서로 끝까지·마지막 커서로 다시 부르면 빈 페이지에 같은 커서·같은 변경 시각은 보류 위치로 나눔·다른 유형 섞이지 않음·최근 10초 안에 바뀐 보류 제외·잘못된 파라미터 400. shared Enum과 지갑 Enum 상수 일치, Client 경로·쿼리·본문 | BD-137 | U, I | `HoldQueryApiTest`, `BillingStatusContractTest`, shared `HoldQueryCommandTest`·`BillingApiClientTest` | 경계 (호출하는 강의·출연 대사는 각 모듈 하위 이슈) | 유효 |
 | BT-PORT-08 | 내부 API 오류 코드 대조 (#273) | 내부 API에서 나오는 Billing 오류 코드는 같은 이름의 shared `BillingFailureCode`로 바뀐다(`HP_LOCK_TIMEOUT` 포함). `BillingFailureCode`는 `UNMAPPED`를 빼고 모두 어떤 Billing 오류 코드에서 바뀌어 나온다 | BD-113, BD-108 | U | `BillingFailureCodeContractTest#sameName`, `#everyFailureCodeIsReachable` | 없음 (shared Enum을 같은 classpath에서 대조) | 유효 |
 | BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka `member.events.v1`로 billing-app에 전달되어 지갑·복제본이 생긴다. 소비 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑)이 따로 받는다. 같은 회원·같은 버전 재전달은 한 번만 반영(지갑 하나, 복제본 한 번), 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 가입보다 변경이 먼저 와도 복제본 생성, 모르는 타입은 무시, 재시도 3회 초과는 그 그룹 DLT, 역직렬화 실패는 재시도 없이 두 그룹 DLT(`member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`, partition 3·보존 7일), 한 그룹의 실패가 다른 그룹을 막지 않는다 | BD-2, BD-103, BD-123, BD-136, kafka.md | I | `BillingMemberEventKafkaTest` | 없음 | 유효 |
-| BT-EVT-02 | 지갑 이벤트 발행 (#497) | 충전·지급(정상·위약금)·환불(전부·일부)·환전(완료·거절·시도별 송금 실패·최종 실패) 끝 상태 커밋과 함께 `billing.events.v1`에 정해진 key·헤더로 한 번 나간다. 실패·재요청에서는 나가지 않고, 롤백하면 안 나가며, 못 보낸 기록은 재발행한다 | BD-130 | U, I | `BillingEventKafkaTest`, `BillingExternalEventsTest`, `ChargeIntegrationTest#confirm_completes`·`#confirm_replay`·`#confirm_rejected`·`#recovery_batch`, `HoldPayoutIntegrationTest#payout_revenueOnly_full`·`#payout_idempotency`·`#penalty_10000`, `RefundIntegrationTest#refund_fullCharge`·`#refund_firstRejected`·`#refund_secondRejected`, `ExchangeReviewIntegrationTest#reject`, `ExchangePayoutIntegrationTest#success`·`#failedThenRetry`·`#failFinally`·`#zeroPayoutCompletesWithoutTransfer` | 없음 | 유효 |
+| BT-EVT-02 | 지갑 이벤트 발행 (#497) | 충전·지급(정상·위약금)·환불(전부·일부)·환전(완료·거절·시도별 송금 실패·최종 실패) 끝 상태 커밋과 함께 `billing.events.v1`에 정해진 key·헤더로 한 번 나간다. 실패에서는 완료 이벤트가 나가지 않고(실패 이벤트는 BT-EVT-03), 재요청에서는 나가지 않고, 롤백하면 안 나가며, 못 보낸 기록은 재발행한다 | BD-130 | U, I | `BillingEventKafkaTest`, `BillingExternalEventsTest`, `ChargeIntegrationTest#confirm_completes`·`#confirm_replay`·`#confirm_rejected`·`#recovery_batch`, `HoldPayoutIntegrationTest#payout_revenueOnly_full`·`#payout_idempotency`·`#penalty_10000`, `RefundIntegrationTest#refund_fullCharge`·`#refund_firstRejected`·`#refund_secondRejected`, `ExchangeReviewIntegrationTest#reject`, `ExchangePayoutIntegrationTest#success`·`#failedThenRetry`·`#failFinally`·`#zeroPayoutCompletesWithoutTransfer` | 없음 | 유효 |
+| BT-EVT-03 | 알림용 지갑 이벤트 4종 (#873) | 충전 실패 확정, 환불 요청 FAILED(환불한 금액 0), 환불 요청 운영자 확인 필요, 환전 승인이 상태 변경 커밋과 함께 `billing.events.v1`에 key `point-charge:`·`point-refund-request:`·`exchange:` + 대상 ID로 한 번 나가고, BD-162의 필드를 담는다. 일부 환불은 실패 이벤트를 내지 않는다(완료 이벤트만). 한 요청에서 운영자 확인 건이 여럿이어도 운영자 확인 이벤트는 한 번이다. 롤백하면 안 나간다 | BD-162 | U, I | shared `BillingNotificationEventJsonTest#newEventsFieldNames`, `BillingExternalEventsTest#externalized`, `BillingEventKafkaTest#notificationEvents`, `ChargeIntegrationTest#confirm_rejected`·`#recovery_expiredAtPg`, `RefundIntegrationTest#refund_firstRejected`·`#refund_secondRejected`·`#refund_pgRefundNotPossibleKeepsClaim`, `ExchangeReviewIntegrationTest#approve`·`#approvedEventCarriesMovedRoundOnce` | 없음 | 유효 |
+| BT-EVT-04 | 지급 완료 이벤트 출처 제목 (#873) | 정상·위약금 지급 요청의 `sourceTitle`이 `PayoutCompletedEvent.sourceTitle`로 나간다. 제목이 없거나 공백뿐이면 null, 앞뒤 공백은 지운다. 요청의 제목 길이는 바꾸지 않고, 이벤트는 255 code point까지만 담는다(서로게이트 쌍을 자르지 않음, 발행 기록의 JSON을 다시 읽을 때도 같다). 제목 필드가 없는 요청 본문과 기존 생성자·팩토리는 null이다. 같은 요청 ID로 제목만 다른 재요청은 처음 결과를 돌려주고 이벤트를 다시 내지 않는다 | BD-163 | U, I | shared `BillingSourceTitleTest`, `BillingNotificationEventJsonTest#payoutCompletedSourceTitle`·`#payoutCompletedTitleIsCappedAt255`·`#payoutCompletedTitleCapCountsCodePoints`·`#payoutCompletedJsonWithLongTitleIsCapped`, `ApiV1BillingInternalControllerTest#payout`·`#payoutSourceTitle`·`#penaltySourceTitle`, `ApiV1BillingPromotionPayoutTest#promotionPayoutSourceTitle`, `BillingEventKafkaTest#payoutCompleted` | 없음 | 유효 |
 
 ### 4.5 충전·환불 (CHG·RFD)
 
@@ -347,15 +351,15 @@ Unit은 "실패 0"만으로 합격으로 보지 않는다. 테스트가 빠지�
 
 ### 5.2 영향별 개수
 
-4장 표의 JVM 칸 첫 단어로 센다. 명세 상태가 "폐기"·"대체됨"인 행도 센다. 4장을 고치면 함께 고친다(마지막 갱신 2026-11-06).
+4장 표의 JVM 칸 첫 단어로 센다. 명세 상태가 "폐기"·"대체됨"인 행도 센다. 4장을 고치면 함께 고친다(마지막 갱신 2026-11-11).
 
 | JVM | 개수 | ID |
 | --- | --- | --- |
-| 없음 | 100 | 아래 셋을 뺀 나머지 |
+| 없음 | 103 | 아래 셋을 뺀 나머지 |
 | 경계 | 22 | BT-WAL-03·04, BT-PORT-04·07, BT-CHG-09, BT-RFD-08, BT-EXC-06·07, BT-EXP-07·09, BT-ERN-02·03·04, BT-USR-03·04, BT-SEC-01·02·04·05·06, BT-CFG-05·10 |
 | 깨짐 | 0 | — |
 | 미확인 | 1 | BT-CFG-02 |
-| 합계 | 123 | |
+| 합계 | 126 | |
 
 ## 6. 빈 곳
 
@@ -400,7 +404,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | 클래스 (`com.hapbang.billing.` 아래) | 종류 | 메서드 | Docker | BT |
 | --- | --- | --- | --- | --- |
 | app.BillingCommandValidatorTest | U | 6 | — | PEN-01·02 |
-| app.BillingExternalEventsTest | U | 2 | — | EVT-02 |
+| app.BillingExternalEventsTest | U | 2 | — | EVT-02·03 |
 | app.BillingKeysTest | U | 7 | — | HLD-06, RFD-02 |
 | app.BillingBatchJobLockTest | U | 2 (배치별 반복) | — | CFG-03, CFG-06, LED-10 |
 | app.BillingSharedDtoAccessTest | U (ArchUnit) | 1 | — | PORT-06 |
@@ -408,8 +412,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.BillingUserBackfillUseCaseTest | U (로컬 HTTP) | 17 | — | USR-03 |
 | app.BillingUserSyncIntegrationTest | I | 6 | 필요 | USR-01 |
 | app.ChangedWalletReconciliationIntegrationTest | I | 4 | 필요 | LED-10 |
-| app.ChangedWalletReconciliationUseCaseTest | U | 7 | — | LED-10 |
-| app.ChargeIntegrationTest | I | 32 | 필요 | CHG-01~06·08, EVT-02, CFG-05 |
+| app.ChangedWalletReconciliationUseCaseTest | U | 11 | — | LED-10·11 |
+| app.ChargeIntegrationTest | I | 32 | 필요 | CHG-01~06·08, EVT-02·03, CFG-05 |
 | app.ChargeUsageHistoryTest | U | 11 | — | REL-01·04, CAP-03 |
 | app.ClosedWalletBalanceMetricsTest | U | 2 | — | WAL-06 |
 | app.EarningQueryUseCaseTest | U | 13 | — | ERN-01 |
@@ -417,7 +421,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.ExchangeAccountCipherTest | U | 4 | — | EXC-01, WAL-07 |
 | app.ExchangeIntegrationTest | I | 21 | 필요 | EXC-01~03 |
 | app.ExchangePayoutIntegrationTest | I (직접 `@SpringBootTest`) | 38 | 필요 | EXP-01~04·07~10, EVT-02 |
-| app.ExchangeReviewIntegrationTest | I | 20 | 필요 | EXC-05·06, EVT-02 |
+| app.ExchangeReviewIntegrationTest | I | 21 | 필요 | EXC-05·06, EVT-02·03 |
 | app.ExchangeSettlementBatchConditionTest | U (ACR) | 3 | — | EXP-06 |
 | app.ExchangeSettlementIntegrationTest | I (직접 `@SpringBootTest`) | 10 | 필요 | EXP-05 |
 | app.ExchangeSettlementRoundTest | U | 7 | — | EXC-04 |
@@ -436,7 +440,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.MockPayoutHttpIntegrationTest | I (직접 `@SpringBootTest`) | 19 | 필요 | MCK-01 |
 | app.PaymentHoldRequestsTest | U | 3 | — | PORT-06 |
 | app.PayoutSplitTest | U | 2 | — | PAY-01 |
-| app.RefundIntegrationTest | I | 39 | 필요 | RFD-01~07, EVT-02 |
+| app.RefundIntegrationTest | I | 39 | 필요 | RFD-01~07, EVT-02·03 |
 | app.ReleaseSplitTest | U | 6 | — | REL-01 |
 | app.WalletCreateUseCaseTest | U | 12 | — | WAL-01 |
 | app.WalletCreationIntegrationTest | I | 11 | 필요 | WAL-01·02 |
@@ -445,6 +449,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.WalletMaskingIntegrationTest | I | 11 | 필요 | WAL-06·07·08 |
 | app.WalletMaskingStatusesTest | U | 1 | — | WAL-07 |
 | app.WalletReconciliationIntegrationTest | I | 6 | 필요 | LED-08 |
+| app.WalletReconciliationMetricsRestorerTest | U | 3 | — | LED-11 |
+| app.WalletReconciliationRunIntegrationTest | I | 4 | 필요 | LED-11 |
 | app.WalletTransactionQueryIntegrationTest | I | 12 | 필요 | WAL-04 |
 | app.WalletWithdrawalIntegrationTest | I | 17 | 필요 | WAL-05·06 |
 | domain.ExchangePayoutTest | U | 15 | — | EXP-01 |
@@ -458,7 +464,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | domain.WalletTest | U | 14 | — | LED-03, EXP-08·09, WAL-08 |
 | global.auth.GatewayUserHeaderFilterTest | S | 4 | — | SEC-05 |
 | global.auth.LoginUserIdArgumentResolverTest | U | 4 | — | SEC-02 |
-| global.config.BillingEventKafkaTest | I (Kafka) | 4 | 필요 | EVT-02 |
+| global.config.BillingEventKafkaTest | I (Kafka) | 5 | 필요 | EVT-02~04 |
 | global.config.BillingTracingTest | I (직접 `@SpringBootTest`) | 5 | 필요 | CFG-10 |
 | global.config.DefaultSecurityUserTest | U (ACR) | 2 | — | SEC-08 |
 | global.config.ManagementPortTest | I (직접 `@SpringBootTest`) | 3 | 필요 | LED-10, CFG-05~07 (관리 포트 지표) |
@@ -475,7 +481,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | global.scheduling.ConditionalOnSchedulingEnabledTest | U (ACR) | 3 | — | CFG-01 |
 | global.scheduling.JobLockPostgresIntegrationTest | I | 6 | 필요 | CFG-06 |
 | global.scheduling.JobLockTest | U | 10 | — | CFG-06 |
-| in.ApiV1BillingInternalControllerTest | I | 19 | 필요 | PORT-01~03, REL-06, WAL-05, CFG-08 |
+| in.ApiV1BillingInternalControllerTest | I | 21 | 필요 | PORT-01~03, REL-06, WAL-05, CFG-08, EVT-04 |
 | in.ApiV1SettlementEarningControllerTest | I | 10 | 필요 | ERN-03 |
 | in.ApiV1SettlementExchangeAdminControllerTest | I | 4 | 필요 | EXC-07 |
 | in.ApiV1SettlementExchangeControllerTest | I | 8 | 필요 | EXC-07, SEC-06 |
@@ -502,15 +508,15 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 
 ### 7.2 종류별 합계 (이 문서의 테스트 수 원본)
 
-기준: `dev` 40fa9b25, 2026-11-06. 테스트 수는 이 표에서만 관리하고, 다른 장은 이 표를 가리킨다.
+기준: `feature/tkt-822` 작업 트리(#822), 2026-11-10. 테스트 수는 이 표에서만 관리하고, 다른 장은 이 표를 가리킨다.
 
 | 종류 | 클래스 | 메서드 |
 | --- | --- | --- |
-| U (ACR·로컬 HTTP·ArchUnit 포함) | 46 | 274 |
+| U (ACR·로컬 HTTP·ArchUnit 포함) | 47 | 281 |
 | S (`@WebMvcTest`) | 5 | 44 |
 | R (`@RepositoryTest`) | 4 | 47 |
-| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 45 | 573 |
-| 합계 | 100 | 938 |
+| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 46 | 577 |
+| 합계 | 102 | 949 |
 
 **세는 방법**
 
@@ -557,6 +563,8 @@ grep -rcE '^\s*@(Test|ParameterizedTest)\b' --include='*.java' . | grep -v ':0$'
 
 이력의 클래스·메서드 수는 그때 값이다. 지금 값은 7.2에 있다.
 
+- 2026-11-11 #873 반영: BT-EVT-03(알림용 지갑 이벤트 4종, BD-162)·BT-EVT-04(지급 완료 출처 제목, BD-163)를 더하고 테스트를 적었다. BT-EVT-02의 "실패에서는 나가지 않는다"를 완료 이벤트로 좁혔다. 5.2를 126개로 고쳤다. 7.1은 #873이 바꾼 클래스 행만 고쳤다(ExchangeReview 20 → 21, BillingEventKafka 4 → 5, InternalController 19 → 21, 적용 BT). `ApiV1BillingPromotionPayoutTest`(#842)는 7.1에 행이 없어 더하지 않았다. 7.2 합계는 #841·#842 반영 전 값이라 고치지 않았다(2026-11-11 실제 grep: 113개 클래스·1,079개 메서드, 이 중 #873 추가 5개).
+- 2026-11-10 #822 반영: 잔액 대사 실행 기록과 기동 시 지표 복원(BT-LED-11, `WalletReconciliationRunIntegrationTest`·`WalletReconciliationMetricsRestorerTest`)을 더했다. BT-LED-10 근거에 BD-146(이월 원본)을 더했다. `ChangedWalletReconciliationUseCaseTest`는 메모리 이월 대신 실행 기록 이월로 바꿨다(7 → 11). 5.2를 124개로, 7.2를 102개 클래스·948개로 고쳤다(커밋 bfe1b01c). 이어서 PR 리뷰 반영으로 "가장 최근 실행만 이월"을 DB로 확인하는 `WalletReconciliationRunIntegrationTest#carriesOnlyLatestRunFailedWallets`를 더해(3 → 4) 7.2가 949개가 됐다.
 - 2026-11-06 Billing 문서 정리: 상태 칸을 "명세 상태"(유효·폐기·대체됨)로 바꾸고, 칸에 있던 실행 결과(`R-003 통과`, `#607 통과` 등)는 regression-log 3.3(H 기록)·4.2로 옮겼다. BT 표의 메서드 수를 지우고 7.2 한 곳에서만 관리한다. 7장을 40fa9b25 코드와 맞췄다(#674 `WalletMaskingIntegrationTest`·`WalletMaskingStatusesTest`, #733 `DefaultSecurityUserTest` 추가, `WalletTest`·`ExchangeAccountCipherTest`·`BillingMemberEventKafkaTest` 메서드 수 갱신). BT 연결이 없던 기능에 BT-WAL-05~08, BT-PORT-08, BT-SEC-07·08, BT-CFG-08~10을 더했다. 폐기·대체된 결정(BD-6·52·64·72·107, BD-53·60·73 일부)을 근거에서 대체 결정으로 바꾸고, BT-USR-01의 JVM 칸(없앤 `Scenario.publish`)과 5.1·5.2를 고쳤다. S 명령을 클래스 목록으로 바꿨다(`global.config.*`가 Integration 테스트까지 돌렸다).
 - 2026-11-04 #660 반영: 7장 목록을 지금 코드와 맞췄다(97개 클래스·918개). 빠져 있던 9개 클래스(#623 `WalletWithdrawalIntegrationTest`·`ClosedWalletBalanceMetricsTest`, #631 `BillingTracingTest`, `GatewayUserHeaderFilterTest`·`ManagementPortTest`·`BillingStatusContractTest`·`BillingSwaggerPublicTest`·`HoldQueryApiTest`)를 더하고 메서드 수가 달라진 10개를 고쳤다. `EarningSourceAdapterTest`는 검사 대상에 맞춰 `EarningSourceTest`로 이름을 바꿨다. 1.3 Unit 명령에 빠진 Unit 3개를 더했다. 직접 `@SpringBootTest` 5개에서 지갑에 없는 S3·OAuth 설정을 지웠다(검증 내용 변경 없음).
 - 2026-11-03 #577 반영: 서비스 간 HP 대사 조회(BT-PORT-07)를 더했다.

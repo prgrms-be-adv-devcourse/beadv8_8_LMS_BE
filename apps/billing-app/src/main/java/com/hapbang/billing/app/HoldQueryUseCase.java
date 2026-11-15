@@ -19,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.HoldVoid;
 import com.hapbang.billing.domain.PointHold;
+import com.hapbang.billing.domain.PromotionHold;
+import com.hapbang.billing.domain.PromotionHoldStatus;
+import com.hapbang.billing.out.PromotionHoldRepository;
 import com.hapbang.billing.domain.Settlement;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.HoldDetailSum;
@@ -52,17 +55,19 @@ public class HoldQueryUseCase {
     private final HoldVoidRepository holdVoidRepository;
     private final WalletRepository walletRepository;
     private final Duration settleWindow;
+    private final PromotionHoldRepository promotionHoldRepository;
 
     public HoldQueryUseCase(PointHoldRepository pointHoldRepository,
                             PointHoldDetailRepository pointHoldDetailRepository,
                             SettlementRepository settlementRepository, HoldVoidRepository holdVoidRepository,
-                            WalletRepository walletRepository,
+                            WalletRepository walletRepository, PromotionHoldRepository promotionHoldRepository,
                             @Value("${hapbang.billing.hold-query.settle-window:10s}") Duration settleWindow) {
         this.pointHoldRepository = pointHoldRepository;
         this.pointHoldDetailRepository = pointHoldDetailRepository;
         this.settlementRepository = settlementRepository;
         this.holdVoidRepository = holdVoidRepository;
         this.walletRepository = walletRepository;
+        this.promotionHoldRepository = promotionHoldRepository;
         if (settleWindow == null || settleWindow.isNegative()) {
             throw new IllegalArgumentException("보류 목록 확정 대기 시간은 0 이상이어야 합니다: " + settleWindow);
         }
@@ -102,6 +107,9 @@ public class HoldQueryUseCase {
     private List<HoldState> assemble(BillingReferenceType referenceType, List<Long> referenceIds,
                                      Map<Long, PointHold> holds) {
         List<Long> holdIds = holds.values().stream().map(PointHold::getId).toList();
+        Map<Long, List<PromotionHold>> promotions = holdIds.isEmpty() ? Map.of()
+                : promotionHoldRepository.findAllByPointHoldIdInOrderByCouponIdAsc(holdIds).stream()
+                    .collect(Collectors.groupingBy(PromotionHold::getPointHoldId));
         Map<Long, Map<HoldDetailActionType, HoldState.Amount>> sums = holdIds.isEmpty() ? Map.of() : detailSums(holdIds);
         Map<Long, List<Settlement>> settlements = holdIds.isEmpty() ? Map.of()
                 : settlementRepository.findAllByPointHoldIdInOrderByIdAsc(holdIds).stream()
@@ -116,12 +124,18 @@ public class HoldQueryUseCase {
         for (Long referenceId : referenceIds) {
             PointHold hold = holds.get(referenceId);
             HoldVoid voided = voids.get(referenceId);
+            List<PromotionHold> funding = hold == null ? List.of() : promotions.getOrDefault(hold.getId(), List.of());
             states.add(new HoldState(referenceType, referenceId,
                     hold == null ? null : hold(hold, walletOwners.get(hold.getWalletId()),
                             sums.getOrDefault(hold.getId(), Map.of())),
                     voided == null ? null : new HoldState.Voided(voided.getOutcome(), voided.getReleasedHp()),
                     hold == null ? List.of() : settlements.getOrDefault(hold.getId(), List.of()).stream()
-                            .map(HoldQueryUseCase::settlement).toList()));
+                            .map(HoldQueryUseCase::settlement).toList(),
+                    funding.stream().map(p -> new HoldState.Promotion(p.getCouponId(), p.getMemberCouponId(),
+                            p.getGeneration(), p.getBudgetReservationId(), p.getAmountHp(), p.getStatus().name()))
+                            .toList(), funding.isEmpty() ? null : new HoldState.PromotionAmount(
+                                    sum(funding, PromotionHoldStatus.HELD), sum(funding, PromotionHoldStatus.PAID),
+                                    sum(funding, PromotionHoldStatus.RESTORED))));
         }
         return states;
     }
@@ -145,9 +159,16 @@ public class HoldQueryUseCase {
                 sums.getOrDefault(HoldDetailActionType.CAPTURE, HoldState.Amount.ZERO));
     }
 
+    private static long sum(List<PromotionHold> funding, PromotionHoldStatus status) {
+        return funding.stream().filter(p -> p.getStatus() == status).map(PromotionHold::getAmountHp)
+                .reduce(0L, Math::addExact);
+    }
+
     private static HoldState.Settlement settlement(Settlement settlement) {
         return new HoldState.Settlement(settlement.getSourceType(), settlement.getSourceId(),
                 settlement.getPayoutType(), settlement.getReceiverUserId(), settlement.getGrossAmountHp(),
-                settlement.getPaidAmountHp(), settlement.getStatus());
+                settlement.getPaidAmountHp(), settlement.getStatus(),
+                settlement.getPromotionPaidHp() == 0 ? null : settlement.getBuyerPaidHp(),
+                settlement.getPromotionPaidHp() == 0 ? null : settlement.getPromotionPaidHp());
     }
 }

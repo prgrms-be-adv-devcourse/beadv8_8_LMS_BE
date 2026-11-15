@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,7 @@ import com.hapbang.billing.out.TossPayment;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.event.ChargeCompletedEvent;
+import com.hapbang.shared.billing.event.ChargeFailedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // TossPayments 테스트 결제 충전(#224)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다.
@@ -393,6 +395,8 @@ class ChargeIntegrationTest {
         assertBillingError(() -> confirm(1L, order), BillingErrorCode.CHARGE_ALREADY_FAILED);
         assertThat(TOSS.confirmCount()).isEqualTo(1);
         assertThat(applicationEvents.stream(ChargeCompletedEvent.class)).isEmpty();
+        // 실패 확정 때 충전 실패 이벤트가 한 번 나가고, 이미 실패한 주문을 다시 승인해도 더 나가지 않는다 (#873, BD-162)
+        assertChargeFailedOnce(order);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -546,6 +550,9 @@ class ChargeIntegrationTest {
                 .containsEntry("failure_reason", "PG_STATUS_EXPIRED");
         assertWallet(walletId, 0L);
         assertThat(ledgerCount()).isZero();
+        // 결과 확인 배치가 실패로 확정해도 충전 실패 이벤트는 한 번이다 (#873)
+        chargeRecoveryUseCase.recoverStale(Instant.now().plusSeconds(240));
+        assertChargeFailedOnce(order);
     }
 
     @Test
@@ -866,6 +873,19 @@ class ChargeIntegrationTest {
 
     private ChargeResult confirm(Long userId, ChargeResult order) {
         return chargeConfirmUseCase.confirm(userId, paymentKey(order.orderId()), order.orderId(), order.amount());
+    }
+
+    // 충전 실패 이벤트가 그 충전 건으로 한 번만 나갔는지 (사건 시각은 저장한 실패 시각)
+    private void assertChargeFailedOnce(ChargeResult order) {
+        Map<String, Object> row = charge(order.orderId());
+        assertThat(applicationEvents.stream(ChargeFailedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event).extracting(ChargeFailedEvent::chargeId, ChargeFailedEvent::userId,
+                    ChargeFailedEvent::amountHp, ChargeFailedEvent::paymentAmountKrw)
+                    .containsExactly(row.get("id"), 1L, AMOUNT, row.get("payment_amount_krw"));
+            assertThat(event.failedAt()).isEqualTo(jdbcTemplate.queryForObject(
+                    "SELECT failed_at FROM billing.point_charge WHERE id = ?", OffsetDateTime.class, row.get("id"))
+                    .toInstant());
+        });
     }
 
     private Map<String, Object> charge(String orderId) {

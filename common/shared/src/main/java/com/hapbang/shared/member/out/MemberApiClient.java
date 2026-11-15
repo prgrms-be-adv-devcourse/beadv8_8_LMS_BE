@@ -1,5 +1,7 @@
 package com.hapbang.shared.member.out;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Objects;
 
@@ -13,6 +15,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
+import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
+import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 
 /**
@@ -26,8 +31,23 @@ import com.hapbang.shared.member.dto.MemberPageDto;
 public class MemberApiClient {
 
     static final String MEMBERS_PATH = "/api/v1/internal/members";
+    static final String INFLUENCER_STATS_PATH = MEMBERS_PATH + "/influencer-stats";
+    static final String CHANGES_PATH = MEMBERS_PATH + "/changes";
+    static final String CONTENT_CATEGORIES_PATH = MEMBERS_PATH + "/content-categories";
+
+    /** 변경분 커서 시각의 쿼리 문자열 형식. 초가 0이어도 초를 쓰고, 마이크로초까지 그대로 보낸다 (예: 2026-11-09T10:15:30.123456) */
+    private static final DateTimeFormatter CURSOR_TIME = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private static final ParameterizedTypeReference<Body<MemberPageDto>> PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<InfluencerStatsPageDto>> STATS_PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<MemberChangePageDto>> CHANGE_PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<ContentCategoriesDto>> CONTENT_CATEGORIES =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -61,6 +81,48 @@ public class MemberApiClient {
                     }
                     return builder.build();
                 }), PAGE);
+    }
+
+    /**
+     * 인플루언서 통계 한 페이지 (#769, 정상 인플루언서만, ID 오름차순 키셋). afterId가 null이면 처음부터, size는 1~500.
+     * 응답의 nextAfterId가 null이 될 때까지 다음 afterId로 넘겨 부르면 모든 정상 인플루언서를 받는다
+     */
+    public InfluencerStatsPageDto getInfluencerStats(Long afterId, int size) {
+        return call(restClient.get()
+                .uri(builder -> {
+                    builder.path(INFLUENCER_STATS_PATH).queryParam("size", size);
+                    if (afterId != null) {
+                        builder.queryParam("afterId", afterId);
+                    }
+                    return builder.build();
+                }), STATS_PAGE);
+    }
+
+    /**
+     * 회원 변경분 한 페이지 (#769, 모든 역할·상태, (updatedAt, id) 오름차순 키셋). 커서 둘은 함께 넘기거나 함께 null(처음부터)이다.
+     * 페이지마다 응답의 next 커서를 저장하고 hasNext가 false가 될 때까지 넘겨 부른다. 다음 주기에는 저장한 커서를 1분 겹쳐 다시 읽는다
+     * ({@link MemberChangePageDto})
+     *
+     * @throws IllegalArgumentException 커서 둘 중 하나만 넘긴 경우 (보내지 않는다)
+     */
+    public MemberChangePageDto getChanges(LocalDateTime afterUpdatedAt, Long afterId, int size) {
+        if ((afterUpdatedAt == null) != (afterId == null)) {
+            throw new IllegalArgumentException("afterUpdatedAt과 afterId는 함께 넘기거나 함께 생략합니다.");
+        }
+        return call(restClient.get()
+                .uri(builder -> {
+                    builder.path(CHANGES_PATH).queryParam("size", size);
+                    if (afterUpdatedAt != null) {
+                        builder.queryParam("afterUpdatedAt", CURSOR_TIME.format(afterUpdatedAt))
+                                .queryParam("afterId", afterId);
+                    }
+                    return builder.build();
+                }), CHANGE_PAGE);
+    }
+
+    /** 콘텐츠 분야 전체 목록 (#769). active가 꺼진 분야도 포함, 코드 오름차순 */
+    public ContentCategoriesDto getContentCategories() {
+        return call(restClient.get().uri(CONTENT_CATEGORIES_PATH), CONTENT_CATEGORIES);
     }
 
     /**

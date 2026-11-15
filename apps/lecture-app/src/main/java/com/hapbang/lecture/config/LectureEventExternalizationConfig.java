@@ -21,6 +21,8 @@ import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
 import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
 import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
+import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
+import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
 /**
  * 강의 이벤트를 Kafka로 내보낸다 (Modulith 이벤트 외부화, #278). 규칙은 docs/architecture/infrastructure/kafka.md(#339)를 따른다.
@@ -53,6 +55,9 @@ public class LectureEventExternalizationConfig {
     public static final String PURCHASE_CHANGED = "LecturePurchaseChangedEvent";
     public static final String CART_ITEM_CHANGED = "CartItemChangedEvent";
     public static final String REVIEW_CHANGED = "LectureReviewChangedEvent";
+    /** 쿠폰 사용 완료·복원용 결제·취소 완료 이벤트. 값은 쿠폰 소비자도 보도록 shared 레코드에 둔다 */
+    public static final String ORDER_ITEM_PAID = OrderItemPaidEvent.EVENT_TYPE;
+    public static final String ORDER_ITEM_CANCEL_COMPLETED = OrderItemCancelCompletedEvent.EVENT_TYPE;
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -74,6 +79,8 @@ public class LectureEventExternalizationConfig {
                 .headers(LecturePurchaseChangedEvent.class, event -> headers(PURCHASE_CHANGED))
                 .headers(CartItemChangedEvent.class, event -> headers(CART_ITEM_CHANGED))
                 .headers(LectureReviewChangedEvent.class, event -> headers(REVIEW_CHANGED))
+                .headers(OrderItemPaidEvent.class, event -> headers(ORDER_ITEM_PAID))
+                .headers(OrderItemCancelCompletedEvent.class, event -> headers(ORDER_ITEM_CANCEL_COMPLETED))
                 .build();
     }
 

@@ -73,7 +73,7 @@ public class LectureEarningSupport {
                 ? toOffset(item.getPayoutScheduledAt())
                 : null;
         return new LectureEarningItemDto(LectureEarningItemDto.SOURCE_TYPE, item.getId(),
-                LectureEarningType.LECTURE_SALE, item.getLectureTitleSnapshot(), item.getPriceHp(), row.status(),
+                LectureEarningType.LECTURE_SALE, item.getLectureTitleSnapshot(), item.sellerPayoutHp(), row.status(),
                 payoutScheduledAt, toOffset(row.statusUpdatedAt()));
     }
 

@@ -59,7 +59,11 @@ import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.event.BillingEventTopic;
 import com.hapbang.shared.billing.event.ChargeCompletedEvent;
+import com.hapbang.shared.billing.event.ChargeFailedEvent;
+import com.hapbang.shared.billing.event.ExchangeApprovedEvent;
 import com.hapbang.shared.billing.event.PayoutCompletedEvent;
+import com.hapbang.shared.billing.event.RefundFailedEvent;
+import com.hapbang.shared.billing.event.RefundManualReviewRequiredEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
@@ -167,8 +171,8 @@ class BillingEventKafkaTest {
         revenue(host, 5_000L);
         holdFacade.hold(new PaymentHoldCommand(1L, BillingReferenceType.APPEARANCE_REQUEST, 7L, 4_000L));
 
-        PayoutResult paid = holdFacade.payout(PaymentPayoutCommand.full(1L, BillingReferenceType.APPEARANCE_REQUEST,
-                7L, "P1", 2L, SettlementSourceType.APPEARANCE_REQUEST, 7001L));
+        PayoutResult paid = holdFacade.payout(new PaymentPayoutCommand(1L, BillingReferenceType.APPEARANCE_REQUEST,
+                7L, "P1", 2L, SettlementSourceType.APPEARANCE_REQUEST, 7001L, null, "합방 출연"));
 
         ConsumerRecord<String, String> record = awaitExactly("settlement:" + paid.settlementId(), 1).getFirst();
         assertThat(header(record, EVENT_TYPE)).isEqualTo("PayoutCompletedEvent");
@@ -183,6 +187,34 @@ class BillingEventKafkaTest {
                 .containsExactly(paid.settlementId(), 2L, PayoutType.NORMAL, SettlementSourceType.APPEARANCE_REQUEST,
                         7001L, 4_000L);
         assertThat(event.paidAt()).isNotNull();
+        // 출처 제목도 본문에 담긴다 (#873, BD-163)
+        assertThat(event.sourceTitle()).isEqualTo("합방 출연");
+    }
+
+    @Test
+    @DisplayName("알림용 이벤트 4종은 커밋 뒤 point-charge·point-refund-request·exchange key로 한 번씩 나가고, 본문은 shared 레코드 그대로다 (#873)")
+    void notificationEvents() {
+        Instant at = T1;
+        List<Object> events = List.of(
+                new ChargeFailedEvent(UNSAVED_ID.incrementAndGet(), 1L, 10_000L, 11_000L, at),
+                new RefundFailedEvent(UNSAVED_ID.incrementAndGet(), 1L, 5_000L, at),
+                new RefundManualReviewRequiredEvent(UNSAVED_ID.incrementAndGet(), 1L, 5_000L, at),
+                new ExchangeApprovedEvent(UNSAVED_ID.incrementAndGet(), 1L, 30_000L, at.plusSeconds(86_400), at));
+
+        transactionTemplate.executeWithoutResult(status -> events.forEach(eventPublisher::publishEvent));
+
+        List<String> keys = List.of(
+                "point-charge:" + ((ChargeFailedEvent) events.get(0)).chargeId(),
+                "point-refund-request:" + ((RefundFailedEvent) events.get(1)).refundRequestId(),
+                "point-refund-request:" + ((RefundManualReviewRequiredEvent) events.get(2)).refundRequestId(),
+                "exchange:" + ((ExchangeApprovedEvent) events.get(3)).exchangeId());
+        for (int i = 0; i < events.size(); i++) {
+            Object event = events.get(i);
+            ConsumerRecord<String, String> record = awaitExactly(keys.get(i), 1).getFirst();
+            assertThat(header(record, EVENT_TYPE)).isEqualTo(event.getClass().getSimpleName());
+            assertThat(header(record, EVENT_VERSION)).isEqualTo("1");
+            assertThat(jsonMapper.readValue(record.value(), event.getClass())).isEqualTo(event);
+        }
     }
 
     @Test

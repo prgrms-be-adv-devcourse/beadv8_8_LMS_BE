@@ -2,6 +2,7 @@ package com.hapbang.member.in;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.app.ReceivedAppearanceReview;
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -49,11 +51,12 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("내 정보를 조회했습니다.", meResponse(memberFacade.findById(userId)));
     }
 
-    /** 내 정보 수정 (닉네임) */
+    /** 내 정보 수정 (닉네임·콘텐츠 분야·자기소개) */
     @Override
     @PatchMapping("/me")
     public RsData<MemberMeResponse> updateMe(@LoginUserId Long userId, @RequestBody MemberUpdateRequest request) {
-        return RsData.ok("내 정보를 수정했습니다.", meResponse(memberFacade.updateProfile(userId, request.nickname())));
+        return RsData.ok("내 정보를 수정했습니다.", meResponse(
+                memberFacade.updateProfile(userId, request.nickname(), request.contentCategories(), request.bio())));
     }
 
     /** 닉네임 중복 확인 (#646). 로그인 없이 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다 */
@@ -65,16 +68,20 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
                 new NicknameAvailabilityResponse(memberFacade.isNicknameAvailable(nickname, userId)));
     }
 
-    /** 인플루언서 목록 (최신 가입순). 출연 평점은 한 페이지의 회원을 한 번에 읽어 붙인다 */
+    /** 인플루언서 목록 (최신 가입순). 출연 평점과 사진 주소는 한 페이지의 회원을 한 번에 읽어 붙인다 */
     @Override
     @GetMapping("/influencers")
     public RsData<Page<MemberProfileResponse>> influencers(Pageable pageable) {
         Page<User> influencers = memberFacade.findInfluencers(pageable);
         Map<Long, AppearanceRatingSummary> ratings = memberFacade.findAppearanceRatings(
                 influencers.map(User::getId).getContent());
+        Map<String, String> categoryNames = memberFacade.findContentCategoryNames(influencers.stream()
+                .flatMap(user -> user.getContentCategories().stream()).collect(Collectors.toSet()));
+        Map<String, String> imageUrls = memberFacade.profileImageUrlsOfKeys(
+                influencers.map(User::getProfileImageKey).getContent());
         return RsData.ok("인플루언서 목록을 조회했습니다.", influencers.map(user -> MemberProfileResponse.from(user,
-                memberFacade.profileImageUrl(user.getProfileImageKey()),
-                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY))));
+                imageUrl(imageUrls, user.getProfileImageKey()),
+                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY), categoryNames)));
     }
 
     /** 회원 프로필 (등록된 채널, 출연 평점 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
@@ -84,7 +91,8 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.findProfile(memberId);
         return RsData.ok("회원 프로필을 조회했습니다.", MemberProfileDetailResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId),
-                memberFacade.findAppearanceRating(memberId)));
+                memberFacade.findAppearanceRating(memberId),
+                memberFacade.findContentCategoryNames(user.getContentCategories())));
     }
 
     /** 회원이 받은 출연 리뷰 목록 (최신 공개순). 리뷰는 출연 앱에서 읽고 쓴 회원 정보를 붙인다 (#555) */
@@ -92,9 +100,13 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
     @GetMapping("/{memberId:\\d+}/appearance-reviews")
     public RsData<Page<AppearanceReviewResponse>> appearanceReviews(@PathVariable(name = "memberId") Long memberId,
                                                                     Pageable pageable) {
-        return RsData.ok("받은 출연 리뷰를 조회했습니다.", memberFacade.findReceivedAppearanceReviews(memberId, pageable)
-                .map(review -> AppearanceReviewResponse.from(review, review.reviewer() == null ? null
-                        : memberFacade.profileImageUrl(review.reviewer().getProfileImageKey()))));
+        Page<ReceivedAppearanceReview> reviews = memberFacade.findReceivedAppearanceReviews(memberId, pageable);
+        // 쓴 회원의 사진 주소는 한 페이지를 한 번에 읽는다 (#770)
+        Map<String, String> imageUrls = memberFacade.profileImageUrlsOfKeys(reviews.getContent().stream()
+                .map(review -> review.reviewer() == null ? null : review.reviewer().getProfileImageKey())
+                .toList());
+        return RsData.ok("받은 출연 리뷰를 조회했습니다.", reviews.map(review -> AppearanceReviewResponse.from(review,
+                review.reviewer() == null ? null : imageUrl(imageUrls, review.reviewer().getProfileImageKey()))));
     }
 
     /** 프로필 사진 올리기. 본문이 이미지 그대로 (multipart 아님). 팀 업로드 경로 규칙이라 {memberId}에 내 회원 ID */
@@ -162,7 +174,13 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("프로필 사진을 삭제했습니다.", meResponse(memberFacade.deleteProfileImage(userId)));
     }
 
+    /** 한 번에 받은 사진 주소에서 꺼낸다. 사진이 없으면(key null) null */
+    private static String imageUrl(Map<String, String> imageUrls, String key) {
+        return key == null ? null : imageUrls.get(key);
+    }
+
     private MemberMeResponse meResponse(User user) {
-        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()));
+        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()),
+                memberFacade.findContentCategoryNames(user.getContentCategories()));
     }
 }

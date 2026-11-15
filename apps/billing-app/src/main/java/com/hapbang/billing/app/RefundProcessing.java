@@ -280,6 +280,8 @@ public class RefundProcessing {
         stopPending(locked, STOPPED_FOR_REVIEW, now);
         if (locked.request().isOpen()) {
             locked.request().requireManualReview(reason);
+            // 요청이 운영자 확인으로 바뀔 때만(요청마다 한 번) 발행한다 (#873, BD-162)
+            billingEventPublisher.refundManualReviewRequired(locked.request(), locked.refund().getManualReviewAt());
         }
     }
 

@@ -1,1 +1,2 @@
 INSERT INTO billing.wallet (wallet_type, user_id, charge_balance_hp, revenue_balance_hp, held_charge_hp, held_revenue_hp, fee_balance_hp, created_at, updated_at) VALUES ('PLATFORM', NULL, 0, 0, 0, 0, 0, now(), now());
+INSERT INTO billing.wallet (wallet_type, user_id, created_at, updated_at) VALUES ('PROMOTION', NULL, now(), now());

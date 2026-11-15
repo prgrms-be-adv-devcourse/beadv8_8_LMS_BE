@@ -59,12 +59,14 @@ spec:
           # trace(#631)를 붙이며 640Mi로 올렸다. 2026-11-03 운영 working set 463Mi(80%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
           # 7일 최대 working set 510Mi(80%)였다. heap 상한을 -Xmx176m으로 고정하고(kustomization.yaml) limit은 둔다.
           # heap 176 + heap 외 JVM 영역 213 + native 132 ≈ 521Mi(81%)다(#726, #610).
+          # -Xmx176m 운영 4일 최대 working set 500Mi, heap 외 JVM 영역 215Mi, native 123Mi였다. -Xmx144m으로 낮추고 576Mi로 줄인다.
+          # heap 144 + 215 + 123 ≈ 482Mi(84%)다(#774).
           resources:
             requests:
               cpu: 100m
-              memory: 640Mi
+              memory: 576Mi
             limits:
-              memory: 640Mi
+              memory: 576Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

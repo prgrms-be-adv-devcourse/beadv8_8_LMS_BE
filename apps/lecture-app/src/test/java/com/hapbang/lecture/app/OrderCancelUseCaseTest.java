@@ -34,18 +34,17 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.domain.ProcessingStatus;
-import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.out.BillingCallExceptions;
-import com.hapbang.shared.billing.out.BillingCallFailureKind;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.billing.RealBillingTestFixture;
 
 /**
- * 구매 취소를 HP 반환(Fake billing)과 DB까지 확인한다. 기한 경계는 LectureOrderTest가 맡는다.
+ * 구매 취소를 HP 반환(실제 billing HTTP)과 DB까지 확인한다. 기한 경계는 LectureOrderTest가 맡는다.
  */
 /**
  * 구매 취소 (D59 (1)·(4)). 구매 취소 처리 중과 RELEASE 작업을 커밋한 뒤 트랜잭션 밖에서 반환을 한 번 시도한다.
@@ -70,7 +69,7 @@ class OrderCancelUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingApiClient billing;
+    private RealBillingTestFixture billing;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -82,15 +81,15 @@ class OrderCancelUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.wallet(BUYER_ID, 1_000_000L, 0L);
+        billing.wallet(SELLER_ID, 0L, 0L);
     }
 
     @Test
     void 구매_취소하면_트랜잭션_밖에서_그_항목의_보류_HP를_전부_반환하고_구매_취소가_된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         Long canceledItemId = order.items().getFirst().orderItemId();
-        billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.clearCalls();
 
         OrderItemResponse response = lectureOrderFacade.cancel(BUYER_ID, order.orderId(), canceledItemId);
 
@@ -116,9 +115,7 @@ class OrderCancelUseCaseTest {
     void 반환_결과를_모르면_구매_취소_처리_중이고_배치가_구매_취소로_마무리한다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
 
         OrderItemResponse response = lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
 
@@ -138,16 +135,13 @@ class OrderCancelUseCaseTest {
     void 반환_결과를_기록하지_못해도_같은_요청_ID로_다시_반환해_한_번만_구매_취소가_된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billing.reset();
-        billing.setSettledHp(PRICE_HP);
+        billing.clearCalls();
         // 반환하는 동안 다른 실행이 선점을 가져가, 첫 결과는 늦은 결과로 버려진다
-        billing.setDuringCall(() -> jdbcTemplate.update("""
+        billing.duringNextCall(() -> jdbcTemplate.update("""
                 update lectures.lecture_hp_task set claim_token = gen_random_uuid()
                 where purpose = 'CANCEL' and status = 'PROCESSING'"""));
 
         OrderItemResponse response = lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
-        billing.setDuringCall(() -> {
-        });
         assertThat(response.status()).isEqualTo(OrderItemStatus.CANCEL_PENDING);
 
         runDueTasks();
@@ -176,7 +170,8 @@ class OrderCancelUseCaseTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         // 두 반환이 모두 지갑 호출에 들어갈 때까지 기다리게 해, 결과 기록이 주문을 잠그지 않으면 서로의 취소를 보지 못하게 한다
         CyclicBarrier bothReleasing = new CyclicBarrier(2);
-        billing.setDuringCall(() -> await(bothReleasing));
+        billing.duringNextCall(() -> await(bothReleasing));
+        billing.duringNextCall(() -> await(bothReleasing));
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
@@ -204,7 +199,9 @@ class OrderCancelUseCaseTest {
     void 반환액이_항목_가격과_다르면_구매_취소_처리_중에_멈추고_관리자_확인이_필요하다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billing.setSettledHp(PRICE_HP - 1_000L);
+        assertThat(billing.client().release(ReleaseCommand.partial(BUYER_ID,
+                BillingReferenceType.LECTURE_ORDER_ITEM, orderItemId, "PREEXISTING-RETURN-" + orderItemId, 1_000L)))
+                .isInstanceOf(BillingCallResult.Succeeded.class);
 
         OrderItemResponse response = lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
 
@@ -217,9 +214,7 @@ class OrderCancelUseCaseTest {
     void 구매_취소_처리_중인_항목은_다시_구매_취소할_수_없다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billing.respond(command -> {
-            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
-        });
+        billing.dropResponses(1);
         lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
 
         assertErrorCode(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId),
@@ -243,7 +238,7 @@ class OrderCancelUseCaseTest {
     void 남의_주문은_구매_취소할_수_없다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billing.reset();
+        billing.clearCalls();
 
         assertErrorCode(() -> lectureOrderFacade.cancel(OTHER_BUYER_ID, order.orderId(), orderItemId),
                 LectureErrorCode.ORDER_NOT_FOUND);

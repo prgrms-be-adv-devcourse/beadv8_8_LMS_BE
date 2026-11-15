@@ -3,6 +3,8 @@ package com.hapbang.member.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +54,24 @@ class MemberInfluencerDesignationIntegrationTest {
         assertThat(events.stream(UserModifiedEvent.class))
                 .singleElement()
                 .satisfies(event -> assertThat(event.user().role()).isEqualTo(Role.INFLUENCER));
+    }
+
+    @Test
+    @DisplayName("역할이 바뀌어도 이벤트에 남아 있던 콘텐츠 분야·자기소개가 그대로 실린다 (강등 뒤 다시 지정, #711)")
+    void makeInfluencer_keepsContentProfile() {
+        User user = MemberFixture.user();
+        user.changeContentCategories(List.of("MUKBANG"));
+        user.changeBio("먹방 위주");
+        userRepository.save(user);
+
+        memberInfluencerDesignationFacade.makeInfluencer(ADMIN_ID, user.getId());
+
+        assertThat(events.stream(UserModifiedEvent.class))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.user().contentCategories()).containsExactly("MUKBANG");
+                    assertThat(event.user().bio()).isEqualTo("먹방 위주");
+                });
     }
 
     @Test

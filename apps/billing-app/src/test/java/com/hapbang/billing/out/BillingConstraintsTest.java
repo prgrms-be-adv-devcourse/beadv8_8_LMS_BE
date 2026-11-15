@@ -272,6 +272,26 @@ class BillingConstraintsTest {
     }
 
     @Test
+    void 이전_앱의_재원_필드_없는_지급_INSERT는_구매자_재원으로_기록한다() {
+        entityManager.createNativeQuery("""
+                INSERT INTO billing.settlement
+                    (receiver_user_id, receiver_wallet_id, point_hold_id, source_type, source_id,
+                     payout_type, gross_amount_hp, paid_amount_hp, status, idempotency_key,
+                     scheduled_at, created_at, updated_at)
+                SELECT receiver_user_id, receiver_wallet_id, point_hold_id, source_type, source_id + 10000,
+                       payout_type, gross_amount_hp, paid_amount_hp, status, 'legacy-funding',
+                       scheduled_at, created_at, updated_at
+                FROM billing.settlement WHERE id = :id
+                """).setParameter("id", settlement.getId()).executeUpdate();
+        Object[] row = (Object[]) entityManager.createNativeQuery("""
+                SELECT gross_amount_hp, buyer_paid_hp, promotion_paid_hp
+                FROM billing.settlement WHERE idempotency_key = 'legacy-funding'
+                """, Object[].class).getSingleResult();
+        assertThat(row[1]).isEqualTo(row[0]);
+        assertThat(((Number) row[2]).longValue()).isZero();
+    }
+
+    @Test
     void 지급_업무키는_멱등키를_바꿔도_중복될_수_없다() {
         reject("""
                 INSERT INTO billing.settlement

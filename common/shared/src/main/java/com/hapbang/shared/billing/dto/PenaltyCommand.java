@@ -2,6 +2,7 @@ package com.hapbang.shared.billing.dto;
 
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 
@@ -12,6 +13,7 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
 // 취소 ID는 보류 하나 안에서 고유하며, 같은 취소 사건을 다시 보낼 때는 같은 값·같은 금액을 쓴다.
 // 이 record는 요청 구조만 검사한다. 금액(반환액 0 이상, 지급액 1 이상, 합계 ≤ 남은 보류)·지갑·자기 지급·지급 원천·중복 정산·멱등성은
 // Billing이 BillingException으로 검증한다.
+// 출처 제목(sourceTitle)은 지급 완료 이벤트에 담는 선택 값이다 (#873, 규칙은 지갑 BD-163).
 public record PenaltyCommand(
         Long payerUserId,
         BillingReferenceType referenceType,
@@ -21,10 +23,12 @@ public record PenaltyCommand(
         SettlementSourceType sourceType,
         Long sourceId,
         long releaseAmountHp,
-        long payoutAmountHp
+        long payoutAmountHp,
+        // 제목이 없으면 본문에 쓰지 않는다(#873 이전 본문과 같다)
+        @JsonInclude(JsonInclude.Include.NON_NULL) String sourceTitle
 ) {
 
-    // 필수 값·취소 ID 형식을 확인한다.
+    // 필수 값·취소 ID 형식을 확인한다. 출처 제목은 앞뒤 공백을 지우고 빈 값은 null로 둔다.
     public PenaltyCommand {
         Objects.requireNonNull(payerUserId, "보류한 회원 ID는 필수입니다.");
         Objects.requireNonNull(receiverUserId, "받는 회원 ID는 필수입니다.");
@@ -32,5 +36,14 @@ public record PenaltyCommand(
         Objects.requireNonNull(sourceId, "지급 원천 ID는 필수입니다.");
         BillingRequests.requireHoldable(referenceType, referenceId);
         BillingRequests.requireRequestId(cancellationId, "취소 ID");
+        sourceTitle = BillingRequests.normalizeTitle(sourceTitle);
+    }
+
+    // 출처 제목 없이 만든다 (#873 이전 호출과 같다).
+    public PenaltyCommand(Long payerUserId, BillingReferenceType referenceType, Long referenceId,
+            String cancellationId, Long receiverUserId, SettlementSourceType sourceType, Long sourceId,
+            long releaseAmountHp, long payoutAmountHp) {
+        this(payerUserId, referenceType, referenceId, cancellationId, receiverUserId, sourceType, sourceId,
+                releaseAmountHp, payoutAmountHp, null);
     }
 }

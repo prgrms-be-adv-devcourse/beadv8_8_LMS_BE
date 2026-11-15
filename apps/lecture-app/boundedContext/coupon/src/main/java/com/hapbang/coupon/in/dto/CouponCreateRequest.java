@@ -8,6 +8,7 @@ import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -15,6 +16,9 @@ import jakarta.validation.constraints.NotNull;
  * 도메인이 검증해 400 {@code INVALID_COUPON_POLICY}로 응답한다. 강의 가격은 받지 않고 강의 조회로 snapshot한다.
  */
 public record CouponCreateRequest(
+        // 길이(앞뒤 공백을 뺀 1~50자, 코드 포인트 기준)는 도메인이 본다. 길이 애노테이션은 공백 제거 전 UTF-16 길이라 정상 이름을 거절한다
+        @Schema(description = "쿠폰 이름 (앞뒤 공백을 뺀 1~50자). 앞뒤 공백은 빼고 저장한다", example = "겨울 특강 10% 할인")
+        @NotBlank String name,
         @Schema(description = "적용 대상. 판매자 쿠폰은 LECTURE만")
         @NotNull CouponTargetType targetType,
         @Schema(description = "대상 강의 ID. LECTURE면 필수, ANY_LECTURE면 비운다", nullable = true)
@@ -40,7 +44,7 @@ public record CouponCreateRequest(
 ) {
 
     public CouponCreateCommand toCommand() {
-        return new CouponCreateCommand(targetType, lectureId, discountType, discountValue, maxDiscountAmount, quantity,
+        return new CouponCreateCommand(name, targetType, lectureId, discountType, discountValue, maxDiscountAmount, quantity,
                 issueStartAt, issueEndAt, expiryType, expiryDays, fixedExpiresAt, stackable);
     }
 }

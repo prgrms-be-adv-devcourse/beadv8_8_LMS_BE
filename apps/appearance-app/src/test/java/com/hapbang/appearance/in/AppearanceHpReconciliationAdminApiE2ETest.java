@@ -22,10 +22,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.appearance.app.AppearanceUserFacade;
+import com.hapbang.appearance.domain.HpReconciliationRun;
+import com.hapbang.appearance.domain.HpReconciliationTrigger;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpReconciliationRunRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceE2ETest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -55,6 +58,9 @@ class AppearanceHpReconciliationAdminApiE2ETest {
 
     @Autowired
     HpReconciliationRunRepository runRepository;
+
+    @Autowired
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -115,6 +121,19 @@ class AppearanceHpReconciliationAdminApiE2ETest {
                 .body("data.status", equalTo("INCOMPLETE"))
                 .body("data.failureReason", equalTo("지갑 회로가 열려 있음"))
                 .body("data.mismatches", hasSize(0));
+    }
+
+    @Test
+    @DisplayName("1시간 안에 시작한 RUNNING 실행(배포 중 다른 pod)이 남아 있으면 409 HP_RECONCILIATION_RUNNING, 새 실행 없음 (#821)")
+    void otherPodRunning() {
+        runRepository.save(HpReconciliationRun.start(HpReconciliationTrigger.SCHEDULED, null,
+                clock.now().minusMinutes(10)));
+
+        E2ELogin.as(ADMIN, Role.ADMIN).post(BASE)
+                .then().statusCode(409)
+                .body("code", equalTo("HP_RECONCILIATION_RUNNING"));
+
+        assertThat(runRepository.count()).isEqualTo(1);
     }
 
     @Test

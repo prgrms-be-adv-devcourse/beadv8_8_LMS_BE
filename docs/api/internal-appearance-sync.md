@@ -3,7 +3,7 @@
 AI 추천(auxiliary-app chatbot)이 출연 데이터의 읽기용 사본을 둘 때 쓰는 내부 HTTP API다 (#713). 출연이 내부 API와 `shared.appearance`의 계약·Client를 제공하고, 소비 모듈은 Client만 쓴다 (D62). 출연 쪽 설계는 [`docs/appearance/module.md` 28장](../appearance/module.md).
 
 - 공통 규칙(경로, 내부 API 키 인증, 회원 세션 불가, 내부 포트, RsData·ProblemDetail, Swagger 노출)은 [수익 내부 API 계약 1장](internal-earnings.md#1-공통-규칙)과 같다. 쿼리 규칙은 [회원 내부 API 1장](internal-members.md#1-회원-목록-키셋)과 같다.
-- 평상시 반영은 Kafka 이벤트(`appearance.events.v1`)로 한다. 이 API는 주 1회 처음부터 끝까지 읽어 이벤트 누락을 바로잡는 용도다(첫 실행이 곧 초기 적재).
+- 평상시 반영은 Kafka 이벤트(`appearance.events.v1`)로 한다. 이 API는 매시(#717, 처음엔 주 1회) 처음부터 끝까지 읽어 이벤트 누락을 바로잡는 용도다(첫 실행이 곧 초기 적재).
 - 이벤트와 API는 같은 DTO다. 같은 출연·같은 `version`이면 값이 같다.
 
 ## 1. 출연 목록 (키셋)

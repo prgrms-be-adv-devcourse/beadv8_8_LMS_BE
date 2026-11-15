@@ -154,8 +154,8 @@ public class LectureHpTask {
         if ((purpose.getTaskType() == LectureHpTaskType.PAYOUT) != (receiverUserId != null)) {
             throw new IllegalArgumentException("지급받는 판매자는 지급 작업에만 있습니다. purpose=" + purpose);
         }
-        if (amountHp <= 0) {
-            throw new IllegalArgumentException("작업 금액은 0보다 커야 합니다. amountHp=" + amountHp);
+        if (amountHp < 0 || (amountHp == 0 && purpose.getTaskType() == LectureHpTaskType.PAYOUT)) {
+            throw new IllegalArgumentException("구매자 작업 금액은 0 이상, 지급 금액은 0보다 커야 합니다. amountHp=" + amountHp);
         }
         return new LectureHpTask(purpose, requestId, orderId, orderItemId, payerUserId, receiverUserId, amountHp, now);
     }

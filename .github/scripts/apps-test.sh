@@ -56,7 +56,8 @@ expect() {
 
 expect "앱 소스 → 그 앱" "chat-app" "$BASE" apps/chat-app/src/main/java/App.java
 expect "앱 Dockerfile → 그 앱" "member-app" "$BASE" apps/member-app/Dockerfile
-expect "앱 둘 → 배포 순서대로" "$(printf '%s\n' billing-app chat-app)" "$BASE" apps/chat-app/build.gradle.kts apps/billing-app/src/main/java/App.java
+expect "billing 변경은 강의 E2E도 검사하고 배포 순서를 따른다" "$(printf '%s\n' billing-app lecture-app chat-app)" "$BASE" apps/chat-app/build.gradle.kts apps/billing-app/src/main/java/App.java
+expect "billing E2E fixture 변경 → billing·강의" "$(printf '%s\n' billing-app lecture-app)" "$BASE" apps/billing-app/src/e2eServer/java/Fixture.java
 expect "앱 소스와 문서 → 그 앱" "lecture-app" "$BASE" apps/lecture-app/src/main/java/App.java apps/lecture-app/AGENTS.md
 
 expect "common 라이브러리 → 전체" "$ALL" "$BASE" common/shared/src/main/java/Shared.java

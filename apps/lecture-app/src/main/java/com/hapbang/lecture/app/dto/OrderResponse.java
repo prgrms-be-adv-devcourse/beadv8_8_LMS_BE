@@ -5,6 +5,7 @@ import java.util.List;
 
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
+import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderProcessingStatuses;
 import com.hapbang.lecture.domain.OrderProgress;
 import com.hapbang.lecture.domain.ProcessingStatus;
@@ -13,7 +14,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 public record OrderResponse(
         Long orderId,
+        @Schema(description = "주문 시점 가격의 합(할인 전)")
         long totalAmountHp,
+        @Schema(description = "항목 쿠폰 할인의 합. 쿠폰을 쓰지 않았으면 0")
+        long discountHp,
+        @Schema(description = "구매자가 낸 HP의 합 = 가격 합 − 할인 합")
+        long buyerAmountHp,
         LectureOrderStatus status,
         @Schema(nullable = true)
         OrderProgress progress,
@@ -32,7 +38,9 @@ public record OrderResponse(
      * @param processing 주문·항목의 처리 상태 (D69 (2), D70 (7))
      */
     public static OrderResponse of(LectureOrder order, OrderProcessingStatuses processing) {
-        return new OrderResponse(order.getId(), order.getTotalAmountHp(), order.getStatus(), order.progress(),
+        return new OrderResponse(order.getId(), order.getTotalAmountHp(),
+                order.getItems().stream().mapToLong(OrderItem::getDiscountHp).sum(),
+                order.getItems().stream().mapToLong(OrderItem::buyerAmountHp).sum(), order.getStatus(), order.progress(),
                 processing.order(), order.getOrderedAt(), order.getPaidAt(), order.getCanceledAt(),
                 order.getItems().stream().map(item -> OrderItemResponse.of(item, processing.item(item.getId())))
                         .toList());

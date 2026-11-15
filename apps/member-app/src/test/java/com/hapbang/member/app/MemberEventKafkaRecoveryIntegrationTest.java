@@ -137,7 +137,7 @@ class MemberEventKafkaRecoveryIntegrationTest {
         // 정상 종료는 진행 중 전송을 기다렸다가 FAILED로 기록하므로, 강제 종료(kill)처럼 상태를 남기려고 닫지 않고 둔다
         TestContext stuck = start(StuckMemberApp.class, "127.0.0.1:" + freePort());
 
-        facade(stuck).updateProfile(user.getId(), "종료전수정");
+        facade(stuck).updateProfile(user.getId(), "종료전수정", null, null);
 
         assertThat(nickname(user)).isEqualTo("종료전수정");
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(externalizations(user)).singleElement()
@@ -158,12 +158,12 @@ class MemberEventKafkaRecoveryIntegrationTest {
         User user = save();
         TestContext app = start(MemberApp.class, KAFKA.getBootstrapServers());
         // 정상 동작 중인 앱(토픽 메타데이터를 이미 가진 producer)에서 장애를 시작한다
-        facade(app).updateProfile(user.getId(), "장애전수정");
+        facade(app).updateProfile(user.getId(), "장애전수정", null, null);
         awaitSingleRecord(user, "장애전수정");
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(externalizations(user)).isEmpty());
 
         stopBroker();
-        facade(app).updateProfile(user.getId(), "장애중수정");
+        facade(app).updateProfile(user.getId(), "장애중수정", null, null);
 
         // broker가 없어도 회원 변경은 커밋되고, 전송 실패는 발행 기록(FAILED)으로 남는다
         assertThat(nickname(user)).isEqualTo("장애중수정");
@@ -198,7 +198,7 @@ class MemberEventKafkaRecoveryIntegrationTest {
         TestContext app = start(MemberApp.class, KAFKA.getBootstrapServers());
 
         stopBroker();
-        facade(app).updateProfile(user.getId(), "재기동복구");
+        facade(app).updateProfile(user.getId(), "재기동복구", null, null);
 
         assertThat(nickname(user)).isEqualTo("재기동복구");
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(externalizations(user)).singleElement()

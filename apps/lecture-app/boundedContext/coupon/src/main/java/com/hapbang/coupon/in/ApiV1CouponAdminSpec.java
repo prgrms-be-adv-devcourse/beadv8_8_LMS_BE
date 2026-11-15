@@ -1,16 +1,27 @@
 package com.hapbang.coupon.in;
 
+import java.util.List;
+
 import com.hapbang.coupon.app.dto.CouponView;
+import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.global.response.RsData;
 import com.hapbang.coupon.in.dto.CouponCreateRequest;
 import com.hapbang.coupon.in.dto.CouponRejectRequest;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 관리자 쿠폰 API Swagger 명세. 매핑은 {@link ApiV1CouponAdminController} */
-@Tag(name = "쿠폰 관리", description = "관리자의 판매자 쿠폰 심사와 플랫폼 쿠폰 발행·발급 운영")
+@Tag(name = "쿠폰 관리", description = "관리자의 판매자 쿠폰 심사와 플랫폼 쿠폰 발행·발급 운영·조회")
 public interface ApiV1CouponAdminSpec {
+
+    @Operation(summary = "쿠폰 목록", description = "관리자. 판매자·플랫폼 쿠폰 전체. 최신순, 최대 100건.")
+    RsData<List<CouponView>> coupons(@Parameter(description = "쿠폰 상태(DRAFT·REVIEW·REJECTED·OPEN·SUSPENDED·CLOSED). 없으면 전체")
+                                     CouponStatus status);
+
+    @Operation(summary = "쿠폰 상세", description = "관리자. 없으면 404 COUPON_NOT_FOUND.")
+    RsData<CouponView> coupon(Long couponId);
 
     @Operation(summary = "플랫폼 쿠폰 발행",
             description = "관리자. DRAFT로 만든다(201). 특정 강의 대상이면 강의 가격을 조회해 snapshot한다(강의가 없으면 404 LECTURE_NOT_FOUND, "

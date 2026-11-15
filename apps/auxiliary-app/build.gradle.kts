@@ -9,6 +9,8 @@ dependencies {
     implementation(project(":shared"))
     implementation(project(":auxiliary-global"))
     implementation(project(":chatbot"))
+    implementation(project(":notification"))
+    implementation(project(":search"))
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
 

@@ -38,6 +38,8 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -55,6 +57,8 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.PayoutType;
+import com.hapbang.shared.billing.event.PayoutCompletedEvent;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
@@ -68,6 +72,7 @@ import com.jayway.jsonpath.JsonPath;
 @IntegrationTest
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
+@RecordApplicationEvents
 class ApiV1BillingInternalControllerTest {
 
     private static final String BASE = "/api/v1/internal/billing";
@@ -95,6 +100,9 @@ class ApiV1BillingInternalControllerTest {
 
     @Autowired
     HoldFacade holdFacade;
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     private final AtomicInteger sequence = new AtomicInteger();
 
@@ -280,6 +288,53 @@ class ApiV1BillingInternalControllerTest {
 
         assertReconciled(host);
         assertReconciled(guest);
+        // 제목 필드가 없는 요청(#873 이전 본문)의 지급 완료 이벤트는 출처 제목이 없다
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).singleElement()
+                .extracting(PayoutCompletedEvent::sourceTitle).isNull();
+    }
+
+    @Test
+    @DisplayName("지급: 요청의 출처 제목(앞뒤 공백 제거)이 지급 완료 이벤트에 담기고, 제목만 다른 재요청은 처음 결과·이벤트 그대로다 (#873)")
+    void payoutSourceTitle() throws Exception {
+        wallet(GUEST);
+        revenue(wallet(HOST), 10_000L);
+        call("/holds", hold(HOST, 7L, 10_000L)).andExpect(status().isOk());
+        String body = """
+                {"payerUserId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7, "payoutRequestId": "CONFIRM-7",
+                 "receiverUserId": 2, "sourceType": "APPEARANCE_REQUEST", "sourceId": 7001, "amountHp": 4000,
+                 "sourceTitle": "%s"}""";
+
+        call("/payouts", body.formatted("  합방 출연  ")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        call("/payouts", body.formatted("다른 제목")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.paidHp").value(4_000))
+                .andExpect(jsonPath("$.data.replayed").value(true));
+
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).singleElement()
+                .extracting(PayoutCompletedEvent::payoutType, PayoutCompletedEvent::sourceTitle)
+                .containsExactly(PayoutType.NORMAL, "합방 출연");
+    }
+
+    @Test
+    @DisplayName("위약금 정산: 요청의 출처 제목이 위약금 지급 완료 이벤트에 담기고, 공백뿐인 제목은 null이다 (#873)")
+    void penaltySourceTitle() throws Exception {
+        wallet(GUEST);
+        revenue(wallet(HOST), 20_000L);
+        call("/holds", hold(HOST, 7L, 10_000L)).andExpect(status().isOk());
+        call("/holds", hold(HOST, 8L, 10_000L)).andExpect(status().isOk());
+        String body = """
+                {"payerUserId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": %d, "cancellationId": "HOST-CANCEL",
+                 "receiverUserId": 2, "sourceType": "APPEARANCE_REQUEST", "sourceId": %d,
+                 "releaseAmountHp": 7000, "payoutAmountHp": 3000, "sourceTitle": "%s"}""";
+
+        call("/penalty-settlements", body.formatted(7, 7001, "합방 출연")).andExpect(status().isOk());
+        call("/penalty-settlements", body.formatted(8, 8001, "   ")).andExpect(status().isOk());
+
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class))
+                .extracting(PayoutCompletedEvent::payoutType, PayoutCompletedEvent::sourceId,
+                        PayoutCompletedEvent::sourceTitle)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(PayoutType.PENALTY, 7001L, "합방 출연"),
+                        org.assertj.core.groups.Tuple.tuple(PayoutType.PENALTY, 8001L, null));
     }
 
     @Test

@@ -67,6 +67,19 @@ class LectureHpTaskClassifierTest {
     }
 
     @Test
+    void HOLD의_예약_없음과_예산_부족은_확정_거절이고_다른_작업에서는_불변식_위반이다() {
+        for (BillingFailureCode code : new BillingFailureCode[]{BUDGET_RESERVATION_NOT_FOUND,
+                PROMOTION_BUDGET_INSUFFICIENT}) {
+            for (LectureHpTaskType type : LectureHpTaskType.values()) {
+                assertThat(LectureHpTaskClassifier.classify(type, code))
+                        .isEqualTo(type == LectureHpTaskType.HOLD ? TERMINAL_REJECTION : INVARIANT_VIOLATION);
+            }
+        }
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.PAYOUT, PROMOTION_PARTIAL_NOT_SUPPORTED))
+                .isEqualTo(INVARIANT_VIOLATION);
+    }
+
+    @Test
     void 처음_보는_코드는_어느_작업이든_불변식_위반이다() {
         for (LectureHpTaskType type : LectureHpTaskType.values()) {
             assertThat(LectureHpTaskClassifier.classify(type, BillingFailureCode.UNMAPPED))

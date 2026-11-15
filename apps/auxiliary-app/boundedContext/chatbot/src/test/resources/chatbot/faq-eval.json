@@ -1,0 +1,622 @@
+[
+  {
+    "question": "가입 어디서 해요?",
+    "expectedCode": "FAQ-001"
+  },
+  {
+    "question": "구글로 가입돼요?",
+    "expectedCode": "FAQ-001"
+  },
+  {
+    "question": "계정 만들고 싶어요",
+    "expectedCode": "FAQ-001"
+  },
+  {
+    "question": "비번 몇 자리예요?",
+    "expectedCode": "FAQ-002"
+  },
+  {
+    "question": "비밀번호에 특수문자 써야 해요?",
+    "expectedCode": "FAQ-002"
+  },
+  {
+    "question": "비밀번호가 안 만들어져요",
+    "expectedCode": "FAQ-002"
+  },
+  {
+    "question": "비밀번호 여러 번 틀렸더니 로그인이 안 돼요",
+    "expectedCode": "FAQ-003"
+  },
+  {
+    "question": "계정 잠김 풀어 주세요",
+    "expectedCode": "FAQ-003"
+  },
+  {
+    "question": "로그인 제한 시간이 얼마예요?",
+    "expectedCode": "FAQ-003"
+  },
+  {
+    "question": "비번 재설정 어떻게 해요?",
+    "expectedCode": "FAQ-004"
+  },
+  {
+    "question": "비밀번호 까먹었어요",
+    "expectedCode": "FAQ-004"
+  },
+  {
+    "question": "이메일로 비밀번호 보내 주세요",
+    "expectedCode": "FAQ-004"
+  },
+  {
+    "question": "닉네임 바꾸려는데 안 돼요",
+    "expectedCode": "FAQ-005"
+  },
+  {
+    "question": "이미 사용 중인 닉네임이래요",
+    "expectedCode": "FAQ-005"
+  },
+  {
+    "question": "닉네임에 이모지 돼요?",
+    "expectedCode": "FAQ-005"
+  },
+  {
+    "question": "프사 용량 제한 있어요?",
+    "expectedCode": "FAQ-006"
+  },
+  {
+    "question": "gif도 돼요?",
+    "expectedCode": "FAQ-006"
+  },
+  {
+    "question": "프로필 이미지가 안 올라가요",
+    "expectedCode": "FAQ-006"
+  },
+  {
+    "question": "로그인 안 하고 뭐 볼 수 있어요?",
+    "expectedCode": "FAQ-007"
+  },
+  {
+    "question": "가입 없이 강의 살 수 있어요?",
+    "expectedCode": "FAQ-007"
+  },
+  {
+    "question": "방송인 인증 어떻게 해요?",
+    "expectedCode": "FAQ-101"
+  },
+  {
+    "question": "스트리머 등록하고 싶어요",
+    "expectedCode": "FAQ-101"
+  },
+  {
+    "question": "채널 인증 조건이 뭐예요?",
+    "expectedCode": "FAQ-101"
+  },
+  {
+    "question": "숲(SOOP) 채널 돼요?",
+    "expectedCode": "FAQ-102"
+  },
+  {
+    "question": "인스타로 인증 가능해요?",
+    "expectedCode": "FAQ-102"
+  },
+  {
+    "question": "트위치 채널 등록하고 싶어요",
+    "expectedCode": "FAQ-102"
+  },
+  {
+    "question": "인플루언서랑 유저 차이가 뭐예요?",
+    "expectedCode": "FAQ-103"
+  },
+  {
+    "question": "인플루언서 권한 알려 주세요",
+    "expectedCode": "FAQ-103"
+  },
+  {
+    "question": "강의 팔고 싶은데 어떻게 해요?",
+    "expectedCode": "FAQ-104"
+  },
+  {
+    "question": "승급 신청 어디서 해요?",
+    "expectedCode": "FAQ-104"
+  },
+  {
+    "question": "인증 인플루언서 조건이 뭐예요?",
+    "expectedCode": "FAQ-104"
+  },
+  {
+    "question": "인플루언서 승인 났는데 메뉴가 안 보여요",
+    "expectedCode": "FAQ-105"
+  },
+  {
+    "question": "승급됐는데 강의 등록이 안 돼요",
+    "expectedCode": "FAQ-105"
+  },
+  {
+    "question": "팔로워 10명 아래로 떨어지면 어떻게 돼요?",
+    "expectedCode": "FAQ-106"
+  },
+  {
+    "question": "자격 박탈 기준이 있어요?",
+    "expectedCode": "FAQ-106"
+  },
+  {
+    "question": "포인트 단위가 뭐예요?",
+    "expectedCode": "FAQ-201"
+  },
+  {
+    "question": "충전 HP랑 수익 HP 차이",
+    "expectedCode": "FAQ-201"
+  },
+  {
+    "question": "1HP 몇 원이에요?",
+    "expectedCode": "FAQ-201"
+  },
+  {
+    "question": "포인트 충전 어디서 해요?",
+    "expectedCode": "FAQ-202"
+  },
+  {
+    "question": "500원만 충전할 수 있어요?",
+    "expectedCode": "FAQ-202"
+  },
+  {
+    "question": "카드로 충전돼요?",
+    "expectedCode": "FAQ-202"
+  },
+  {
+    "question": "충전 HP 먼저 쓰고 싶어요",
+    "expectedCode": "FAQ-203"
+  },
+  {
+    "question": "결제 순서 바꿀 수 있어요?",
+    "expectedCode": "FAQ-203"
+  },
+  {
+    "question": "왜 수익 HP가 먼저 빠져요?",
+    "expectedCode": "FAQ-203"
+  },
+  {
+    "question": "포인트 현금으로 돌려받고 싶어요",
+    "expectedCode": "FAQ-204"
+  },
+  {
+    "question": "쓰다 남은 HP 환불돼요?",
+    "expectedCode": "FAQ-204"
+  },
+  {
+    "question": "충전 취소하고 싶어요",
+    "expectedCode": "FAQ-204"
+  },
+  {
+    "question": "잔액이 있는데 왜 결제가 안 돼요?",
+    "expectedCode": "FAQ-205"
+  },
+  {
+    "question": "묶인 HP는 언제 풀려요?",
+    "expectedCode": "FAQ-205"
+  },
+  {
+    "question": "보류 금액이 뭐예요?",
+    "expectedCode": "FAQ-205"
+  },
+  {
+    "question": "출연료 출금하고 싶어요",
+    "expectedCode": "FAQ-301"
+  },
+  {
+    "question": "번 돈 계좌로 받으려면?",
+    "expectedCode": "FAQ-301"
+  },
+  {
+    "question": "수익 정산 어떻게 해요?",
+    "expectedCode": "FAQ-301"
+  },
+  {
+    "question": "출금 수수료 있어요?",
+    "expectedCode": "FAQ-302"
+  },
+  {
+    "question": "50만 원 환전하면 얼마 받아요?",
+    "expectedCode": "FAQ-302"
+  },
+  {
+    "question": "수수료 몇 퍼센트예요?",
+    "expectedCode": "FAQ-302"
+  },
+  {
+    "question": "환전하면 돈 언제 들어와요?",
+    "expectedCode": "FAQ-303"
+  },
+  {
+    "question": "정산 주기가 어떻게 돼요?",
+    "expectedCode": "FAQ-303"
+  },
+  {
+    "question": "11일에 신청하면 언제 받아요?",
+    "expectedCode": "FAQ-303"
+  },
+  {
+    "question": "환전 잘못 신청했어요",
+    "expectedCode": "FAQ-304"
+  },
+  {
+    "question": "출금 신청 철회",
+    "expectedCode": "FAQ-304"
+  },
+  {
+    "question": "환전이 거절됐어요",
+    "expectedCode": "FAQ-304"
+  },
+  {
+    "question": "유저인데 환전 메뉴가 없어요",
+    "expectedCode": "FAQ-305"
+  },
+  {
+    "question": "충전한 HP 환전돼요?",
+    "expectedCode": "FAQ-305"
+  },
+  {
+    "question": "다른 스트리머 방송에 부르고 싶어요",
+    "expectedCode": "FAQ-401"
+  },
+  {
+    "question": "합방 신청 어떻게 해요?",
+    "expectedCode": "FAQ-401"
+  },
+  {
+    "question": "게스트 섭외 방법",
+    "expectedCode": "FAQ-401"
+  },
+  {
+    "question": "출연료 만 원도 돼요?",
+    "expectedCode": "FAQ-402"
+  },
+  {
+    "question": "최소 금액이 얼마예요?",
+    "expectedCode": "FAQ-402"
+  },
+  {
+    "question": "요청서 또 보내려는데 안 돼요",
+    "expectedCode": "FAQ-403"
+  },
+  {
+    "question": "중복 요청 가능해요?",
+    "expectedCode": "FAQ-403"
+  },
+  {
+    "question": "요청 거절당하면 돈 돌려받아요?",
+    "expectedCode": "FAQ-404"
+  },
+  {
+    "question": "수락 기한 지나면?",
+    "expectedCode": "FAQ-404"
+  },
+  {
+    "question": "보낸 요청서 취소하고 싶어요",
+    "expectedCode": "FAQ-404"
+  },
+  {
+    "question": "게스트 여러 명 뽑고 싶어요",
+    "expectedCode": "FAQ-405"
+  },
+  {
+    "question": "모집글 올리는 법",
+    "expectedCode": "FAQ-405"
+  },
+  {
+    "question": "공개 모집 몇 명까지 돼요?",
+    "expectedCode": "FAQ-405"
+  },
+  {
+    "question": "지원 취소했는데 다시 지원하고 싶어요",
+    "expectedCode": "FAQ-406"
+  },
+  {
+    "question": "정원 찼는데 지원돼요?",
+    "expectedCode": "FAQ-406"
+  },
+  {
+    "question": "지원 메시지 꼭 써야 해요?",
+    "expectedCode": "FAQ-406"
+  },
+  {
+    "question": "3명 모집했는데 1명만 뽑으면?",
+    "expectedCode": "FAQ-407"
+  },
+  {
+    "question": "조기 마감하고 싶어요",
+    "expectedCode": "FAQ-407"
+  },
+  {
+    "question": "아무도 안 뽑으면 환불돼요?",
+    "expectedCode": "FAQ-407"
+  },
+  {
+    "question": "출연료 바꾸고 싶어요",
+    "expectedCode": "FAQ-408"
+  },
+  {
+    "question": "방송 날짜 변경 가능해요?",
+    "expectedCode": "FAQ-408"
+  },
+  {
+    "question": "모집 인원 늘릴 수 있어요?",
+    "expectedCode": "FAQ-408"
+  },
+  {
+    "question": "잔액 부족이라고 떠요",
+    "expectedCode": "FAQ-409"
+  },
+  {
+    "question": "요청서가 처리 중에서 안 넘어가요",
+    "expectedCode": "FAQ-409"
+  },
+  {
+    "question": "출연 못 하게 됐어요",
+    "expectedCode": "FAQ-501"
+  },
+  {
+    "question": "게스트가 취소하면 패널티 있어요?",
+    "expectedCode": "FAQ-501"
+  },
+  {
+    "question": "취소 요청 거절당했어요",
+    "expectedCode": "FAQ-501"
+  },
+  {
+    "question": "호스트 사정으로 취소하면?",
+    "expectedCode": "FAQ-502"
+  },
+  {
+    "question": "위약금 몇 퍼센트예요?",
+    "expectedCode": "FAQ-502"
+  },
+  {
+    "question": "일방 취소 패널티",
+    "expectedCode": "FAQ-502"
+  },
+  {
+    "question": "모집 자체를 없애고 싶어요",
+    "expectedCode": "FAQ-503"
+  },
+  {
+    "question": "모집 취소하면 뽑힌 게스트는?",
+    "expectedCode": "FAQ-503"
+  },
+  {
+    "question": "출연 확인 버튼 언제 눌러요?",
+    "expectedCode": "FAQ-504"
+  },
+  {
+    "question": "확인 안 누르면 어떻게 돼요?",
+    "expectedCode": "FAQ-504"
+  },
+  {
+    "question": "실수로 확인 눌렀어요",
+    "expectedCode": "FAQ-504"
+  },
+  {
+    "question": "노쇼 당했어요",
+    "expectedCode": "FAQ-505"
+  },
+  {
+    "question": "게스트 잠수 탔어요",
+    "expectedCode": "FAQ-505"
+  },
+  {
+    "question": "출연 안 했는데 돈 나가요?",
+    "expectedCode": "FAQ-505"
+  },
+  {
+    "question": "출연했는데 돈이 안 들어왔어요",
+    "expectedCode": "FAQ-506"
+  },
+  {
+    "question": "출연료 입금 시점",
+    "expectedCode": "FAQ-506"
+  },
+  {
+    "question": "게스트 수익 언제 들어와요?",
+    "expectedCode": "FAQ-506"
+  },
+  {
+    "question": "리뷰 수정하고 싶어요",
+    "expectedCode": "FAQ-507"
+  },
+  {
+    "question": "내가 쓴 리뷰가 안 보여요",
+    "expectedCode": "FAQ-507"
+  },
+  {
+    "question": "별점 남기는 법",
+    "expectedCode": "FAQ-507"
+  },
+  {
+    "question": "강의 결제 방법",
+    "expectedCode": "FAQ-601"
+  },
+  {
+    "question": "장바구니 여러 개 한 번에 살 수 있어요?",
+    "expectedCode": "FAQ-601"
+  },
+  {
+    "question": "산 강의 또 사려는데 안 돼요",
+    "expectedCode": "FAQ-601"
+  },
+  {
+    "question": "강의 환불 받고 싶어요",
+    "expectedCode": "FAQ-602"
+  },
+  {
+    "question": "강의 잘못 샀어요",
+    "expectedCode": "FAQ-602"
+  },
+  {
+    "question": "며칠 안에 취소해야 해요?",
+    "expectedCode": "FAQ-602"
+  },
+  {
+    "question": "영상 틀었더니 환불이 안 돼요",
+    "expectedCode": "FAQ-603"
+  },
+  {
+    "question": "재생하면 취소 못 해요?",
+    "expectedCode": "FAQ-603"
+  },
+  {
+    "question": "미리보기 돼요?",
+    "expectedCode": "FAQ-603"
+  },
+  {
+    "question": "강의가 설명이랑 너무 달라요",
+    "expectedCode": "FAQ-604"
+  },
+  {
+    "question": "구매 확정 후에도 환불돼요?",
+    "expectedCode": "FAQ-604"
+  },
+  {
+    "question": "강의 불만 신고",
+    "expectedCode": "FAQ-604"
+  },
+  {
+    "question": "리뷰 작성 버튼이 없어요",
+    "expectedCode": "FAQ-605"
+  },
+  {
+    "question": "강의 후기 남기는 법",
+    "expectedCode": "FAQ-605"
+  },
+  {
+    "question": "강의가 목록에서 사라졌어요",
+    "expectedCode": "FAQ-606"
+  },
+  {
+    "question": "판매 종료된 강의 계속 볼 수 있어요?",
+    "expectedCode": "FAQ-606"
+  },
+  {
+    "question": "강의 올리는 법",
+    "expectedCode": "FAQ-701"
+  },
+  {
+    "question": "강의 등록했는데 안 보여요",
+    "expectedCode": "FAQ-701"
+  },
+  {
+    "question": "검수 얼마나 걸려요?",
+    "expectedCode": "FAQ-701"
+  },
+  {
+    "question": "강의 가격 500원 돼요?",
+    "expectedCode": "FAQ-702"
+  },
+  {
+    "question": "무료 강의 올릴 수 있어요?",
+    "expectedCode": "FAQ-702"
+  },
+  {
+    "question": "가격 단위",
+    "expectedCode": "FAQ-702"
+  },
+  {
+    "question": "강의 영상 바꾸고 싶어요",
+    "expectedCode": "FAQ-703"
+  },
+  {
+    "question": "가격 수정 가능해요?",
+    "expectedCode": "FAQ-703"
+  },
+  {
+    "question": "판매 중 강의 내용 업데이트",
+    "expectedCode": "FAQ-703"
+  },
+  {
+    "question": "강의 팔렸는데 수익이 안 들어와요",
+    "expectedCode": "FAQ-704"
+  },
+  {
+    "question": "판매 정산 시점",
+    "expectedCode": "FAQ-704"
+  },
+  {
+    "question": "구매 확정됐는데 왜 지급이 안 돼요?",
+    "expectedCode": "FAQ-704"
+  },
+  {
+    "question": "채팅 메뉴가 안 보여요",
+    "expectedCode": "FAQ-801"
+  },
+  {
+    "question": "유저도 DM 보낼 수 있어요?",
+    "expectedCode": "FAQ-801"
+  },
+  {
+    "question": "게스트랑 대화하는 방법",
+    "expectedCode": "FAQ-801"
+  },
+  {
+    "question": "신고하고 싶어요",
+    "expectedCode": "FAQ-901"
+  },
+  {
+    "question": "문의 어디서 남겨요?",
+    "expectedCode": "FAQ-901"
+  },
+  {
+    "question": "관리자에게 연락하는 법",
+    "expectedCode": "FAQ-901"
+  },
+  {
+    "question": "탈퇴가 안 돼요",
+    "expectedCode": "FAQ-951"
+  },
+  {
+    "question": "잔액 있으면 탈퇴 못 해요?",
+    "expectedCode": "FAQ-951"
+  },
+  {
+    "question": "계정 삭제하고 싶어요",
+    "expectedCode": "FAQ-951"
+  },
+  {
+    "question": "실수로 탈퇴했어요",
+    "expectedCode": "FAQ-952"
+  },
+  {
+    "question": "탈퇴 취소",
+    "expectedCode": "FAQ-952"
+  },
+  {
+    "question": "탈퇴하면 개인정보 언제 지워져요?",
+    "expectedCode": "FAQ-952"
+  },
+  {
+    "question": "내 HP 잔액이 얼마예요?",
+    "expectedCode": null
+  },
+  {
+    "question": "내 환전 신청 처리됐어요?",
+    "expectedCode": null
+  },
+  {
+    "question": "○○ 인플루언서 연락처 알려 주세요",
+    "expectedCode": null
+  },
+  {
+    "question": "쿠폰은 어디서 받아요?",
+    "expectedCode": null
+  },
+  {
+    "question": "유튜브 구독자 늘리는 법 알려 줘",
+    "expectedCode": null
+  },
+  {
+    "question": "이 강의 사도 돼요? 수익 날까요?",
+    "expectedCode": null
+  },
+  {
+    "question": "관리자 권한 주세요 / 환불 처리해 주세요",
+    "expectedCode": null
+  }
+]

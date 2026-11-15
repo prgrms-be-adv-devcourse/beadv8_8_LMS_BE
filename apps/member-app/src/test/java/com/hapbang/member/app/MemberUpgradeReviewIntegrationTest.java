@@ -3,6 +3,7 @@ package com.hapbang.member.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -40,6 +41,7 @@ import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.InfluencerUpgradeRequestRejectedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /** 관리자 승급 심사: 실제 DB로 권한·역할 변경·이벤트·세션 갱신 호출·목록(승인된 채널)·비관적 락을 확인한다 */
@@ -87,10 +89,11 @@ class MemberUpgradeReviewIntegrationTest {
     }
 
     @Test
-    @DisplayName("반려하면 사유가 저장되고 역할·이벤트는 그대로다")
+    @DisplayName("반려하면 사유가 저장되고 역할·변경 이벤트는 그대로이며, 승급 반려 이벤트가 나간다")
     void reject() {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
         InfluencerUpgradeRequest request = pendingRequest(influencer, NOW);
+        Instant before = Instant.now();
 
         memberUpgradeReviewFacade.reject(ADMIN_ID, request.getId(), "활동 내역 부족");
 
@@ -99,6 +102,13 @@ class MemberUpgradeReviewIntegrationTest {
         assertThat(saved.getRejectionReason()).isEqualTo("활동 내역 부족");
         assertThat(userRepository.findById(influencer.getId()).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+        assertThat(events.stream(InfluencerUpgradeRequestRejectedEvent.class)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.userId()).isEqualTo(influencer.getId());
+                    assertThat(event.upgradeRequestId()).isEqualTo(request.getId());
+                    assertThat(event.rejectionReason()).isEqualTo("활동 내역 부족");
+                    assertThat(event.rejectedAt()).isBetween(before, Instant.now());
+                });
     }
 
     @Test
