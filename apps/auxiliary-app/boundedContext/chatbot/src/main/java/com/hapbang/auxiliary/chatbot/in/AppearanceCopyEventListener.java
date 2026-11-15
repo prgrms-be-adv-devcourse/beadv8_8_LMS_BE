@@ -9,9 +9,9 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.CopyApplier;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;

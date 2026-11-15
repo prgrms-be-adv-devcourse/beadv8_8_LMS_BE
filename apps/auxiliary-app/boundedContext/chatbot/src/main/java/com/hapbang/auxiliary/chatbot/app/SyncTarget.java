@@ -3,8 +3,8 @@ package com.hapbang.auxiliary.chatbot.app;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 
 /**

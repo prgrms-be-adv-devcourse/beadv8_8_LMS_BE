@@ -1,6 +1,4 @@
-package com.hapbang.auxiliary.chatbot.out;
-
-import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
+package com.hapbang.auxiliary.chatbot.domain;
 
 /**
  * 사본 한 행을 반영한 결과 (#716).

@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 
 /**
  * 사본 테이블 하나의 반영 SQL (#717). 출연 사본({@link AppearanceCopyStore})과 같은 규칙을 회원·강의 사본 5종이 함께 쓰도록 만든다.

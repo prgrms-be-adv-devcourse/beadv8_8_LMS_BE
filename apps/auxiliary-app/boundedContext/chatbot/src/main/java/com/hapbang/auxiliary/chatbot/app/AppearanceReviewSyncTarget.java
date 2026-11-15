@@ -5,10 +5,10 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
 import com.hapbang.auxiliary.chatbot.out.AppearanceReviewCopyStore;
 import com.hapbang.auxiliary.chatbot.out.AppearanceSyncSource;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncPageDto;

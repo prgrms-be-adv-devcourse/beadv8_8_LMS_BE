@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 
 import lombok.RequiredArgsConstructor;
 

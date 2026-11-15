@@ -22,7 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.CopyFixtures;

@@ -9,8 +9,8 @@ import java.util.function.ToLongFunction;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.LectureCopyStore;
 import com.hapbang.auxiliary.chatbot.out.LectureSyncSource;
 import com.hapbang.auxiliary.chatbot.out.MemberSyncSource;
