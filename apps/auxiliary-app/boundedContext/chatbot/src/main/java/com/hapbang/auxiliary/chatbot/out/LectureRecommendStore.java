@@ -59,20 +59,47 @@ public class LectureRecommendStore {
                 new MapSqlParameterSource("afterId", afterId).addValue("limit", limit), (rs, row) -> snapshot(rs));
     }
 
-    /** 회원의 구매({@code OWNED})·장바구니(삭제 안 됨) 활동 */
-    public List<LectureSignals.Activity> activities(long memberId) {
+    /**
+     * 회원의 구매·장바구니를 한 번씩 읽어 추천에서 뺄 강의와 취향 활동을 함께 만든다.
+     * <ul>
+     *     <li>뺄 강의: 구매 {@code OWNED}·{@code PENDING}, 장바구니(삭제 안 됨)</li>
+     *     <li>활동: 구매 {@code OWNED}(시각은 구매 확정, 없으면 주문), 장바구니(삭제 안 됨). 구매 다음에 장바구니 순서</li>
+     * </ul>
+     */
+    public MemberLectures memberLectures(long memberId) {
         MapSqlParameterSource params = new MapSqlParameterSource("memberId", memberId);
-        List<LectureSignals.Activity> activities = new ArrayList<>(jdbc.query("""
-                SELECT lecture_id, COALESCE(purchased_at, ordered_at) AS at FROM chatbot.lecture_purchase_copy
-                WHERE buyer_user_id = :memberId AND result = 'OWNED' AND NOT missing_in_source
-                """, params, (rs, row) -> new LectureSignals.Activity(rs.getLong("lecture_id"),
-                LectureSignals.Source.PURCHASED, rs.getTimestamp("at").toLocalDateTime())));
-        activities.addAll(jdbc.query("""
+        Set<Long> excluded = new HashSet<>();
+        List<LectureSignals.Activity> activities = new ArrayList<>();
+        jdbc.query("""
+                SELECT lecture_id, result, COALESCE(purchased_at, ordered_at) AS at FROM chatbot.lecture_purchase_copy
+                WHERE buyer_user_id = :memberId AND result IN ('OWNED', 'PENDING') AND NOT missing_in_source
+                """, params, rs -> {
+                    long lectureId = rs.getLong("lecture_id");
+                    excluded.add(lectureId);
+                    if ("OWNED".equals(rs.getString("result"))) {
+                        activities.add(new LectureSignals.Activity(lectureId, LectureSignals.Source.PURCHASED,
+                                rs.getTimestamp("at").toLocalDateTime()));
+                    }
+                });
+        jdbc.query("""
                 SELECT lecture_id, added_at FROM chatbot.cart_item_copy
                 WHERE user_id = :memberId AND NOT deleted AND NOT missing_in_source
-                """, params, (rs, row) -> new LectureSignals.Activity(rs.getLong("lecture_id"),
-                LectureSignals.Source.CART, rs.getTimestamp("added_at").toLocalDateTime())));
-        return activities;
+                """, params, rs -> {
+                    long lectureId = rs.getLong("lecture_id");
+                    excluded.add(lectureId);
+                    activities.add(new LectureSignals.Activity(lectureId, LectureSignals.Source.CART,
+                            rs.getTimestamp("added_at").toLocalDateTime()));
+                });
+        return new MemberLectures(excluded, activities);
+    }
+
+    /**
+     * 회원의 구매·장바구니로 만든 값.
+     *
+     * @param excluded   추천에서 뺄 강의
+     * @param activities 취향 신호가 되는 활동
+     */
+    public record MemberLectures(Set<Long> excluded, List<LectureSignals.Activity> activities) {
     }
 
     /** 회원이 남긴 리뷰 별점(강의가 평점에 세는 리뷰만). 강의 ID → 별점 */
@@ -86,17 +113,6 @@ public class LectureRecommendStore {
                     ratings.put(rs.getLong("lecture_id"), rs.getInt("rating"));
                 });
         return ratings;
-    }
-
-    /** 추천에서 뺄 강의: 구매 {@code OWNED}·{@code PENDING}, 장바구니(삭제 안 됨) */
-    public Set<Long> excludedLectures(long memberId) {
-        return new HashSet<>(jdbc.queryForList("""
-                SELECT lecture_id FROM chatbot.lecture_purchase_copy
-                WHERE buyer_user_id = :memberId AND result IN ('OWNED', 'PENDING') AND NOT missing_in_source
-                UNION
-                SELECT lecture_id FROM chatbot.cart_item_copy
-                WHERE user_id = :memberId AND NOT deleted AND NOT missing_in_source
-                """, new MapSqlParameterSource("memberId", memberId), Long.class));
     }
 
     /** 강의별 구매({@code OWNED}) 수. 구매가 없는 강의는 0 */

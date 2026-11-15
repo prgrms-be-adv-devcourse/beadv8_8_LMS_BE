@@ -85,8 +85,9 @@ public class LectureRecommendUseCase {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
-        Set<Long> excluded = store.excludedLectures(memberId);
-        List<LectureSignals.Signal> signals = LectureSignals.weigh(store.activities(memberId), store.ratings(memberId),
+        LectureRecommendStore.MemberLectures mine = store.memberLectures(memberId);
+        Set<Long> excluded = mine.excluded();
+        List<LectureSignals.Signal> signals = LectureSignals.weigh(mine.activities(), store.ratings(memberId),
                 properties.signalLimit(), weights());
         boolean vectorReady = index.available() && embedder.available();
         if (signals.isEmpty() && interest == null) {
