@@ -17,11 +17,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-class FaqJobRunner {
+public class FaqJobRunner {
 
     private final JobLock jobLock;
 
-    void run(String what, Runnable task) {
+    public void run(String what, Runnable task) {
         Optional<JobLock.Lease> lease;
         try {
             lease = jobLock.tryAcquire(ChatbotJob.FAQ_SYNC);
