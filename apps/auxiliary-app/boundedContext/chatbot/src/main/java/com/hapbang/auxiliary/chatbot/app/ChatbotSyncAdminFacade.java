@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize(ChatbotRoles.ADMIN)
 public class ChatbotSyncAdminFacade {
 
     private final ChatbotAdminGuard chatbotAdminGuard;
