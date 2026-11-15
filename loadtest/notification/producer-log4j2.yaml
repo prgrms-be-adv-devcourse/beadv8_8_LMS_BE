@@ -1,0 +1,22 @@
+# B0 투입용 console producer 로그 설정(N13). 적용된 producer 설정(ProducerConfig values)을 stderr로 남겨
+# producer.properties 값이 실제 프로세스에 전달됐는지 확인한다. 나머지는 WARN 이상만 남긴다.
+# 설정 목록은 ProducerConfig가 아니라 부모 AbstractConfig의 logger가 남긴다(N13에서 확인: ProducerConfig logger로는 0줄).
+Configuration:
+  name: b0-producer
+  Appenders:
+    Console:
+      name: STDERR
+      target: SYSTEM_ERR
+      PatternLayout:
+        pattern: "[%d] %p %m (%c)%n"
+  Loggers:
+    Root:
+      level: WARN
+      AppenderRef:
+        - ref: STDERR
+    Logger:
+      - name: org.apache.kafka.common.config.AbstractConfig
+        level: INFO
+        additivity: false
+        AppenderRef:
+          - ref: STDERR

@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.auxiliary.notification.domain.NotificationDraft;
 import com.hapbang.auxiliary.notification.support.TestNotificationTemplate;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -38,6 +39,9 @@ class NotificationOutcomeRecorderIntegrationTest {
 
     @Autowired
     private NotificationWriter writer;
+
+    @Autowired
+    private NotificationAlertService alerts;
 
     @Autowired
     private NotificationOutcomeRecorder recorder;
@@ -78,6 +82,53 @@ class NotificationOutcomeRecorderIntegrationTest {
 
         assertThat(created()).isEqualTo(1.0);
         assertThat(rows(receiver)).isEqualTo(1);
+    }
+
+    /** 저장 서비스 전에 받는 사람 사전 판단으로 건너뛴 것도 SKIPPED_RECEIVER로 센다(ND-164). 저장 서비스와 겹쳐 두 번 세지 않는다 */
+    @Test
+    void 받는_사람_사전_판단으로_건너뛰어도_commit_뒤에_한_번만_세고_롤백되면_세지_않는다() {
+        long receiver = NEXT_ID.incrementAndGet();
+        long mentionedWithoutReplica = NEXT_ID.incrementAndGet();
+        userSync.syncJoined(new UserDto(receiver, "탈퇴회원", Role.USER, UserStatus.WITHDRAWN, 0L));
+        NotificationDraft checked = draft(receiver, "pre-1", mentionedWithoutReplica, "상대", Instant.now());
+        recorder.enter(TOPIC);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            alerts.createMentioning(checked, mentionedWithoutReplica, nickname -> checked);
+            status.setRollbackOnly();
+        });
+
+        assertThat(skipped()).isZero();
+
+        transactionTemplate.executeWithoutResult(
+                status -> alerts.createMentioning(checked, mentionedWithoutReplica, nickname -> checked));
+
+        assertThat(skipped()).isEqualTo(1.0);
+        assertThat(rows(receiver)).isZero();
+    }
+
+    @Test
+    void 소비_문맥_밖의_사전_판단은_세지_않는다() {
+        long receiver = NEXT_ID.incrementAndGet();
+        userSync.syncJoined(new UserDto(receiver, "정지회원", Role.USER, UserStatus.SUSPENDED, 0L));
+        NotificationDraft checked = draft(receiver, "pre-2", 7L, "상대", Instant.now());
+        double before = totalSkipped();
+
+        alerts.createMentioning(checked, 7L, nickname -> checked);
+
+        assertThat(totalSkipped()).isEqualTo(before);
+        assertThat(rows(receiver)).isZero();
+    }
+
+    private double skipped() {
+        Counter counter = meterRegistry.find(NotificationOutcomeRecorder.OUTCOMES_METRIC).tag("topic", TOPIC)
+                .tag("result", "skipped_receiver").counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    private double totalSkipped() {
+        return meterRegistry.find(NotificationOutcomeRecorder.OUTCOMES_METRIC).tag("result", "skipped_receiver")
+                .counters().stream().mapToDouble(Counter::count).sum();
     }
 
     private double created() {

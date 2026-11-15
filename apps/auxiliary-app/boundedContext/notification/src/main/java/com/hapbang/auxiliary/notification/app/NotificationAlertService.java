@@ -37,6 +37,7 @@ public class NotificationAlertService {
     private final AlertStartPolicy startPolicy;
     private final NotificationUserRepository users;
     private final ReceiverPolicy receiverPolicy;
+    private final NotificationOutcomeRecorder outcomes;
 
     /** 출연 요청 도착. 사건 시각이 없어 레코드 timestamp를 대체 시각으로 쓴다(ND-081) */
     public void requestSent(AppearanceRequestSentEvent event, Instant recordTime) {
@@ -128,7 +129,8 @@ public class NotificationAlertService {
 
     /**
      * 받는 사람이 받을 수 없는 회원(탈퇴·정지·관리자)인지. 복제본이 없으면 여기서 정하지 않고 저장 서비스가 실패시키게 둔다(ND-035).
-     * 저장 서비스도 같은 정책을 잠금 안에서 다시 본다
+     * 저장 서비스도 같은 정책을 잠금 안에서 다시 본다. 여기서 건너뛰면 저장 서비스를 부르지 않으므로 소비 결과 SKIPPED_RECEIVER를
+     * 여기서 센다(ND-164). 소비 문맥이 있을 때만, 트랜잭션이 있으면 commit 뒤에만 센다(ND-160)
      */
     private boolean cannotReceive(String kind, Long receiverUserId) {
         boolean cannot = users.findById(receiverUserId).map(receiver -> !receiverPolicy.canReceive(receiver))
@@ -136,6 +138,7 @@ public class NotificationAlertService {
         if (cannot) {
             log.info("받을 수 없는 회원(탈퇴·정지·관리자)이라 알림을 만들지 않았다 kind={}, receiverUserId={}", kind,
                     receiverUserId);
+            outcomes.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.SKIPPED_RECEIVER));
         }
         return cannot;
     }
