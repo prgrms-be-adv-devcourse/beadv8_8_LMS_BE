@@ -91,10 +91,10 @@ public class LectureRecommendUseCase {
         boolean vectorReady = index.available() && embedder.available();
         if (signals.isEmpty() && interest == null) {
             // 맞춤으로 고를 재료가 없어 원래 인기순이다. 관심사를 쓸 수 없는 실행(모델·ES 연결 없음)이면 물어보지 않는다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, vectorReady);
+            return vectorReady ? Pool.popularNeedingInterest(memberId, excluded) : Pool.popular(memberId, excluded);
         }
         if (!vectorReady) {
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, false);
+            return Pool.popular(memberId, excluded);
         }
         Pool pool;
         try {
@@ -104,7 +104,7 @@ public class LectureRecommendUseCase {
                 log.warn("강의 추천 색인·임베딩 호출이 실패하기 시작했다. 회복될 때까지 인기순으로 답한다", e.getCause());
             }
             metrics.recommendSearchError(Feature.LECTURE_RECOMMEND);
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR_TEMPORARY, false);
+            return Pool.temporaryPopular(memberId, excluded);
         }
         if (failing.compareAndSet(true, false)) {
             log.info("강의 추천 색인·임베딩 호출이 회복됐다");
@@ -144,7 +144,7 @@ public class LectureRecommendUseCase {
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {
             // 신호 강의가 아직 색인되지 않았다. 관심사를 주면 맞춤으로 찾을 수 있다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, true);
+            return Pool.popularNeedingInterest(memberId, excluded);
         }
 
         List<RecommendVectorIndex.ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
@@ -157,7 +157,7 @@ public class LectureRecommendUseCase {
                 properties.popularityWeight(), size, properties.maxPerSeller());
         if (ranked.isEmpty()) {
             // 맞춤 후보가 제외 규칙으로 모두 빠졌다. 관심사를 바꿔도 같을 수 있어 묻지 않는다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, false);
+            return Pool.popular(memberId, excluded);
         }
         return new Pool(memberId, excluded, ranked, reasons(ranked, taste), RecommendBasis.PERSONALIZED, false, false);
     }
@@ -292,7 +292,22 @@ public class LectureRecommendUseCase {
             reasons = Map.copyOf(reasons);
         }
 
-        static Pool empty(long memberId, Set<Long> excluded, RecommendBasis basis, boolean needsInterest) {
+        /** 맞춤 후보 없이 인기순 */
+        static Pool popular(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR, false);
+        }
+
+        /** 맞춤 후보 없이 인기순. 관심사를 주면 맞춤으로 찾을 수 있다 */
+        static Pool popularNeedingInterest(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR, true);
+        }
+
+        /** 색인·임베딩 장애로 잠시 인기순 */
+        static Pool temporaryPopular(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR_TEMPORARY, false);
+        }
+
+        private static Pool empty(long memberId, Set<Long> excluded, RecommendBasis basis, boolean needsInterest) {
             return new Pool(memberId, excluded, List.of(), Map.of(), basis, needsInterest, false);
         }
 

@@ -107,17 +107,18 @@ public class InfluencerRecommendUseCase {
         double overallMeanRating = store.overallMeanRating();
         if (!index.available() || !embedder.available()) {
             // 모델·ES를 끈 실행(설정). 다시 시도해도 같다
-            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false);
+            return Pool.popular(userId, partners, overallMeanRating);
         }
         try {
             Taste taste = taste(userId, me, partners, interest);
             Pool pool;
             if (taste == null) {
                 // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
-                pool = Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, !hasOwnProfile(me));
+                pool = hasOwnProfile(me) ? Pool.popular(userId, partners, overallMeanRating)
+                        : Pool.popularNeedingInterest(userId, partners, overallMeanRating);
             } else {
                 List<Candidate> similar = similar(userId, taste, overallMeanRating, size);
-                pool = similar.isEmpty() ? Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false)
+                pool = similar.isEmpty() ? Pool.popular(userId, partners, overallMeanRating)
                         : new Pool(userId, partners, overallMeanRating, similar, RecommendBasis.PERSONALIZED, false, false);
             }
             if (searchFailing.compareAndSet(true, false)) {
@@ -130,7 +131,7 @@ public class InfluencerRecommendUseCase {
                 log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
             }
             metrics.recommendSearchError(Feature.INFLUENCER_RECOMMEND);
-            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR_TEMPORARY, false);
+            return Pool.temporaryPopular(userId, partners, overallMeanRating);
         }
     }
 
@@ -359,7 +360,22 @@ public class InfluencerRecommendUseCase {
             candidates = List.copyOf(candidates);
         }
 
-        static Pool empty(long userId, Set<Long> partners, double overallMeanRating, RecommendBasis basis,
+        /** 맞춤 후보 없이 인기순 */
+        static Pool popular(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false);
+        }
+
+        /** 맞춤 후보 없이 인기순. 관심사를 주면 맞춤으로 찾을 수 있다(본인 프로필이 없음) */
+        static Pool popularNeedingInterest(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, true);
+        }
+
+        /** 임베딩·ES 장애로 잠시 인기순 */
+        static Pool temporaryPopular(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR_TEMPORARY, false);
+        }
+
+        private static Pool empty(long userId, Set<Long> partners, double overallMeanRating, RecommendBasis basis,
                 boolean needsInterest) {
             return new Pool(userId, partners, overallMeanRating, List.of(), basis, needsInterest, false);
         }
