@@ -95,18 +95,18 @@ public class InfluencerIndexChecker {
         ChatbotCategoryNames.Unavailable namesFailure = null;
         long afterId = 0;
         while (true) {
-            List<Long> ids = store.memberIdsAfter(afterId, properties.checkPageSize());
-            if (ids.isEmpty()) {
+            List<InfluencerProfile> profiles = store.profilesAfter(afterId, properties.checkPageSize());
+            if (profiles.isEmpty()) {
                 break;
             }
-            Map<Long, InfluencerProfile> profiles = store.profiles(ids);
+            List<Long> ids = profiles.stream().map(InfluencerProfile::id).toList();
             Map<String, IndexedProfile> indexed = index.documents(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(ids),
                     IndexedProfile.class);
             List<String> stale = new ArrayList<>();
-            for (Long id : ids) {
-                String docId = InfluencerIndexPlan.docIdOf(id);
+            for (InfluencerProfile profile : profiles) {
+                String docId = InfluencerIndexPlan.docIdOf(profile.id());
                 try {
-                    if (InfluencerIndexPlan.decide(profiles.get(id), categoryNames::current, indexed.get(docId)).needsWork()) {
+                    if (InfluencerIndexPlan.decide(profile, categoryNames::current, indexed.get(docId)).needsWork()) {
                         stale.add(docId);
                     }
                 } catch (ChatbotCategoryNames.Unavailable e) {

@@ -37,14 +37,15 @@ public class InfluencerRecommendStore {
               AND NOT EXISTS (SELECT 1 FROM chatbot.masked_member x WHERE x.user_id = m.id)
             """;
 
-    private static final String PROFILES = """
+    private static final String PROFILE_COLUMNS = """
             SELECT m.id, m.role, m.status, m.bio,
                    ARRAY(SELECT c FROM jsonb_array_elements_text(m.categories) WITH ORDINALITY AS t(c, n) ORDER BY n)
                        AS categories,
                    EXISTS (SELECT 1 FROM chatbot.masked_member x WHERE x.user_id = m.id) AS masked
             FROM chatbot.member_copy m
-            WHERE m.id IN (:ids)
             """;
+
+    private static final String PROFILES = PROFILE_COLUMNS + "WHERE m.id IN (:ids)\n";
 
     // 함께 마친 출연의 상대(원본 없음 제외)
     private static final String COMPLETED_PARTNERS = """
@@ -94,10 +95,11 @@ public class InfluencerRecommendStore {
         return profiles;
     }
 
-    /** 이 ID보다 큰 회원 사본 ID를 오름차순으로 size개(정합 점검이 모든 회원을 훑는다) */
-    public List<Long> memberIdsAfter(long afterId, int size) {
-        return jdbc.queryForList("SELECT id FROM chatbot.member_copy WHERE id > :afterId ORDER BY id LIMIT :size",
-                new MapSqlParameterSource().addValue("afterId", afterId).addValue("size", size), Long.class);
+    /** 이 ID보다 큰 회원 사본의 프로필을 ID 오름차순으로 size개(정합 점검이 모든 회원을 훑는다) */
+    public List<InfluencerProfile> profilesAfter(long afterId, int size) {
+        return jdbc.query(PROFILE_COLUMNS + "WHERE m.id > :afterId ORDER BY m.id LIMIT :size",
+                new MapSqlParameterSource().addValue("afterId", afterId).addValue("size", size),
+                (rs, row) -> toProfile(rs));
     }
 
     /** 주어진 회원 중 추천 가능한 회원 */
