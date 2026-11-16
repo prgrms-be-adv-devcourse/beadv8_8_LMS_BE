@@ -354,7 +354,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SearchMemberCopyStoreTest`, `LectureReviewCopyStoreTest` | 회원 사본 version 규칙(같은 version 재수신 포함), 리뷰 사본과 counted만 평균(PostgreSQL 컨테이너) |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
-| `IndexDefinitionTest`, `InfluencerIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868) |
+| `IndexDefinitionTest`, `InfluencerIndexDefinitionTest`, `LectureIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868, 강의는 #973부터 `search-lectures-5f89a563885d`) |
 | `DocumentWritesRejectionTest`, `ZeroResultKeywordsTest` | 그 문서 값 때문의 거절만 건너뜀, 0건 검색어(서로 다른 검색자 2명·회원 1명 이상, 연락처 모양 제외, 비회원 IP 해시 키) |
 | `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
 | `SearchModuleIntegrationTest` | 모듈만으로 컨텍스트, search schema, 검색 전용 client(nori), 재색인 실행기가 가상 스레드에서 trace를 이어받음 |
