@@ -13,12 +13,13 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.notification.app.GroupRoomAlerts;
 import com.hapbang.auxiliary.notification.app.NotificationAlertService;
+import com.hapbang.auxiliary.notification.in.event.kafka.NotificationEventSubscriber;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
-import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
+import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEvents;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
-import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
+import com.hapbang.auxiliary.notification.in.event.kafka.UnsupportedEvents;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
@@ -43,14 +44,15 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
 @KafkaListener(id = NotificationChatEventListener.LISTENER_ID, idIsGroup = false, topics = "#{__listener.topic}",
         groupId = "#{__listener.groupId}", containerFactory = NotificationKafkaConfig.CHAT_EVENT_CONTAINER_FACTORY)
-public class NotificationChatEventListener {
+public class NotificationChatEventListener implements NotificationEventSubscriber {
 
     /** 리스너 컨테이너 ID(소비 그룹 이름과 다르다) */
     public static final String LISTENER_ID = "notification-chat-events";
 
     private final NotificationAlertService alerts;
     private final NotificationKafkaConsumerSettings settings;
-    private final SkippedEventLog skippedLog = new SkippedEventLog(log);
+    private final UnsupportedEvents unsupported =
+            new UnsupportedEvents(log, NotificationKafkaConstants.CHAT_EVENTS_TRUSTED_PACKAGE);
 
     public NotificationChatEventListener(NotificationAlertService alerts,
             @Qualifier(NotificationKafkaConfig.CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
@@ -80,24 +82,16 @@ public class NotificationChatEventListener {
             @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key,
             @Header(name = KafkaHeaders.RECEIVED_PARTITION, required = false) Integer partition,
             @Header(name = KafkaHeaders.OFFSET, required = false) Long offset) {
-        skippedLog.skipped(SkippablePayloads.typeToSkip(payload, NotificationKafkaConstants.CHAT_EVENTS_TRUSTED_PACKAGE),
-                key, partition, offset);
+        unsupported.skipOrReject(payload, key, partition, offset);
     }
 
     /** 초안으로 바꾼다. 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다. 저장 단계의 오류는 바꾸지 않는다 */
     private static <T> T valid(Supplier<T> convert) {
-        try {
-            return convert.get();
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 채팅 이벤트입니다.", e);
-        }
+        return RejectedEvents.orReject("알림을 만들 수 없는 채팅 이벤트입니다.", convert);
     }
 
-    public String getTopic() {
-        return settings.topic();
-    }
-
-    public String getGroupId() {
-        return settings.groupId();
+    @Override
+    public NotificationKafkaConsumerSettings settings() {
+        return settings;
     }
 }
