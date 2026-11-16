@@ -2,8 +2,8 @@ package com.hapbang.member.out;
 
 /**
  * 비밀번호 확인 실패 횟수와 잠금 (#499). 같은 키로 정해진 횟수만큼 연속으로 틀리면 일정 시간 막는다.
- * 키는 로그인이면 정규화한 이메일({@code MemberEmail.normalize}), 비밀번호 변경이면 {@code password-change:{회원 ID}}처럼
- * 쓰임마다 겹치지 않게 만들어 넘긴다 (로그인 잠금과 변경 잠금은 따로 센다)
+ * 지금은 비밀번호 변경이 {@code password-change:{회원 ID}} 키로 쓴다. 비밀번호 로그인은 (이메일, IP)마다 세는
+ * {@link PasswordLoginLockStore}로 옮겼다(#506)
  */
 public interface LoginAttemptStore {
 

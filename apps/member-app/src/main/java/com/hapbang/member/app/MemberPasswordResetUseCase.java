@@ -15,6 +15,7 @@ import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.LoginAttemptStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
+import com.hapbang.member.out.PasswordLoginLockStore;
 import com.hapbang.member.out.RefreshTokenStore;
 import com.hapbang.member.out.UserRepository;
 
@@ -28,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>정상 회원만 (#557 결정). 토큰을 받은 뒤 탈퇴·정지됐으면 400 EMAIL_NOT_VERIFIED(재설정 코드도 정상 회원에게만 보낸다).</li>
  *     <li>비밀번호가 없으면(구글 회원, 마스킹으로 지운 비밀번호) 409 PASSWORD_NOT_SET. 재설정 코드는 비밀번호 회원에게만 가므로 정상 흐름에서는 생기지 않는다.</li>
  *     <li>새 비밀번호 규칙은 가입과 같다.</li>
- *     <li>커밋된 뒤에 로그인 실패 잠금·비밀번호 변경 실패 잠금을 풀고, 그 회원의 refresh token을 한 번 더 모두 폐기한다.
+ *     <li>커밋된 뒤에 로그인 실패 잠금(IP와 상관없이 모두, #506)·비밀번호 변경 실패 잠금을 풀고, 그 회원의 refresh token을 한 번 더 모두 폐기한다.
  *     커밋 전 폐기(Facade)와 커밋 사이에 예전 비밀번호로 로그인해 받은 토큰까지 지우려는 것이다(#557 리뷰). 저장이 실패하면 잠금은 그대로다.
  *     커밋 뒤 작업이 실패해도 비밀번호는 이미 바뀌었으므로 로그만 남긴다.</li>
  * </ul>
@@ -42,6 +43,7 @@ public class MemberPasswordResetUseCase {
     private final PasswordCredentialRepository passwordCredentialRepository;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptStore loginAttemptStore;
+    private final PasswordLoginLockStore passwordLoginLockStore;
     private final RefreshTokenStore refreshTokenStore;
 
     /** 새 비밀번호로 바꾸고 그 회원을 돌려준다 */
@@ -57,7 +59,7 @@ public class MemberPasswordResetUseCase {
         credential.changePassword(passwordEncoder.encode(newPassword), LocalDateTime.now());
         Long userId = user.getId();
         afterCommit(() -> {
-            loginAttemptStore.unlock(normalizedEmail);
+            passwordLoginLockStore.unlockAll(normalizedEmail);
             loginAttemptStore.unlock(MemberPasswordChangeUseCase.attemptKey(userId));
             refreshTokenStore.revokeAll(userId);
         });

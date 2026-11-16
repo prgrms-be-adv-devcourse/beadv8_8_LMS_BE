@@ -238,7 +238,7 @@ class ApiV1MemberPasswordControllerTest {
     }
 
     @Test
-    @DisplayName("5번 연속 틀리면 맞는 비밀번호도 429 LOGIN_LOCKED")
+    @DisplayName("5번 연속 틀리면 맞는 비밀번호도 429 LOGIN_LOCKED (IP를 모르는 요청끼리는 같은 IP로 센다)")
     void login_locked() throws Exception {
         String email = signedUp("abcd1234");
         for (int i = 0; i < 5; i++) {
@@ -248,6 +248,41 @@ class ApiV1MemberPasswordControllerTest {
         login(email, "abcd1234")
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+    }
+
+    @Test
+    @DisplayName("남이 다른 IP에서 5번 틀려도 그 IP에서만 잠기고, 주인은 자기 IP에서 로그인된다 (#506)")
+    void login_lockedOnlyForThatIp() throws Exception {
+        String email = signedUp("abcd1234");
+        String attacker = newIp();
+        for (int i = 0; i < 5; i++) {
+            login(email, "wrong1234", attacker).andExpect(status().isUnauthorized());
+        }
+
+        login(email, "abcd1234", attacker)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+        login(email, "abcd1234", newIp()).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("IP 여러 개로 1시간에 20번 틀리면 이메일 전체가 잠기지만, 최근 로그인에 성공한 IP에서는 로그인된다 (#506)")
+    void login_emailLockedExceptKnownIp() throws Exception {
+        String email = signedUp("abcd1234");
+        String ownerIp = newIp();
+        login(email, "abcd1234", ownerIp).andExpect(status().isOk());
+        // IP 5개에서 4번씩: IP별 잠금(5번)에는 닿지 않고 이메일 전체 20번에 닿는다
+        for (int ip = 0; ip < 5; ip++) {
+            String attacker = newIp();
+            for (int i = 0; i < 4; i++) {
+                login(email, "wrong1234", attacker).andExpect(status().isUnauthorized());
+            }
+        }
+
+        login(email, "abcd1234", newIp())
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+        login(email, "abcd1234", ownerIp).andExpect(status().isOk());
     }
 
     @Test
@@ -392,8 +427,8 @@ class ApiV1MemberPasswordControllerTest {
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = sha256(email);
-        createdKeys.add("member:login-fail:" + hash);
-        createdKeys.add("member:login-lock:" + hash);
+        createdKeys.add("member:login-attempt:" + hash);
+        createdKeys.add("member:login-known-ip:" + hash);
         return email;
     }
 
