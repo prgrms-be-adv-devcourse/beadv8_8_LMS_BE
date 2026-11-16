@@ -363,8 +363,8 @@ public class MemberFacade {
      * 이메일로 찾은 회원은 분야를 아직 읽지 않았으므로, 응답을 만들 때(트랜잭션 밖) 쓸 수 있게 여기서 읽어 둔다 (#711)
      */
     @Transactional(readOnly = true)
-    public User passwordLogin(String email, String password) {
-        User user = memberPasswordLoginUseCase.login(email, password);
+    public User passwordLogin(String email, String password, String clientIp) {
+        User user = memberPasswordLoginUseCase.login(email, password, clientIp);
         user.loadContentCategories();
         return user;
     }

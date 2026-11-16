@@ -1,7 +1,5 @@
 package com.hapbang.member.app;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -12,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.member.domain.ClientIpKey;
 import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.MemberEmail;
@@ -208,8 +207,9 @@ public class MemberEmailVerificationUseCase {
 
     /** IP·이메일·전체 발송 수를 센다. 하나라도 넘으면 예외 (이미 센 수는 되돌리지 않는다) */
     private void checkSendLimits(String normalizedEmail, String clientIp) {
-        if (isPublicAddress(clientIp)) {
-            if (!emailVerificationStore.tryCountIp(ipLimitKey(clientIp))) {
+        Optional<ClientIpKey> ipKey = ClientIpKey.from(clientIp);
+        if (ipKey.isPresent()) {
+            if (!emailVerificationStore.tryCountIp(ipKey.get().value())) {
                 throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
             }
         } else {
@@ -233,7 +233,8 @@ public class MemberEmailVerificationUseCase {
      * 그 코드를 지우는 방해를 IP 하나로 많이 못 하게 한다. 내부 주소면 진짜 IP를 모르는 것이라 세지 않는다(발송 제한과 같음)
      */
     public String verifyCode(String email, EmailVerificationPurpose purpose, String code, String clientIp) {
-        if (isPublicAddress(clientIp) && !emailVerificationStore.tryCountVerifyIp(ipLimitKey(clientIp))) {
+        Optional<ClientIpKey> ipKey = ClientIpKey.from(clientIp);
+        if (ipKey.isPresent() && !emailVerificationStore.tryCountVerifyIp(ipKey.get().value())) {
             throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
         }
         String normalizedEmail = MemberEmail.normalize(email);
@@ -335,50 +336,5 @@ public class MemberEmailVerificationUseCase {
 
                 직접 요청하지 않았다면 이 메일은 무시해 주세요.
                 """.formatted(code, EmailVerificationPolicy.CODE_TTL.toMinutes());
-    }
-
-    /**
-     * IP 제한을 세는 단위. IPv4는 주소 그대로, IPv6는 앞 64비트(/64)다. IPv6는 보통 한 사용자·회선에 /64 묶음을 주므로
-     * 주소 하나씩 세면 그 안에서 주소를 바꿔 가며 제한을 피할 수 있다(#557 리뷰). 공인 주소로 확인된 값만 넘긴다
-     */
-    public static String ipLimitKey(String ip) {
-        try {
-            byte[] bytes = InetAddress.getByName(ip).getAddress();
-            if (bytes.length != 16) {
-                return ip;
-            }
-            StringBuilder prefix = new StringBuilder("v6/64:");
-            for (int i = 0; i < 8; i += 2) {
-                prefix.append(String.format("%02x%02x", bytes[i], bytes[i + 1]));
-                if (i < 6) {
-                    prefix.append(':');
-                }
-            }
-            return prefix.toString();
-        } catch (UnknownHostException e) {
-            return ip;
-        }
-    }
-
-    /**
-     * 인터넷 주소인지. 사설(10/8, 172.16/12, 192.168/16, fc00::/7)·루프백·링크 로컬·와일드카드면 false.
-     * 숫자 주소만 받는다(이름을 넘기면 DNS 조회를 하지 않고 false)
-     */
-    static boolean isPublicAddress(String ip) {
-        // 숫자 IPv4이거나 콜론이 있는 IPv6만 주소로 본다. 그 밖의 값(이름)은 InetAddress가 DNS를 조회하므로 넘기지 않는다
-        boolean ipv4 = ip != null && ip.matches("\\d{1,3}(\\.\\d{1,3}){3}");
-        boolean ipv6 = ip != null && ip.contains(":") && ip.matches("[0-9a-fA-F:.]+");
-        if (!ipv4 && !ipv6) {
-            return false;
-        }
-        try {
-            InetAddress address = InetAddress.getByName(ip);
-            byte[] bytes = address.getAddress();
-            boolean uniqueLocalV6 = bytes.length == 16 && (bytes[0] & 0xFE) == 0xFC;
-            return !(address.isSiteLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
-                    || address.isAnyLocalAddress() || uniqueLocalV6);
-        } catch (UnknownHostException e) {
-            return false;
-        }
     }
 }

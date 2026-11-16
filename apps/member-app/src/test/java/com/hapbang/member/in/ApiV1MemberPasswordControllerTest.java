@@ -24,9 +24,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.ClientIpKey;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
@@ -236,7 +238,7 @@ class ApiV1MemberPasswordControllerTest {
     }
 
     @Test
-    @DisplayName("5번 연속 틀리면 맞는 비밀번호도 429 LOGIN_LOCKED")
+    @DisplayName("5번 연속 틀리면 맞는 비밀번호도 429 LOGIN_LOCKED (IP를 모르는 요청끼리는 같은 IP로 센다)")
     void login_locked() throws Exception {
         String email = signedUp("abcd1234");
         for (int i = 0; i < 5; i++) {
@@ -246,6 +248,61 @@ class ApiV1MemberPasswordControllerTest {
         login(email, "abcd1234")
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+    }
+
+    @Test
+    @DisplayName("남이 다른 IP에서 5번 틀려도 그 IP에서만 잠기고, 주인은 자기 IP에서 로그인된다 (#506)")
+    void login_lockedOnlyForThatIp() throws Exception {
+        String email = signedUp("abcd1234");
+        String attacker = newIp();
+        for (int i = 0; i < 5; i++) {
+            login(email, "wrong1234", attacker).andExpect(status().isUnauthorized());
+        }
+
+        login(email, "abcd1234", attacker)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+        login(email, "abcd1234", newIp()).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("IP 여러 개로 1시간에 20번 틀리면 이메일 전체가 잠기지만, 최근 로그인에 성공한 IP에서는 로그인된다 (#506)")
+    void login_emailLockedExceptKnownIp() throws Exception {
+        String email = signedUp("abcd1234");
+        String ownerIp = newIp();
+        login(email, "abcd1234", ownerIp).andExpect(status().isOk());
+        // IP 5개에서 4번씩: IP별 잠금(5번)에는 닿지 않고 이메일 전체 20번에 닿는다
+        for (int ip = 0; ip < 5; ip++) {
+            String attacker = newIp();
+            for (int i = 0; i < 4; i++) {
+                login(email, "wrong1234", attacker).andExpect(status().isUnauthorized());
+            }
+        }
+
+        login(email, "abcd1234", newIp())
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+        login(email, "abcd1234", ownerIp).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("한 IP가 1분에 10번을 넘으면 11번째는 429 TOO_MANY_REQUESTS와 Retry-After, X-Forwarded-For를 바꿔도 같고 다른 IP는 그대로다 (#506)")
+    void login_ipRateLimited() throws Exception {
+        String ip = newIp();
+        for (int i = 0; i < 10; i++) {
+            login(newEmail(), "abcd1234", ip).andExpect(status().isUnauthorized());
+        }
+
+        login(newEmail(), "abcd1234", ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(result -> assertThat(Long.parseLong(result.getResponse().getHeader(HttpHeaders.RETRY_AFTER)))
+                        .isBetween(1L, 60L));
+        mockMvc.perform(post(LOGIN).with(remoteAddr(ip)).header("X-Forwarded-For", "198.51.100.77")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"abcd1234\"}".formatted(newEmail())))
+                .andExpect(status().isTooManyRequests());
+        login(newEmail(), "abcd1234", newIp()).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -338,6 +395,27 @@ class ApiV1MemberPasswordControllerTest {
                 .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)));
     }
 
+    private ResultActions login(String email, String password, String ip) throws Exception {
+        return mockMvc.perform(post(LOGIN).with(remoteAddr(ip)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)));
+    }
+
+    private static RequestPostProcessor remoteAddr(String ip) {
+        return request -> {
+            request.setRemoteAddr(ip);
+            return request;
+        };
+    }
+
+    /** 테스트끼리 겹치지 않는 공인 IP(IPv6 문서용 대역, /64가 서로 다름)를 만들고 IP 한도 키를 정리 대상에 넣는다 (#506) */
+    private String newIp() {
+        UUID random = UUID.randomUUID();
+        String ip = "2001:db8:%x:%x::1".formatted(random.getMostSignificantBits() & 0xffff,
+                random.getLeastSignificantBits() & 0xffff);
+        createdKeys.add("member:login-ip-rate:" + sha256(ClientIpKey.from(ip).orElseThrow().value()));
+        return ip;
+    }
+
     /** 가입하고 이메일을 돌려준다 */
     private String signedUp(String password) throws Exception {
         String email = newEmail();
@@ -349,8 +427,8 @@ class ApiV1MemberPasswordControllerTest {
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = sha256(email);
-        createdKeys.add("member:login-fail:" + hash);
-        createdKeys.add("member:login-lock:" + hash);
+        createdKeys.add("member:login-attempt:" + hash);
+        createdKeys.add("member:login-known-ip:" + hash);
         return email;
     }
 

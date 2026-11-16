@@ -57,11 +57,16 @@ public interface ApiV1MemberPasswordSpec {
             description = "로그인 없이 부른다. 맞으면 refresh token 쿠키(REFRESH_TOKEN)를 주고, access token은 재발급 API "
                     + "(POST /api/v1/members/auth/refresh)로 받는다 (구글 로그인과 같다). "
                     + "없는 이메일과 틀린 비밀번호는 모두 401 INVALID_CREDENTIALS. "
-                    + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED. "
+                    + "같은 이메일을 한 IP에서 5번 연속 틀리면 그 IP에서 15분 동안 429 LOGIN_LOCKED(다른 IP는 그대로, #506). "
+                    + "IP와 상관없이 한 이메일이 1시간에 20번 틀리면 그 이메일이 15분 동안 429 LOGIN_LOCKED이고, 최근 30일 안에 그 이메일로 로그인에 성공한 IP는 빠진다. "
+                    + "정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED. "
                     + "복구 기한(30일, 기한 안에 지갑 장애로 복구가 실패했으면 7일 더) 안의 탈퇴 회원(탈퇴 기능이 켜져 있을 때)은 409 WITHDRAWN_RESTORABLE과 restorableUntil을 주고, "
                     + "복구 티켓은 쿠키(RESTORE_TICKET, HttpOnly, 경로 /api/v1/members/restore, 10분)로 준다. "
-                    + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다.")
+                    + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다. "
+                    + "한 IP(IPv6는 /64)는 1분에 10번까지 로그인 요청을 보낼 수 있다(성공·실패 모두 셈, #506). "
+                    + "넘으면 429 TOO_MANY_REQUESTS와 Retry-After 헤더(다시 보낼 수 있을 때까지 남은 초).")
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
+                                                   @Parameter(hidden = true) HttpServletRequest httpRequest,
                                                    @Parameter(hidden = true) HttpServletResponse response);
 
     @Operation(summary = "비밀번호 재설정",

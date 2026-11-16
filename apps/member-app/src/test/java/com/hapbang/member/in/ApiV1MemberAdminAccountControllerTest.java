@@ -135,8 +135,8 @@ class ApiV1MemberAdminAccountControllerTest {
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = sha256(email);
-        createdKeys.add("member:login-fail:" + hash);
-        createdKeys.add("member:login-lock:" + hash);
+        createdKeys.add("member:login-attempt:" + hash);
+        createdKeys.add("member:login-known-ip:" + hash);
         return email;
     }
 

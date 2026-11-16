@@ -28,13 +28,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
-import com.hapbang.member.app.MemberEmailVerificationUseCase;
+import com.hapbang.member.domain.ClientIpKey;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.EmailVerificationStore;
-import com.hapbang.member.out.LoginAttemptStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
+import com.hapbang.member.out.PasswordLoginLockStore;
 import com.hapbang.member.out.RefreshTokenStore;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -65,7 +65,7 @@ class PasswordResetApiTest {
     EmailVerificationStore emailVerificationStore;
 
     @Autowired
-    LoginAttemptStore loginAttemptStore;
+    PasswordLoginLockStore passwordLoginLockStore;
 
     @Autowired
     RefreshTokenStore refreshTokenStore;
@@ -86,9 +86,13 @@ class PasswordResetApiTest {
     void resetFlow() throws Exception {
         String email = newEmail();
         User user = passwordMember(email, "oldpass1234");
+        // 두 곳에서 잠근다: IP를 모르는 요청(테스트 기본 주소)과 공인 IP 하나 (#506)
+        ClientIpKey otherIp = ClientIpKey.from("203.0.113.77").orElseThrow();
         for (int i = 0; i < 5; i++) {
-            loginAttemptStore.recordFailure(email);
+            passwordLoginLockStore.recordFailure(email, null);
+            passwordLoginLockStore.recordFailure(email, otherIp);
         }
+        assertThat(passwordLoginLockStore.check(email, otherIp)).isEqualTo(PasswordLoginLockStore.Lock.EMAIL_IP);
 
         sendCode(email, "PASSWORD_RESET").andExpect(status().isOk());
         String token = verify(email, savedCode(email, "password_reset"));
@@ -96,7 +100,8 @@ class PasswordResetApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("비밀번호를 다시 설정했습니다. 새 비밀번호로 로그인해 주세요."));
 
-        assertThat(loginAttemptStore.isLocked(email)).isFalse();
+        assertThat(passwordLoginLockStore.check(email, null)).isEqualTo(PasswordLoginLockStore.Lock.NONE);
+        assertThat(passwordLoginLockStore.check(email, otherIp)).isEqualTo(PasswordLoginLockStore.Lock.NONE);
         login(email, "oldpass1234").andExpect(status().isUnauthorized());
         login(email, "newpass5678").andExpect(status().isOk());
         createdKeys.add("member:user-refresh:" + user.getId());
@@ -214,7 +219,7 @@ class PasswordResetApiTest {
 
     private ResultActions sendCode(String email, String purpose) throws Exception {
         String ip = "2001:db8:" + UUID.randomUUID().toString().substring(0, 4) + "::1";
-        createdKeys.add("member:email-code-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        createdKeys.add("member:email-code-ip:" + hash(ClientIpKey.from(ip).orElseThrow().value()));
         return mockMvc.perform(post(EMAIL_CODES)
                 .with(request -> {
                     request.setRemoteAddr(ip);
@@ -258,8 +263,8 @@ class PasswordResetApiTest {
         }
         createdKeys.add("member:email-code-cooldown:" + hash);
         createdKeys.add("member:email-code-daily:" + hash);
-        createdKeys.add("member:login-fail:" + hash);
-        createdKeys.add("member:login-lock:" + hash);
+        createdKeys.add("member:login-attempt:" + hash);
+        createdKeys.add("member:login-known-ip:" + hash);
         return email;
     }
 
