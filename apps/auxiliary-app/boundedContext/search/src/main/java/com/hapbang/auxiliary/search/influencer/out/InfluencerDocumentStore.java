@@ -360,8 +360,8 @@ public class InfluencerDocumentStore {
         Map<String, Object> fields = new HashMap<>();
         fields.put("nickname", profile.nickname());
         // 초성·자모 칸(#973): ES에 한국어 초성 기능이 없어 앱이 닉네임에서 만들어 넣는다. 이벤트·증분 보정·처음 적재가 모두 이 프로필로 쓴다
-        fields.put("nicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(profile.nickname())));
-        fields.put("nicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(profile.nickname())));
+        fields.put("nicknameChosung", HangulKeys.chosungKeys(profile.nickname()));
+        fields.put("nicknameJamo", HangulKeys.jamoKeys(profile.nickname()));
         fields.put("bio", profile.bio());
         fields.put("role", profile.role());
         fields.put("verified", profile.verified());
@@ -434,8 +434,8 @@ public class InfluencerDocumentStore {
         Map<String, JsonData> params = new HashMap<>();
         if (read.nickname() != null) {
             params.put("nickname", JsonData.of(read.nickname()));
-            params.put("nicknameChosung", JsonData.of(HangulKeys.withCompact(HangulKeys.chosung(read.nickname()))));
-            params.put("nicknameJamo", JsonData.of(HangulKeys.withCompact(HangulKeys.jamo(read.nickname()))));
+            params.put("nicknameChosung", JsonData.of(HangulKeys.chosungKeys(read.nickname())));
+            params.put("nicknameJamo", JsonData.of(HangulKeys.jamoKeys(read.nickname())));
         }
         try {
             return DocumentWrites.outcome(client.update(u -> u.index(InfluencerIndexDefinition.ALIAS)
@@ -494,8 +494,8 @@ public class InfluencerDocumentStore {
 
         /** 초성·자모 칸이 닉네임으로 다시 만든 값과 같은지 */
         public boolean matchesSource() {
-            return Objects.equals(nicknameChosung, HangulKeys.withCompact(HangulKeys.chosung(nickname)))
-                    && Objects.equals(nicknameJamo, HangulKeys.withCompact(HangulKeys.jamo(nickname)));
+            return Objects.equals(nicknameChosung, HangulKeys.chosungKeys(nickname))
+                    && Objects.equals(nicknameJamo, HangulKeys.jamoKeys(nickname));
         }
     }
 

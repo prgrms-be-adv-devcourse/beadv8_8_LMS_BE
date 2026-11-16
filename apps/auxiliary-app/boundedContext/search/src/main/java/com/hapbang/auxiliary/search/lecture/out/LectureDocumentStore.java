@@ -416,11 +416,11 @@ public class LectureDocumentStore {
     public WriteOutcome writeHangulKeys(LectureHangulKeys read) {
         Map<String, JsonData> params = new HashMap<>();
         putIfPresent(params, "title", read.title());
-        putIfPresent(params, "titleChosung", HangulKeys.withCompact(HangulKeys.chosung(read.title())));
-        putIfPresent(params, "titleJamo", HangulKeys.withCompact(HangulKeys.jamo(read.title())));
+        putIfPresent(params, "titleChosung", HangulKeys.chosungKeys(read.title()));
+        putIfPresent(params, "titleJamo", HangulKeys.jamoKeys(read.title()));
         putIfPresent(params, "sellerNickname", read.sellerNickname());
-        putIfPresent(params, "sellerNicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(read.sellerNickname())));
-        putIfPresent(params, "sellerNicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(read.sellerNickname())));
+        putIfPresent(params, "sellerNicknameChosung", HangulKeys.chosungKeys(read.sellerNickname()));
+        putIfPresent(params, "sellerNicknameJamo", HangulKeys.jamoKeys(read.sellerNickname()));
         return partialUpdate(read.lectureId(), HANGUL_KEYS_SCRIPT, params);
     }
 
@@ -506,8 +506,8 @@ public class LectureDocumentStore {
         params.put("version", JsonData.of(lecture.version()));
         params.put("sellerUserId", JsonData.of(lecture.sellerUserId()));
         params.put("title", JsonData.of(lecture.title()));
-        putIfPresent(params, "titleChosung", HangulKeys.withCompact(HangulKeys.chosung(lecture.title())));
-        putIfPresent(params, "titleJamo", HangulKeys.withCompact(HangulKeys.jamo(lecture.title())));
+        putIfPresent(params, "titleChosung", HangulKeys.chosungKeys(lecture.title()));
+        putIfPresent(params, "titleJamo", HangulKeys.jamoKeys(lecture.title()));
         putIfPresent(params, "description", lecture.description());
         params.put("contentTitles", JsonData.of(lecture.contents().stream().map(LectureContentSyncDto::title).toList()));
         putIfPresent(params, "priceHp", lecture.priceHp());
@@ -515,8 +515,8 @@ public class LectureDocumentStore {
         params.put("now", JsonData.of(now.toEpochMilli()));
         String sellerNickname = seller == null ? null : seller.nickname();
         putIfPresent(params, "sellerNickname", sellerNickname);
-        putIfPresent(params, "sellerNicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(sellerNickname)));
-        putIfPresent(params, "sellerNicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(sellerNickname)));
+        putIfPresent(params, "sellerNicknameChosung", HangulKeys.chosungKeys(sellerNickname));
+        putIfPresent(params, "sellerNicknameJamo", HangulKeys.jamoKeys(sellerNickname));
         params.put("sellerActive", JsonData.of(seller == null || seller.active()));
         putIfPresent(params, "sellerVersion", seller == null ? null : seller.version());
         params.putAll(ratingParams(rating));
@@ -526,8 +526,8 @@ public class LectureDocumentStore {
     private static Map<String, JsonData> sellerParams(Seller seller) {
         Map<String, JsonData> params = new HashMap<>();
         putIfPresent(params, "nickname", seller.nickname());
-        putIfPresent(params, "nicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(seller.nickname())));
-        putIfPresent(params, "nicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(seller.nickname())));
+        putIfPresent(params, "nicknameChosung", HangulKeys.chosungKeys(seller.nickname()));
+        putIfPresent(params, "nicknameJamo", HangulKeys.jamoKeys(seller.nickname()));
         params.put("active", JsonData.of(seller.active()));
         putIfPresent(params, "version", seller.version());
         return params;

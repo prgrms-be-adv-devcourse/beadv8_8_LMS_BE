@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.search.common.app;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 검색어 입력 도우미(#973)가 쓰는 한글 변환. ES에 한국어 초성·자모 기능이 없어 앱이 색인할 때 원문에서 만들어 넣고, 검색어도 같은 규칙으로 바꿔 비교한다
@@ -22,6 +23,9 @@ import java.util.Map;
  * 더 찾는다. 한국어는 띄어쓰기가 사람마다 달라 {@code ㅂㅅㅈㅂㅊㅊ}·{@code ㅂㅅ ㅈㅂ}처럼 제목과 다르게 쳐도 맞게 한다.
  */
 public final class HangulKeys {
+
+    /** 연속 공백. 자동완성 요청·색인 쓰기마다 불려 미리 컴파일해 둔다 */
+    private static final Pattern SPACES = Pattern.compile("\\s+");
 
     private static final int SYLLABLE_FIRST = 0xAC00;
     private static final int SYLLABLE_LAST = 0xD7A3;
@@ -99,6 +103,20 @@ public final class HangulKeys {
     }
 
     /**
+     * 초성 칸에 넣을 값({@link #withCompact}({@link #chosung})). 색인 쓰기와 칸 맞추기 비교가 모두 이것만 써서 둘이 어긋나지 않게 한다.
+     */
+    public static List<String> chosungKeys(String text) {
+        return withCompact(chosung(text));
+    }
+
+    /**
+     * 자모 칸에 넣을 값({@link #withCompact}({@link #jamo})). 색인 쓰기와 칸 맞추기 비교가 모두 이것만 쓴다.
+     */
+    public static List<String> jamoKeys(String text) {
+        return withCompact(jamo(text));
+    }
+
+    /**
      * 초성·자모 칸에 넣을 값: 그 값과, 띄어쓰기가 있으면 띄어쓰기를 뺀 값. {@code ㅂㅅㅈㅂ ㅊㅊ} → {@code [ㅂㅅㅈㅂ ㅊㅊ, ㅂㅅㅈㅂㅊㅊ]}.
      *
      * @param key {@link #chosung}·{@link #jamo}로 만든 값
@@ -117,20 +135,24 @@ public final class HangulKeys {
 
     /**
      * 검색어가 초성(낱자 자음)과 띄어쓰기로만 되어 있는지. 낱자 모음·음절·영문·숫자가 하나라도 있으면 아니다. 본 검색과 자동완성이 이때만 초성 칸으로
-     * 찾는다(#973).
+     * 찾는다(#973). 글자·숫자가 아닌 문자(쉼표, 줄바꿈 없는 공백 NBSP 등)는 {@link #chosung}처럼 띄어쓰기로 본다. 모바일 입력·붙여넣기로 섞여 들어와도
+     * 초성 검색어로 본다({@code ㅂㅅ,}). 초성이 하나도 없으면 아니다.
      */
     public static boolean isChosungOnly(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
+        if (keyword == null) {
             return false;
         }
         String normalized = Normalizer.normalize(keyword, Normalizer.Form.NFC);
+        boolean consonant = false;
         for (int i = 0; i < normalized.length(); i++) {
             char ch = normalized.charAt(i);
-            if (!Character.isWhitespace(ch) && !isCompatibilityConsonant(ch)) {
+            if (isCompatibilityConsonant(ch)) {
+                consonant = true;
+            } else if (Character.isLetterOrDigit(ch)) {
                 return false;
             }
         }
-        return true;
+        return consonant;
     }
 
     private static boolean isSyllable(char ch) {
@@ -154,6 +176,6 @@ public final class HangulKeys {
     }
 
     private static String collapse(StringBuilder out) {
-        return out.toString().strip().replaceAll("\\s+", " ");
+        return SPACES.matcher(out.toString().strip()).replaceAll(" ");
     }
 }

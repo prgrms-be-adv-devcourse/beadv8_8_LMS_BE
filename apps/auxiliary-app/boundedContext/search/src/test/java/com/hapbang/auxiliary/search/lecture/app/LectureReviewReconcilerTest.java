@@ -189,6 +189,31 @@ class LectureReviewReconcilerTest {
         assertThat(reconciler.reconcile().count(LectureReconcileKind.HANGUL_KEYS_FIXED)).isZero();
     }
 
+    @Test
+    @DisplayName("초성·자모 칸 맞추기가 실패해도 리뷰 보정 회차는 실패가 아니고 평점 칸은 맞춰진다(#973)")
+    void hangulKeysFailureDoesNotFailReconcile() throws Exception {
+        LectureDocumentStore failing = new LectureDocumentStore(client) {
+            @Override
+            public java.util.List<com.hapbang.auxiliary.search.lecture.out.LectureHangulKeys> pageHangulKeys(
+                    Long afterLectureId, int size) {
+                throw new IllegalStateException("ES 장애");
+            }
+        };
+        LectureReviewReconciler withFailing = new LectureReviewReconciler(reviews, source,
+                new LectureCopyAligner(indexSetup, failing, members, reviews), null, new LectureSyncMetrics(registry),
+                CLOCK);
+        indexer.apply(lecture(LECTURE, 0L));
+        source.review(review(1L, 4, true, false, 0L));
+        refresh();
+
+        LectureReconcileResult result = withFailing.reconcile();
+
+        assertThat(result.count(LectureReconcileKind.RATING_FIXED)).isEqualTo(1);
+        assertThat(source(LECTURE)).containsEntry("averageRating", 4.0);
+        assertThat(registry.get("hapbang.search.lecture.reconcile.duration").tag("job", "review")
+                .tag("outcome", "success").timer().count()).isEqualTo(1);
+    }
+
     private void refresh() {
         indexSetup.refresh(LectureIndexDefinition.ALIAS);
     }

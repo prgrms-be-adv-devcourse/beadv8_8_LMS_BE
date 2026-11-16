@@ -22,9 +22,9 @@ public record LectureHangulKeys(long lectureId, String title, List<String> title
 
     /** 초성·자모 칸이 원문으로 다시 만든 값과 같은지. 다르면 롤링 배포 중 옛 pod가 원문만 바꾼 문서다 */
     public boolean matchesSource() {
-        return Objects.equals(titleChosung, HangulKeys.withCompact(HangulKeys.chosung(title)))
-                && Objects.equals(titleJamo, HangulKeys.withCompact(HangulKeys.jamo(title)))
-                && Objects.equals(sellerNicknameChosung, HangulKeys.withCompact(HangulKeys.chosung(sellerNickname)))
-                && Objects.equals(sellerNicknameJamo, HangulKeys.withCompact(HangulKeys.jamo(sellerNickname)));
+        return Objects.equals(titleChosung, HangulKeys.chosungKeys(title))
+                && Objects.equals(titleJamo, HangulKeys.jamoKeys(title))
+                && Objects.equals(sellerNicknameChosung, HangulKeys.chosungKeys(sellerNickname))
+                && Objects.equals(sellerNicknameJamo, HangulKeys.jamoKeys(sellerNickname));
     }
 }

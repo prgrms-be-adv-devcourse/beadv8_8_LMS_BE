@@ -45,11 +45,11 @@ class LectureSuggestionFacadeTest {
     }
 
     @Test
-    @DisplayName("공백뿐인 검색어는 ES를 부르지 않고 빈 목록이다. 한도는 센다")
+    @DisplayName("공백뿐인 검색어는 ES를 부르지 않고 빈 목록이다. 호출 한도도 세지 않는다")
     void blankKeyword() {
         assertThat(facade.suggest(Requester.guest("ab12"), "   ")).isEmpty();
 
-        verify(rateLimit).acquire(Requester.guest("ab12"));
+        verify(rateLimit, never()).acquire(Requester.guest("ab12"));
         verify(searcher, never()).suggest(anyString(), anyInt());
     }
 

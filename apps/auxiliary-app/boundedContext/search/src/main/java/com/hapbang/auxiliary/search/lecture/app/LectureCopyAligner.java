@@ -30,7 +30,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>재색인 뒤 따라잡기에서는 채우는 동안 바뀐 사본 값(이벤트는 사본만 고치고 문서 쓰기를 건너뜀)을 새 index에 반영한다.</li>
  *     <li><b>초성·자모 칸</b>(#973): 칸이 생긴 뒤의 롤링 배포에서, 재색인이 alias를 옮긴 뒤에도 잠깐 살아 있던 옛 pod가 제목·닉네임만 바꾸고 초성·자모는
  *     옛 값으로 남길 수 있다. 같은 version이라 강의 보정은 다시 쓰지 않으므로, 모든 문서를 한 번 더 넘기며 원문으로 다시 만든 값과 다르면
- *     compare-and-set으로 고친다({@link LectureDocumentStore#writeHangulKeys}, 원문이 그사이 바뀌었으면 건드리지 않는다). version 규칙과는 상관없다.</li>
+ *     compare-and-set으로 고친다({@link LectureDocumentStore#writeHangulKeys}, 원문이 그사이 바뀌었으면 건드리지 않는다). version 규칙과는 상관없다.
+ *     변환 규칙({@code HangulKeys})만 고치면 index 설정 해시가 바뀌지 않아 재색인이 없는데, 그때 기존 문서를 새 규칙으로 맞추는 것도 이 일이라 늘
+ *     돈다. 실패해도(alias를 옮기기 전 칸이 없는 옛 index에 쓰다 거절 등) 판매자·평점 결과와 회차는 실패로 치지 않고 WARN만 남긴다(다음 회차).</li>
  * </ul>
  * 락은 부르는 쪽(리뷰 보정, 재색인 따라잡기)이 쥔다. 둘이 겹쳐 돌아도 같은 사본 값을 쓰므로 결과가 같다.
  */
@@ -82,18 +84,26 @@ public class LectureCopyAligner {
         return new LectureReconcileResult(read, counts);
     }
 
-    /** 모든 문서의 초성·자모 칸을 원문과 맞춘다(#973) */
+    /**
+     * 모든 문서의 초성·자모 칸을 원문과 맞춘다(#973). 판매자·평점 칸과 같은 페이지 읽기에 합치지 않고 한 번 더 넘긴다. 1시간에 한 번이고 강의 수백~수천
+     * 개라 부담이 작으며, 합치면 보정이 함께 쓰는 비교 값({@link com.hapbang.auxiliary.search.lecture.out.IndexedLecture})을 넓혀야 한다.
+     * 실패하면 WARN만 남긴다. 그 전에 고친 수는 지표에 남는다.
+     */
     private void alignHangulKeys(Map<LectureReconcileKind, Long> counts) {
         Long after = null;
-        List<LectureHangulKeys> page;
-        while (!(page = documents.pageHangulKeys(after, PAGE_SIZE)).isEmpty()) {
-            for (LectureHangulKeys doc : page) {
-                if (!doc.matchesSource() && documents.writeHangulKeys(doc) == WriteOutcome.UPDATED) {
-                    counts.merge(LectureReconcileKind.HANGUL_KEYS_FIXED, 1L, Long::sum);
-                    log.info("원문과 다른 강의 검색 문서의 초성·자모 칸을 고쳤다 lectureId={}", doc.lectureId());
+        try {
+            List<LectureHangulKeys> page;
+            while (!(page = documents.pageHangulKeys(after, PAGE_SIZE)).isEmpty()) {
+                for (LectureHangulKeys doc : page) {
+                    if (!doc.matchesSource() && documents.writeHangulKeys(doc) == WriteOutcome.UPDATED) {
+                        counts.merge(LectureReconcileKind.HANGUL_KEYS_FIXED, 1L, Long::sum);
+                        log.info("원문과 다른 강의 검색 문서의 초성·자모 칸을 고쳤다 lectureId={}", doc.lectureId());
+                    }
                 }
+                after = page.getLast().lectureId();
             }
-            after = page.getLast().lectureId();
+        } catch (RuntimeException e) {
+            log.warn("강의 검색 문서의 초성·자모 칸을 맞추지 못해 다음 회차에 다시 한다 afterLectureId={}", after, e);
         }
     }
 

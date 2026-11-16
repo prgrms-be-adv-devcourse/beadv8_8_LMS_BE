@@ -110,7 +110,10 @@ class HangulKeysTest {
             "ㅏ|false",
             "ㅂㅅ obs|false",
             "ㅂㅅ1|false",
-            "방송|false"
+            "방송|false",
+            "ㅂㅅ,|true",
+            "(ㅂㅅㅈㅂ)|true",
+            "!?|false"
     })
     @DisplayName("초성뿐인 검색어: 낱자 자음과 띄어쓰기로만 되어 있어야 한다")
     void chosungOnly(String keyword, boolean expected) {
@@ -122,5 +125,20 @@ class HangulKeysTest {
     void blankIsNotChosungOnly() {
         assertThat(HangulKeys.isChosungOnly(null)).isFalse();
         assertThat(HangulKeys.isChosungOnly("   ")).isFalse();
+    }
+
+    @Test
+    @DisplayName("줄바꿈 없는 공백(NBSP, 모바일·붙여넣기)도 띄어쓰기로 보고, 초성 칸 값도 같게 만든다")
+    void nonBreakingSpace() {
+        assertThat(HangulKeys.isChosungOnly("ㅂㅅ\u00A0ㅈㅂ")).isTrue();
+        assertThat(HangulKeys.chosung("ㅂㅅ\u00A0ㅈㅂ")).isEqualTo("ㅂㅅ ㅈㅂ");
+    }
+
+    @Test
+    @DisplayName("칸 값 헬퍼는 변환 뒤 띄어쓰기를 뺀 값을 붙인다(색인과 칸 맞추기가 같은 값을 쓰게)")
+    void keyHelpers() {
+        assertThat(HangulKeys.chosungKeys("방송장비 추천")).containsExactly("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ");
+        assertThat(HangulKeys.jamoKeys("방송")).containsExactly("ㅂㅏㅇㅅㅗㅇ");
+        assertThat(HangulKeys.chosungKeys(null)).isNull();
     }
 }
