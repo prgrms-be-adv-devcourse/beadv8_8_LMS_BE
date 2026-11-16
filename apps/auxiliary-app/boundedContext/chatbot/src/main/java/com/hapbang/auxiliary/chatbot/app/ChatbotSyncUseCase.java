@@ -196,41 +196,66 @@ public class ChatbotSyncUseCase {
         long startNanos = System.nanoTime();
         SyncType type = target.type();
         SyncTally tally = new SyncTally();
-        Mismatches mismatches = new Mismatches(run.getId(), type, 0);
+        Mismatches mismatches = Mismatches.none(run.getId(), type);
         try {
             boolean firstRun = !syncRunRepository.existsByTypeAndStatus(type, SyncRunStatus.SUCCEEDED);
-            mismatches = new Mismatches(run.getId(), type, firstRun ? 0 : properties.mismatchMaxRows());
+            mismatches = firstRun ? Mismatches.none(run.getId(), type)
+                    : Mismatches.upTo(run.getId(), type, properties.mismatchMaxRows());
             log.info("싱크를 시작한다 type={}, runId={}, trigger={}, firstRun={}", type, run.getId(), run.getTrigger(),
                     firstRun);
-            Long afterId = null;
-            do {
-                SyncTarget.Page<T> page = target.fetch(afterId, properties.pageSize());
-                verify(target, page, afterId, properties.pageSize());
-                for (T item : page.items()) {
-                    CopyWrite write = target.apply(item, run.getId());
-                    tally.add(write.outcome());
-                    mismatches.add(target.idOf(item), write.outcome().mismatch(), write.ourVersion(), target.versionOf(item));
-                }
-                afterId = page.nextAfterId();
-            } while (afterId != null);
-            List<MissingCopy> missing = target.markMissing(run.getId(), run.getStartedAt());
-            for (MissingCopy row : missing) {
-                mismatches.add(row.sourceId(), SyncMismatchKind.MISSING_IN_SOURCE, row.ourVersion(), null);
-            }
+            applyAllPages(target, run, tally, mismatches);
+            int markedMissing = markMissing(target, run, mismatches);
             boolean warning = !firstRun && tally.warns(properties.warningRatio(), properties.warningMinChanged());
-            run.succeed(tally, missing.size(), warning, now());
+            run.succeed(tally, markedMissing, warning, now());
         } catch (RuntimeException e) {
             run.fail(tally, describe(e), now());
-            // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
-            if (longWithoutSuccess(type)) {
-                log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
-                        + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
-                        properties.failureAlertAfter(), e);
-            } else {
-                log.warn("싱크가 중간에 멈췄다 type={}, runId={}, trigger={}, scanned={}", type, run.getId(), run.getTrigger(),
-                        tally.scanned(), e);
-            }
+            logStopped(type, run, tally, e);
         }
+        record(type, run, mismatches);
+        purgeMasked(type, run);
+        metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
+        logFinished(type, run);
+        return run;
+    }
+
+    // 원본을 처음부터 끝까지 페이지로 읽어 항목마다 반영하고 결과를 센다
+    private <T> void applyAllPages(SyncTarget<T> target, SyncRun run, SyncTally tally, Mismatches mismatches) {
+        Long afterId = null;
+        do {
+            SyncTarget.Page<T> page = target.fetch(afterId, properties.pageSize());
+            verify(target, page, afterId, properties.pageSize());
+            for (T item : page.items()) {
+                CopyWrite write = target.apply(item, run.getId());
+                tally.add(write.outcome());
+                mismatches.add(target.idOf(item), write.outcome().mismatch(), write.ourVersion(), target.versionOf(item));
+            }
+            afterId = page.nextAfterId();
+        } while (afterId != null);
+    }
+
+    // 끝까지 읽은 뒤 원본에 없던 행을 표시하고 어긋남으로 남긴다. 새로 표시한 행 수를 돌려준다
+    private <T> int markMissing(SyncTarget<T> target, SyncRun run, Mismatches mismatches) {
+        List<MissingCopy> missing = target.markMissing(run.getId(), run.getStartedAt());
+        for (MissingCopy row : missing) {
+            mismatches.add(row.sourceId(), SyncMismatchKind.MISSING_IN_SOURCE, row.ourVersion(), null);
+        }
+        return missing.size();
+    }
+
+    // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
+    private void logStopped(SyncType type, SyncRun run, SyncTally tally, RuntimeException e) {
+        if (longWithoutSuccess(type)) {
+            log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
+                    + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
+                    properties.failureAlertAfter(), e);
+        } else {
+            log.warn("싱크가 중간에 멈췄다 type={}, runId={}, trigger={}, scanned={}", type, run.getId(), run.getTrigger(),
+                    tally.scanned(), e);
+        }
+    }
+
+    // 회차 결과와 어긋남 행을 남기고, 보관 개수·기간이 지난 기록을 지운다. 실패해도 예외를 던지지 않는다
+    private void record(SyncType type, SyncRun run, Mismatches mismatches) {
         try {
             syncRunRepository.save(run);
             syncMismatchRepository.saveAll(mismatches.rows);
@@ -243,8 +268,9 @@ public class ChatbotSyncUseCase {
             log.error("[CHATBOT_SYNC_RECORD_FAILED] 싱크 회차 결과를 기록하지 못했다 type={}, runId={}, status={}", type,
                     run.getId(), run.getStatus(), e);
         }
-        purgeMasked(type, run);
-        metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
+    }
+
+    private void logFinished(SyncType type, SyncRun run) {
         if (run.isWarning()) {
             // 이벤트 반영이 크게 어긋났다(소비 중단 등). 싱크가 고쳤지만 원인은 사람이 봐야 한다
             log.error("[CHATBOT_SYNC_MISMATCH] 싱크가 넣거나 고친 비율이 크다 type={}, runId={}, scanned={}, inserted={}, fixed={}",
@@ -253,7 +279,6 @@ public class ChatbotSyncUseCase {
         log.info("싱크를 마쳤다 type={}, runId={}, status={}, scanned={}, inserted={}, fixed={}, oursNewer={}, markedMissing={}, "
                         + "discarded={}", type, run.getId(), run.getStatus(), run.getScanned(), run.getInserted(), run.getFixed(),
                 run.getOursNewer(), run.getMarkedMissing(), run.getDiscarded());
-        return run;
     }
 
     // 그 종류가 알림 기준 시간 동안 성공하지 못했는지(첫 배포 뒤 아직 성공이 없는 것도 포함)
@@ -342,6 +367,16 @@ public class ChatbotSyncUseCase {
             this.runId = runId;
             this.type = type;
             this.max = max;
+        }
+
+        /** 행을 남기지 않는다. 첫 실행(원본 전체가 어긋남)과 첫 실행인지 알기 전에 실패한 회차 */
+        private static Mismatches none(Long runId, SyncType type) {
+            return new Mismatches(runId, type, 0);
+        }
+
+        /** 최대 {@code max}행까지 남긴다 */
+        private static Mismatches upTo(Long runId, SyncType type, int max) {
+            return new Mismatches(runId, type, max);
         }
 
         private void add(long sourceId, SyncMismatchKind kind, Long ourVersion, Long sourceVersion) {
