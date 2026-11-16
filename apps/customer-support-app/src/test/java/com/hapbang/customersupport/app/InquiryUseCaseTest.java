@@ -2,10 +2,14 @@ package com.hapbang.customersupport.app;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.time.ZoneId;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.customersupport.app.dto.InquiryReplyResponse;
 import com.hapbang.customersupport.app.dto.InquiryResponse;
@@ -15,11 +19,14 @@ import com.hapbang.customersupport.app.exception.CustomerSupportErrorCode;
 import com.hapbang.customersupport.app.exception.CustomerSupportException;
 import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.domain.InquiryCategory;
+import com.hapbang.customersupport.domain.InquiryReply;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.shared.customersupport.event.InquiryAnsweredEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
+@RecordApplicationEvents
 class InquiryUseCaseTest {
 
     private static final Long USER_ID = 1L;
@@ -34,6 +41,9 @@ class InquiryUseCaseTest {
 
     @Autowired
     private InquiryRepository inquiryRepository;
+
+    @Autowired
+    private ApplicationEvents events;
 
     @Test
     void 문의를_접수하면_답변_대기로_저장된다() {
@@ -211,6 +221,34 @@ class InquiryUseCaseTest {
         InquiryResponse mine = inquirySupporter.getMyInquiry(inquiryId, USER_ID);
         assertThat(mine.status()).isEqualTo(InquiryStatus.ANSWERED);
         assertThat(mine.replies()).extracting(InquiryReplyResponse::content).containsExactly("첫 답변", "추가 답변");
+    }
+
+    @Test
+    void 관리자가_답변하면_답변마다_답변_도착_이벤트를_낸다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.SERVICE_COMPLAINT, "환전이 안 돼요", "내용", null)
+                .getId();
+
+        InquiryReply first = inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변").getReplies().getLast();
+        InquiryReply second = inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 답변").getReplies().getLast();
+
+        assertThat(events.stream(InquiryAnsweredEvent.class)).containsExactly(
+                new InquiryAnsweredEvent(inquiryId, first.getId(), USER_ID, "환전이 안 돼요", "SERVICE_COMPLAINT",
+                        first.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant()),
+                new InquiryAnsweredEvent(inquiryId, second.getId(), USER_ID, "환전이 안 돼요", "SERVICE_COMPLAINT",
+                        second.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant()));
+        assertThat(first.getId()).isNotNull().isNotEqualTo(second.getId());
+    }
+
+    @Test
+    void 답변을_고치거나_지우면_답변_도착_이벤트를_내지_않는다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
+        Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"));
+
+        inquiryUseCase.editReply(inquiryId, replyId, "고친 답변");
+        inquiryUseCase.deleteReply(inquiryId, replyId);
+
+        assertThat(events.stream(InquiryAnsweredEvent.class)).singleElement()
+                .extracting(InquiryAnsweredEvent::replyId).isEqualTo(replyId);
     }
 
     @Test

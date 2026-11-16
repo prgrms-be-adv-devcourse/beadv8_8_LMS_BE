@@ -6,8 +6,8 @@ import java.time.OffsetDateTime;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.OrderItem;
+import com.hapbang.shared.lecture.event.LectureObjectionFiledEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 이의 제기 결과 이벤트({@code lecture.events.v1})를 주문 항목으로 만들어 발행한다 (#278, D71, #818, D83).
+ * 이의 제기 접수·결과 이벤트({@code lecture.events.v1})를 주문 항목으로 만들어 발행한다 (#278, D71, #818, D83, #872, D85).
  * <ul>
  *     <li>업무 트랜잭션 안에서, 항목을 바꾼 뒤에 부른다. 발행 기록은 Modulith 발행 기록에 남고 커밋 뒤 Kafka로 간다.</li>
  *     <li>고객센터는 문의 ID·명령 ID로, 알림은 받는 사람 ID·강의 제목·사건 시각으로 쓴다. 강의 제목은 구매할 때 저장한 제목이다.</li>
@@ -30,6 +30,13 @@ import lombok.extern.slf4j.Slf4j;
 public class LectureObjectionEvents {
 
     private final ApplicationEventPublisher eventPublisher;
+
+    /** 이의 제기를 접수했다(알림 ND-015). 문의 ID와 접수 시각은 항목에 저장한 값이다 */
+    public void filed(OrderItem item) {
+        eventPublisher.publishEvent(new LectureObjectionFiledEvent(item.getObjectionInquiryId(), item.getId(),
+                item.getBuyerUserId(), item.getSellerUserId(), item.getLectureTitleSnapshot(),
+                kst(item.getObjectionFiledAt())));
+    }
 
     /** 판단을 반영했다. 판단 시각은 항목에 저장한 판단 시각이다 */
     public void resolved(String commandId, Long inquiryId, boolean accepted, OrderItem item) {
@@ -77,6 +84,6 @@ public class LectureObjectionEvents {
     }
 
     private static OffsetDateTime kst(LocalDateTime time) {
-        return time.atZone(LectureConfig.ZONE).toOffsetDateTime();
+        return KstTimes.offset(time);
     }
 }

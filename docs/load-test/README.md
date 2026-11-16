@@ -5,7 +5,8 @@ k6 부하 테스트의 실행 규칙, 측정 절차, 결과 문서 양식을 모
 | 문서 | 내용 |
 | --- | --- |
 | [강의 조회 API 기준선](lecture-baseline.md) | lecture-app 조회 API 100 RPS 10분, JFR (#690) |
-| [쿠폰 선착순 발급·계산 미리보기](coupon-issue.md) | 회원 1,000명·재고 100장 발급 경쟁, quote 강의 1·5·20개, Redis·Kafka·PostgreSQL 장애(로컬). 운영 측정은 운영 발급 개방 전에 별도로 (#813) |
+| [알림 대표 기준선 B0](notification-baseline.md) | 알림 Kafka 소비 경로 리팩토링 전 기준선. B0 격리 k3d에서 고정 이벤트 5회, 운영 smoke(L1·L2) 실행 방법, N14 판정 기준 (#946) |
+| [쿠폰 선착순 발급·계산 미리보기](coupon-issue.md) | 회원 1,000명·재고 100장 발급 경쟁, quote 강의 1·5·20개, Redis·Kafka·PostgreSQL 장애(로컬), 운영 선착순 1차 측정(2026-11-11, Q41 불합격) (#813, #896) |
 
 채팅 단체방 부하 시험 도구는 chat-app이 따로 관리한다(`apps/chat-app/docs/experiments/`, #682).
 

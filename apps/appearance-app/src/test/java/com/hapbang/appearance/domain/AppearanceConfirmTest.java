@@ -237,9 +237,9 @@ class AppearanceConfirmTest {
     class PayoutTask {
 
         @Test
-        @DisplayName("지급 작업: PAYOUT, 받는 회원 게스트, 지급액 = 출연료 전부, 출연 ID, PENDING")
+        @DisplayName("지급 작업: PAYOUT, 받는 회원 게스트, 지급액 = 출연료 전부, 출연 ID, 출처 제목, PENDING")
         void payout() {
-            HpTask task = HpTask.payout(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 30_000, GUEST, 30L,
+            HpTask task = HpTask.payout(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 30_000, GUEST, 30L, "같이 방송해요",
                     HpTaskReason.APPEARANCE_CONFIRMED, "APPEARANCE_REQUEST-12-PAYOUT-APPEARANCE-30", SCHEDULED);
 
             assertThat(task.getTaskType()).isEqualTo(HpTaskType.PAYOUT);
@@ -248,8 +248,9 @@ class AppearanceConfirmTest {
             assertThat(task.getAmount()).isEqualTo(30_000);
             assertThat(task.getPayoutAmount()).isEqualTo(30_000);
             assertThat(task.getAppearanceId()).isEqualTo(30L);
+            assertThat(task.getSourceTitle()).isEqualTo("같이 방송해요");
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
-            assertThatThrownBy(() -> HpTask.payout(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 0, GUEST, 30L,
+            assertThatThrownBy(() -> HpTask.payout(HpTaskRefType.APPEARANCE_REQUEST, 12L, HOST, 0, GUEST, 30L, "제목",
                     HpTaskReason.APPEARANCE_CONFIRMED, "k", SCHEDULED))
                     .isInstanceOf(IllegalArgumentException.class);
         }

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.notification.app.ConditionalOnNotificationRealtime;
 import com.hapbang.auxiliary.notification.app.dto.RealtimeMessage;
+import com.hapbang.auxiliary.notification.in.websocket.NotificationOutboundLatencyInterceptor;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class NotificationRealtimeRedisListener implements MessageListener {
 
     @Override
     public void onMessage(Message message, byte[] pattern) {
+        long receivedAt = System.nanoTime();
         RealtimeMessage realtime;
         try {
             realtime = jsonMapper.readValue(new String(message.getBody(), StandardCharsets.UTF_8),
@@ -45,7 +47,9 @@ public class NotificationRealtimeRedisListener implements MessageListener {
             return;
         }
         try {
-            messagingTemplate.convertAndSendToUser(String.valueOf(realtime.receiverUserId()), QUEUE, realtime.frame());
+            // 받은 시각은 내부 헤더로만 넘긴다. FE 프레임에는 나가지 않는다(서버 내부 STOMP outbound 처리 지연, ND-162)
+            messagingTemplate.convertAndSendToUser(String.valueOf(realtime.receiverUserId()), QUEUE, realtime.frame(),
+                    NotificationOutboundLatencyInterceptor.receivedAt(receivedAt).getMessageHeaders());
         } catch (RuntimeException exception) {
             log.warn("알림 프레임을 연결로 보내지 못함 receiverUserId={}", realtime.receiverUserId(), exception);
         }

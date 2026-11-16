@@ -1,6 +1,7 @@
 package com.hapbang.coupon.app.port;
 
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
@@ -19,13 +20,20 @@ public interface CouponIssueEventPublisher {
      */
     PublishResult publish(CouponIssueRequested event, Duration ackTimeout);
 
+    /**
+     * 보내고 ACK를 기다리지 않는다. 호출자를 붙잡는 것은 전송 준비(메타데이터 조회·버퍼 공간, {@code max.block.ms})뿐이다.
+     * 돌려준 future는 실패로 끝나지 않고 결과로 끝난다. 전송 수명({@code delivery.timeout.ms})이 지나면 {@link PublishResult#TIMED_OUT}이다.
+     * 완료 콜백은 producer I/O 스레드에서 돌 수 있으므로 오래 걸리는 일을 붙이지 않는다.
+     */
+    CompletableFuture<PublishResult> send(CouponIssueRequested event);
+
     /** 전송 결과 */
     enum PublishResult {
         /** broker가 ACK했다 */
         ACKED,
         /** 전송이 실패했다(직렬화·broker 오류 등) */
         FAILED,
-        /** ACK를 기다리다 시간이 지났다 */
+        /** ACK를 기다리다 시간이 지났다. {@code send}는 전송 준비나 전송 수명이 지났다 */
         TIMED_OUT;
 
         public boolean acked() {

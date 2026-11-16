@@ -30,6 +30,7 @@ import com.hapbang.auxiliary.notification.out.MemberMaskLocks;
 import com.hapbang.auxiliary.notification.out.NotificationRepository;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -61,6 +62,17 @@ public class NotificationRealtimeRelay {
      * {@code publish_failed}(Redis 발행 실패, 생략 시간 시작), {@code skipped}(생략 시간 중)
      */
     public static final String DROPPED_METRIC = "hapbang.notification.realtime.dropped";
+
+    /**
+     * Redis 발행 구간 지표(ND-162): commit 뒤 넘긴 시각부터 Redis 발행 완료까지. 실행기 줄 대기와 다시 읽기(DB)가 들어 있다. 버리거나
+     * 발행에 실패한 프레임은 재지 않는다. 서버 내부 outbound 구간(STOMP)과 합해도 클라이언트 수신까지의 전체 지연이 아니다
+     */
+    public static final String PUBLISH_LATENCY_METRIC = "hapbang.notification.realtime.publish.latency";
+
+    /** 실시간 구간 지표(발행·STOMP outbound)의 histogram 경계 */
+    public static final List<Duration> LATENCY_BUCKETS = List.of(Duration.ofMillis(5), Duration.ofMillis(10),
+            Duration.ofMillis(25), Duration.ofMillis(50), Duration.ofMillis(100), Duration.ofMillis(250),
+            Duration.ofMillis(500), Duration.ofSeconds(1), Duration.ofMillis(2_500), Duration.ofSeconds(5));
 
     private final NotificationRepository notifications;
     private final ObjectProvider<NotificationRealtimePublisher> publisher;
@@ -110,7 +122,7 @@ public class NotificationRealtimeRelay {
         if (target == null || taskExecutor == null) {
             return;
         }
-        Runnable submit = () -> submit(taskExecutor, target, notificationId, receiverUserId);
+        Runnable submit = () -> submit(taskExecutor, target, notificationId, receiverUserId, clock.instant());
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -124,16 +136,17 @@ public class NotificationRealtimeRelay {
     }
 
     private void submit(TaskExecutor taskExecutor, NotificationRealtimePublisher target, Long notificationId,
-            Long receiverUserId) {
+            Long receiverUserId, Instant committedAt) {
         try {
-            taskExecutor.execute(() -> deliver(target, notificationId, receiverUserId));
+            taskExecutor.execute(() -> deliver(target, notificationId, receiverUserId, committedAt));
         } catch (RuntimeException exception) {
             // afterCommit 안이다. 저장은 이미 commit됐으므로 예외를 밖으로 내지 않는다
             dropped("queue_full", notificationId, exception);
         }
     }
 
-    private void deliver(NotificationRealtimePublisher target, Long notificationId, Long receiverUserId) {
+    private void deliver(NotificationRealtimePublisher target, Long notificationId, Long receiverUserId,
+            Instant committedAt) {
         if (skipping()) {
             // 발행이 실패한 직후다. DB를 읽거나 잠금을 잡기 전에 버린다
             skipped(notificationId);
@@ -162,9 +175,9 @@ public class NotificationRealtimeRelay {
         try {
             if (delivery.frame() != null) {
                 // 다른 회원의 닉네임이 없다: 트랜잭션을 끝낸 뒤 발행한다
-                publish(target, receiverUserId, delivery.frame());
+                publish(target, receiverUserId, delivery.frame(), committedAt);
             } else {
-                publishUnderMaskLock(target, notificationId, receiverUserId, delivery.mentioned());
+                publishUnderMaskLock(target, notificationId, receiverUserId, delivery.mentioned(), committedAt);
             }
         } catch (RuntimeException exception) {
             PublishFailedException publishFailure = publishFailureOf(exception);
@@ -186,20 +199,40 @@ public class NotificationRealtimeRelay {
 
     /** 언급 회원의 파기 순서 공유 잠금을 잡고 다시 읽은 값으로, 잠금을 쥔 채 발행한다. 파기는 이 발행이 끝난 뒤 commit된다(ND-054) */
     private void publishUnderMaskLock(NotificationRealtimePublisher target, Long notificationId, Long receiverUserId,
-            List<Long> mentioned) {
+            List<Long> mentioned, Instant committedAt) {
         readOnly.executeWithoutResult(status -> {
             maskLocks.lockShared(mentioned);
             notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(notificationId, receiverUserId)
-                    .ifPresent(notification -> publish(target, receiverUserId, frameOf(notification, receiverUserId)));
+                    .ifPresent(notification -> publish(target, receiverUserId, frameOf(notification, receiverUserId),
+                            committedAt));
         });
     }
 
-    /** Redis 발행. 실패를 {@link PublishFailedException}으로 감싸 DB·잠금 실패와 구분한다 */
-    private static void publish(NotificationRealtimePublisher target, Long receiverUserId, NotificationFrame frame) {
+    /**
+     * Redis 발행. 실패를 {@link PublishFailedException}으로 감싸 DB·잠금 실패와 구분한다. 성공하면 commit 뒤부터 발행 완료까지를
+     * {@value #PUBLISH_LATENCY_METRIC}에 잰다
+     */
+    private void publish(NotificationRealtimePublisher target, Long receiverUserId, NotificationFrame frame,
+            Instant committedAt) {
         try {
             target.publish(receiverUserId, frame);
         } catch (RuntimeException exception) {
             throw new PublishFailedException(exception);
+        }
+        recordPublishLatency(committedAt);
+    }
+
+    private void recordPublishLatency(Instant committedAt) {
+        try {
+            MeterRegistry registry = meterRegistry.getIfAvailable();
+            if (registry != null) {
+                Timer.builder(PUBLISH_LATENCY_METRIC)
+                        .serviceLevelObjectives(LATENCY_BUCKETS.toArray(Duration[]::new))
+                        .register(registry)
+                        .record(Duration.between(committedAt, clock.instant()));
+            }
+        } catch (RuntimeException exception) {
+            log.warn("알림 실시간 발행 구간 지표를 기록하지 못했다(전달에는 영향 없음)", exception);
         }
     }
 

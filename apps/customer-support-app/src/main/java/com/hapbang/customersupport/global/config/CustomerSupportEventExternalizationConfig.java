@@ -13,6 +13,8 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 import com.hapbang.customersupport.app.CustomerSupportBatchProperties;
 import com.hapbang.customersupport.app.CustomerSupportExternalEvents;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
+import com.hapbang.shared.customersupport.event.InquiryAnsweredEvent;
+import com.hapbang.shared.customersupport.event.LectureObjectionFileRejectedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
 import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
 
@@ -21,7 +23,8 @@ import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalReques
  * <ul>
  *     <li>대상은 {@link CustomerSupportExternalEvents}가 정한다. 토픽({@value CustomerSupportEventTopic#NAME})과
  *     key({@code inquiry:<문의 ID>})는 레코드의 {@code @Externalized}가 정하고, 이 설정은 헤더만 더한다.</li>
- *     <li>판단·철회 요청은 연동 상태 선점과 같은 트랜잭션에서 발행 기록({@code event_publication})에 남고 커밋 뒤에 Kafka로 간다.
+ *     <li>판단·철회 요청은 연동 상태 선점과, 알림용 답변 도착·접수 불가는 답변 저장·접수 불가 기록과 같은 트랜잭션에서
+ *     발행 기록({@code event_publication})에 남고 커밋 뒤에 Kafka로 간다.
  *     보내기에 실패하면 재발행 배치({@code CustomerSupportEventRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
  *     <li>토픽은 고객센터 앱이 선언한다. 외부화를 끈 테스트에서는 선언하지 않는다.</li>
  * </ul>
@@ -36,6 +39,8 @@ public class CustomerSupportEventExternalizationConfig {
     /** {@value #EVENT_TYPE} 헤더 값. 레코드 이름을 바꿔도 그대로 둔다(받는 쪽 계약) */
     public static final String RESOLUTION_REQUESTED = "LectureObjectionResolutionRequestedEvent";
     public static final String WITHDRAWAL_REQUESTED = "LectureObjectionWithdrawalRequestedEvent";
+    public static final String INQUIRY_ANSWERED = "InquiryAnsweredEvent";
+    public static final String FILE_REJECTED = "LectureObjectionFileRejectedEvent";
 
     /** 본문 형식 버전 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -49,6 +54,8 @@ public class CustomerSupportEventExternalizationConfig {
                 .select(CustomerSupportExternalEvents::isExternalized)
                 .headers(LectureObjectionResolutionRequestedEvent.class, event -> headers(RESOLUTION_REQUESTED))
                 .headers(LectureObjectionWithdrawalRequestedEvent.class, event -> headers(WITHDRAWAL_REQUESTED))
+                .headers(InquiryAnsweredEvent.class, event -> headers(INQUIRY_ANSWERED))
+                .headers(LectureObjectionFileRejectedEvent.class, event -> headers(FILE_REJECTED))
                 .build();
     }
 

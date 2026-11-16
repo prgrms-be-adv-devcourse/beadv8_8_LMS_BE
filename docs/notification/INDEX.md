@@ -15,7 +15,7 @@
 
 ## 2. 현재 구현 상태
 
-**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)도 있다. Gateway route(N4, #847, PR #853)도 있다. 이벤트를 소비해 알림을 만드는 코드(출연 2종·지갑 7종·회원 2종)와 회원 복제본 Backfill도 있다(N5, #859, PR #865). 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
+**구현 작업 N1~N10이 모두 dev에 병합됐다.** 모듈 뼈대, 알림 저장·REST, 실시간 전달, Gateway route, 발행 모듈 이벤트 소비, 강의 지급 하루 묶음, 예약 배치와 예약 알림이 있다. 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이고, 작업별 Issue·PR은 PROGRESS 3장에 있다.
 
 | 무엇 | 어디서 확인하나 |
 | --- | --- |
@@ -47,12 +47,12 @@
 
 | 정보 | 원본 |
 | --- | --- |
-| 업무 규칙 | [`docs/policy.md`](../policy.md). **알림센터 장은 아직 없다.** 그래서 확정된 알림 정책은 지금 `decisions.md`에만 있고, policy.md 반영은 팀 승인 후속이다. `decisions.md`가 팀 규칙보다 우선하는 전역 원본이 되는 것은 아니다 |
+| 업무 규칙 | [`docs/policy.md`](../policy.md) 9장(알림센터). 세부 결정과 이유는 `decisions.md`가 맡는다. `decisions.md`가 팀 규칙보다 우선하는 전역 원본이 되는 것은 아니다 |
 | 알림 결정과 이유 | `decisions.md` (ND) |
 | 구현 규칙 | 알림 `AGENTS.md` (루트 AGENTS → [auxiliary README](../../apps/auxiliary-app/README.md) → 이 규칙 순서로 상속) |
 | 도메인 개념 | `CONTEXT.md` |
 | 알림 종류별 명세 | `notification-catalog.md` |
-| 코드 동작 | 소스 코드와 설정(지금은 없음), 설명은 `module.md` |
+| 코드 동작 | 소스 코드와 설정(`apps/auxiliary-app/boundedContext/notification`), 설명은 `module.md` |
 | API 계약 | `docs/api/notification.md` |
 | Kafka 계약 | [`kafka.md`](../architecture/infrastructure/kafka.md)와 발행 앱의 실제 이벤트 |
 | 알림이 요청하는 이벤트 계약 | `event-contracts.md` (구현되면 위 Kafka 계약이 원본) |
@@ -68,7 +68,7 @@
 2. auxiliary-app 공통 규칙 [`apps/auxiliary-app/README.md`](../../apps/auxiliary-app/README.md) (`apps/auxiliary-app/AGENTS.md`는 없다)
 3. 알림 [`AGENTS.md`](../../apps/auxiliary-app/boundedContext/notification/AGENTS.md)
 4. 이 문서
-5. [`docs/policy.md`](../policy.md) (알림센터 장 없음)
+5. [`docs/policy.md`](../policy.md) 9장(알림센터)
 6. [`decisions.md`](decisions.md)
 7. [`CONTEXT.md`](CONTEXT.md)
 8. [`notification-catalog.md`](notification-catalog.md)
@@ -106,7 +106,7 @@
 | Gateway·관측성 | [`docs/deploy/gateway.md`](../deploy/gateway.md), [`observability.md`](../architecture/infrastructure/observability.md) | 따름 |
 | 원본 설계 | [`docs/architecture/infrastructure/notification.md`](../architecture/infrastructure/notification.md) | 이 문서 체계의 원천(보존) |
 
-`final-project-infrastructure.md`에는 폐기된 notification-app 서술이 남아 있다([ND-903](decisions.md)). 현재 구조는 ND-006·ND-007이다.
+현재 구조는 ND-006·ND-007이다. 폐기된 notification-app 계획은 [ND-903](decisions.md)에 남아 있고, `final-project-infrastructure.md`는 auxiliary-app의 알림 모듈로 맞췄다(#876).
 
 ## 8. 정책 결정과 미결 사항 찾기
 
@@ -116,8 +116,6 @@
 
 | 구분 | 무엇 | 자세히 |
 | --- | --- | --- |
-| U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
-| U19 | 구조는 ND-051로 정했다. 구현 가능성 검증은 N2(#801) | decisions 10장, test-spec `NT-USR-07` |
 | M1~M8 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | `event-contracts.md`, catalog 판정, module 5장, PROGRESS 3장 |
 
 - 발행 이벤트 계약 판정 결과(부분 충족·미충족 수, `AppearanceChangedEvent`가 M3를 대체할 수 없다는 판단)는 [`notification-catalog.md`](notification-catalog.md)와 [`module.md`](module.md) 5장이 원본이다.
@@ -128,7 +126,7 @@
 
 | 바뀐 것 | 고칠 문서 |
 | --- | --- |
-| 업무 규칙 | `docs/policy.md` (팀 승인, 알림센터 장 신설 전) |
+| 업무 규칙 | `docs/policy.md` 9장 (팀 승인) |
 | 결정 | `decisions.md` (기존 행 상태를 바꾸고 새 `ND-*`를 더한다) |
 | 알림 종류·발생 조건·받는 사람 | `notification-catalog.md` |
 | 발행 모듈에 요청하는 이벤트 계약 | `event-contracts.md` |
@@ -152,7 +150,7 @@
 
 | 유형 | 처리 |
 | --- | --- |
-| policy와 decisions가 다름 | 지금은 policy에 알림 장이 없다. 장이 생기면 policy가 원본이다. 차이는 근거와 시점을 확인해 보고한다 |
+| policy와 decisions가 다름 | policy.md 9장이 원본이다. 차이는 근거와 시점을 확인해 보고한다 |
 | 결정 상태가 문서마다 다름 | `decisions.md` 상태 칸과 대체 관계(ND-005 → ND-006·007, ND-901~903 폐기)를 따른다 |
 | module과 실제 코드·설정이 다름 | 코드·설정을 확인하고 module As-Is를 고친다 |
 | 이벤트 계약 문서와 발행 코드가 다름 | 발행 앱 코드와 계약 소유자를 확인한다. 미확정 계약을 확정으로 쓰지 않는다 |

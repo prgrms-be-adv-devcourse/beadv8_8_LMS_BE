@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>문의를 커밋한 뒤 요청 안에서 한 번 시도한다({@link #fileNow}). 강의가 접수하면 접수됨, 거절하면 접수 불가를 기록한다.
  *     요청 안의 거절은 문의를 삭제한 것까지 커밋한 뒤에만 4xx로 응답한다. 결과를 모르거나 기록하지 못하면 접수 처리 중(202)으로 둔다.</li>
  *     <li>접수 처리 중으로 남은 문의는 재시도 배치가 같은 명령 ID로 다시 보낸다({@link #retryDue}). 강의가 처음 결과를 돌려주므로
- *     두 번 접수되지 않는다. 처리 중을 본 뒤의 거절은 문의를 남겨 "접수 불가 · 사유"로 보여 준다.</li>
+ *     두 번 접수되지 않는다. 처리 중을 본 뒤의 거절은 문의를 남겨 "접수 불가 · 사유"로 보여 주고 접수 불가 이벤트를 낸다.</li>
  *     <li>강의 응답의 {@code code}가 이의 제기 거절 사유가 아니면(내부 API 키 오류 등) 설정 문제라 거절로 보지 않고 처리 중으로 둔다.</li>
  *     <li>{@code hapbang.clients.lecture.base-url}이 없어 Client가 없으면 처리 중으로 두고 오류 로그를 남긴다.</li>
  * </ul>
@@ -120,7 +120,7 @@ public class LectureObjectionFiler {
         if (outcome.isEmpty()) {
             lectureObjectionResultUseCase.recordFiled(inquiryId);
         } else {
-            // 사용자는 처리 중을 본 적이 있으므로 문의를 지우지 않는다
+            // 사용자는 처리 중을 본 적이 있으므로 문의를 지우지 않고, 접수 불가 이벤트로 구매자에게 알린다
             lectureObjectionResultUseCase.recordFileRejected(inquiryId, outcome.get(), false);
         }
         return true;

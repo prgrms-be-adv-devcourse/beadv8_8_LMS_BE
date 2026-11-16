@@ -69,6 +69,14 @@
 - **호스트 자격 상실 전환(사용자 결정, 2026-11-03)**: 호스트 탈퇴·강등(인플루언서 이상이 아닌 역할)은 지금 적용한다(회원 반영과 같은 트랜잭션에서 읽기 전용). 일시 정지는 회원 정지 기능이 없어 제외한다.
 - **Q38 안내 문구**: 값만 저장하고 FE 템플릿으로 문구를 만든다(출연 알림과 같은 방식, #470 입퇴장 안내를 값으로와 같은 방향). 안내는 종류와 행위자·대상 회원 ID만 저장하고 `content`는 빈 문자열이다. 종류: 초대(초대한 회원·초대된 회원들), 강퇴(대상), 나가기, 폐쇄, 호스트 자격 상실, 일시 중지·재개. 정지·탈퇴 같은 호스트 사유는 노출하지 않고 호스트 자격 상실은 "호스트가 방을 운영할 수 없게 됨" 한 종류로 둔다.
 
+## 알림센터용 단체방 이벤트 (2026-11-12)
+
+알림 계약 M8(`docs/notification/event-contracts.md` 6장)을 구현한 결정이다. 세부는 [설계 3.6 "알림센터용 단체방 이벤트"](../final-design.md)다.
+
+- **발행**: 초대(이번 요청으로 참여한 회원이 있을 때)·강퇴·폐쇄(처음 한 번) 때 방 안 안내와 별도로 shared `GroupMembersInvitedEvent`·`GroupMemberKickedEvent`·`GroupRoomClosedEvent`를 같은 트랜잭션에서 발행해 Modulith 외부화로 새 토픽 `chat.events.v1`(key 방 ID)에 보낸다. 방 안 안내(`NotificationKind`)와 전달 outbox는 바꾸지 않는다. 토픽은 앱의 `NewTopic` 빈이 선언한다(사용자 결정). 발행용 ProducerFactory·KafkaTemplate은 코드 빈으로 만들고(`out/event/ChatEventKafkaConfig`, 값은 `ChatEventKafkaConstants`) Modulith 외부화가 이 템플릿을 쓴다. `spring.kafka.producer.*`·`spring.kafka.template.*`는 쓰지 않는다(사용자 결정, 2026-11-12: Kafka 설정은 코드로). Modulith 자동 설정 스위치 `spring.modulith.events.kafka.enable-json: false`만 yaml에 둔다.
+- **초대 요청 ID는 서버가 발번한 행 ID다(사용자 결정, 2026-11-12)**: 이벤트의 `inviteRequestId`는 초대 결과 기록(`chat_group_invite_request`) 행의 ID다. 클라이언트 `requestId`(UUID)의 멱등 동작(Q34)은 그대로다. 보존 기간이 지난 같은 `requestId`를 새 요청으로 처리할 때 기존 행을 덮어쓰지 않고 지운 뒤 새 행을 만들어 새 ID를 받는다. 같은 방에서 초대 요청 ID가 다시 쓰이지 않게 하려는 것이다.
+- **실행 중 재발행**: kafka.md 발행 규칙(실행 중 재전송은 발행하는 앱마다 둔다)을 따라, 고객센터와 같은 방식(`resubmitIncompletePublications(Predicate)`, 채팅 이벤트만, 매분·발행 후 1분·100건)의 재발행 배치를 둔다. 값은 `ChatExternalEvents` 상수이고 설정 키는 없다.
+
 ## 서비스 경계 규칙 (사용자 결정, 2026-10-29)
 
 회원 이벤트 Kafka 전환과 Redis Streams·Pub/Sub 전환을 진행하면서 해당 서비스 경계를 인터페이스로 분리한다. 이 규칙은 chat-app에 적용하며, 각 전환에서 수정하는 서비스부터 적용한다.

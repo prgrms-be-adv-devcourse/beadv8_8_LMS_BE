@@ -56,6 +56,11 @@ spring:
     scheduling:
       pool:
         size: 4
+server:
+  tomcat:
+    # 쿠폰 선착순 오픈에 연결 1,000개가 한꺼번에 오면 기본 대기열(100)이 넘쳐 SYN 재전송으로 약 1초가 더해진다
+    # (로컬 측정 ListenOverflows 64~791 → 0, 접수 p95 1,025 → 559 ms). 커널 somaxconn보다 크면 커널 값으로 줄어든다
+    accept-count: 1024
 management:
   endpoints:
     web:

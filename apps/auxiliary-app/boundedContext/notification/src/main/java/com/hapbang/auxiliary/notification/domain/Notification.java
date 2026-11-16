@@ -98,6 +98,18 @@ public class Notification extends BaseEntity {
     }
 
     /**
+     * 하루 묶음 알림을 만든다(ND-032). 원본 대상 ID를 비워 사건 유일 인덱스에 들지 않고, 묶음 키로 묶음 유일 인덱스에 든다(ND-103).
+     */
+    public static Notification createBundle(NotificationDraft draft, String bundleKey,
+            Function<Map<String, Object>, String> renderer) {
+        Assert.hasText(bundleKey, "묶음 키가 필요합니다.");
+        Assert.isNull(draft.sourceTargetId(), "묶음 알림은 원본 대상 ID를 두지 않습니다.");
+        Notification notification = create(draft, renderer);
+        notification.bundleKey = bundleKey;
+        return notification;
+    }
+
+    /**
      * 파기된 회원의 닉네임을 값에서 {@code 탈퇴회원#{회원ID}}로 바꾸고 문구를 값으로 다시 만든다(ND-036·ND-051).
      *
      * @return 바꿨으면 true. 언급되지 않았거나 이미 바꿨으면 false(멱등)

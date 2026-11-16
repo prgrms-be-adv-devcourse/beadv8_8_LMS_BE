@@ -101,7 +101,8 @@ class CouponOrderDltResolveTest {
 
     /** 판매자 쿠폰 한 장을 주문 항목에 예약한 상태(발급 쿠폰 RESERVED·generation 1, 사용 시도 RESERVED). 발급 쿠폰 ID */
     private long reservedUsage(Instant now) {
-        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), now)).getId();
+        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
+                lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
         MemberCoupon memberCoupon = memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
                 now, now.plus(Duration.ofDays(30)), now));
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->

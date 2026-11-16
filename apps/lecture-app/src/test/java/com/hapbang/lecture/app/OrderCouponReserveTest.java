@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.lecture.app.dto.OrderCouponSelection;
 import com.hapbang.lecture.app.dto.OrderResponse;
@@ -29,6 +31,9 @@ import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
+import com.hapbang.shared.lecture.dto.LectureOrderItemDto;
+import com.hapbang.shared.lecture.event.LectureOrderHoldFailedEvent;
+import com.hapbang.shared.lecture.event.LectureOrderPaidEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -37,6 +42,7 @@ import com.hapbang.testsupport.IntegrationTest;
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
+@RecordApplicationEvents
 class OrderCouponReserveTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -58,6 +64,9 @@ class OrderCouponReserveTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ApplicationEvents events;
 
     @BeforeEach
     void setUp() {
@@ -132,6 +141,10 @@ class OrderCouponReserveTest {
         assertThat(billing.calls()).isEmpty();
         assertThat(count("lectures.lecture_hp_task")).isZero();
         assertThat(workStatus(response.orderId())).isEqualTo("RESERVED");
+        // 알림용 결제 완료 이벤트의 금액은 구매자가 내는 HP(가격 − 할인)다 (#872, D85)
+        assertThat(events.stream(LectureOrderPaidEvent.class)).singleElement()
+                .satisfies(paid -> assertThat(paid.items()).containsExactly(new LectureOrderItemDto(
+                        response.items().getFirst().orderItemId(), lecture.getId(), TITLE, 0L)));
     }
 
     @Test
@@ -161,6 +174,13 @@ class OrderCouponReserveTest {
                 Long.class)).isZero();
         assertThat(count("lectures.lecture_hp_task")).isZero();
         assertThat(billing.calls()).isEmpty();
+        // 쿠폰 예약 거절로 결제에 실패해도 알림용 결제 실패 이벤트가 한 번 나간다 (#872, D85)
+        assertThat(events.stream(LectureOrderHoldFailedEvent.class)).singleElement().satisfies(failed -> {
+            assertThat(failed.orderId()).isEqualTo(orderId);
+            assertThat(failed.buyerUserId()).isEqualTo(BUYER_ID);
+            assertThat(failed.items()).extracting(LectureOrderItemDto::lectureId, LectureOrderItemDto::buyerAmountHp)
+                    .containsExactly(tuple(lecture.getId(), PRICE_HP - SELLER_DISCOUNT));
+        });
     }
 
     @Test

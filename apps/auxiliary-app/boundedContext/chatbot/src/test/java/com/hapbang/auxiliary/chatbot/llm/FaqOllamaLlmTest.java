@@ -72,7 +72,7 @@ class FaqOllamaLlmTest {
     @Test
     @DisplayName("모델이 searchFaq를 불러 근거 FAQ가 붙은 답을 준다(fallback 아님)")
     void chatCallsTool() {
-        FaqAnswer answer = chatService.chat("HP 충전은 어떻게 해요?");
+        FaqAnswer answer = chatService.chat(1L, "HP 충전은 어떻게 해요?");
 
         System.out.println("[FaqOllamaLlmTest] chat answer=" + answer);
         assertThat(answer.fallback()).isFalse();
@@ -83,7 +83,7 @@ class FaqOllamaLlmTest {
     @Test
     @DisplayName("스트림이 여러 조각으로 오고 done으로 끝난다")
     void streamCompletes() {
-        List<FaqStreamEvent> events = chatService.stream("출연을 취소하면 HP는 돌려받나요?").collectList()
+        List<FaqStreamEvent> events = chatService.stream(1L, "출연을 취소하면 HP는 돌려받나요?").collectList()
                 .block(Duration.ofMinutes(4));
 
         System.out.println("[FaqOllamaLlmTest] stream events=" + events.size() + ", last=" + events.getLast());

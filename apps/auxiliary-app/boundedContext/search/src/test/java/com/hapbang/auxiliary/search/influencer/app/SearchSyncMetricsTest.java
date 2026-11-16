@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheckStore;
-import com.hapbang.auxiliary.search.influencer.out.SyncCursor;
+import com.hapbang.auxiliary.search.out.SyncCursor;
 import com.hapbang.auxiliary.search.support.InMemoryConsistencyCheckStore;
 import com.hapbang.auxiliary.search.support.InMemorySyncCursorStore;
 

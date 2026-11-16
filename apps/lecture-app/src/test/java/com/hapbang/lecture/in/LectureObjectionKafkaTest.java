@@ -191,14 +191,16 @@ class LectureObjectionKafkaTest {
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(lectureOrderRepository.findItemOfBuyer(itemId, BUYER_ID))
                 .hasValueSatisfying(item -> assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED)));
-        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId, 1).getFirst();
-        assertThat(header(record, LectureEventExternalizationConfig.EVENT_TYPE))
-                .isEqualTo(LectureEventExternalizationConfig.OBJECTION_RESOLVED);
+        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId,
+                LectureEventExternalizationConfig.OBJECTION_RESOLVED, 1).getFirst();
         assertThat(header(record, LectureEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
         assertThat(record.value()).contains("\"commandId\":\"RESOLVE:" + inquiryId + "\"", "\"accepted\":false");
         // 알림용 값(#818): 받는 사람 ID, 구매 때 강의 제목, 판단 시각(KST offset)
         assertThat(record.value()).contains("\"buyerUserId\":" + BUYER_ID, "\"sellerUserId\":" + SELLER_ID,
                 "\"lectureTitle\":\"" + TITLE + "\"").containsPattern("\"resolvedAt\":\"[^\"]+\\+09:00\"");
+        // 같은 key로 접수 이벤트(#872)도 한 번 나갔다
+        assertThat(awaitExactly("order-item:" + itemId, LectureEventExternalizationConfig.OBJECTION_FILED, 1)
+                .getFirst().value()).contains("\"inquiryId\":" + inquiryId, "\"buyerUserId\":" + BUYER_ID);
     }
 
     @Test
@@ -240,9 +242,7 @@ class LectureObjectionKafkaTest {
         send(inquiryId, withdraw);
         send(inquiryId, withdraw);
 
-        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId, 1).getFirst();
-        assertThat(header(record, LectureEventExternalizationConfig.EVENT_TYPE))
-                .isEqualTo(LectureEventExternalizationConfig.OBJECTION_WITHDRAWN);
+        awaitExactly("order-item:" + itemId, LectureEventExternalizationConfig.OBJECTION_WITHDRAWN, 1);
         assertThat(lectureOrderRepository.findItemOfBuyer(itemId, BUYER_ID))
                 .hasValueSatisfying(item -> assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.NONE));
         assertThat(lectureObjectionCommandRepository.findByCommandId(withdraw.commandId())).isPresent();
@@ -260,7 +260,8 @@ class LectureObjectionKafkaTest {
         send(inquiryId, new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId, itemId, false,
                 ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
 
-        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId, 1).getFirst();
+        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId,
+                LectureEventExternalizationConfig.OBJECTION_RESOLVED, 1).getFirst();
         RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
         assertThat(objectionConsumes(traceId)).singleElement()
                 .satisfies(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
@@ -281,7 +282,7 @@ class LectureObjectionKafkaTest {
         send(inquiryId, new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId, itemId, false,
                 ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
 
-        awaitExactly("order-item:" + itemId, 1);
+        awaitExactly("order-item:" + itemId, LectureEventExternalizationConfig.OBJECTION_RESOLVED, 1);
         RecordedSpans.await(() -> objectionConsumes(traceId).size() >= 2);
         assertThat(objectionConsumes(traceId)).hasSize(2)
                 .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId))
@@ -343,7 +344,7 @@ class LectureObjectionKafkaTest {
 
     // ---------------------------------------------------------------------------------------------
 
-    /** 이의 제기를 접수한 주문 항목 */
+    /** 이의 제기를 접수한 주문 항목. 접수 이벤트(#872)가 같은 key로 나간다 */
     private Long filedItem(long inquiryId) {
         Lecture lecture = Lecture.register(SELLER_ID, TITLE, DESCRIPTION, PRICE_HP, null, contentSpecs(), NOW);
         lecture.approve(ADMIN_ID, NOW);
@@ -421,16 +422,10 @@ class LectureObjectionKafkaTest {
                 .toList();
     }
 
-    /** 이 key의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 (중복 발행이 없는지) */
-    private List<ConsumerRecord<String, String>> awaitExactly(String key, int count) {
-        await().atMost(TIMEOUT).pollInSameThread()
-                .untilAsserted(() -> assertThat(records(key)).hasSizeGreaterThanOrEqualTo(count));
-        await().during(HOLD).atMost(TIMEOUT).pollInSameThread()
-                .untilAsserted(() -> assertThat(records(key)).hasSize(count));
-        return records(key);
-    }
-
-    /** 이 key·이벤트 종류의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 */
+    /**
+     * 이 key·이벤트 종류의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 (중복 발행이 없는지).
+     * 같은 key로 접수 이벤트(#872)와 결과 이벤트가 함께 나가므로 이벤트 종류로 가른다
+     */
     private List<ConsumerRecord<String, String>> awaitExactly(String key, String eventType, int count) {
         await().atMost(TIMEOUT).pollInSameThread()
                 .untilAsserted(() -> assertThat(records(key, eventType)).hasSizeGreaterThanOrEqualTo(count));

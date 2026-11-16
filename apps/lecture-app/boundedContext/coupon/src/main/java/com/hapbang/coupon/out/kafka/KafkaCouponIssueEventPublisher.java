@@ -37,11 +37,11 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Boot의 기본 {@code ProducerFactory} 설정(연결·보안·acks)을 가져와 쿠폰 전용 producer를 만든다. 기본 template을 그대로 쓰지 않는 이유는
  * {@code max.block.ms}다: 기본값(60초)이면 broker가 내려가 메타데이터를 못 받을 때 {@code send}가 요청 스레드를 60초까지 붙잡는다.
- * 쿠폰 producer는 이 값을 접수 ACK 대기({@code hapbang.coupon.publish-ack-timeout})로 줄인다. 강의 이벤트 발행과 섞이지 않게 지표의
+ * 쿠폰 producer는 이 값을 {@code hapbang.coupon.publish-ack-timeout}으로 줄인다(접수 직후 전송이 요청 스레드를 붙잡는 최대 시간). 강의 이벤트 발행과 섞이지 않게 지표의
  * {@code spring_id}도 {@value #PRODUCER_FACTORY_NAME}으로 나뉜다.
  * <p>
- * {@code delivery.timeout.ms}도 {@code hapbang.coupon.producer-delivery-timeout}(기본 5초)으로 짧게 고정한다. ACK 대기가 시간 초과로 돌아와도
- * 전송은 계속되므로, 전송 하나가 끝나는 최대 시간을 알아야 복구가 "접수 차단 뒤 진행 중이던 전송이 모두 끝났다"를 시간으로 확정할 수 있다.
+ * {@code delivery.timeout.ms}도 {@code hapbang.coupon.producer-delivery-timeout}(기본 5초)으로 짧게 고정한다. 접수 직후 전송은 ACK를
+ * 기다리지 않고, 재발행의 ACK 대기가 시간 초과로 돌아와도 전송은 계속되므로, 전송 하나가 끝나는 최대 시간을 알아야 복구가 "접수 차단 뒤 진행 중이던 전송이 모두 끝났다"를 시간으로 확정할 수 있다.
  * Kafka는 {@code delivery.timeout.ms ≥ linger.ms + request.timeout.ms}를 요구하므로 {@code request.timeout.ms}를 그 범위 안으로 줄인다.
  * <p>
  * factory·template은 빈으로 두지 않는다. 빈으로 두면 Boot의 기본 {@code KafkaTemplate}·{@code ProducerFactory}가 만들어지지 않는다
@@ -122,12 +122,8 @@ public class KafkaCouponIssueEventPublisher implements CouponIssueEventPublisher
     @Override
     public PublishResult publish(CouponIssueRequested event, Duration ackTimeout) {
         long deadline = System.nanoTime() + ackTimeout.toNanos();
-        ProducerRecord<String, CouponIssueRequested> record = new ProducerRecord<>(topic,
-                String.valueOf(event.couponId()), event);
-        record.headers().add("eventType", EVENT_TYPE.getBytes(StandardCharsets.UTF_8));
-        record.headers().add("eventVersion", EVENT_VERSION.getBytes(StandardCharsets.UTF_8));
         try {
-            CompletableFuture<SendResult<String, CouponIssueRequested>> future = kafkaTemplate.send(record);
+            CompletableFuture<SendResult<String, CouponIssueRequested>> future = kafkaTemplate.send(record(event));
             future.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             return PublishResult.ACKED;
         } catch (TimeoutException e) {
@@ -138,14 +134,37 @@ public class KafkaCouponIssueEventPublisher implements CouponIssueEventPublisher
             Thread.currentThread().interrupt();
             return PublishResult.FAILED;
         } catch (ExecutionException | RuntimeException e) {
-            log.debug("발급 요청 이벤트를 보내지 못했다 couponId={}, issueRequestId={}", event.couponId(),
-                    event.issueRequestId(), e);
-            return isMetadataTimeout(e) ? PublishResult.TIMED_OUT : PublishResult.FAILED;
+            return failure(event, e);
         }
     }
 
-    /** 메타데이터를 {@code max.block.ms} 안에 받지 못한 실패는 기다림이 끝난 것이므로 시간 초과로 센다 */
-    private static boolean isMetadataTimeout(Exception e) {
+    @Override
+    public CompletableFuture<PublishResult> send(CouponIssueRequested event) {
+        try {
+            return kafkaTemplate.send(record(event)).handle((sent, e) -> e == null ? PublishResult.ACKED : failure(event, e));
+        } catch (RuntimeException e) {
+            return CompletableFuture.completedFuture(failure(event, e));
+        }
+    }
+
+    private static PublishResult failure(CouponIssueRequested event, Throwable e) {
+        log.debug("발급 요청 이벤트를 보내지 못했다 couponId={}, issueRequestId={}", event.couponId(), event.issueRequestId(), e);
+        return isKafkaTimeout(e) ? PublishResult.TIMED_OUT : PublishResult.FAILED;
+    }
+
+    private ProducerRecord<String, CouponIssueRequested> record(CouponIssueRequested event) {
+        ProducerRecord<String, CouponIssueRequested> record = new ProducerRecord<>(topic,
+                String.valueOf(event.couponId()), event);
+        record.headers().add("eventType", EVENT_TYPE.getBytes(StandardCharsets.UTF_8));
+        record.headers().add("eventVersion", EVENT_VERSION.getBytes(StandardCharsets.UTF_8));
+        return record;
+    }
+
+    /**
+     * Kafka {@code TimeoutException}(메타데이터를 {@code max.block.ms} 안에 받지 못함, 전송 수명 {@code delivery.timeout.ms} 초과)은
+     * 기다림이 끝난 것이므로 시간 초과로 센다
+     */
+    private static boolean isKafkaTimeout(Throwable e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof org.apache.kafka.common.errors.TimeoutException) {
                 return true;

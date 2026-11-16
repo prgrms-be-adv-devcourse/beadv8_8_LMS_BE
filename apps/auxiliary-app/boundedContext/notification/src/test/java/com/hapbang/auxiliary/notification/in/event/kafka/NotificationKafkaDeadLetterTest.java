@@ -24,6 +24,10 @@ import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 
+import com.hapbang.auxiliary.notification.app.NotificationOutcomeRecorder;
+
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 알림 Kafka 소비의 이름과 DLT 부품(kafka.md "재시도와 DLT", ND-010·ND-047, test-spec NT-KAF-06·NT-ERR-03). 브로커 없이 부품만 본다.
  */
@@ -42,7 +46,8 @@ class NotificationKafkaDeadLetterTest {
     void 운영_소비자_값은_재시도_3회_1초부터_10초_DLT는_원본과_같은_3개_partition이다() {
         NotificationKafkaConsumerSettings settings = new NotificationKafkaConfig("localhost:9092",
                 new StaticListableBeanFactory().getBeanProvider(DefaultKafkaConsumerFactoryCustomizer.class),
-                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class))
+                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class),
+                noMetrics())
                 .notificationMemberEventSettings();
 
         assertThat(settings.topic()).isEqualTo(NotificationKafkaConstants.MEMBER_EVENTS_TOPIC);
@@ -91,7 +96,8 @@ class NotificationKafkaDeadLetterTest {
     void DLT_발행_대기_시간을_메타데이터_대기와_전송_완료_대기로_나눈다() {
         Map<String, Object> properties = new NotificationKafkaConfig("localhost:9092",
                 new StaticListableBeanFactory().getBeanProvider(DefaultKafkaConsumerFactoryCustomizer.class),
-                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class))
+                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class),
+                noMetrics())
                 .notificationMemberEventDeadLetterProducerFactory(settings(Duration.ofSeconds(10)))
                 .getConfigurationProperties();
 
@@ -110,6 +116,12 @@ class NotificationKafkaDeadLetterTest {
         Headers headers = new RecordHeaders();
 
         assertThat(serializer.serialize("events.v1.app.DLT", headers, raw)).isEqualTo(raw);
+    }
+
+    /** 지표 저장소가 없는 계측(설정 값만 보는 시험) */
+    private static NotificationKafkaMetrics noMetrics() {
+        var none = new StaticListableBeanFactory().getBeanProvider(MeterRegistry.class);
+        return new NotificationKafkaMetrics(none, new NotificationOutcomeRecorder(none));
     }
 
     private static NotificationKafkaConsumerSettings settings(Duration sendTimeout) {

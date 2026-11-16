@@ -1,0 +1,53 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "tokenizer": {
+        "ko_tokenizer": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "discard",
+          "user_dictionary_rules": "__USER_DICTIONARY__"
+        }
+      },
+      "filter": {
+        "ko_synonyms": {
+          "type": "synonym_graph",
+          "synonyms_set": "__SYNONYMS_SET__",
+          "updateable": true
+        }
+      },
+      "analyzer": {
+        "ko_index": {
+          "type": "custom",
+          "tokenizer": "ko_tokenizer",
+          "filter": ["nori_part_of_speech", "lowercase"]
+        },
+        "ko_search": {
+          "type": "custom",
+          "tokenizer": "ko_tokenizer",
+          "filter": ["nori_part_of_speech", "lowercase", "ko_synonyms"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "lectureId": { "type": "long" },
+      "lectureVersion": { "type": "long" },
+      "hidden": { "type": "boolean" },
+      "hiddenAt": { "type": "date" },
+      "title": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "description": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "contentTitles": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "priceHp": { "type": "long" },
+      "sellerUserId": { "type": "long" },
+      "sellerNickname": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "sellerActive": { "type": "boolean" },
+      "sellerVersion": { "type": "long" },
+      "averageRating": { "type": "double" },
+      "reviewCount": { "type": "long" }
+    }
+  }
+}

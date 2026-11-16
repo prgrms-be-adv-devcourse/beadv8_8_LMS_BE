@@ -1,7 +1,6 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,8 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import io.micrometer.core.instrument.MeterRegistry;
 
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
+import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 
@@ -55,25 +53,25 @@ class LectureRecommendModelOffTest extends ChatbotIntegrationTestBase {
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(10L, 11L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
         assertThat(result.needsInterest()).isFalse();
-        assertThat(result.personalized()).isFalse();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
         assertThat(fallbacks()).isEqualTo(fallbacks);
     }
 
     @Test
-    @DisplayName("신호가 있는 회원: 인기순으로 대신 답하고 fallback(model_off)으로 센다. 관심사 요청은 LECTURE_RECOMMEND_UNAVAILABLE")
+    @DisplayName("신호가 있는 회원·관심사 요청도 인기순·POPULAR다. 모델을 끈 것은 설정이라 다시 시도해도 같고, LLM 실패가 아니라 "
+            + "fallback으로 세지 않는다")
     void signalFallsBackToPopular() {
         double fallbacks = fallbacks();
 
         LectureRecommendation result = useCase.recommend(2, null);
+        LectureRecommendation withInterest = useCase.recommend(1, "데이터");
 
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(11L);
         assertThat(result.needsInterest()).isFalse();
-        assertThat(result.personalized()).isFalse();
-        assertThat(fallbacks()).isEqualTo(fallbacks + 1);
-        assertThatThrownBy(() -> useCase.recommend(1, "데이터"))
-                .isInstanceOf(ChatbotException.class)
-                .extracting("errorCode").isEqualTo(ChatbotErrorCode.LECTURE_RECOMMEND_UNAVAILABLE);
-        assertThat(fallbacks()).isEqualTo(fallbacks + 1);
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
+        assertThat(withInterest.basis()).isEqualTo(RecommendBasis.POPULAR);
+        assertThat(withInterest.items()).isNotEmpty();
+        assertThat(fallbacks()).isEqualTo(fallbacks);
     }
 
     private double fallbacks() {

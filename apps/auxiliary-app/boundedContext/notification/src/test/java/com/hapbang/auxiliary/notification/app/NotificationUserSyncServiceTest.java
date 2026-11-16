@@ -48,7 +48,8 @@ class NotificationUserSyncServiceTest {
         assertThat(syncService.syncJoined(user(id, "게스트", 0L)).outcome()).isEqualTo(Outcome.CREATED);
         assertThat(syncService.syncJoined(user(id, "게스트", 0L)).outcome()).isEqualTo(Outcome.SKIPPED_EXISTING);
 
-        assertThat(repository.count()).isEqualTo(1L);
+        // 같은 DB를 다른 시험 클래스와 함께 쓰므로 전체 행 수가 아니라 이 회원의 행만 센다
+        assertThat(repository.findAllById(List.of(id))).hasSize(1);
         assertThat(repository.findById(id)).hasValueSatisfying(user -> {
             assertThat(user.getNickname()).isEqualTo("게스트");
             assertThat(user.getMemberVersion()).isZero();
@@ -127,7 +128,7 @@ class NotificationUserSyncServiceTest {
             retry.call();
         }
 
-        assertThat(repository.count()).isEqualTo(1L);
+        assertThat(repository.findAllById(List.of(id))).hasSize(1);
         assertThat(repository.findById(id)).hasValueSatisfying(user -> {
             assertThat(user.getNickname()).isEqualTo("변경후");
             assertThat(user.getMemberVersion()).isEqualTo(1L);

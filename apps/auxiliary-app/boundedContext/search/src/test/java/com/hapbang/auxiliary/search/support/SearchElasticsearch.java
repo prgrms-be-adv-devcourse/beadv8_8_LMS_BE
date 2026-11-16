@@ -13,6 +13,8 @@ import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 import com.hapbang.auxiliary.search.common.out.IndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
+import com.hapbang.auxiliary.search.lecture.out.LectureIndexSetup;
 
 /**
  * Spring 컨텍스트 없이 검색 ES를 쓰는 테스트 도우미(#771). 컨테이너는 {@link SearchElasticsearchTestcontainersConfig}가 JVM에 하나 띄운다.
@@ -48,13 +50,22 @@ public final class SearchElasticsearch {
         return index;
     }
 
+    /** 강의 검색의 처음 적재가 끝난 상태(#882). 규칙은 {@link #createIndex(ElasticsearchClient)}와 같다 */
+    public static String createLectureIndex(ElasticsearchClient client) {
+        LectureIndexSetup setup = new LectureIndexSetup(client);
+        setup.syncSynonyms();
+        String index = setup.createIndex();
+        setup.switchAlias(List.of(), index);
+        return index;
+    }
+
     /**
-     * 검색 index(search-influencers-*)와 동의어 묶음을 지운다. 묶음은 쓰는 index가 있으면 지울 수 없어 index를 먼저 지운다.
-     * ES 9는 와일드카드 삭제를 막으므로({@code action.destructive_requires_name}) 이름을 찾아 지운다
+     * 검색 index(search-influencers-*, search-lectures-*)와 동의어 묶음을 지운다. 묶음은 쓰는 index가 있으면 지울 수 없어 index를 먼저
+     * 지운다. ES 9는 와일드카드 삭제를 막으므로({@code action.destructive_requires_name}) 이름을 찾아 지운다
      */
     public static void reset(ElasticsearchClient client) throws IOException {
-        List<String> indices = List.copyOf(client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*")
-                .allowNoIndices(true)).indices().keySet());
+        List<String> indices = List.copyOf(client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*",
+                LectureIndexDefinition.INDEX_PREFIX + "*").allowNoIndices(true)).indices().keySet());
         if (!indices.isEmpty()) {
             client.indices().delete(d -> d.index(indices));
         }

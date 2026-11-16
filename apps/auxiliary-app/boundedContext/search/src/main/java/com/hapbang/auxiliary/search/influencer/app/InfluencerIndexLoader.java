@@ -8,7 +8,7 @@ import com.hapbang.auxiliary.search.common.app.IndexLoader;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.influencer.out.MemberDocument;
-import com.hapbang.auxiliary.search.influencer.out.MemberListSource;
+import com.hapbang.auxiliary.search.out.MemberListSource;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 

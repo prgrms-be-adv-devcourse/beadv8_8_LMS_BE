@@ -22,6 +22,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -188,18 +189,17 @@ class CouponIssueDeliveryE2eTest {
         assertThat(issuedCount(couponId)).isEqualTo(2);
 
         // Kafka 전송이 실패해도 접수는 ACCEPTED이고 재고는 되돌리지 않는다. DB에는 아직 결과가 없다
-        doReturn(PublishResult.FAILED).when(couponIssueEventPublisher).publish(any(), any());
+        doReturn(CompletableFuture.completedFuture(PublishResult.FAILED)).when(couponIssueEventPublisher).send(any());
         String requestC = "c-" + run;
         requestIssue(couponId, 300L, requestC).andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.result").value("ACCEPTED"));
         assertThat(stock(couponId)).isEqualTo(QUANTITY - 3);
-        assertThat(IssueRequestRecord.parse(requestRecord(couponId, requestC)).published()).isFalse();
         await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2))
                 .until(() -> couponIssueRequestRepository.findByCouponIdAndIssueRequestId(couponId, requestC).isEmpty());
         issueStatus(couponId, 300L, requestC).andExpect(jsonPath("$.data.status").value("PENDING"));
 
         // 전송이 돌아온 뒤 재발행 배치가 같은 요청을 다시 보내 DB ISSUED가 된다
-        doCallRealMethod().when(couponIssueEventPublisher).publish(any(), any());
+        doCallRealMethod().when(couponIssueEventPublisher).send(any());
         assertThat(couponRepublishUseCase.republishDue().acked()).isGreaterThanOrEqualTo(1);
         awaitResult(couponId, requestC, CouponIssueResult.ISSUED);
         assertThat(issuedCount(couponId)).isEqualTo(3);

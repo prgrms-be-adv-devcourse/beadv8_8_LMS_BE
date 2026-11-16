@@ -45,10 +45,21 @@ public final class LectureRanker {
     }
 
     /**
+     * 맞춤 후보를 고르고 모자라면 인기순으로 채운다({@link #rank(List, double, int, int)} 뒤 {@link #fill}).
+     *
      * @param popularityWeight β
      */
     public static List<Ranked> rank(List<Candidate> candidates, List<Popular> popular, double popularityWeight, int size,
             int maxPerSeller) {
+        return fill(rank(candidates, popularityWeight, size, maxPerSeller), popular, size, maxPerSeller);
+    }
+
+    /**
+     * 맞춤 후보만 점수 순으로 {@code size}개까지 고른다(판매자당 상한 적용, 인기순 채움 없음). 버튼 경로의 후보 풀이다.
+     *
+     * @param popularityWeight β
+     */
+    public static List<Ranked> rank(List<Candidate> candidates, double popularityWeight, int size, int maxPerSeller) {
         List<Ranked> scored = score(candidates, popularityWeight);
         scored.sort(Comparator.comparingDouble(Ranked::score).reversed()
                 .thenComparing(Ranked::lectureId, Comparator.reverseOrder()));
@@ -58,15 +69,30 @@ public final class LectureRanker {
         Map<Long, Integer> perSeller = new HashMap<>();
         for (Ranked ranked : scored) {
             if (picked.size() >= size) {
-                return picked;
+                break;
             }
             if (take(ranked.lectureId(), ranked.sellerId(), pickedIds, perSeller, maxPerSeller)) {
                 picked.add(ranked);
             }
         }
+        return picked;
+    }
+
+    /**
+     * 이미 고른 강의 뒤에 인기순 목록으로 {@code size}개까지 채운다. 판매자당 상한은 고른 강의까지 함께 센다.
+     */
+    public static List<Ranked> fill(List<Ranked> chosen, List<Popular> popular, int size, int maxPerSeller) {
+        List<Ranked> picked = new ArrayList<>();
+        Set<Long> pickedIds = new HashSet<>();
+        Map<Long, Integer> perSeller = new HashMap<>();
+        for (Ranked ranked : chosen) {
+            if (take(ranked.lectureId(), ranked.sellerId(), pickedIds, perSeller, Integer.MAX_VALUE)) {
+                picked.add(ranked);
+            }
+        }
         for (Popular item : popular) {
             if (picked.size() >= size) {
-                return picked;
+                break;
             }
             if (take(item.lectureId(), item.sellerId(), pickedIds, perSeller, maxPerSeller)) {
                 picked.add(new Ranked(item.lectureId(), item.sellerId(), 0, true));

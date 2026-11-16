@@ -54,13 +54,17 @@ class CouponSoldOutCacheTest {
     }
 
     @Test
-    void 매진_표시를_읽지_못하면_매진이_아닌_것으로_보고_담지_않아_다음에_다시_읽는다() {
+    void 매진_표시를_읽지_못하면_TTL_동안_매진이_아닌_것으로_담아_한_요청에서_다시_기다리지_않는다() {
         CouponSoldOutCache cache = cache(CouponIssueDeliveryProperties.defaults(), CouponSoldOutCacheProperties.defaults());
         when(issueStore.isSoldOut(COUPON_ID))
                 .thenThrow(new CouponIssueStoreUnavailableException("redis", null))
                 .thenReturn(true);
 
         assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        verify(issueStore, times(1)).isSoldOut(COUPON_ID);
+
+        clock.advance(CouponIssueDeliveryProperties.defaults().soldOutCacheTtl().plusMillis(1));
         assertThat(cache.isSoldOut(COUPON_ID)).isTrue();
         verify(issueStore, times(2)).isSoldOut(COUPON_ID);
     }

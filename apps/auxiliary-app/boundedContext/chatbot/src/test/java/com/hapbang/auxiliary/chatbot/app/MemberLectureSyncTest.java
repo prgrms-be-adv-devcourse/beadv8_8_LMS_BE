@@ -103,7 +103,7 @@ class MemberLectureSyncTest extends ChatbotIntegrationTestBase {
         run(SyncType.LECTURE_PURCHASE);
 
         // 마스킹한 회원 99의 구매 20건 + 정상 구매 30건(그중 이벤트로 이미 받은 20건, 새로 생긴 10건)
-        maskedMember(99);
+        rows.masked(99);
         lectureSource.putPurchases(LongStream.rangeClosed(100, 119)
                 .mapToObj(id -> purchase(id, 99, LecturePurchaseResult.OWNED, 0))
                 .toArray(com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto[]::new));
@@ -125,10 +125,6 @@ class MemberLectureSyncTest extends ChatbotIntegrationTestBase {
                 .extracting(SyncMismatch::getSourceId).allMatch(id -> id >= 200);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM chatbot.lecture_purchase_copy WHERE buyer_user_id = 99", Integer.class)).isZero();
-    }
-
-    private void maskedMember(long userId) {
-        jdbcTemplate.update("INSERT INTO chatbot.masked_member (user_id, masked_at) VALUES (?, now())", userId);
     }
 
     private SyncRun run(SyncType type) {

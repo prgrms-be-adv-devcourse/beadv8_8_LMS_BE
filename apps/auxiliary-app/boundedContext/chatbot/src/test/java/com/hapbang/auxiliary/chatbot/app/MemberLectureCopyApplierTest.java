@@ -85,7 +85,7 @@ class MemberLectureCopyApplierTest extends ChatbotIntegrationTestBase {
         assertThat(lectureTasks()).hasSize(1);
 
         // 판매 중지
-        LectureSyncDto stopped = new LectureSyncDto(5L, 900L, "강의5", "소개", false, false, lecture(5, 3).contents(), 3L);
+        LectureSyncDto stopped = new LectureSyncDto(5L, 900L, "강의5", "소개", 10_000L, false, false, lecture(5, 3).contents(), 3L);
         assertThat(copyApplier.apply(stopped, null).outcome()).isEqualTo(CopyOutcome.SOURCE_NEWER);
         assertThat(lectureTasks()).containsExactly("5", "5");
 

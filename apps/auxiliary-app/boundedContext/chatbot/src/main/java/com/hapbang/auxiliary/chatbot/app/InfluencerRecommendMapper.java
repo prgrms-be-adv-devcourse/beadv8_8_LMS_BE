@@ -52,7 +52,7 @@ class InfluencerRecommendMapper {
                     candidate.completedAppearances(), candidate.averageRating(), candidate.orderedReasons(),
                     explanation.apply(candidate)));
         }
-        return new InfluencerRecommendResDto(items, recommendation.needsInterest(), fallback,
+        return new InfluencerRecommendResDto(items, recommendation.needsInterest(), recommendation.basis(), fallback,
                 recommendation.requesterHidden() ? REQUESTER_HIDDEN_NOTICE : null);
     }
 }

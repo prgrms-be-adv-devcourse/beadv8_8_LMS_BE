@@ -9,13 +9,16 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * 발급 접수 뒤 전달(접수 직후 Kafka 전송, 재발행 배치)과 매진 메모리 캐시 설정 ({@code hapbang.coupon.*}). 값을 주지 않으면 코드 기본값이다.
  * 모두 측정·합의 전 값이라 확정이 아니다.
  *
- * @param publishAckTimeout 접수 직후 Kafka 전송의 ACK를 기다리는 시간(전송 준비 포함). 요청 스레드가 이만큼 더 기다릴 수 있다. 기본 1초
+ * @param publishAckTimeout 쿠폰 producer의 {@code max.block.ms}: 전송 준비(메타데이터 조회·버퍼 공간)를 기다리는 최대 시간. 접수 직후 전송은
+ *                          ACK를 기다리지 않으므로 요청 스레드가 전송 때문에 더 기다리는 시간은 이것뿐이다(broker가 정상이면 거의 0).
+ *                          이름은 ACK 대기였던 때의 것을 설정 호환으로 그대로 둔다. 기본 1초
  * @param republishAfter    접수 뒤 이 시간이 지나도 DB에 결과가 없으면 재발행한다. 접수 직후 전송·소비 중인 요청과 겹치지 않게 하는 대기다.
  *                          기본 30초
  * @param soldOutCacheTtl   매진 표시를 메모리에 재사용하는 시간. 0이면 매진 캐시를 쓰지 않는다(sold_out 표시도 읽지 않고 매진 판정은 발급 Lua에 맡긴다). 기본 1초
  * @param republish         재발행 배치
  * @param producerDeliveryTimeout 쿠폰 producer의 {@code delivery.timeout.ms}: {@code send}가 돌아온 레코드가 ACK·실패로 끝나기까지의 최대
- *                          시간(재시도 포함). ACK 대기가 시간 초과로 돌아와도 전송은 이 시간까지 계속될 수 있다. Kafka 제약
+ *                          시간(재시도 포함). 접수 직후 전송은 응답 뒤에도, 재발행의 ACK 대기가 시간 초과로 돌아온 뒤에도 전송이 이 시간까지
+ *                          계속될 수 있다. Kafka 제약
  *                          ({@code delivery.timeout.ms ≥ linger.ms + request.timeout.ms})을 지키려고 producer가 {@code request.timeout.ms}를
  *                          이 값 − {@code linger.ms} 이하로 줄인다. 복구 경계 확정 대기({@link #maxSendLifetime})의 기준이다. 기본 5초
  */

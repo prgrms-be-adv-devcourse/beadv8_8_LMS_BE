@@ -19,17 +19,20 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderConfirmUseCase {
 
     private final LectureOrderSupport lectureOrderSupport;
+    private final LectureOrderEvents lectureOrderEvents;
     private final Clock clock;
 
-    public OrderConfirmUseCase(LectureOrderSupport lectureOrderSupport,
+    public OrderConfirmUseCase(LectureOrderSupport lectureOrderSupport, LectureOrderEvents lectureOrderEvents,
                                @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
+        this.lectureOrderEvents = lectureOrderEvents;
         this.clock = clock;
     }
 
     public OrderItemResponse confirm(Long buyerUserId, Long orderId, Long orderItemId) {
         LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
         OrderItem item = order.confirmItem(orderItemId, LocalDateTime.now(clock));
+        lectureOrderEvents.itemConfirmed(item);
         AfterCommit.run(() -> {
             log.info("구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}", orderId, orderItemId, buyerUserId);
         });

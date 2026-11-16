@@ -20,6 +20,18 @@
       "allDeclaredFields": true
     },
     {
+      "type": "com.hapbang.shared.customersupport.event.InquiryAnsweredEvent",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "com.hapbang.shared.customersupport.event.LectureObjectionFileRejectedEvent",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
       "type": "com.hapbang.shared.lecture.dto.LectureObjectionFileRequest",
       "allDeclaredConstructors": true,
       "allDeclaredMethods": true,

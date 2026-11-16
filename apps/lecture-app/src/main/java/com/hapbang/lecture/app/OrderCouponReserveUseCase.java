@@ -67,6 +67,7 @@ public class OrderCouponReserveUseCase {
     private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureSyncEvents lectureSyncEvents;
+    private final LectureOrderEvents lectureOrderEvents;
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final OrderHoldSettlement orderHoldSettlement;
     private final CouponApiClient couponApiClient;
@@ -79,6 +80,7 @@ public class OrderCouponReserveUseCase {
                                      OrderCouponWorkRepository orderCouponWorkRepository,
                                      LectureHpTaskSupport lectureHpTaskSupport,
                                      LectureSyncEvents lectureSyncEvents,
+                                     LectureOrderEvents lectureOrderEvents,
                                      OrderCouponReleaseRegistration orderCouponReleaseRegistration,
                                      OrderHoldSettlement orderHoldSettlement,
                                      CouponApiClient couponApiClient,
@@ -90,6 +92,7 @@ public class OrderCouponReserveUseCase {
         this.orderCouponWorkRepository = orderCouponWorkRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.lectureOrderEvents = lectureOrderEvents;
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.orderHoldSettlement = orderHoldSettlement;
         this.couponApiClient = couponApiClient;
@@ -180,6 +183,7 @@ public class OrderCouponReserveUseCase {
                 work.markRejected(couponCode, rejected.memberCouponId(), now);
                 order.markHoldFailed();
                 lectureSyncEvents.purchasesChanged(order.getItems());
+                lectureOrderEvents.holdFailed(order, now);
                 log.info("쿠폰 예약이 거절되어 주문을 결제 실패로 끝냈다 orderId={}, workId={}, httpStatus={}, couponCode={}, "
                                 + "memberCouponId={}", orderId, work.getWorkId(), rejected.status(), couponCode,
                         rejected.memberCouponId());
@@ -210,6 +214,7 @@ public class OrderCouponReserveUseCase {
             // 쿠폰은 예약된 채라 같은 트랜잭션에서 해제 작업을 만든다
             order.markHoldFailed();
             lectureSyncEvents.purchasesChanged(order.getItems());
+            lectureOrderEvents.holdFailed(order, now);
             orderCouponReleaseRegistration.registerIfReserved(order, now);
             log.error(RESERVATION_MISMATCH_LOG + " 쿠폰 예약 응답이 주문의 할인 스냅샷과 달라 주문을 결제 실패로 끝냈다 orderId={}, "
                     + "workId={}, mismatch={}", order.getId(), work.getWorkId(), mismatch.get());

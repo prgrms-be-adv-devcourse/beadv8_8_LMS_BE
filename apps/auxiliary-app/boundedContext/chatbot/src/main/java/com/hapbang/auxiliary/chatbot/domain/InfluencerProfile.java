@@ -15,7 +15,8 @@ import com.hapbang.shared.member.domain.UserStatus;
  * 정지를 빼는 것은 추천 후보 조건이다({@code MemberVisibility}는 탈퇴만 숨긴다).
  *
  * @param categories 분야 코드(회원이 고른 순서)
- * @param bio        자기소개(없으면 null). 임베딩 API로만 보낸다(LLM 프롬프트·로그에 넣지 않는다)
+ * @param bio        자기소개(없으면 null). 임베딩 API로 보낸다. LLM 프롬프트에는 요청 회원 본인의 것만 {@code rerank.taste=PUBLIC}일 때
+ *                   넣는다(#948). 로그에 넣지 않는다
  * @param masked     개인정보를 마스킹한 회원
  */
 public record InfluencerProfile(

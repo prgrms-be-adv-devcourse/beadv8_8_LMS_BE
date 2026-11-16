@@ -20,16 +20,8 @@ public enum ChatbotErrorCode implements BaseErrorCode {
     NOT_ADMIN(HttpStatus.FORBIDDEN, "관리자만 이용할 수 있습니다."),
     /** 싱크 회차가 없다 (#716) */
     SYNC_RUN_NOT_FOUND(HttpStatus.NOT_FOUND, "동기화 실행 기록을 찾을 수 없습니다."),
-    /**
-     * 관심사를 넣은 강의 추천인데 색인·임베딩을 쓸 수 없다. 관심사를 무시한 인기순으로 답하지 않는다 (#718).
-     * 잠시 뒤 다시 보내면 되는 거절이라 공통 핸들러가 요청마다 ERROR로 남기지 않는다. 장애 시작·회복은 추천 쪽이 남긴다
-     */
-    LECTURE_RECOMMEND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 관심사로 강의를 찾을 수 없어요. 잠시 후 다시 시도해 주세요.") {
-        @Override
-        public boolean isRetryLater() {
-            return true;
-        }
-    };
+    /** 자유 질문의 이전 대화(history)가 규칙에 맞지 않는다: 빈 내용, 역할별 길이 초과, 글자 수 합 초과 (#720) */
+    INVALID_CHAT_HISTORY(HttpStatus.BAD_REQUEST, "이전 대화 내용이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;
