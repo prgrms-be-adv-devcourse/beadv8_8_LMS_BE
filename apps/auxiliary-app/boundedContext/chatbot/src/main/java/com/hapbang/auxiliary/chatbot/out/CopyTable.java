@@ -13,7 +13,7 @@ import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 
 /**
- * 사본 테이블 하나의 반영 SQL (#717). 출연 사본({@link AppearanceCopyStore})과 같은 규칙을 회원·강의 사본 5종이 함께 쓰도록 만든다.
+ * 사본 테이블 하나의 반영 SQL (#717). 출연({@link AppearanceCopyStore})·회원·강의 사본이 같은 규칙을 함께 쓴다.
  * <ul>
  *     <li>반영은 upsert 한 문장이다. 값은 받은 version이 크거나(같은데 해시가 다르면) 바뀐다. version이 비어 있을 수 있는 회원은
  *     {@link CopyOutcome}의 규칙(받은 것이 비고 우리에 있으면 무시, 우리가 비고 받은 것에 있으면 반영)을 SQL에도 같게 둔다.</li>
