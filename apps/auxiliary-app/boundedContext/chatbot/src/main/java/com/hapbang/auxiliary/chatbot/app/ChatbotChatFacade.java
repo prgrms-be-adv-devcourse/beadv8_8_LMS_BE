@@ -25,29 +25,29 @@ import reactor.core.publisher.Flux;
 @Service
 public class ChatbotChatFacade {
 
-    private final ChatbotConversationService conversationService;
+    private final ChatbotConversationUseCase conversationUseCase;
     private final KeyedRateLimiter rateLimiter;
     private final ChatbotMetrics metrics;
 
-    ChatbotChatFacade(ChatbotConversationService conversationService,
+    ChatbotChatFacade(ChatbotConversationUseCase conversationUseCase,
             @Qualifier("chatbotFaqRateLimiter") KeyedRateLimiter rateLimiter, ChatbotMetrics metrics) {
-        this.conversationService = conversationService;
+        this.conversationUseCase = conversationUseCase;
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
     }
 
     @PreAuthorize(ChatbotRoles.MEMBER)
     public ChatAnswerResDto chat(long userId, String message, List<ChatHistory.Entry> history) {
-        ChatHistory.Checked checked = conversationService.checkHistory(history);
+        ChatHistory.Checked checked = conversationUseCase.checkHistory(history);
         acquire(userId, Feature.CHAT);
-        return conversationService.chat(userId, message, checked);
+        return conversationUseCase.chat(userId, message, checked);
     }
 
     @PreAuthorize(ChatbotRoles.MEMBER)
     public Flux<ChatStreamEvent> stream(long userId, String message, List<ChatHistory.Entry> history) {
-        ChatHistory.Checked checked = conversationService.checkHistory(history);
+        ChatHistory.Checked checked = conversationUseCase.checkHistory(history);
         acquire(userId, Feature.CHAT_STREAM);
-        return conversationService.stream(userId, message, checked);
+        return conversationUseCase.stream(userId, message, checked);
     }
 
     private void acquire(long userId, Feature feature) {

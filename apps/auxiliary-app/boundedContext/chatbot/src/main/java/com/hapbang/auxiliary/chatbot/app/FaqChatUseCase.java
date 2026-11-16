@@ -41,7 +41,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 @Service
-public class FaqChatService {
+public class FaqChatUseCase {
 
     /** FAQ에 답이 없을 때의 안내 문구. 시스템 프롬프트와 fallback이 같은 문구를 쓴다 */
     public static final String NO_ANSWER_MESSAGE = "지금 FAQ로는 답하기 어려워요. 고객센터 문의를 이용해 주세요.";
@@ -61,20 +61,20 @@ public class FaqChatService {
 
     private final @Nullable ChatClient chatClient;
     private final FaqTools faqTools;
-    private final FaqSearchService searchService;
+    private final FaqSearchUseCase searchUseCase;
     private final ChatbotFaqProperties properties;
     private final ChatbotMetrics metrics;
     private final LlmCallGuard llm;
 
-    FaqChatService(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder,
-            FaqTools faqTools, FaqSearchService searchService, ChatbotFaqProperties properties, ChatbotMetrics metrics,
+    FaqChatUseCase(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder,
+            FaqTools faqTools, FaqSearchUseCase searchUseCase, ChatbotFaqProperties properties, ChatbotMetrics metrics,
             LlmCallGuard llm) {
         this.chatClient = ChatbotChatClients.create(chatModel, chatClientBuilder, SYSTEM_PROMPT);
         if (chatClient == null) {
             log.info("채팅 모델이 없어 FAQ 대화는 LLM 없이 검색 결과로만 답한다");
         }
         this.faqTools = faqTools;
-        this.searchService = searchService;
+        this.searchUseCase = searchUseCase;
         this.properties = properties;
         this.metrics = metrics;
         this.llm = llm;
@@ -164,7 +164,7 @@ public class FaqChatService {
 
     private FaqAnswer fallback(Feature feature, FallbackReason reason, String message) {
         metrics.fallback(feature, reason);
-        List<FaqHit> hits = searchService.search(message);
+        List<FaqHit> hits = searchUseCase.search(message);
         if (hits.isEmpty()) {
             metrics.unmatched(feature);
             return new FaqAnswer(NO_ANSWER_MESSAGE, List.of(), true);

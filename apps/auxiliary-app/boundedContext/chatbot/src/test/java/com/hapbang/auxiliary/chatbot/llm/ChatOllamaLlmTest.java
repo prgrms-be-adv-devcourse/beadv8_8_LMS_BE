@@ -18,9 +18,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
-import com.hapbang.auxiliary.chatbot.app.ChatbotConversationService;
+import com.hapbang.auxiliary.chatbot.app.ChatbotConversationUseCase;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.app.QueryExpander;
 import com.hapbang.auxiliary.chatbot.app.RecommendReranker;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
@@ -94,10 +94,10 @@ class ChatOllamaLlmTest {
     }
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
-    private ChatbotConversationService conversationService;
+    private ChatbotConversationUseCase conversationUseCase;
 
     @Autowired
     private RecommendReranker reranker;
@@ -114,7 +114,7 @@ class ChatOllamaLlmTest {
     @BeforeEach
     void setUp() throws Exception {
         deleteIndexes();
-        syncService.syncAll();
+        syncUseCase.syncAll();
         new CopyRows(jdbcTemplate).clear();
         RecommendRows data = new RecommendRows(jdbcTemplate);
         data.member(1);
@@ -169,7 +169,7 @@ class ChatOllamaLlmTest {
         int matched = 0;
         for (Map.Entry<String, String> question : QUESTIONS.entrySet()) {
             Map<String, Double> before = toolCalls();
-            ChatAnswerResDto answer = conversationService.chat(1L, question.getKey(), conversationService.checkHistory(List.of()));
+            ChatAnswerResDto answer = conversationUseCase.chat(1L, question.getKey(), conversationUseCase.checkHistory(List.of()));
             Map<String, Double> after = toolCalls();
             List<String> called = new ArrayList<>();
             for (String tool : TOOLS) {

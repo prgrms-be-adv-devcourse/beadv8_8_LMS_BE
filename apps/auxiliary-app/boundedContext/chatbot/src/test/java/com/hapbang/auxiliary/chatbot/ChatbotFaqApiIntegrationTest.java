@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.hapbang.auxiliary.chatbot.app.FaqSeed;
 import com.hapbang.auxiliary.chatbot.app.FaqSeedReader;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
@@ -55,7 +55,7 @@ class ChatbotFaqApiIntegrationTest {
     private MockMvc mockMvc;
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
     private FaqSeedReader seedReader;
@@ -80,7 +80,7 @@ class ChatbotFaqApiIntegrationTest {
         cancelFaq = seeds.stream().filter(seed -> seed.code().equals("FAQ-501")).findFirst().orElseThrow();
         embeddingModel.put(cancelFaq.question(), FakeEmbeddingModel.axis(0));
         embeddingModel.put(FakeEmbeddingModel.query("출연 취소하면?"), FakeEmbeddingModel.axis(0));
-        syncService.syncAll();
+        syncUseCase.syncAll();
     }
 
     @AfterEach

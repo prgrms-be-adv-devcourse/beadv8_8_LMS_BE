@@ -33,7 +33,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
-import com.hapbang.auxiliary.chatbot.app.ChatbotConversationService;
+import com.hapbang.auxiliary.chatbot.app.ChatbotConversationUseCase;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLlmConfig;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
@@ -127,7 +127,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
 
         mockMvc.perform(message(PATH, "강의 추천해 줘", List.of()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationService.CARDS_FALLBACK_MESSAGE))
+                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationUseCase.CARDS_FALLBACK_MESSAGE))
                 .andExpect(jsonPath("$.data.fallback").value(true))
                 .andExpect(jsonPath("$.data.cards.lectures.items[0].lectureId").value(10));
     }
@@ -139,7 +139,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
 
         mockMvc.perform(message(PATH, "아무 질문", List.of()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationService.NO_ANSWER_MESSAGE))
+                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationUseCase.NO_ANSWER_MESSAGE))
                 .andExpect(jsonPath("$.data.fallback").value(true))
                 .andExpect(jsonPath("$.data.cards.lectures").doesNotExist());
     }
@@ -154,7 +154,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
 
         mockMvc.perform(message(PATH, "강의 계속 추천해 줘", List.of()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationService.CARDS_FALLBACK_MESSAGE))
+                .andExpect(jsonPath("$.data.answer").value(ChatbotConversationUseCase.CARDS_FALLBACK_MESSAGE))
                 .andExpect(jsonPath("$.data.fallback").value(true));
 
         assertThat(count("hapbang.chatbot.tool.calls", "tool", "recommendLectures")).isEqualTo(toolCalls + 3);
@@ -239,7 +239,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
         String body = stream("강의 계속 추천해 줘");
 
         assertThat(eventNames(body)).containsExactly("token", "cards", "done");
-        assertThat(body).contains(ChatbotConversationService.CARDS_FALLBACK_MESSAGE).contains("\"fallback\":true")
+        assertThat(body).contains(ChatbotConversationUseCase.CARDS_FALLBACK_MESSAGE).contains("\"fallback\":true")
                 .doesNotContain("limit");
     }
 
@@ -261,7 +261,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
         String body = stream("강의 추천해 줘");
 
         assertThat(eventNames(body)).containsExactly("token", "cards", "done");
-        assertThat(body).contains(ChatbotConversationService.CARDS_FALLBACK_MESSAGE).contains("\"fallback\":true");
+        assertThat(body).contains(ChatbotConversationUseCase.CARDS_FALLBACK_MESSAGE).contains("\"fallback\":true");
     }
 
     @Test

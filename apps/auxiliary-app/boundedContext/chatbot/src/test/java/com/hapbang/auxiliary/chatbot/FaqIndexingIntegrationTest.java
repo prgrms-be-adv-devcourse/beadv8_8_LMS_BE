@@ -25,11 +25,11 @@ import org.springframework.context.annotation.Import;
 import com.hapbang.auxiliary.chatbot.app.ChatCardCollector;
 import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
-import com.hapbang.auxiliary.chatbot.app.FaqSearchService;
+import com.hapbang.auxiliary.chatbot.app.FaqSearchUseCase;
 import com.hapbang.auxiliary.chatbot.app.FaqSeed;
 import com.hapbang.auxiliary.chatbot.app.FaqSeedReader;
 import com.hapbang.auxiliary.chatbot.app.FaqSeedSynchronizer;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.app.FaqTools;
 import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
 import com.hapbang.auxiliary.chatbot.domain.Faq;
@@ -55,7 +55,7 @@ class FaqIndexingIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
     private FaqIndexer indexer;
@@ -73,7 +73,7 @@ class FaqIndexingIntegrationTest {
     private FaqVectorIndex vectorIndex;
 
     @Autowired
-    private FaqSearchService searchService;
+    private FaqSearchUseCase searchUseCase;
 
     @Autowired
     private FaqTools faqTools;
@@ -98,7 +98,7 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("시드 53건을 DB에 넣고 모두 색인한다. index는 양자화 없는 hnsw·코사인·지정 차원이고 metadata는 keyword다")
     void syncAllIndexesEveryFaq() throws Exception {
-        syncService.syncAll();
+        syncUseCase.syncAll();
 
         assertThat(faqRepository.count()).isEqualTo(53);
         assertThat(faqRepository.findNeedsIndexing()).isEmpty();
@@ -119,7 +119,7 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("다시 맞추면 바뀐 것이 없어 다시 임베딩하지 않는다(멱등)")
     void syncIsIdempotent() {
-        syncService.syncAll();
+        syncUseCase.syncAll();
         int embedded = embeddingModel.embeddedTexts();
 
         FaqSeedSynchronizer.SeedResult again = seedSynchronizer.sync(seeds);
@@ -134,7 +134,7 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("시드 내용이 바뀐 FAQ만 DB를 고치고 다시 임베딩한다")
     void changedFaqIsReindexed() {
-        syncService.syncAll();
+        syncUseCase.syncAll();
         List<FaqSeed> changed = new ArrayList<>(seeds);
         FaqSeed first = changed.getFirst();
         changed.set(0, new FaqSeed(first.code(), first.category(), first.question(), first.answer() + " 바뀐 문장.",
@@ -152,7 +152,7 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("시드에서 빠진 FAQ는 DB와 색인에서 지운다")
     void removedFaqIsDeleted() {
-        syncService.syncAll();
+        syncUseCase.syncAll();
         List<FaqSeed> withoutFirst = seeds.subList(1, seeds.size());
 
         FaqSeedSynchronizer.SeedResult result = seedSynchronizer.sync(withoutFirst);
@@ -184,7 +184,7 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("index가 없어지면(ES 재설치·모델 변경으로 새 index) 색인 해시를 지우고 모두 다시 색인한다")
     void missingIndexIsRebuilt() throws Exception {
-        syncService.syncAll();
+        syncUseCase.syncAll();
         deleteIndex();
 
         FaqIndexer.IndexResult result = indexer.sync();
@@ -201,10 +201,10 @@ class FaqIndexingIntegrationTest {
         embeddingModel.put(question("FAQ-301"), FakeEmbeddingModel.axis(1));
         embeddingModel.put(FakeEmbeddingModel.query("경계 위"), FakeEmbeddingModel.withCosine(0, 1, 0.81));
         embeddingModel.put(FakeEmbeddingModel.query("경계 아래"), FakeEmbeddingModel.withCosine(0, 1, 0.79));
-        syncService.syncAll();
+        syncUseCase.syncAll();
 
-        List<FaqHit> above = searchService.search("경계 위");
-        List<FaqHit> below = searchService.search("경계 아래");
+        List<FaqHit> above = searchUseCase.search("경계 위");
+        List<FaqHit> below = searchUseCase.search("경계 아래");
 
         // FAQ-301과의 코사인은 각각 약 0.59, 0.61이라 둘 다 기준값 아래다
         assertThat(above).extracting(FaqHit::code).containsExactly("FAQ-201");
@@ -212,7 +212,7 @@ class FaqIndexingIntegrationTest {
         assertThat(above.getFirst().answer()).isEqualTo(seed("FAQ-201").answer());
         assertThat(below).isEmpty();
         // 표에 없는 질문은 어떤 문서와도 직교한다
-        assertThat(searchService.search("표에 없는 질문")).isEmpty();
+        assertThat(searchUseCase.search("표에 없는 질문")).isEmpty();
     }
 
     @Test
@@ -223,9 +223,9 @@ class FaqIndexingIntegrationTest {
         embeddingModel.put(question("FAQ-203"), FakeEmbeddingModel.withCosine(0, 2, 0.9));
         embeddingModel.put(question("FAQ-204"), FakeEmbeddingModel.withCosine(0, 3, 0.85));
         embeddingModel.put(FakeEmbeddingModel.query("HP 질문"), FakeEmbeddingModel.axis(0));
-        syncService.syncAll();
+        syncUseCase.syncAll();
 
-        assertThat(searchService.search("HP 질문")).extracting(FaqHit::code)
+        assertThat(searchUseCase.search("HP 질문")).extracting(FaqHit::code)
                 .containsExactly("FAQ-201", "FAQ-202", "FAQ-203");
     }
 
@@ -234,7 +234,7 @@ class FaqIndexingIntegrationTest {
     void searchFaqTool() {
         embeddingModel.put(question("FAQ-201"), FakeEmbeddingModel.axis(0));
         embeddingModel.put(FakeEmbeddingModel.query("HP 충전 방법"), FakeEmbeddingModel.axis(0));
-        syncService.syncAll();
+        syncUseCase.syncAll();
         List<FaqHit> sources = new CopyOnWriteArrayList<>();
 
         ToolCallback[] callbacks = ToolCallbacks.from(faqTools);
@@ -256,10 +256,10 @@ class FaqIndexingIntegrationTest {
     @Test
     @DisplayName("임베딩 모델이 죽으면 검색은 예외 없이 빈 결과다")
     void searchFailsSoft() {
-        syncService.syncAll();
+        syncUseCase.syncAll();
         embeddingModel.failWith(new IllegalStateException("임베딩 모델 장애"));
 
-        assertThat(searchService.search("아무 질문")).isEmpty();
+        assertThat(searchUseCase.search("아무 질문")).isEmpty();
     }
 
     private String question(String code) {

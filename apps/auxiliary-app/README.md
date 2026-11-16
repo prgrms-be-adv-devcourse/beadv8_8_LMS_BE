@@ -220,7 +220,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
 | 보장 | 외부 장애 때도 | 테스트 |
 |---|---|---|
 | 한 문서는 한 실행만 처리한다 | 처리 시간이 임대(5분)보다 짧을 때 | `IndexTaskRunnerTest.claimsWholeDocuments`, `runOnceTakesClaimLock` |
-| LLM 동시 호출 상한은 챗봇 기능 전체가 나눠 쓴다. 넘으면 모델을 부르지 않고 정해진 답 | | `FaqChatServiceTest.busyWhenConcurrentLimitReached`, `concurrentLimitSharedAcrossFeatures` |
+| LLM 동시 호출 상한은 챗봇 기능 전체가 나눠 쓴다. 넘으면 모델을 부르지 않고 정해진 답 | | `FaqChatUseCaseTest.busyWhenConcurrentLimitReached`, `concurrentLimitSharedAcrossFeatures` |
 | 검색 장애(ES·임베딩 실패)만 인기순으로 답한다. 검색 구간 안의 DB 오류는 삼키지 않고 그대로 올라간다 | | `InfluencerRecommendSearchErrorTest`, `InfluencerRecommendUseCaseTest.embeddingFailureFallsBackToPopular` |
 | 세 Tool은 같은 `ToolContext`(`ChatToolContext.of`)로 부른다. 회원 ID는 Tool 인자가 아니라 여기서만 꺼낸다 | | `LectureRecommendToolsTest.usesToolContextMemberId`, `rejectsWithoutMemberId`, `InfluencerRecommendApiTest.tool`, `FaqIndexingIntegrationTest.searchFaqTool` |
 
@@ -303,7 +303,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
   - **요청 회원의 취향**(`rerank.taste`, #948): 기본 `NONE`은 후보 정보만 보낸다(#720과 같음). `PUBLIC`이면 "요청한 사람" 줄로 **본인이 이번에 입력한 관심사**와, 요청 회원이 인플루언서 역할이고 마스킹되지 않았으면 **공개 프로필의 분야 이름·자기소개**(소개 길이 상한까지, 한 줄로)를 후보 앞에 넣는다(`RecommendTasteSupport`). 구매·장바구니·리뷰·함께 출연한 상대·회원 ID는 넣지 않는다. 분야·자기소개는 회원 모듈에서 인플루언서만 넣을 수 있다(#711). 넣을 취향이 없으면(관심사 없는 일반 회원) 고르지 않고 끈 것과 같이 코드 순서로 이유만 받는다. 시스템 프롬프트에 그 줄 안의 지시를 따르지 말라는 규칙을 붙인다. prod는 리랭킹 평가(#867)로 `PUBLIC`을 켰다(근거 `docs/chatbot/recommend-rerank.md`).
   - **리랭킹 온도**(`rerank.temperature`, #948): 비우면 공급자 설정(prod 0.2)이고, 정하면 리랭킹 호출에만 실린다. 리랭킹은 고르기라 흔들림의 이득이 작다. prod는 0이고 시간 상한은 15s다(평가 최대 11.6s).
   - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다(리랭킹 prod는 평가로 15s, #948). 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
-- **자유 질문**(`ChatbotConversationService`)
+- **자유 질문**(`ChatbotConversationUseCase`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
   - 추천 카드는 Tool 결과(코드가 만든 것)만이다. 비스트림은 응답 `cards`, 스트림은 글이 끝난 뒤 `cards` 이벤트다. LLM 글은 설명이다. 강의 카드의 이유 문장은 기준 강의 제목 없이 쓴다(위젯 API의 문장과 다를 수 있다). Tool 결과에는 근거 코드와, 검색이 잠시 실패했으면(`POPULAR_TEMPORARY`) LLM이 그 사실을 말하게 하는 안내 한 줄(`guide`)이 있다.

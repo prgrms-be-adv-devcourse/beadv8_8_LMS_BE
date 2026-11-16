@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
  * <ul>
  *     <li>설명은 구체적으로 쓴다. 모델은 이 설명만 보고 부를지 정한다.</li>
  *     <li>값({@code List})을 돌려준다. Flux·Mono를 돌려주면 모델이 결과 대신 객체 껍데기를 받는다.</li>
- *     <li>일반 API(컨트롤러)는 이 객체를 쓰지 않고 {@link FaqSearchService}를 부른다(Tool 서비스와 일반 API 분리).</li>
+ *     <li>일반 API(컨트롤러)는 이 객체를 쓰지 않고 {@link FaqSearchUseCase}를 부른다(Tool 서비스와 일반 API 분리).</li>
  *     <li>찾은 FAQ는 요청마다 넘긴 {@link ToolContext}의 목록({@link ChatToolContext#FAQ_SOURCES})에 담는다. 응답의 {@code sources}가
  *     된다. ToolContext는 모델에게 보이지 않는다.</li>
  * </ul>
@@ -28,7 +28,7 @@ public class FaqTools {
 
     static final String TOOL_NAME = "searchFaq";
 
-    private final FaqSearchService searchService;
+    private final FaqSearchUseCase searchUseCase;
     private final ChatbotMetrics metrics;
 
     @Tool(name = TOOL_NAME, description = """
@@ -42,7 +42,7 @@ public class FaqTools {
         Collection<FaqHit> sources = ChatToolContext.faqSources(toolContext);
         ChatToolContext.cards(toolContext, TOOL_NAME).called(TOOL_NAME);
         metrics.toolCall(TOOL_NAME);
-        List<FaqHit> hits = searchService.search(question);
+        List<FaqHit> hits = searchUseCase.search(question);
         sources.addAll(hits);
         return hits;
     }

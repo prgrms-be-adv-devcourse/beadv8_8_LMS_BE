@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 /** 시드 파일 → DB → 벡터 색인 순서로 FAQ를 맞춘다(#715). 한 pod만 돌도록 부르는 쪽이 {@code JobLock}으로 감싼다 */
 @Service
 @RequiredArgsConstructor
-public class FaqSyncService {
+public class FaqSyncUseCase {
 
     private final FaqSeedReader seedReader;
     private final FaqSeedSynchronizer seedSynchronizer;

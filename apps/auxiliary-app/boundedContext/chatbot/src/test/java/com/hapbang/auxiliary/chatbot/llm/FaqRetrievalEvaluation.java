@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.config.ChatbotFaqProperties;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
@@ -32,7 +32,7 @@ abstract class FaqRetrievalEvaluation {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
     private FaqVectorIndex vectorIndex;
@@ -49,7 +49,7 @@ abstract class FaqRetrievalEvaluation {
     @Test
     void evaluate() throws Exception {
         deleteIndex();
-        syncService.syncAll();
+        syncUseCase.syncAll();
         assertThat(vectorIndex.count()).isEqualTo(53);
 
         List<EvalCase> cases;
