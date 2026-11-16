@@ -20,6 +20,10 @@ spec:
       security:
         cookie_secure: true
         cookie_samesite: lax
+      # Grafana 자체 지표(/metrics, /metrics/plugins/*)는 인증이 없어 /grafana/ route로 공개됐다. Prometheus가 수집하지
+      # 않으므로 끈다(#940). 다시 켜려면 basic auth나 route 차단을 함께 둔다(docs/deploy/gateway.md).
+      metrics:
+        enabled: false
     deploymentStrategy:
       type: Recreate
     readinessProbe:
