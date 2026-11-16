@@ -54,7 +54,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
         Map<Long, String> docIds = new LinkedHashMap<>();
         for (String docId : docs.keySet()) {
             try {
-                docIds.put(LectureIndexDocument.lectureId(docId), docId);
+                docIds.put(LectureIndexDocument.lectureIdOf(docId), docId);
             } catch (NumberFormatException e) {
                 failures.put(docId, e);
             }

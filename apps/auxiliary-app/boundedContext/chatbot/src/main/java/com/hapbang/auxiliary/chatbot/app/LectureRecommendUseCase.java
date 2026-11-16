@@ -152,7 +152,7 @@ public class LectureRecommendUseCase {
                 properties.numCandidates(), LectureIndexDocument.RECOMMENDABLE));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (RecommendVectorIndex.ScoredId hit : hits) {
-            similarity.put(LectureIndexDocument.lectureId(hit.id()), hit.score());
+            similarity.put(LectureIndexDocument.lectureIdOf(hit.id()), hit.score());
         }
         List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded),
                 properties.popularityWeight(), size, properties.maxPerSeller());
@@ -263,9 +263,9 @@ public class LectureRecommendUseCase {
     private Map<Long, float[]> vectors(Collection<Long> lectureIds) {
         Map<Long, float[]> vectors = new HashMap<>();
         Map<String, float[]> stored = index.vectors(IndexType.LECTURE,
-                lectureIds.stream().map(LectureIndexDocument::docId).toList());
+                lectureIds.stream().map(LectureIndexDocument::docIdOf).toList());
         for (Map.Entry<String, float[]> entry : stored.entrySet()) {
-            vectors.put(LectureIndexDocument.lectureId(entry.getKey()), entry.getValue());
+            vectors.put(LectureIndexDocument.lectureIdOf(entry.getKey()), entry.getValue());
         }
         return vectors;
     }

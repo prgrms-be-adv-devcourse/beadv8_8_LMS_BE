@@ -211,7 +211,7 @@ public final class RecommendEvalAccess {
 
     /** 강의 문서를 운영 처리기와 같은 필드로 넣는다 */
     public void upsertLecture(LectureSnapshot lecture, float[] vector) {
-        index.upsert(IndexType.LECTURE, LectureIndexDocument.docId(lecture.id()), vector,
+        index.upsert(IndexType.LECTURE, LectureIndexDocument.docIdOf(lecture.id()), vector,
                 LectureIndexDocument.of(lecture).allFields());
     }
 
