@@ -132,7 +132,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 이름 `search-influencers-<설정 해시 12자>`, 검색·쓰기는 alias `search-influencers`로만 한다(쓰기는 `require_alias`라 alias가 없으면 실패하고, ES가 같은 이름의 index를 멋대로 만들지 않는다).
 - 원본은 레포 파일 `boundedContext/search/src/main/resources/search/`의 `influencers/index.json`(설정·mapping)과, 모든 대상이 함께 쓰는 `common/user-dictionary.txt`(사용자 사전)·`common/synonyms.txt`(동의어)다(#868, L17).
 - 동의어 묶음 이름은 모든 대상이 함께 쓰는 `search-synonyms`다(#895, #868 R4). 옛 이름 `search-influencers-synonyms`에서 사용자 사전 강의 용어 추가와 함께 바꿔 재색인을 한 번으로 합쳤다. 이름이 index 본문에 들어가 바꾸면 모든 대상의 설정 해시가 바뀐다. 코드는 묶음을 지우지 않으므로 옛 묶음은 재색인이 옛 index를 지운 뒤 손으로 지운다(`DELETE _synonyms/search-influencers-synonyms`, #895 PR 본문).
-- 운영 index는 #895 배포 뒤 `search-influencers-df33405ee9ab`(그 전 `d656dfa35eee`)이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping·묶음 이름을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
+- 운영 index는 #972 배포 뒤 `search-influencers-e611774467ba`(그 전 #895의 `df33405ee9ab`, 처음 `d656dfa35eee`)이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping·묶음 이름을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
 - 설정 해시는 mapping·분석기·사용자 사전으로만 만든다. **동의어는 넣지 않는다**(검색할 때만 쓰여 재색인이 필요 없다).
 - 기동하면(다른 스레드): 동의어 묶음(`search-synonyms`)이 파일과 다르면 묶음 전체를 PUT → alias가 없거나 다른 해시의 index를 가리키면 처음 적재·재색인을 한다(7장). 10분마다 다시 확인한다. 묶음 확인은 대상마다의 재색인과 별도로 `SynonymsCheck`도 10분마다 한다(거절 알림은 여기서만, 7장).
 - **alias는 처음 적재가 index를 다 채우고 확인한 뒤에만 붙인다.** 이벤트 소비·보정이 alias가 없다고 빈 index에 alias를 붙이지 않는다(붙이면 "alias 있음, 해시 같음"으로 보여 처음 적재가 돌지 않는다).
@@ -145,8 +145,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `ko_index` | `nori_tokenizer`(`decompound_mode: discard`, 사용자 사전) + `nori_part_of_speech` + `lowercase` | 색인 |
 | `ko_search` | `ko_index` + `synonym_graph`(Synonyms API 묶음, `updateable`) | 검색 |
 
-- 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치, 캡컷 → 컷) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배, 트위치 → 트/위치, 썸네일 → 썸/일) 단어다. 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
+- 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치, 캡컷 → 컷) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배, 트위치 → 트/위치, 썸네일 → 썸/일) 단어다. 앞 글자를 감탄사·관형사로 보고 버리는 게임 용어(에임 → 임, 한타 → 타)도 넣는다. 사전이 없으면 "에임"이 "임베딩"(임/베/딩)에 걸린다(#972). 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
 - 뜻 있는 두 낱말이 붙은 합성어(컷편집 → 컷/편집, 영상편집, 색보정)는 넣지 않는다. 넣으면 한 토큰이 되어 "편집"이나 띄어 쓴 "컷 편집"으로 찾지 못한다. 프리미어·OBS처럼 이미 쪼개지지 않는 말도 넣지 않는다(#895, `_analyze` 근거는 PR 본문).
+- 한글·영문 표기가 다른 이름(프리미어·Premiere, 다빈치·DaVinci, 리졸브·Resolve)은 동의어로 잇는다(#972). **낱말 하나만으로 그 이름을 가리키면 한 낱말씩 묶는다.** 띄어 쓴 말을 한 줄에 넣으면(`다빈치 리졸브, DaVinci Resolve`) 검색이 그 말을 붙어 있는 구절로만 찾아, "다빈치"만 쓴 강의가 빠지고 "다빈치" 하나만 친 검색어는 이어지지 않는다. 낱말마다 묶으면 "프리미어 프로"·"Premiere Pro"처럼 다른 낱말이 붙은 검색어도 함께 펼쳐진다. 리그·오브·레전드처럼 낱말 하나하나가 흔한 말이면 낱말로 묶으면 엉뚱한 글에 걸리므로 한 줄(구절)로 둔다. `LectureGoldenQueryTest` L22가 이 규칙을 고정한다.
 - 동의어를 바꾸면 파일을 고쳐 배포한다. ES가 검색 분석기를 스스로 다시 읽는다. 쓰는 index가 있으면 묶음을 지울 수 없으므로 코드는 묶음을 지우지 않는다. 묶음 이름을 바꿔 아무 index도 쓰지 않게 된 옛 묶음만 사람이 지운다(위 묶음 이름 항목). 그 뒤 옛 코드로 되돌리면(롤백) 옛 코드가 옛 묶음을 다시 만들고 옛 설정으로 재색인하므로 따로 할 일은 없다.
 
 ### 필드
@@ -331,7 +332,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | 테스트 | 보는 것 |
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
-| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애, 분석기(사전·동의어, #895 강의 용어·합성어 기준·버튜버 동의어) |
+| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애, 분석기(사전·동의어, #895 강의 용어·합성어 기준·버튜버 동의어, #972 게임 용어 에임·한타·편집 프로그램 한글·영문 표기) |
 | `ReindexerTest` | 공통 재색인 흐름을 시험용 대상(`search-reindexer-test`)과 가짜 채우기·따라잡기 부품으로: 처음 적재(alias·T − 부품의 겹쳐 읽기부터 따라잡기·`target` 태그 지표), 설정이 같으면 안 함, 수가 다르면 alias 안 붙이고 새 index 삭제, 따라잡기 BUSY면 기다림, 이름이 겹치는 다른 대상 index를 지우지 않음(#868) |
 | `InfluencerReindexerTest` | 공통 흐름 + 인플루언서 부품으로 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함(지표는 남기지 않음) |
 | `SynonymsCheckTest` | 동의어 묶음 확인(#895): 맞추면 지표 없음, 거절이면 지표 한 번, **대상이 둘이어도 거절 지표 한 번이고 두 재색인 모두 건너뜀**(R9), 확인 락으로 실행 |
@@ -357,7 +358,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `CachedRatingBaselineTest` | 다시 구하는 동안 다른 요청은 가진 값을 바로 씀, 처음 값을 구하는 중이면 바로 실패 |
 | `ApiV1LectureSearchControllerTest` | 강의 검색 API: 비회원·회원, 정렬(가격 포함), 응답 가격, 400 세 종류, 처음 적재 전 503, 회원 429·`Retry-After`, **비회원은 X-Forwarded-For·X-Real-IP·X-Envoy-External-Address를 바꿔도 같은 IP라 429**, 회원·비회원 한도 분리, 사설 주소는 건너뜀·지표, 0건 검색어 |
 | `ClientIpKeyTest` | 공인 주소가 아닌 주소 12가지, 키에 IP 원문 없음, IPv6 /64, pod마다 다른 비밀값 |
-| `LectureGoldenQueryTest` | 강의 대표 검색어 20개, LIKE 규칙 재현 비교와 평점 가산 격자(`build/golden-query-lecture.md`) |
+| `LectureGoldenQueryTest` | 강의 대표 검색어 22개(#972 `에임`·`DaVinci Resolve` 포함), LIKE 규칙 재현 비교와 평점 가산 격자(`build/golden-query-lecture.md`) |
 | `LectureReconcilerTest` | 강의 보정(#884): 놓친 등록(판매자·평점 채움)·수정·판매 중지, 정리된 숨김 문서는 다시 만들지 않음, **같은 version에 가격만 빠진 문서**(쓰기 결과 NOOP이어도 보정으로 셈), 더 새 문서는 그대로, **원본에 없는 문서 숨김**(읽는 동안 생긴 강의·빈 원본은 그대로), 숨긴 뒤 원본에 다시 나타난 강의, 처음 적재 전 |
 | `LectureReviewReconcilerTest` | 리뷰 보정: 놓친 리뷰·원본에 없는 리뷰, **평점 칸 경합으로 남은 옛 평균을 바로잡음**, 판매자 칸 맞추기(더 새 문서는 그대로), 처음 적재 전엔 사본만 |
 | `SellerChangeReconcilerTest` | 판매자 사본 보정: 처음은 지금부터, 놓친 정지, 이미 반영·판매자 아닌 회원, 처음 적재 전엔 사본만 |
@@ -368,6 +369,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 - 사전에 없는 지어낸 닉네임은 잘게 쪼개져 다른 검색어에 걸릴 수 있다(예: "롤러스케이터"가 "롤" 검색에 걸림, G01b). 0건 검색어처럼 근거가 쌓이면 사전을 보강하거나 하위 필드를 더한다.
 - 동의어 일치와 원문 일치의 가중치가 같다(G05). 원문 일치를 위로 올리려면 동의어 없는 하위 필드를 작은 가중치로 더한다.
+- 사용자 사전 단어가 붙여 쓴 다른 말을 자를 수 있다(#972): "한타임" → 한타/이, "에임스" → 에임. 띄어 쓴 "한 타임"은 그대로다. 로컬 강의 300개 비교에서는 이런 결과가 늘지 않았다.
+- 한 낱말 동의어는 다른 뜻의 같은 낱말에도 걸린다(#972): `Premiere` 검색이 "프리미어리그"(프리미어/리그)에, `DaVinci`가 "레오나르도 다빈치"에, `리졸브`가 영어 "resolve"에 걸린다. 지금 강의·인플루언서 글에는 이런 말이 드물어 두고, 0건·잡음 근거가 생기면 다시 본다.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.
 - 처음 적재·재색인은 한 pod가 회원 목록(모든 회원)을 500명씩 읽어 페이지마다 bulk로 넣는다. 일반 유저도 숨김 문서로 들어가 문서 수는 회원 수만큼이고 7일 뒤 정리된다. 회원 수만 명까지는 수십 초로 본다. 훨씬 커지면 `reindex.duration`을 보고 bulk 크기·refresh 끄기를 검토한다.
 - #771·#772 코드로 이미 alias가 붙은 로컬 ES는 해시가 같아 처음 적재가 돌지 않는다(운영은 #860 전까지 검색이 꺼져 있어 index가 없다). 로컬의 `search-influencers-*`를 지우고 띄운다.
@@ -463,7 +466,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 ### golden query (L20)
 
-`LectureGoldenQueryTest`가 강의 26개 표본(판매 중지 1, 정지 판매자 1 포함)과 대표 검색어 20개로 순위를 고정하고, 같은 표본에 기존 강의 목록 검색의 LIKE 규칙(판매 중 + 제목 포함 + 최신순, 판매자 상태는 안 봄)을 재현해 `build/golden-query-lecture.md`에 비교 표를 쓴다. 2026-11-12 결과: 찾아야 할 강의 44개 중 LIKE 19 · 검색 44, 앞 3개 중 정답 수 LIKE 18/38 · 검색 37/38. LIKE는 동의어(배그·브이튜버)·닉네임·콘텐츠 제목·소개로 찾지 못하고, 정지 판매자의 강의도 섞인다. 정답 목록은 표본을 만든 사람이 정해 검색에 유리할 수 있어, 실제 시드로 두 API를 비교하는 로컬 시험으로 보강한다.
+`LectureGoldenQueryTest`가 강의 30개 표본(판매 중지 1, 정지 판매자 1 포함)과 대표 검색어 22개로 순위를 고정하고, 같은 표본에 기존 강의 목록 검색의 LIKE 규칙(판매 중 + 제목 포함 + 최신순, 판매자 상태는 안 봄)을 재현해 `build/golden-query-lecture.md`에 비교 표를 쓴다. 2026-11-16 결과(#972에서 L21 `에임`·L22 `DaVinci Resolve` 추가): 찾아야 할 강의 49개 중 LIKE 21 · 검색 49, 앞 3개 중 정답 수 LIKE 20/43 · 검색 42/43. L21은 사용자 사전에 `에임`이 없으면 "임베딩" 강의가 걸려 실패하고, L22는 동의어를 `다빈치 리졸브, DaVinci Resolve` 한 줄로 묶으면 실패한다(4장 분석). LIKE는 동의어(배그·브이튜버)·닉네임·콘텐츠 제목·소개로 찾지 못하고, 정지 판매자의 강의도 섞인다. 정답 목록은 표본을 만든 사람이 정해 검색에 유리할 수 있어, 실제 시드로 두 API를 비교하는 로컬 시험으로 보강한다.
 
 ### 한계
 
