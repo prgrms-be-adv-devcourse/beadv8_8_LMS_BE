@@ -9,9 +9,10 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.CopyApplier;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
@@ -46,7 +47,7 @@ public class AppearanceCopyEventListener {
     @KafkaHandler
     public void on(AppearanceChangedEvent event) {
         AppearanceSyncDto appearance = Objects.requireNonNull(event.appearance(), "appearance는 필수입니다.");
-        CopyWrite write = copyApplier.apply(appearance, null);
+        CopyWrite write = copyApplier.apply(appearance, ApplySource.EVENT);
         log.info("출연 변경 이벤트를 출연 사본에 반영했다 appearanceId={}, version={}, ourVersion={}, outcome={}",
                 appearance.id(), appearance.version(), write.ourVersion(), write.outcome());
     }

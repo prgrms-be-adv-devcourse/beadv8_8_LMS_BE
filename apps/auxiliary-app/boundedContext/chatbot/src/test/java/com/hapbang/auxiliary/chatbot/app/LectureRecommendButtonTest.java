@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.SequencedMap;
@@ -44,7 +40,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private LectureRecommendExplainUseCase explainUseCase;
@@ -228,7 +223,7 @@ class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
 
         String prompt = chatModel.lastPrompt().getInstructions().stream().map(Message::getText)
                 .reduce("", (a, b) -> a + "\n" + b);
-        assertThat(prompt).contains("후보 강의 10", "소개 후보 강의 10", LectureRecommendReason.SIMILAR_TO_PURCHASED.description());
+        assertThat(prompt).contains("후보 강의 10", "소개 후보 강의 10", LectureRecommendReason.SIMILAR_TO_PURCHASED.getDescription());
         // 기본 설정(rerank.taste=NONE)이면 요청 회원의 취향 줄도 없다(#948)
         assertThat(prompt).doesNotContain("회원이 산 강의", "회원 ID", String.valueOf(member), "요청한 사람");
     }
@@ -273,7 +268,6 @@ class LectureRecommendButtonTest extends ChatbotIntegrationTestBase {
     }
 
     private static void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-lectures-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-lectures-test-8");
     }
 }

@@ -32,6 +32,7 @@ import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -161,6 +162,19 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
                 .andExpect(jsonPath("$.data.fallback").value(false))
                 .andExpect(jsonPath("$.data.items[0].explanation").value("완료한 출연이 3회이고 평균 별점이 4.5점이에요."))
                 .andExpect(jsonPath("$.data.items[1].explanation").value("음악 방송을 2번 했고 3명과 함께했어요."));
+    }
+
+    @Test
+    @DisplayName("설명 API: 맞춤 후보 풀이 비면(분야도 관심사도 없는 회원) LLM을 부르지 않고 인기순·정해진 문장, fallback=false")
+    void explainedEmptyPool() throws Exception {
+        member(50L, Role.USER, UserStatus.ACTIVE, List.of(), null);
+
+        mockMvc.perform(post(BASE + "/explained").with(login(50L, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.items[0].reasons", contains("POPULAR")))
+                .andExpect(jsonPath("$.data.items[0].explanation").value(InfluencerReason.POPULAR.getDescription()));
+        assertThat(chatModel.calls()).isZero();
     }
 
     @Test

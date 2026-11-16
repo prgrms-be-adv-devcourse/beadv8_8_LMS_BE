@@ -159,7 +159,8 @@ class RecommendRerankerTest {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("chatModel", chatModel);
         beans.registerSingleton("chatClientBuilder", ChatClient.builder(chatModel));
-        guard = new LlmCallGuard(CircuitBreaker.ofDefaults("test"), new ChatbotLlmProperties(4),
+        guard = new LlmCallGuard(CircuitBreaker.ofDefaults("test"), new ChatbotLlmProperties(4,
+                new ChatbotLlmProperties.CircuitBreakerSettings(10, 5, 50, Duration.ofSeconds(30), 3)),
                 new SimpleAsyncTaskExecutorBuilder());
         ChatbotRecommendLlmProperties properties = new ChatbotRecommendLlmProperties(
                 new ChatbotRecommendLlmProperties.Rerank(enabled, "", Duration.ofSeconds(5), 20, 80, 300, Taste.NONE, temperature),

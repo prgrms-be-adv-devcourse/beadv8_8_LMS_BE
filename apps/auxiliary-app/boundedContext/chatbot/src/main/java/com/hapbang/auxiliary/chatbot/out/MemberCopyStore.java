@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.MemberCopy;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -24,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 public class MemberCopyStore {
 
     static final CopyTable TABLE = new CopyTable("member_copy", "id", List.of("role", "status", "categories", "bio"),
-            Set.of("categories"), true, false);
+            Set.of("categories"), false);
 
     // 보임 = 사본 있음 ∧ 탈퇴 아님 ∧ 마스킹 안 됨 (MemberVisibility). 회원 사본의 별칭은 m
     private static final String VISIBLE_MEMBER =

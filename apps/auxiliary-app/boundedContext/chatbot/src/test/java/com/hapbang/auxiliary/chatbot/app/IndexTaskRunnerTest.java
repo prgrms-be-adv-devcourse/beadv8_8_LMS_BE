@@ -22,8 +22,10 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,14 +36,16 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore.IndexTask;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
+import com.hapbang.auxiliary.chatbot.support.ChatbotTestClock;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** 색인 요청 실행기를 실제 DB로 확인한다(#718 공통 기반). 처리기는 테스트가 만든 가짜다 */
+@ExtendWith(OutputCaptureExtension.class)
 class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
 
     private static final Duration LEASE = Duration.ofMinutes(5);
+    private static final String STUCK = "[CHATBOT_INDEX_TASK_STUCK]";
 
     @Autowired
     private IndexTaskStore store;
@@ -131,6 +135,59 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         assertThat(counter("LECTURE", "failed")).isEqualTo(2);
         assertThat(row("5")).containsEntry("next_attempt_at", now().plusSeconds(30));
         assertThat(row("6")).containsEntry("next_attempt_at", now().plusSeconds(30));
+    }
+
+    @Test
+    @DisplayName("처리기 전체가 예외를 던지면 문서마다가 아니라 종류마다 한 줄(문서 수·예시 문서 ID·원인)만 남긴다. 문서별 재시도는 그대로다")
+    void handlerExceptionLogsOneLine(CapturedOutput output) {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "6", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "7", IndexAction.UPSERT, now());
+        lectures.throwAll = true;
+
+        runner(LEASE, lectures).runOnce();
+
+        assertThat(output).contains("색인 요청 여러 건이 같은 원인으로 실패해 나중에 다시 한다 type=LECTURE, docs=3, docIds=[5, 6, 7]")
+                .doesNotContain("색인 요청이 실패해 나중에 다시 한다");
+        assertThat(count(output.getAll(), "IllegalStateException: 처리기 전체 실패")).isEqualTo(1);
+        assertThat(row("7")).containsEntry("attempts", 1).containsEntry("next_attempt_at", now().plusSeconds(30))
+                .hasEntrySatisfying("last_error", error -> assertThat((String) error).startsWith("IllegalStateException: 처리기 전체 실패"));
+    }
+
+    @Test
+    @DisplayName("문서마다 다른 원인으로 실패하면 문서별로 남기고, 알림 횟수(3번)를 넘긴 문서는 회차당 [CHATBOT_INDEX_TASK_STUCK] 한 줄(건수·예시 문서 ID)로 알린다")
+    void stuckDocumentsAlertOncePerRun(CapturedOutput output) {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "6", IndexAction.UPSERT, now());
+        lectures.failures.put("5", 3);
+        lectures.failures.put("6", 3);
+        IndexTaskRunner runner = runner(LEASE, lectures);
+
+        runner.runOnce();
+        clock.advance(Duration.ofSeconds(30));
+        runner.runOnce();
+        assertThat(output).doesNotContain(STUCK);
+        assertThat(count(output.getAll(), "색인 요청이 실패해 나중에 다시 한다 type=LECTURE")).isEqualTo(4);
+
+        clock.advance(Duration.ofSeconds(60));
+        runner.runOnce();
+
+        assertThat(count(output.getAll(), STUCK)).isEqualTo(1);
+        assertThat(output).contains(STUCK + " 색인 요청이 계속 실패한다 stuck=2, docIds=[LECTURE:5, LECTURE:6], alertAfterAttempts=3");
+        assertThat(count(output.getAll(), "색인 요청이 실패해 나중에 다시 한다 type=LECTURE")).isEqualTo(6);
+        assertThat(row("5")).containsEntry("attempts", 3).containsEntry("next_attempt_at", now().plusSeconds(120));
+    }
+
+    @Test
+    @DisplayName("실패 원인(last_error)은 컬럼 길이(500자)를 코드포인트로 세어 자른다. 경계의 이모지를 반으로 자르지 않는다")
+    void lastErrorCutsByCodePoint() {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        LocalDateTime leaseUntil = now().plus(LEASE);
+        List<Long> ids = claim(leaseUntil).stream().map(IndexTask::id).toList();
+
+        store.retryLater(ids, now().plusSeconds(30), "a".repeat(499) + "😀" + "b".repeat(10), leaseUntil);
+
+        assertThat(row("5")).containsEntry("last_error", "a".repeat(499) + "😀");
     }
 
     @Test
@@ -243,9 +300,9 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
         store.add(IndexType.INFLUENCER, "7", IndexAction.DELETE, now());
         // 첫 종류(강의)를 처리하는 데 임대의 절반보다 오래 걸린다
-        lectures.sleep = Duration.ofMillis(50);
+        lectures.elapse = LEASE.dividedBy(2).plusSeconds(1);
 
-        assertThat(runner(Duration.ofMillis(20), lectures, influencers).runOnce()).isEqualTo(1);
+        assertThat(runner(LEASE, lectures, influencers).runOnce()).isEqualTo(1);
 
         assertThat(influencers.calls).isEmpty();
         assertThat(row("7")).containsEntry("attempts", 0).containsEntry("done_at", null).containsEntry("next_attempt_at", now());
@@ -275,14 +332,12 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     private IndexTaskRunner runner(Duration lease, IndexTaskHandler... handlers) {
-        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-        beans.registerSingleton("meterRegistry", registry);
         ChatbotIndexProperties.Task settings = new ChatbotIndexProperties.Task(Duration.ofSeconds(5), 50, lease,
                 Duration.ofSeconds(30), Duration.ofHours(1), 3, Duration.ofDays(7));
         ChatbotIndexProperties properties = new ChatbotIndexProperties("chatbot-lectures-test-8",
                 "chatbot-influencers-test-8", 8, "", "", settings);
         return new IndexTaskRunner(store, List.of(handlers), properties, transactionManager,
-                beans.getBeanProvider(MeterRegistry.class), clockBean);
+                new ChatbotMetrics(registry), clockBean);
     }
 
     // 앞 실행이 가져간 뒤 트랜잭션을 열어 둔 채로, 뒤 실행이 waitLockType 락을 기다리는 것을 확인하고 앞 트랜잭션을 끝낸다
@@ -338,6 +393,14 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         return CopyTimes.now(clockBean);
     }
 
+    private static int count(String text, String part) {
+        int count = 0;
+        for (int at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length())) {
+            count++;
+        }
+        return count;
+    }
+
     private int pending() {
         return jdbcTemplate.queryForObject("SELECT count(*) FROM chatbot.index_task WHERE done_at IS NULL", Integer.class);
     }
@@ -355,7 +418,7 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     private double counter(String type, String result) {
-        return registry.get(IndexTaskRunner.METRIC).tag("type", type).tag("result", result).counter().count();
+        return registry.get(ChatbotMetrics.INDEX_TASKS).tag("type", type).tag("result", result).counter().count();
     }
 
     private static final class FakeHandler implements IndexTaskHandler {
@@ -365,7 +428,8 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         private final Map<String, Integer> failures = new ConcurrentHashMap<>();
         private volatile boolean available = true;
         private volatile boolean throwAll;
-        private volatile Duration sleep = Duration.ZERO;
+        /** 처리하는 동안 흐른 것으로 칠 시간(테스트 시계를 그만큼 움직인다) */
+        private volatile Duration elapse = Duration.ZERO;
 
         private FakeHandler(IndexType type) {
             this.type = type;
@@ -384,13 +448,7 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         @Override
         public Map<String, RuntimeException> handle(SequencedMap<String, IndexAction> docs) {
             calls.add(Map.copyOf(docs));
-            if (!sleep.isZero()) {
-                try {
-                    Thread.sleep(sleep);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
+            ChatbotTestClock.clock().advance(elapse);
             if (throwAll) {
                 throw new IllegalStateException("처리기 전체 실패");
             }

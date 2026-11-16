@@ -7,9 +7,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.hapbang.auxiliary.chatbot.app.ChatStreamEvent;
 import com.hapbang.auxiliary.chatbot.app.ChatbotChatFacade;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatStreamEvent;
 import com.hapbang.auxiliary.chatbot.in.dto.ChatMessageReqDto;
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;

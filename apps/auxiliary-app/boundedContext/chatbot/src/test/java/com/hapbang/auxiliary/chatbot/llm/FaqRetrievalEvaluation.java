@@ -3,10 +3,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -15,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.config.ChatbotFaqProperties;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
@@ -36,7 +32,7 @@ abstract class FaqRetrievalEvaluation {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
     private FaqVectorIndex vectorIndex;
@@ -53,7 +49,7 @@ abstract class FaqRetrievalEvaluation {
     @Test
     void evaluate() throws Exception {
         deleteIndex();
-        syncService.syncAll();
+        syncUseCase.syncAll();
         assertThat(vectorIndex.count()).isEqualTo(53);
 
         List<EvalCase> cases;
@@ -100,9 +96,7 @@ abstract class FaqRetrievalEvaluation {
     }
 
     private void deleteIndex() throws Exception {
-        HttpClient.newHttpClient().send(HttpRequest.newBuilder(
-                URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + vectorIndex.indexName())).DELETE().build(),
-                HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex(vectorIndex.indexName());
     }
 
     private static double ratio(long count, int total) {

@@ -1,9 +1,5 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 
 import org.jspecify.annotations.Nullable;
@@ -41,16 +37,16 @@ public record LectureSnapshot(
 
     /** 임베딩하는 글의 SHA-256(16진수). 같으면 다시 임베딩하지 않는다 */
     public String textHash() {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(indexText().getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256을 쓸 수 없습니다", e);
-        }
+        return Sha256.hex(indexText());
     }
 
     /** 추천 후보가 될 수 있는 상태(판매 중, 삭제 안 됨, 원본에 있음). 판매자 숨김은 따로 본다 */
     public boolean recommendable() {
+        return recommendable(onSale, deleted, missingInSource);
+    }
+
+    /** 추천 후보가 될 수 있는 상태의 규칙 한 곳({@link LectureListing}도 쓴다) */
+    static boolean recommendable(boolean onSale, boolean deleted, boolean missingInSource) {
         return onSale && !deleted && !missingInSource;
     }
 }

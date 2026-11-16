@@ -9,9 +9,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.domain.FaqCategory;
-import com.hapbang.auxiliary.chatbot.domain.FaqRepository;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
+import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
 
 import reactor.core.publisher.Flux;
@@ -27,16 +30,16 @@ import reactor.core.publisher.Flux;
 public class ChatbotFaqFacade {
 
     private final FaqRepository faqRepository;
-    private final FaqSearchService searchService;
-    private final FaqChatService chatService;
+    private final FaqSearchUseCase searchUseCase;
+    private final FaqChatUseCase chatUseCase;
     private final KeyedRateLimiter rateLimiter;
     private final ChatbotMetrics metrics;
 
-    ChatbotFaqFacade(FaqRepository faqRepository, FaqSearchService searchService, FaqChatService chatService,
+    ChatbotFaqFacade(FaqRepository faqRepository, FaqSearchUseCase searchUseCase, FaqChatUseCase chatUseCase,
             @Qualifier("chatbotFaqRateLimiter") KeyedRateLimiter rateLimiter, ChatbotMetrics metrics) {
         this.faqRepository = faqRepository;
-        this.searchService = searchService;
-        this.chatService = chatService;
+        this.searchUseCase = searchUseCase;
+        this.chatUseCase = chatUseCase;
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
     }
@@ -44,12 +47,12 @@ public class ChatbotFaqFacade {
     /** FAQ 모아보기. 분류가 없으면 전체(분류·시드 순서) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     @Transactional(readOnly = true)
-    public List<FaqView> listFaqs(@Nullable FaqCategory category) {
+    public List<FaqResDto> listFaqs(@Nullable FaqCategory category) {
         metrics.request(Feature.FAQ_LIST);
         var faqs = category == null ? faqRepository.findAllByOrderBySortOrderAsc()
                 : faqRepository.findByCategoryOrderBySortOrderAsc(category);
         return faqs.stream()
-                .map(faq -> new FaqView(faq.getCode(), faq.getCategory(), faq.getQuestion(), faq.getAnswer()))
+                .map(faq -> new FaqResDto(faq.getCode(), faq.getCategory(), faq.getQuestion(), faq.getAnswer()))
                 .toList();
     }
 
@@ -57,7 +60,7 @@ public class ChatbotFaqFacade {
     @PreAuthorize(ChatbotRoles.MEMBER)
     public List<FaqHit> searchFaqs(long userId, String query) {
         acquire(userId, Feature.FAQ_SEARCH);
-        List<FaqHit> hits = searchService.search(query);
+        List<FaqHit> hits = searchUseCase.search(query);
         if (hits.isEmpty()) {
             metrics.unmatched(Feature.FAQ_SEARCH);
         }
@@ -67,27 +70,18 @@ public class ChatbotFaqFacade {
     @PreAuthorize(ChatbotRoles.MEMBER)
     public FaqAnswer chat(long userId, String message) {
         acquire(userId, Feature.FAQ_CHAT);
-        return chatService.chat(userId, message);
+        return chatUseCase.chat(userId, message);
     }
 
     /** 호출 제한은 스트림을 만들기 전에 센다. 넘으면 SSE를 열지 않고 429다 */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public Flux<FaqStreamEvent> stream(long userId, String message) {
         acquire(userId, Feature.FAQ_STREAM);
-        return chatService.stream(userId, message);
+        return chatUseCase.stream(userId, message);
     }
 
     private void acquire(long userId, Feature feature) {
-        try {
-            rateLimiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
+        ChatbotRateLimits.acquire(rateLimiter, userId, feature, metrics);
         metrics.request(feature);
-    }
-
-    /** FAQ 모아보기 항목 */
-    public record FaqView(String code, FaqCategory category, String question, String answer) {
     }
 }

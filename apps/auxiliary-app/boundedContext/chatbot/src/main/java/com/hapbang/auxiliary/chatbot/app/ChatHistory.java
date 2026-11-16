@@ -7,11 +7,11 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 
-import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.RequiredArgsConstructor;
 
 /**
  * FE가 보낸 이전 대화 (#720, 11/09 결정: 서버는 대화를 저장하지 않는다).
@@ -30,22 +30,17 @@ public final class ChatHistory {
     private ChatHistory() {
     }
 
-    /** 대화 하나 */
-    public record Entry(
-            @Schema(description = "USER(사용자 메시지), ASSISTANT(챗봇 답변). 그 밖의 값은 400") Role role,
-            @Schema(description = "내용. USER 1~500자, ASSISTANT 1~2,000자(서버 설정 기본값)") String content) {
+    /** 대화 하나. 요청({@code ChatHistoryEntryReqDto})에서 바꾼 값이라 역할·내용이 빠졌을 수 있다({@link #check}에서 400) */
+    public record Entry(Role role, String content) {
     }
 
     /** 대화의 역할 */
+    @RequiredArgsConstructor
     public enum Role {
         USER("사용자 메시지"),
         ASSISTANT("챗봇 답변");
 
         private final String description;
-
-        Role(String description) {
-            this.description = description;
-        }
 
         public String description() {
             return description;

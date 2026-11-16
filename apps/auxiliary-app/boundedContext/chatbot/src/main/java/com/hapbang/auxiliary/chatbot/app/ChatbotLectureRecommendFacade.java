@@ -9,7 +9,6 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendConfig;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 
 /**
  * 강의 추천 API 진입점 (#718, #720). LLM 없이 후보만 준다(FE 추천 위젯).
@@ -24,18 +23,21 @@ public class ChatbotLectureRecommendFacade {
 
     private final LectureRecommendUseCase recommendUseCase;
     private final LectureRecommendExplainUseCase explainUseCase;
+    private final LectureRecommendMapper mapper;
     private final KeyedRateLimiter interestRateLimiter;
     private final KeyedRateLimiter buttonRateLimiter;
     private final KeyedRateLimiter widgetRateLimiter;
     private final ChatbotMetrics metrics;
 
     ChatbotLectureRecommendFacade(LectureRecommendUseCase recommendUseCase, LectureRecommendExplainUseCase explainUseCase,
+            LectureRecommendMapper mapper,
             @Qualifier(ChatbotLectureRecommendConfig.RATE_LIMITER) KeyedRateLimiter interestRateLimiter,
             @Qualifier(ChatbotLectureRecommendConfig.BUTTON_RATE_LIMITER) KeyedRateLimiter buttonRateLimiter,
             @Qualifier(ChatbotLectureRecommendConfig.WIDGET_RATE_LIMITER) KeyedRateLimiter widgetRateLimiter,
             ChatbotMetrics metrics) {
         this.recommendUseCase = recommendUseCase;
         this.explainUseCase = explainUseCase;
+        this.mapper = mapper;
         this.interestRateLimiter = interestRateLimiter;
         this.buttonRateLimiter = buttonRateLimiter;
         this.widgetRateLimiter = widgetRateLimiter;
@@ -48,12 +50,12 @@ public class ChatbotLectureRecommendFacade {
     @PreAuthorize(ChatbotRoles.MEMBER)
     public LectureRecommendResDto recommend(long userId, @Nullable String interest) {
         String normalized = RecommendInterest.normalize(interest);
-        acquire(widgetRateLimiter, userId, Feature.LECTURE_RECOMMEND);
+        ChatbotRateLimits.acquire(widgetRateLimiter, userId, Feature.LECTURE_RECOMMEND, metrics);
         if (normalized != null) {
-            acquire(interestRateLimiter, userId, Feature.LECTURE_RECOMMEND);
+            ChatbotRateLimits.acquire(interestRateLimiter, userId, Feature.LECTURE_RECOMMEND, metrics);
         }
         metrics.request(Feature.LECTURE_RECOMMEND);
-        return LectureRecommendResDto.from(recommendUseCase.recommend(userId, normalized));
+        return mapper.response(recommendUseCase.recommend(userId, normalized));
     }
 
     /**
@@ -62,19 +64,10 @@ public class ChatbotLectureRecommendFacade {
      */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public LectureRecommendResDto recommendExplained(long userId, @Nullable String interest) {
-        acquire(buttonRateLimiter, userId, Feature.LECTURE_BUTTON);
+        ChatbotRateLimits.acquire(buttonRateLimiter, userId, Feature.LECTURE_BUTTON, metrics);
         metrics.request(Feature.LECTURE_BUTTON);
         LectureRecommendExplainUseCase.Explained explained =
                 explainUseCase.recommend(userId, RecommendInterest.normalize(interest));
-        return LectureRecommendResDto.from(explained.recommendation(), explained.fallback());
-    }
-
-    private void acquire(KeyedRateLimiter limiter, long userId, Feature feature) {
-        try {
-            limiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
+        return mapper.response(explained.recommendation(), explained.fallback());
     }
 }

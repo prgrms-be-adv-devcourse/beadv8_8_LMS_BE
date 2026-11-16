@@ -42,12 +42,12 @@ record LectureIndexDocument(
     static final Map<String, Object> RECOMMENDABLE = Map.of(ON_SALE, true, DELETED, false, MISSING_IN_SOURCE, false);
 
     /** 강의 ID의 문서 ID(강의 ID 문자열) */
-    static String docId(long lectureId) {
+    static String docIdOf(long lectureId) {
         return String.valueOf(lectureId);
     }
 
     /** 문서 ID의 강의 ID. 숫자가 아니면 {@link NumberFormatException} */
-    static long lectureId(String docId) {
+    static long lectureIdOf(String docId) {
         return Long.parseLong(docId);
     }
 

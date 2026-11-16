@@ -21,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.SyncRun;
 import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
@@ -58,7 +59,7 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
     void visibility() {
         assertThat(memberVisibility.isVisible(USER)).isFalse();
         copyApplier.apply(member(USER, 0L));
-        copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 0), null);
+        copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 0), ApplySource.EVENT);
         assertThat(memberVisibility.isVisible(USER)).isTrue();
 
         copyApplier.apply(member(USER, Role.INFLUENCER, UserStatus.WITHDRAWN, 1L));
@@ -112,11 +113,11 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
     void eventsAfterMaskDiscarded() {
         memberMasking.mask(new UserMaskedEvent(USER, MASKED_AT));
 
-        assertThat(copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 9), null).outcome())
+        assertThat(copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 9), ApplySource.EVENT).outcome())
                 .isEqualTo(CopyOutcome.DISCARDED);
-        assertThat(copyApplier.apply(cartItem(2, USER, false, 9), null).outcome()).isEqualTo(CopyOutcome.DISCARDED);
-        assertThat(copyApplier.apply(lectureReview(3, USER, 5, 9), null).outcome()).isEqualTo(CopyOutcome.DISCARDED);
-        assertThat(copyApplier.apply(new AppearanceReviewSyncDto(4L, 40L, USER, 5), null).outcome())
+        assertThat(copyApplier.apply(cartItem(2, USER, false, 9), ApplySource.EVENT).outcome()).isEqualTo(CopyOutcome.DISCARDED);
+        assertThat(copyApplier.apply(lectureReview(3, USER, 5, 9), ApplySource.EVENT).outcome()).isEqualTo(CopyOutcome.DISCARDED);
+        assertThat(copyApplier.apply(new AppearanceReviewSyncDto(4L, 40L, USER, 5), ApplySource.EVENT).outcome())
                 .isEqualTo(CopyOutcome.DISCARDED);
         // 마스킹이 먼저 왔어도 회원 사본은 만든다. 분야·자기소개는 버리고 결과는 버림으로 센다
         assertThat(copyApplier.apply(member(USER, Role.INFLUENCER, UserStatus.WITHDRAWN, 9L)).outcome())
@@ -180,7 +181,7 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
                     long orderItemId = user * 10 + i;
                     futures.add(executor.submit(() -> {
                         start.await();
-                        return copyApplier.apply(purchase(orderItemId, user, LecturePurchaseResult.OWNED, 0), null);
+                        return copyApplier.apply(purchase(orderItemId, user, LecturePurchaseResult.OWNED, 0), ApplySource.EVENT);
                     }));
                 }
                 futures.add(executor.submit(() -> {
@@ -201,12 +202,12 @@ class MemberWithdrawalTest extends ChatbotIntegrationTestBase {
     // USER의 구매·장바구니·쓴 리뷰·받은 출연 리뷰·분야·자기소개, OTHER의 구매·쓴 리뷰·받은 출연 리뷰
     private void givenUserData() {
         copyApplier.apply(member(USER, Role.INFLUENCER, UserStatus.WITHDRAWN, 1L));
-        copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 0), null);
-        copyApplier.apply(purchase(2, OTHER, LecturePurchaseResult.OWNED, 0), null);
-        copyApplier.apply(cartItem(3, USER, false, 0), null);
-        copyApplier.apply(lectureReview(4, USER, 5, 0), null);
-        copyApplier.apply(lectureReview(5, OTHER, 3, 0), null);
-        copyApplier.apply(new AppearanceReviewSyncDto(6L, 40L, USER, 5), null);
-        copyApplier.apply(new AppearanceReviewSyncDto(7L, 40L, OTHER, 4), null);
+        copyApplier.apply(purchase(1, USER, LecturePurchaseResult.OWNED, 0), ApplySource.EVENT);
+        copyApplier.apply(purchase(2, OTHER, LecturePurchaseResult.OWNED, 0), ApplySource.EVENT);
+        copyApplier.apply(cartItem(3, USER, false, 0), ApplySource.EVENT);
+        copyApplier.apply(lectureReview(4, USER, 5, 0), ApplySource.EVENT);
+        copyApplier.apply(lectureReview(5, OTHER, 3, 0), ApplySource.EVENT);
+        copyApplier.apply(new AppearanceReviewSyncDto(6L, 40L, USER, 5), ApplySource.EVENT);
+        copyApplier.apply(new AppearanceReviewSyncDto(7L, 40L, OTHER, 4), ApplySource.EVENT);
     }
 }

@@ -5,7 +5,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqJobRunner;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnProperty(name = "hapbang.chatbot.faq.sync-on-startup", havingValue = "true", matchIfMissing = true)
 class FaqStartupSync {
 
-    private final FaqSyncService syncService;
+    private final FaqSyncUseCase syncUseCase;
     private final FaqJobRunner jobRunner;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -34,7 +35,7 @@ class FaqStartupSync {
 
     void run() {
         try {
-            jobRunner.run("startup", syncService::syncAll);
+            jobRunner.run("startup", syncUseCase::syncAll);
         } catch (RuntimeException e) {
             log.warn("시작할 때 FAQ를 맞추지 못했다. 다음 점검·기동에서 다시 한다", e);
         }

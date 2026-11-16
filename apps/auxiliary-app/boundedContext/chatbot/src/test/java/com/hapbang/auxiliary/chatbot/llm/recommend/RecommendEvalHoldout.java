@@ -16,8 +16,8 @@ import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Rating;
 /**
  * 정답 숨기기(#867). 모든 요청 회원의 정답을 한 번에 빼고 사본에 넣는다(DB를 한 번만 채운다).
  * <ul>
- *     <li>강의: 그 회원의 정답 강의 구매·장바구니·리뷰 행을 모두 뺀다. 남으면 신호({@code activities}·{@code ratings})나
- *     제외 목록({@code excludedLectures}, 이미 산·담은 강의)에 걸려 절대 맞힐 수 없다. 숨긴 구매는 그 강의의 인기 수에서도 빠진다.</li>
+ *     <li>강의: 그 회원의 정답 강의 구매·장바구니·리뷰 행을 모두 뺀다. 남으면 신호({@code memberLectures}의 활동·{@code ratings})나
+ *     제외 목록({@code memberLectures}의 뺄 강의, 이미 산·담은 강의)에 걸려 절대 맞힐 수 없다. 숨긴 구매는 그 강의의 인기 수에서도 빠진다.</li>
  *     <li>인플루언서: 회원과 정답 상대가 함께 마친 출연과 그 출연의 리뷰를 뺀다. 상대는 제외 목록이 없어 신호({@code completedPartners})에서만
  *     빠지면 된다. 한 출연을 빼면 상대 쪽 신호에서도 빠지지만 그 상대의 정답이 새는 것은 아니다.</li>
  * </ul>

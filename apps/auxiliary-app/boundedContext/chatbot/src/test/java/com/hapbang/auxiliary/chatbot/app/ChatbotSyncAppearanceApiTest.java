@@ -118,6 +118,20 @@ class ChatbotSyncAppearanceApiTest {
     }
 
     @Test
+    @DisplayName("회원·강의 API 호출 실패도 출연과 같은 모양으로 실패 이유를 적는다")
+    void memberAndLectureApiUnavailable() {
+        status = 503;
+
+        SyncRun members = chatbotSyncUseCase.runBatch(SyncType.MEMBER, SyncTrigger.SCHEDULED);
+        SyncRun lectures = chatbotSyncUseCase.runBatch(SyncType.LECTURE, SyncTrigger.SCHEDULED);
+
+        assertThat(members.getStatus()).isEqualTo(SyncRunStatus.FAILED);
+        assertThat(members.getError()).isEqualTo("회원 내부 API 호출 실패 reason=UNAVAILABLE, status=503, code=null");
+        assertThat(lectures.getStatus()).isEqualTo(SyncRunStatus.FAILED);
+        assertThat(lectures.getError()).isEqualTo("강의 내부 API 호출 실패 reason=UNAVAILABLE, status=503, code=null");
+    }
+
+    @Test
     @DisplayName("출연 API 주소가 없어 Client 빈이 없으면 부를 때 실패한다(싱크 회차가 실패로 남는다)")
     void clientMissing() {
         AppearanceApiSyncSource source = new AppearanceApiSyncSource(

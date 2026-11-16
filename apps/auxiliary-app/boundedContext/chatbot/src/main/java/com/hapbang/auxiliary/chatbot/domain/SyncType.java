@@ -1,20 +1,27 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /** 읽기용 사본의 종류 (#716, #717). 싱크는 종류마다 따로 실행·기록한다 */
+@Getter
+@RequiredArgsConstructor
 public enum SyncType {
 
     /** 출연 (출연 #713 {@code AppearanceSyncDto}) */
-    APPEARANCE,
+    APPEARANCE("출연"),
     /** 공개된 출연 리뷰 (출연 #713 {@code AppearanceReviewSyncDto}) */
-    APPEARANCE_REVIEW,
+    APPEARANCE_REVIEW("공개된 출연 리뷰"),
     /** 회원 (회원 {@code UserDto}, 내부 회원 목록 API, #717). 회원은 하드 삭제가 없어 원본 없음을 표시하지 않는다 */
-    MEMBER,
+    MEMBER("회원"),
     /** 강의 (강의 #712 {@code LectureSyncDto}, #717) */
-    LECTURE,
+    LECTURE("강의"),
     /** 구매 = 주문 항목 (강의 {@code LecturePurchaseSyncDto}, #717) */
-    LECTURE_PURCHASE,
+    LECTURE_PURCHASE("구매(주문 항목)"),
     /** 장바구니 항목 (강의 {@code CartItemSyncDto}, #717) */
-    CART_ITEM,
+    CART_ITEM("장바구니 항목"),
     /** 강의 리뷰 별점 (강의 {@code LectureReviewSyncDto}, #717) */
-    LECTURE_REVIEW
+    LECTURE_REVIEW("강의 리뷰 별점");
+
+    private final String description;
 }

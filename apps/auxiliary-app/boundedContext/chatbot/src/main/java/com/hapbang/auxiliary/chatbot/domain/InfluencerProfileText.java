@@ -1,10 +1,6 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -34,20 +30,11 @@ public record InfluencerProfileText(String text, String hash) {
             parts.add("소개: " + scrubbed);
         }
         String text = String.join("\n", parts);
-        return new InfluencerProfileText(text, sha256(text));
+        return new InfluencerProfileText(text, Sha256.hex(text));
     }
 
     /** 분야·자기소개가 모두 없다. 문서를 만들지 않는다(인기순 후보로만 쓰인다) */
     public boolean isEmpty() {
         return text.isEmpty();
-    }
-
-    private static String sha256(String text) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256을 쓸 수 없습니다", e);
-        }
     }
 }

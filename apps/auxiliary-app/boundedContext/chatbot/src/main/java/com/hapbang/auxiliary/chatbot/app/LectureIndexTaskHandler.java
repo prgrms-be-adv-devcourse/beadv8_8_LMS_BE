@@ -54,7 +54,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
         Map<Long, String> docIds = new LinkedHashMap<>();
         for (String docId : docs.keySet()) {
             try {
-                docIds.put(LectureIndexDocument.lectureId(docId), docId);
+                docIds.put(LectureIndexDocument.lectureIdOf(docId), docId);
             } catch (NumberFormatException e) {
                 failures.put(docId, e);
             }
@@ -73,6 +73,8 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
                 continue;
             }
             try {
+                // 상태 필드가 같아 보여도 보낸다. previous는 검색으로 읽어 refresh 전 쓰기를 못 보므로,
+                // 짧은 사이 A→B→A로 바뀌면 같다고 보고 건너뛰어 ES에 B가 남는다
                 // 문서가 그사이 사라졌으면(index 재생성 등) 새로 임베딩한다
                 if (!index.update(IndexType.LECTURE, docId, current.stateFields())) {
                     toEmbed.add(lecture);
@@ -86,26 +88,10 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
     }
 
     private void embedAndUpsert(List<LectureSnapshot> lectures, Map<Long, String> docIds, Map<String, RuntimeException> failures) {
-        if (lectures.isEmpty()) {
-            return;
-        }
-        List<float[]> vectors;
-        try {
-            vectors = embedder.embedDocuments(lectures.stream().map(LectureSnapshot::indexText).toList());
-        } catch (RuntimeException e) {
-            for (LectureSnapshot lecture : lectures) {
-                failures.put(docIds.get(lecture.id()), e);
-            }
-            return;
-        }
-        for (int i = 0; i < lectures.size(); i++) {
-            LectureSnapshot lecture = lectures.get(i);
-            String docId = docIds.get(lecture.id());
-            try {
-                index.upsert(IndexType.LECTURE, docId, vectors.get(i), LectureIndexDocument.of(lecture).allFields());
-            } catch (RuntimeException e) {
-                failures.put(docId, e);
-            }
-        }
+        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.LECTURE, lectures,
+                lecture -> docIds.get(lecture.id()),
+                LectureSnapshot::indexText,
+                lecture -> LectureIndexDocument.of(lecture).allFields(),
+                failures);
     }
 }

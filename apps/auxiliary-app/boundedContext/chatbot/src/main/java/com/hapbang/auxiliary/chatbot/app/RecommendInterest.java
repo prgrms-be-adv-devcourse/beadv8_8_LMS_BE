@@ -3,9 +3,8 @@ package com.hapbang.auxiliary.chatbot.app;
 import org.jspecify.annotations.Nullable;
 
 /**
- * 추천 관심사 문장의 규칙 (#718, #720). 강의·인플루언서의 위젯·버튼 API 검증, 버튼 쿼리 확장, 강의 Tool이 같은 규칙을 쓴다.
- * 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라 상수다. 인플루언서 Tool의 자르기 길이는 아직 설정값
- * ({@code hapbang.chatbot.recommend.influencer.interest-max-length})이고 합치는 일은 #835에서 한다.
+ * 추천 관심사 문장의 규칙 (#718, #720, #835). 강의·인플루언서의 위젯·버튼 API 검증, 버튼 쿼리 확장, 강의·인플루언서 Tool이 같은 규칙을 쓴다.
+ * 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라 상수다.
  */
 public final class RecommendInterest {
 

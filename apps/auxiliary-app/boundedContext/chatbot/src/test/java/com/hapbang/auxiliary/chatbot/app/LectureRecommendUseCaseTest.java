@@ -3,10 +3,6 @@ package com.hapbang.auxiliary.chatbot.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,7 +37,6 @@ import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private LectureRecommendUseCase useCase;
@@ -219,6 +214,23 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
         LectureRecommendation result = useCase.recommend(5, null);
 
         assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(50L);
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
+        assertThat(result.needsInterest()).isTrue();
+        assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
+    }
+
+    @Test
+    @DisplayName("결제 중(PENDING) 구매는 추천에서 빼지만 취향 신호는 아니다: 그것뿐이면 인기순과 needsInterest")
+    void pendingPurchaseIsExcludedButNotSignal() {
+        data.member(6);
+        lecture(60, 100, "결제 중인 강의", FakeEmbeddingModel.axis(0));
+        lecture(61, 200, "비슷한 강의", FakeEmbeddingModel.withCosine(0, 1, 0.99));
+        data.purchase(6, 6, 60, "PENDING", RecommendRows.AT);
+        indexAll(60, 61);
+
+        LectureRecommendation result = useCase.recommend(6, null);
+
+        assertThat(result.items()).extracting(LectureRecommendation.Item::lectureId).containsExactly(61L);
         assertThat(result.items()).allSatisfy(item -> assertThat(item.reason()).isEqualTo(LectureRecommendReason.POPULAR));
         assertThat(result.needsInterest()).isTrue();
         assertThat(result.basis()).isEqualTo(RecommendBasis.POPULAR);
@@ -451,7 +463,6 @@ class LectureRecommendUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     private static void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-lectures-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-lectures-test-8");
     }
 }

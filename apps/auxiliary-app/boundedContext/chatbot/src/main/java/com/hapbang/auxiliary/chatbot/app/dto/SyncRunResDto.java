@@ -12,7 +12,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /** 싱크 회차 (#716, 관리자 조회) */
 public record SyncRunResDto(
         Long id,
-        SyncType type,
+        @Schema(description = "APPEARANCE(출연), APPEARANCE_REVIEW(공개된 출연 리뷰), MEMBER(회원), LECTURE(강의), "
+                + "LECTURE_PURCHASE(구매), CART_ITEM(장바구니 항목), LECTURE_REVIEW(강의 리뷰 별점)") SyncType type,
         @Schema(description = "SCHEDULED(정기 배치, 종류마다 매시), RETRY(#717 전 재시도 배치, 지난 기록만), ADMIN(관리자 실행)") SyncTrigger trigger,
         @Schema(description = "관리자 실행이면 관리자 회원 ID") Long requestedBy,
         @Schema(description = "RUNNING, SUCCEEDED, FAILED, SKIPPED") SyncRunStatus status,

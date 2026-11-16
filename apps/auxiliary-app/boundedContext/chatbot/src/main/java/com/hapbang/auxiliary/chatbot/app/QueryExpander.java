@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,7 +46,7 @@ public class QueryExpander {
 
     QueryExpander(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder, LlmCallGuard llm,
             ChatbotRecommendLlmProperties properties, ChatbotMetrics metrics) {
-        this.chatClient = chatModel.getIfAvailable() == null ? null : chatClientBuilder.getObject().build();
+        this.chatClient = ChatbotChatClients.create(chatModel, chatClientBuilder, null);
         this.llm = llm;
         this.properties = properties;
         this.metrics = metrics;

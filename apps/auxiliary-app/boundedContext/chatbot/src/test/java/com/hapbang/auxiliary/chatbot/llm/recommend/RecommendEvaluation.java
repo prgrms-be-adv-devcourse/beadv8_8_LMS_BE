@@ -1,9 +1,5 @@
 package com.hapbang.auxiliary.chatbot.llm.recommend;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -345,11 +341,8 @@ abstract class RecommendEvaluation {
     }
 
     private void deleteIndexes() throws Exception {
-        HttpClient http = HttpClient.newHttpClient();
         for (IndexType type : IndexType.values()) {
-            String name = context.getBean(ChatbotIndexProperties.class).nameOf(type);
-            http.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + name)).DELETE().build(),
-                    HttpResponse.BodyHandlers.discarding());
+            ElasticsearchTestcontainersConfig.deleteIndex(context.getBean(ChatbotIndexProperties.class).nameOf(type));
         }
     }
 }

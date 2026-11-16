@@ -1,5 +1,10 @@
 package com.hapbang.auxiliary.chatbot.support;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 
 import org.springframework.boot.test.context.TestConfiguration;
@@ -18,6 +23,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 public class ElasticsearchTestcontainersConfig {
 
     private static final int PORT = 9200;
+    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     private static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>("elasticsearch:9.5.5")
             .withEnv("discovery.type", "single-node")
@@ -34,6 +40,12 @@ public class ElasticsearchTestcontainersConfig {
     /** 컨테이너 ES 주소(http://host:port) */
     public static String uri() {
         return "http://" + ELASTICSEARCH.getHost() + ":" + ELASTICSEARCH.getMappedPort(PORT);
+    }
+
+    /** 테스트가 쓴 index를 지운다. 없으면(404) 그냥 넘어간다 */
+    public static void deleteIndex(String index) throws IOException, InterruptedException {
+        HTTP.send(HttpRequest.newBuilder(URI.create(uri() + "/" + index)).DELETE().build(),
+                HttpResponse.BodyHandlers.discarding());
     }
 
     @Bean

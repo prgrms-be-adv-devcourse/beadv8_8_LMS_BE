@@ -24,6 +24,9 @@ public record ChatCardsResDto(
         @Schema(description = "인플루언서 카드. 인플루언서 추천 Tool을 부르지 않았으면 없다", nullable = true)
         @Nullable InfluencerCards influencers) {
 
+    private static final String BASIS = "후보의 근거(위젯 API와 같다). PERSONALIZED(맞춤 후보가 있음), POPULAR(맞춤 재료가 없어 인기순), "
+            + "POPULAR_TEMPORARY(검색이 잠시 실패해 인기순)";
+
     @JsonIgnore
     public boolean isEmpty() {
         return lectures == null && influencers == null;
@@ -33,10 +36,12 @@ public record ChatCardsResDto(
      * 강의 카드. 근거 코드는 위젯 API와 같다. 이유 문장(reasonText)은 기준 강의 제목 없이 쓴다(대화 화면에 그대로 나가고 LLM 글과
      * 같은 근거를 보이게. 위젯 API의 문장에는 제목이 들어갈 수 있다).
      */
-    public record LectureCards(RecommendBasis basis, List<LectureRecommendResDto.Item> items) {
+    public record LectureCards(@Schema(description = BASIS) RecommendBasis basis,
+                               List<LectureRecommendResDto.Item> items) {
     }
 
     /** 인플루언서 카드. 근거 코드는 위젯 API와 같다 */
-    public record InfluencerCards(RecommendBasis basis, List<InfluencerItemResDto> items) {
+    public record InfluencerCards(@Schema(description = BASIS) RecommendBasis basis,
+                                  List<InfluencerItemResDto> items) {
     }
 }

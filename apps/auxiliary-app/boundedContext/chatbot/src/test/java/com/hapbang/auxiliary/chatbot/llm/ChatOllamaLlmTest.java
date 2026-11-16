@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,9 +18,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
-import com.hapbang.auxiliary.chatbot.app.ChatbotConversationService;
+import com.hapbang.auxiliary.chatbot.app.ChatbotConversationUseCase;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.app.QueryExpander;
 import com.hapbang.auxiliary.chatbot.app.RecommendReranker;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
@@ -69,7 +65,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 })
 class ChatOllamaLlmTest {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final List<String> TOOLS = List.of("searchFaq", "recommendLectures", "recommendInfluencers");
 
     // 질문 → 기대 Tool(없음이면 Tool을 부르지 않아야 한다)
@@ -99,10 +94,10 @@ class ChatOllamaLlmTest {
     }
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
-    private ChatbotConversationService conversationService;
+    private ChatbotConversationUseCase conversationUseCase;
 
     @Autowired
     private RecommendReranker reranker;
@@ -119,7 +114,7 @@ class ChatOllamaLlmTest {
     @BeforeEach
     void setUp() throws Exception {
         deleteIndexes();
-        syncService.syncAll();
+        syncUseCase.syncAll();
         new CopyRows(jdbcTemplate).clear();
         RecommendRows data = new RecommendRows(jdbcTemplate);
         data.member(1);
@@ -174,7 +169,7 @@ class ChatOllamaLlmTest {
         int matched = 0;
         for (Map.Entry<String, String> question : QUESTIONS.entrySet()) {
             Map<String, Double> before = toolCalls();
-            ChatAnswerResDto answer = conversationService.chat(1L, question.getKey(), conversationService.checkHistory(List.of()));
+            ChatAnswerResDto answer = conversationUseCase.chat(1L, question.getKey(), conversationUseCase.checkHistory(List.of()));
             Map<String, Double> after = toolCalls();
             List<String> called = new ArrayList<>();
             for (String tool : TOOLS) {
@@ -209,8 +204,7 @@ class ChatOllamaLlmTest {
     private static void deleteIndexes() throws Exception {
         for (String index : List.of("chatbot-faq-ollama-768-llm", "chatbot-lectures-ollama-768-llm",
                 "chatbot-influencers-ollama-768-llm")) {
-            HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/" + index))
-                    .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+            ElasticsearchTestcontainersConfig.deleteIndex(index);
         }
     }
 }

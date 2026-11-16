@@ -9,10 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.auxiliary.chatbot.app.dto.SyncRunDetailResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.SyncRunResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.SyncRunStartResDto;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.domain.SyncRun;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.out.SyncMismatchRepository;
 import com.hapbang.auxiliary.chatbot.out.SyncRunRepository;
 
@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize(ChatbotRoles.ADMIN)
 public class ChatbotSyncAdminFacade {
 
     private final ChatbotAdminGuard chatbotAdminGuard;

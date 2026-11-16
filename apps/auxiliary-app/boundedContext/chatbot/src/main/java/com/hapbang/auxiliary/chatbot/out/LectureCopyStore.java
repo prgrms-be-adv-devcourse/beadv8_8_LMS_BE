@@ -8,6 +8,8 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.LectureCopies;
 
 import lombok.RequiredArgsConstructor;
@@ -22,19 +24,18 @@ public class LectureCopyStore {
 
     static final CopyTable LECTURE = new CopyTable("lecture_copy", "id",
             List.of("seller_user_id", "title", "description", "content_titles", "on_sale", "deleted"),
-            Set.of("content_titles"), true, true);
+            Set.of("content_titles"), true);
     static final CopyTable PURCHASE = new CopyTable("lecture_purchase_copy", "order_item_id",
-            List.of("buyer_user_id", "lecture_id", "result", "ordered_at", "purchased_at"), Set.of(), true, true);
+            List.of("buyer_user_id", "lecture_id", "result", "ordered_at", "purchased_at"), Set.of(), true);
     static final CopyTable CART_ITEM = new CopyTable("cart_item_copy", "id",
-            List.of("user_id", "lecture_id", "deleted", "added_at"), Set.of(), true, true);
+            List.of("user_id", "lecture_id", "deleted", "added_at"), Set.of(), true);
     static final CopyTable REVIEW = new CopyTable("lecture_review_copy", "id",
-            List.of("lecture_id", "reviewer_user_id", "rating", "counted", "deleted"), Set.of(), true, true);
+            List.of("lecture_id", "reviewer_user_id", "rating", "counted", "deleted"), Set.of(), true);
 
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    /** @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite save(LectureCopies.Lecture copy, Long runId, LocalDateTime now) {
+    public CopyWrite save(LectureCopies.Lecture copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", copy.id())
                 .addValue("seller_user_id", copy.sellerUserId())
@@ -43,11 +44,10 @@ public class LectureCopyStore {
                 .addValue("content_titles", JsonColumns.write(copy.contentTitles()))
                 .addValue("on_sale", copy.onSale())
                 .addValue("deleted", copy.deleted());
-        return LECTURE.save(jdbc, params, copy.version(), copy.hash(), runId, now);
+        return LECTURE.save(jdbc, params, copy.version(), copy.hash(), source.runId(), now);
     }
 
-    /** @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite save(LectureCopies.Purchase copy, Long runId, LocalDateTime now) {
+    public CopyWrite save(LectureCopies.Purchase copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("order_item_id", copy.orderItemId())
                 .addValue("buyer_user_id", copy.buyerUserId())
@@ -55,22 +55,20 @@ public class LectureCopyStore {
                 .addValue("result", copy.result().name())
                 .addValue("ordered_at", copy.orderedAt())
                 .addValue("purchased_at", copy.purchasedAt());
-        return PURCHASE.save(jdbc, params, copy.version(), copy.hash(), runId, now);
+        return PURCHASE.save(jdbc, params, copy.version(), copy.hash(), source.runId(), now);
     }
 
-    /** @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite save(LectureCopies.CartItem copy, Long runId, LocalDateTime now) {
+    public CopyWrite save(LectureCopies.CartItem copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", copy.id())
                 .addValue("user_id", copy.userId())
                 .addValue("lecture_id", copy.lectureId())
                 .addValue("deleted", copy.deleted())
                 .addValue("added_at", copy.addedAt());
-        return CART_ITEM.save(jdbc, params, copy.version(), copy.hash(), runId, now);
+        return CART_ITEM.save(jdbc, params, copy.version(), copy.hash(), source.runId(), now);
     }
 
-    /** @param runId 싱크 회차 ID. 이벤트면 null */
-    public CopyWrite save(LectureCopies.Review copy, Long runId, LocalDateTime now) {
+    public CopyWrite save(LectureCopies.Review copy, ApplySource source, LocalDateTime now) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", copy.id())
                 .addValue("lecture_id", copy.lectureId())
@@ -78,7 +76,7 @@ public class LectureCopyStore {
                 .addValue("rating", copy.rating())
                 .addValue("counted", copy.counted())
                 .addValue("deleted", copy.deleted());
-        return REVIEW.save(jdbc, params, copy.version(), copy.hash(), runId, now);
+        return REVIEW.save(jdbc, params, copy.version(), copy.hash(), source.runId(), now);
     }
 
     public List<MissingCopy> markMissingLectures(long runId, LocalDateTime startedAt) {

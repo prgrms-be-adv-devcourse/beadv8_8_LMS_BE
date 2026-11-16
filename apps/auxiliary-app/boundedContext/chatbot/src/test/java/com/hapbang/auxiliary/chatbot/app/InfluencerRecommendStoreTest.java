@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.support.CopyRows;
@@ -71,6 +72,6 @@ class InfluencerRecommendStoreTest extends InfluencerIntegrationTestBase {
     }
 
     private void appearance(long id, long hostId, long guestId, AppearanceResult result) {
-        copyApplier.apply(new AppearanceSyncDto(id, hostId, guestId, result, CopyRows.SCHEDULED_AT, 0L), null);
+        copyApplier.apply(new AppearanceSyncDto(id, hostId, guestId, result, CopyRows.SCHEDULED_AT, 0L), ApplySource.EVENT);
     }
 }

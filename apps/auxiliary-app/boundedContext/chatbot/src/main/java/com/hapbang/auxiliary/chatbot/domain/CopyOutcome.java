@@ -2,6 +2,9 @@ package com.hapbang.auxiliary.chatbot.domain;
 
 import java.util.Objects;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 받은 값(이벤트·싱크)을 사본에 반영한 결과 (#716). 이벤트와 싱크가 같은 판정을 쓴다.
  * <p>
@@ -23,26 +26,24 @@ import java.util.Objects;
  * 마스킹한 회원의 데이터(#717)는 반영하지 않고 {@link #DISCARDED}로 센다. 어긋남·경고 집계에 넣지 않는다. 마스킹 회원의 회원 행은
  * 역할·상태만 반영하지만 분야·자기소개를 버리므로 역시 {@link #DISCARDED}로 센다.
  */
+@RequiredArgsConstructor
 public enum CopyOutcome {
 
-    INSERTED(SyncMismatchKind.ONLY_IN_SOURCE, true),
-    SOURCE_NEWER(SyncMismatchKind.SOURCE_NEWER, true),
-    VERSION_ONLY(null, false),
-    UNCHANGED(null, false),
-    SAME_VERSION_DIFFERENT(SyncMismatchKind.SAME_VERSION_DIFFERENT, true),
-    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false),
+    INSERTED(SyncMismatchKind.ONLY_IN_SOURCE, true, "우리 행이 없어 넣음"),
+    SOURCE_NEWER(SyncMismatchKind.SOURCE_NEWER, true, "원본이 새것이라 반영함"),
+    VERSION_ONLY(null, false, "값은 같고 version만 올림"),
+    UNCHANGED(null, false, "바뀐 것 없음"),
+    SAME_VERSION_DIFFERENT(SyncMismatchKind.SAME_VERSION_DIFFERENT, true, "같은 version인데 값이 달라 원본으로 고침"),
+    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false, "우리 version이 커서 무시함"),
     /** 마스킹한 회원의 데이터라 버렸다(회원 행은 역할·상태만 반영) (#717) */
-    DISCARDED(null, false);
+    DISCARDED(null, false, "마스킹한 회원의 데이터라 버림");
 
     /** 싱크 회차에 남길 어긋남. 정상이면 null */
     private final SyncMismatchKind mismatch;
     /** 사본의 값(해시)이 바뀌었는지 */
     private final boolean valueChanged;
-
-    CopyOutcome(SyncMismatchKind mismatch, boolean valueChanged) {
-        this.mismatch = mismatch;
-        this.valueChanged = valueChanged;
-    }
+    @Getter
+    private final String description;
 
     /**
      * 반영 전 우리 행과 받은 값으로 결과를 정한다.

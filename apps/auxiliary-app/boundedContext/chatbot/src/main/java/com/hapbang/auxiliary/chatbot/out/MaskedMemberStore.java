@@ -87,6 +87,7 @@ public class MaskedMemberStore {
     }
 
     /** 마스킹하면 그 회원의 행을 지우는 사본. 사본을 더하면 여기에만 적는다 */
+    @RequiredArgsConstructor
     public enum OwnedCopy {
         PURCHASE("lecture_purchase_copy", "buyer_user_id"),
         CART_ITEM("cart_item_copy", "user_id"),
@@ -95,11 +96,6 @@ public class MaskedMemberStore {
 
         private final String table;
         private final String userColumn;
-
-        OwnedCopy(String table, String userColumn) {
-            this.table = table;
-            this.userColumn = userColumn;
-        }
 
         // 회원 열 조건(예: "= :userId")에 맞는 행을 지우는 문장
         private String delete(String userCondition) {

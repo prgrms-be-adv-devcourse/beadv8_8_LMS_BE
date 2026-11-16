@@ -12,8 +12,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.domain.Faq;
-import com.hapbang.auxiliary.chatbot.domain.FaqRepository;
+import com.hapbang.auxiliary.chatbot.out.FaqRepository;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 
 import lombok.extern.slf4j.Slf4j;

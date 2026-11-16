@@ -13,7 +13,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotErrorCode;
+import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
+import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
+import com.hapbang.auxiliary.chatbot.config.ChatbotSyncProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatch;
 import com.hapbang.auxiliary.chatbot.domain.SyncMismatchKind;
 import com.hapbang.auxiliary.chatbot.domain.SyncRun;
@@ -21,15 +26,14 @@ import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
 import com.hapbang.auxiliary.chatbot.domain.SyncTally;
 import com.hapbang.auxiliary.chatbot.domain.SyncTrigger;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
-import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.auxiliary.chatbot.out.SyncMismatchRepository;
 import com.hapbang.auxiliary.chatbot.out.SyncRunRepository;
 import com.hapbang.auxiliary.global.scheduling.JobLock;
 import com.hapbang.shared.appearance.out.AppearanceApiCallException;
+import com.hapbang.shared.lecture.out.LectureApiCallException;
+import com.hapbang.shared.member.out.MemberApiCallException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -114,8 +118,7 @@ public class ChatbotSyncUseCase {
             return skipped(type, trigger, "다른 실행이 락을 쥐고 있습니다.");
         }
         try (JobLock.Lease ignored = lease.get()) {
-            closeOrphans(type);
-            return execute(target, syncRunRepository.save(SyncRun.start(type, trigger, null, now())));
+            return execute(target, startRun(type, trigger, null));
         }
     }
 
@@ -131,13 +134,14 @@ public class ChatbotSyncUseCase {
         try {
             found = jobLock.tryAcquire(target.job());
         } catch (JobLock.JobLockException e) {
+            // 공통 핸들러는 다시 보내면 되는 거절을 DEBUG로만 남긴다. 관리자 실행은 드물어 요청마다 WARN으로 남긴다
+            log.warn("실행 락을 시도하지 못해 관리자 싱크를 시작하지 못했다 type={}, adminId={}", type, adminId, e);
             throw new ChatbotException(ChatbotErrorCode.SYNC_LOCK_UNAVAILABLE, e);
         }
         JobLock.Lease lease = found.orElseThrow(() -> new ChatbotException(ChatbotErrorCode.SYNC_ALREADY_RUNNING));
         SyncRun run = null;
         try {
-            closeOrphans(type);
-            run = syncRunRepository.save(SyncRun.start(type, SyncTrigger.ADMIN, adminId, now()));
+            run = startRun(type, SyncTrigger.ADMIN, adminId);
             SyncRun started = run;
             taskExecutor.execute(() -> {
                 try (JobLock.Lease ignored = lease) {
@@ -149,11 +153,22 @@ public class ChatbotSyncUseCase {
         } catch (RuntimeException e) {
             lease.close();
             if (run != null) {
-                run.fail(new SyncTally(), "실행을 시작하지 못했습니다: " + rootMessage(e), now());
-                syncRunRepository.save(run);
+                // 기록이 실패해도 시작을 막은 원래 예외를 던진다. 기록 실패는 suppressed로 붙인다
+                try {
+                    run.fail(new SyncTally(), "실행을 시작하지 못했습니다: " + rootMessage(e), now());
+                    syncRunRepository.save(run);
+                } catch (RuntimeException recordFailure) {
+                    e.addSuppressed(recordFailure);
+                }
             }
             throw e;
         }
+    }
+
+    // 락을 쥔 뒤 배치·관리자 실행이 같게 한다: 이전 실행이 남긴 회차를 닫고 새 회차를 RUNNING으로 남긴다
+    private SyncRun startRun(SyncType type, SyncTrigger trigger, Long adminId) {
+        closeOrphans(type);
+        return syncRunRepository.save(SyncRun.start(type, trigger, adminId, now()));
     }
 
     // 락을 쥔 지금 그 종류의 RUNNING 회차는 끝을 기록하지 못한 이전 실행이다(DB 장애, pod 종료). 실패로 닫는다
@@ -181,41 +196,68 @@ public class ChatbotSyncUseCase {
         long startNanos = System.nanoTime();
         SyncType type = target.type();
         SyncTally tally = new SyncTally();
-        Mismatches mismatches = new Mismatches(run.getId(), type, 0);
+        Mismatches mismatches = Mismatches.none(run.getId(), type);
         try {
             boolean firstRun = !syncRunRepository.existsByTypeAndStatus(type, SyncRunStatus.SUCCEEDED);
-            mismatches = new Mismatches(run.getId(), type, firstRun ? 0 : properties.mismatchMaxRows());
+            mismatches = firstRun ? Mismatches.none(run.getId(), type)
+                    : Mismatches.upTo(run.getId(), type, properties.mismatchMaxRows());
             log.info("싱크를 시작한다 type={}, runId={}, trigger={}, firstRun={}", type, run.getId(), run.getTrigger(),
                     firstRun);
-            Long afterId = null;
-            do {
-                SyncTarget.Page<T> page = target.fetch(afterId, properties.pageSize());
-                verify(target, page, afterId, properties.pageSize());
-                for (T item : page.items()) {
-                    CopyWrite write = target.apply(item, run.getId());
-                    tally.add(write.outcome());
-                    mismatches.add(target.idOf(item), write.outcome().mismatch(), write.ourVersion(), target.versionOf(item));
-                }
-                afterId = page.nextAfterId();
-            } while (afterId != null);
-            List<MissingCopy> missing = target.markMissing(run.getId(), run.getStartedAt());
-            for (MissingCopy row : missing) {
-                mismatches.add(row.sourceId(), SyncMismatchKind.MISSING_IN_SOURCE, row.ourVersion(), null);
-            }
+            applyAllPages(target, run, tally, mismatches);
+            int markedMissing = markMissing(target, run, mismatches);
             boolean warning = !firstRun && tally.warns(properties.warningRatio(), properties.warningMinChanged());
-            run.succeed(tally, missing.size(), warning, now());
+            run.succeed(tally, markedMissing, warning, now());
         } catch (RuntimeException e) {
             run.fail(tally, describe(e), now());
-            // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
-            if (longWithoutSuccess(type)) {
-                log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
-                        + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
-                        properties.failureAlertAfter(), e);
-            } else {
-                log.warn("싱크가 중간에 멈췄다 type={}, runId={}, trigger={}, scanned={}", type, run.getId(), run.getTrigger(),
-                        tally.scanned(), e);
-            }
+            logStopped(run, tally, e);
         }
+        record(run, mismatches);
+        purgeMasked(run);
+        metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
+        logFinished(run);
+        return run;
+    }
+
+    // 원본을 처음부터 끝까지 페이지로 읽어 항목마다 반영하고 결과를 센다
+    private <T> void applyAllPages(SyncTarget<T> target, SyncRun run, SyncTally tally, Mismatches mismatches) {
+        Long afterId = null;
+        do {
+            SyncTarget.Page<T> page = target.fetch(afterId, properties.pageSize());
+            verify(target, page, afterId, properties.pageSize());
+            for (T item : page.items()) {
+                CopyWrite write = target.apply(item, run.getId());
+                tally.add(write.outcome());
+                mismatches.add(target.idOf(item), write.outcome().mismatch(), write.ourVersion(), target.versionOf(item));
+            }
+            afterId = page.nextAfterId();
+        } while (afterId != null);
+    }
+
+    // 끝까지 읽은 뒤 원본에 없던 행을 표시하고 어긋남으로 남긴다. 새로 표시한 행 수를 돌려준다
+    private <T> int markMissing(SyncTarget<T> target, SyncRun run, Mismatches mismatches) {
+        List<MissingCopy> missing = target.markMissing(run.getId(), run.getStartedAt());
+        for (MissingCopy row : missing) {
+            mismatches.add(row.sourceId(), SyncMismatchKind.MISSING_IN_SOURCE, row.ourVersion(), null);
+        }
+        return missing.size();
+    }
+
+    // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
+    private void logStopped(SyncRun run, SyncTally tally, RuntimeException e) {
+        SyncType type = run.getType();
+        if (longWithoutSuccess(type)) {
+            log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
+                    + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
+                    properties.failureAlertAfter(), e);
+        } else {
+            log.warn("싱크가 중간에 멈췄다 type={}, runId={}, trigger={}, scanned={}", type, run.getId(), run.getTrigger(),
+                    tally.scanned(), e);
+        }
+    }
+
+    // 회차 결과와 어긋남 행을 남기고, 보관 개수·기간이 지난 기록을 지운다. 실패해도 예외를 던지지 않는다
+    private void record(SyncRun run, Mismatches mismatches) {
+        SyncType type = run.getType();
         try {
             syncRunRepository.save(run);
             syncMismatchRepository.saveAll(mismatches.rows);
@@ -228,8 +270,10 @@ public class ChatbotSyncUseCase {
             log.error("[CHATBOT_SYNC_RECORD_FAILED] 싱크 회차 결과를 기록하지 못했다 type={}, runId={}, status={}", type,
                     run.getId(), run.getStatus(), e);
         }
-        purgeMasked(type, run);
-        metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
+    }
+
+    private void logFinished(SyncRun run) {
+        SyncType type = run.getType();
         if (run.isWarning()) {
             // 이벤트 반영이 크게 어긋났다(소비 중단 등). 싱크가 고쳤지만 원인은 사람이 봐야 한다
             log.error("[CHATBOT_SYNC_MISMATCH] 싱크가 넣거나 고친 비율이 크다 type={}, runId={}, scanned={}, inserted={}, fixed={}",
@@ -238,7 +282,6 @@ public class ChatbotSyncUseCase {
         log.info("싱크를 마쳤다 type={}, runId={}, status={}, scanned={}, inserted={}, fixed={}, oursNewer={}, markedMissing={}, "
                         + "discarded={}", type, run.getId(), run.getStatus(), run.getScanned(), run.getInserted(), run.getFixed(),
                 run.getOursNewer(), run.getMarkedMissing(), run.getDiscarded());
-        return run;
     }
 
     // 그 종류가 알림 기준 시간 동안 성공하지 못했는지(첫 배포 뒤 아직 성공이 없는 것도 포함)
@@ -253,14 +296,14 @@ public class ChatbotSyncUseCase {
     }
 
     // 마스킹 회원의 행이 어떤 경로로든 남았으면 지운다(#717 멱등 정리). 실패해도 회차 결과는 그대로 두고 다음 회차가 다시 한다
-    private void purgeMasked(SyncType type, SyncRun run) {
+    private void purgeMasked(SyncRun run) {
         try {
             long purged = maskedMemberStore.purgeAll();
             if (purged > 0) {
-                log.info("마스킹 회원의 남은 사본 행을 지웠다 type={}, runId={}, purged={}", type, run.getId(), purged);
+                log.info("마스킹 회원의 남은 사본 행을 지웠다 type={}, runId={}, purged={}", run.getType(), run.getId(), purged);
             }
         } catch (RuntimeException e) {
-            log.warn("마스킹 회원 정리를 하지 못했다 type={}, runId={}", type, run.getId(), e);
+            log.warn("마스킹 회원 정리를 하지 못했다 type={}, runId={}", run.getType(), run.getId(), e);
         }
     }
 
@@ -285,12 +328,22 @@ public class ChatbotSyncUseCase {
         }
     }
 
+    // 원본 API 호출 실패는 사유·상태·오류 코드로 적는다. 세 원본 모두 같은 모양
     private static String describe(RuntimeException e) {
         if (e instanceof AppearanceApiCallException call) {
-            return "출연 내부 API 호출 실패 reason=" + call.getReason() + ", status=" + call.getStatus() + ", code="
-                    + call.getCode();
+            return describeCall("출연", call.getReason(), call.getStatus(), call.getCode());
+        }
+        if (e instanceof MemberApiCallException call) {
+            return describeCall("회원", call.getReason(), call.getStatus(), call.getCode());
+        }
+        if (e instanceof LectureApiCallException call) {
+            return describeCall("강의", call.getReason(), call.getStatus(), call.getCode());
         }
         return e.getClass().getSimpleName() + ": " + e.getMessage();
+    }
+
+    private static String describeCall(String source, Enum<?> reason, int status, String code) {
+        return source + " 내부 API 호출 실패 reason=" + reason + ", status=" + status + ", code=" + code;
     }
 
     private static String rootMessage(Throwable e) {
@@ -317,6 +370,16 @@ public class ChatbotSyncUseCase {
             this.runId = runId;
             this.type = type;
             this.max = max;
+        }
+
+        /** 행을 남기지 않는다. 첫 실행(원본 전체가 어긋남)과 첫 실행인지 알기 전에 실패한 회차 */
+        private static Mismatches none(Long runId, SyncType type) {
+            return new Mismatches(runId, type, 0);
+        }
+
+        /** 최대 {@code max}행까지 남긴다 */
+        private static Mismatches upTo(Long runId, SyncType type, int max) {
+            return new Mismatches(runId, type, max);
         }
 
         private void add(long sourceId, SyncMismatchKind kind, Long ourVersion, Long sourceVersion) {

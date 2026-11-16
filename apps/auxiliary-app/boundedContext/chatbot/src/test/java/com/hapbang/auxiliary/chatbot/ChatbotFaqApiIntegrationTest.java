@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,10 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -32,7 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.hapbang.auxiliary.chatbot.app.FaqSeed;
 import com.hapbang.auxiliary.chatbot.app.FaqSeedReader;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
@@ -40,6 +37,8 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+
+import com.jayway.jsonpath.JsonPath;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -53,13 +52,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 @TestPropertySource(properties = "hapbang.chatbot.faq.rate-limit.limit=3")
 class ChatbotFaqApiIntegrationTest {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
     private FaqSeedReader seedReader;
@@ -84,7 +82,7 @@ class ChatbotFaqApiIntegrationTest {
         cancelFaq = seeds.stream().filter(seed -> seed.code().equals("FAQ-501")).findFirst().orElseThrow();
         embeddingModel.put(cancelFaq.question(), FakeEmbeddingModel.axis(0));
         embeddingModel.put(FakeEmbeddingModel.query("출연 취소하면?"), FakeEmbeddingModel.axis(0));
-        syncService.syncAll();
+        syncUseCase.syncAll();
     }
 
     @AfterEach
@@ -107,8 +105,11 @@ class ChatbotFaqApiIntegrationTest {
         mockMvc.perform(get("/api/v1/chatbot/faqs").with(login(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(53)))
+                .andExpect(jsonPath("$.data[0]", aMapWithSize(4)))
                 .andExpect(jsonPath("$.data[0].code").value("FAQ-001"))
-                .andExpect(jsonPath("$.data[0].category").value("ACCOUNT"));
+                .andExpect(jsonPath("$.data[0].category").value("ACCOUNT"))
+                .andExpect(jsonPath("$.data[0].question").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].answer").isNotEmpty());
         mockMvc.perform(get("/api/v1/chatbot/faqs").param("category", "HP").with(login(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(5)))
@@ -213,19 +214,43 @@ class ChatbotFaqApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("요청 값 검증: 메시지 1~500자, 검색어 1~200자, 모르는 분류는 400")
+    @DisplayName("요청 값 검증: 메시지 1~500자(스트림도), 검색어 1~200자, 모르는 분류는 400")
     void validation() throws Exception {
         mockMvc.perform(chat("/api/v1/chatbot/chat/faq", " ").with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(chat("/api/v1/chatbot/chat/faq", "가".repeat(501)).with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
+        mockMvc.perform(chat("/api/v1/chatbot/chat/faq/stream", " ").with(login(8L, Role.USER))
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "가".repeat(201)).with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "").with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/chatbot/faqs").param("category", "COUPON").with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("검색어 글자 수는 코드 포인트로 센다: 이모지 200개(UTF-16 400)는 검색하고, 201개는 한글 201자와 같은 400 응답")
+    void searchQueryCountsCodePoints() throws Exception {
+        String emoji = "😀";
+        String hangulBody = mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "가".repeat(201))
+                        .with(login(9L, Role.USER)))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String sizeMessage = JsonPath.read(hangulBody, "$.errors[0].message");
+        assertThat(sizeMessage).contains("200");
+
+        mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", emoji.repeat(201)).with(login(9L, Role.USER)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("q"))
+                .andExpect(jsonPath("$.errors[0].message").value(sizeMessage));
+        mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", emoji.repeat(200)).with(login(9L, Role.USER)))
+                .andExpect(status().isOk());
     }
 
     private static MockHttpServletRequestBuilder chat(String path, String message) {
@@ -242,7 +267,6 @@ class ChatbotFaqApiIntegrationTest {
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-faq-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-faq-test-8");
     }
 }

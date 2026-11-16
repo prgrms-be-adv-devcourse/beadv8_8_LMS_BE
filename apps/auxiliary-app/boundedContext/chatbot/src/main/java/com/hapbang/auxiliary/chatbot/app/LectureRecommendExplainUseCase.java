@@ -11,13 +11,12 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
-import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
-import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
-
-import lombok.RequiredArgsConstructor;
+import com.hapbang.auxiliary.chatbot.domain.LectureListing;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 /**
- * 챗봇 "강의 추천받기" 버튼 경로 (#718, #720). 쿼리 확장(관심사가 있을 때) → 맞춤 후보 풀 → LLM 리랭킹 + 이유 → 인기순 채우기.
+ * 챗봇 "강의 추천받기" 버튼 경로 (#718, #720). 쿼리 확장(관심사가 있을 때) → 맞춤 후보 풀 → LLM 리랭킹 + 이유 → 인기순 채우기
+ * (인플루언서 버튼과 같은 흐름 {@link RecommendExplainFlow}).
  * <ul>
  *     <li><b>후보 풀은 코드가 만든다</b>({@link LectureRecommendUseCase#pool}, 맞춤 후보만, 제외 규칙·판매자당 상한 적용). LLM은 풀에서만
  *     고른다. 풀이 비면(신호도 관심사도 없음, 검색 장애) LLM을 부르지 않고 인기순이다.</li>
@@ -29,47 +28,52 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  */
 @Component
-@RequiredArgsConstructor
 public class LectureRecommendExplainUseCase {
 
     private final LectureRecommendUseCase recommendUseCase;
-    private final LectureRecommendStore store;
-    private final QueryExpander queryExpander;
-    private final RecommendReranker reranker;
-    private final RecommendTasteSupport tasteSupport;
+    private final RecommendExplainFlow flow;
     private final ChatbotLectureRecommendProperties properties;
     private final ChatbotRecommendLlmProperties llmProperties;
+
+    LectureRecommendExplainUseCase(LectureRecommendUseCase recommendUseCase, QueryExpander queryExpander,
+            RecommendReranker reranker, RecommendTasteSupport tasteSupport, ChatbotLectureRecommendProperties properties,
+            ChatbotRecommendLlmProperties llmProperties) {
+        this.recommendUseCase = recommendUseCase;
+        this.flow = new RecommendExplainFlow(queryExpander, reranker, tasteSupport, llmProperties);
+        this.properties = properties;
+        this.llmProperties = llmProperties;
+    }
 
     /**
      * @param interest 관심사 원문({@link RecommendInterest#normalize}를 거친 값). 없으면 null
      */
     public Explained recommend(long memberId, @Nullable String interest) {
-        List<String> queries = interest == null ? null : queryExpander.expand(interest);
-        LectureRecommendUseCase.Pool pool = recommendUseCase.pool(memberId, queries, llmProperties.rerank().poolSize());
-        if (pool.ranked().isEmpty()) {
-            return new Explained(recommendUseCase.complete(pool, List.of()), false);
-        }
-        List<Long> ids = pool.lectureIds();
-        RecommendReranker.Reranked reranked = reranker.rerank(Feature.LECTURE_BUTTON, "수강할 강의", candidateLines(pool),
-                properties.resultSize(), tasteSupport.read(memberId, interest));
-        Map<Long, String> llmReasons = reranked.reasonsById(ids);
-        LectureRecommendation recommendation = recommendUseCase.complete(pool, reranked.chosenThenRest(ids))
+        RecommendExplainFlow.Steps<LectureRecommendUseCase.Pool, LectureRecommendation> steps = new RecommendExplainFlow.Steps<>(
+                (queries, poolSize) -> recommendUseCase.pool(memberId, queries, poolSize),
+                LectureRecommendUseCase.Pool::lectureIds,
+                this::candidateLines,
+                recommendUseCase::complete);
+        RecommendExplainFlow.Explained<LectureRecommendation> explained = flow.recommend(Feature.LECTURE_BUTTON, "수강할 강의",
+                memberId, interest, properties.resultSize(), steps);
+        Map<Long, String> llmReasons = explained.llmReasons();
+        LectureRecommendation recommendation = explained.recommendation()
                 .withReasonTexts(item -> llmReasons.getOrDefault(item.lectureId(), item.reasonText()));
-        return new Explained(recommendation, reranked.fallback() != null);
+        return new Explained(recommendation, explained.fallback());
     }
 
-    // 강의마다 공개 정보 한 줄: 제목·소개(잘라서)·이유 코드 설명. 기준 강의 제목(회원이 산 강의)은 넣지 않는다
+    // 강의마다 공개 정보 한 줄: 제목·소개(잘라서)·이유 코드 설명. 기준 강의 제목(회원이 산 강의)은 넣지 않는다.
+    // 강의는 풀을 만들 때 읽은 사본을 쓴다(다시 읽지 않는다)
     private List<String> candidateLines(LectureRecommendUseCase.Pool pool) {
-        Map<Long, LectureSnapshot> lectures = store.lectures(pool.lectureIds());
+        Map<Long, LectureListing> lectures = pool.lectures();
         int descriptionMax = llmProperties.rerank().descriptionMaxLength();
         List<String> lines = new ArrayList<>();
         for (LectureRanker.Ranked ranked : pool.ranked()) {
-            LectureSnapshot lecture = lectures.get(ranked.lectureId());
+            LectureListing lecture = lectures.get(ranked.lectureId());
             String title = lecture == null ? "" : lecture.title();
             String description = lecture == null || lecture.description() == null ? ""
                     : TextCut.head(lecture.description(), descriptionMax).replace('\n', ' ');
             lines.add("제목: " + title + " | 소개: " + description + " | 추천 근거: "
-                    + pool.reasons().get(ranked.lectureId()).reason().description());
+                    + pool.reasons().get(ranked.lectureId()).reason().getDescription());
         }
         return lines;
     }

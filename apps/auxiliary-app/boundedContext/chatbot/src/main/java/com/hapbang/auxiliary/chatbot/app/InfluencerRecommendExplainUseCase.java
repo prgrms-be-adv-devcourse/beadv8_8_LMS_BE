@@ -16,11 +16,9 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 
-import lombok.RequiredArgsConstructor;
-
 /**
- * 챗봇 "인플루언서 추천받기" 버튼 경로 (#719, #720). 강의 버튼과 같은 흐름이다: 쿼리 확장(관심사가 있을 때) → 맞춤 후보 풀 →
- * LLM 리랭킹 + 이유({@link RecommendReranker}) → 남은 풀(코드 순서) → 인기순 채우기.
+ * 챗봇 "인플루언서 추천받기" 버튼 경로 (#719, #720). 강의 버튼과 같은 흐름({@link RecommendExplainFlow})이다: 쿼리 확장(관심사가 있을 때) →
+ * 맞춤 후보 풀 → LLM 리랭킹 + 이유({@link RecommendReranker}) → 남은 풀(코드 순서) → 인기순 채우기.
  * <ul>
  *     <li>프롬프트에는 후보의 공개 수치만 넣는다: 분야 이름, 후보가 완료한 출연 수(요청 회원과 함께한 수가 아님), 평균 별점, 이유 코드.
  *     <b>후보의 닉네임·자기소개 원문, 회원 ID, 함께 출연한 이력은 넣지 않는다.</b> 요청 회원의 취향은 {@code rerank.taste=PUBLIC}일 때만
@@ -29,38 +27,44 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  */
 @Component
-@RequiredArgsConstructor
 public class InfluencerRecommendExplainUseCase {
 
     private final InfluencerRecommendUseCase useCase;
-    private final QueryExpander queryExpander;
-    private final RecommendReranker reranker;
-    private final RecommendTasteSupport tasteSupport;
+    private final RecommendExplainFlow flow;
     private final ChatbotCategoryNames categoryNames;
     private final ChatbotInfluencerRecommendProperties properties;
-    private final ChatbotRecommendLlmProperties llmProperties;
+
+    InfluencerRecommendExplainUseCase(InfluencerRecommendUseCase useCase, QueryExpander queryExpander,
+            RecommendReranker reranker, RecommendTasteSupport tasteSupport, ChatbotCategoryNames categoryNames,
+            ChatbotInfluencerRecommendProperties properties, ChatbotRecommendLlmProperties llmProperties) {
+        this.useCase = useCase;
+        this.flow = new RecommendExplainFlow(queryExpander, reranker, tasteSupport, llmProperties);
+        this.categoryNames = categoryNames;
+        this.properties = properties;
+    }
 
     /**
      * @param interest 관심사 원문(앞뒤 공백을 뺀 값). 없으면 null
      */
     public Explained recommend(long userId, @Nullable String interest) {
-        List<String> queries = interest == null ? null : queryExpander.expand(interest);
-        InfluencerRecommendUseCase.Pool pool = useCase.pool(userId, queries, llmProperties.rerank().poolSize());
-        if (pool.candidates().isEmpty()) {
-            InfluencerRecommendation recommendation = useCase.complete(pool, List.of());
-            return new Explained(recommendation, sentences(recommendation, Map.of()), false);
-        }
+        RecommendExplainFlow.Steps<InfluencerRecommendUseCase.Pool, InfluencerRecommendation> steps = new RecommendExplainFlow.Steps<>(
+                (queries, poolSize) -> useCase.pool(userId, queries, poolSize),
+                InfluencerRecommendUseCase.Pool::memberIds,
+                this::candidateLines,
+                useCase::complete);
+        RecommendExplainFlow.Explained<InfluencerRecommendation> explained = flow.recommend(Feature.INFLUENCER_BUTTON,
+                "함께 방송할 출연 상대", userId, interest, properties.size(), steps);
+        InfluencerRecommendation recommendation = explained.recommendation();
+        return new Explained(recommendation, sentences(recommendation, explained.llmReasons()), explained.fallback());
+    }
+
+    private List<String> candidateLines(InfluencerRecommendUseCase.Pool pool) {
         List<Candidate> described = useCase.describe(pool);
         List<String> lines = new ArrayList<>();
         for (Candidate candidate : described) {
             lines.add(line(candidate));
         }
-        RecommendReranker.Reranked reranked = reranker.rerank(Feature.INFLUENCER_BUTTON, "함께 방송할 출연 상대", lines,
-                properties.size(), tasteSupport.read(userId, interest));
-        List<Long> ids = pool.memberIds();
-        Map<Long, String> llmReasons = reranked.reasonsById(ids);
-        InfluencerRecommendation recommendation = useCase.complete(pool, reranked.chosenThenRest(ids));
-        return new Explained(recommendation, sentences(recommendation, llmReasons), reranked.fallback() != null);
+        return lines;
     }
 
     /** 이유 코드를 정해진 문장으로(LLM이 고르지 않은 후보·LLM 실패) */

@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +31,6 @@ import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 class LectureIndexTest extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     private LectureIndexTaskHandler handler;
@@ -108,6 +103,21 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
         LectureIndexDocument stored = index.documents(IndexType.LECTURE, List.of("1"), LectureIndexDocument.class).get("1");
         assertThat(stored.onSale()).isFalse();
         assertThat(stored.missingInSource()).isTrue();
+        assertThat(index.vectors(IndexType.LECTURE, List.of("1")).get("1")).containsExactly(FakeEmbeddingModel.axis(0));
+    }
+
+    @Test
+    @DisplayName("사본이 바뀌지 않은 문서를 다시 처리하면 성공이고, 다시 임베딩하지 않으며 문서·벡터는 그대로다")
+    void unchangedDocumentStaysAsIs() {
+        data.lecture(1, 100, "스프링 입문");
+        handle(docs("1"));
+        LectureIndexDocument before = index.documents(IndexType.LECTURE, List.of("1"), LectureIndexDocument.class).get("1");
+        embedding.put("스프링", FakeEmbeddingModel.axis(3));
+
+        assertThat(handle(docs("1"))).isEmpty();
+
+        assertThat(embedding.calls()).isEqualTo(1);
+        assertThat(index.documents(IndexType.LECTURE, List.of("1"), LectureIndexDocument.class).get("1")).isEqualTo(before);
         assertThat(index.vectors(IndexType.LECTURE, List.of("1")).get("1")).containsExactly(FakeEmbeddingModel.axis(0));
     }
 
@@ -230,7 +240,6 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
     }
 
     private static void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-lectures-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-lectures-test-8");
     }
 }

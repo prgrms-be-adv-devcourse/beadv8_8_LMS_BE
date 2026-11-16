@@ -2,8 +2,6 @@ package com.hapbang.auxiliary.chatbot.app.dto;
 
 import java.util.List;
 
-import com.hapbang.auxiliary.chatbot.app.FaqAnswer;
-
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**

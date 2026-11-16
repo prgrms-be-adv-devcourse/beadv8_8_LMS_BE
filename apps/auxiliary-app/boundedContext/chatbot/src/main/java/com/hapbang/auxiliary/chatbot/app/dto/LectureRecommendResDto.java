@@ -5,7 +5,6 @@ import java.util.List;
 import org.jspecify.annotations.Nullable;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.hapbang.auxiliary.chatbot.app.LectureRecommendation;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 
@@ -37,19 +36,6 @@ public record LectureRecommendResDto(
 
     /** 요청 회원이 숨김(가입 직후 동기화 전·탈퇴·마스킹)일 때 보여 줄 문구 */
     public static final String REQUESTER_HIDDEN_NOTICE = "지금은 강의를 추천할 수 없어요. 가입한 지 얼마 안 됐다면 잠시 뒤 다시 시도해 주세요.";
-
-    /** 위젯 응답(LLM 없음) */
-    public static LectureRecommendResDto from(LectureRecommendation recommendation) {
-        return from(recommendation, false);
-    }
-
-    public static LectureRecommendResDto from(LectureRecommendation recommendation, boolean fallback) {
-        List<Item> items = recommendation.items().stream()
-                .map(item -> new Item(item.lectureId(), item.title(), item.score(), item.reason(), item.reasonText()))
-                .toList();
-        return new LectureRecommendResDto(items, recommendation.needsInterest(), recommendation.basis(), fallback,
-                recommendation.requesterHidden() ? REQUESTER_HIDDEN_NOTICE : null);
-    }
 
     /** 추천 강의 하나 */
     public record Item(

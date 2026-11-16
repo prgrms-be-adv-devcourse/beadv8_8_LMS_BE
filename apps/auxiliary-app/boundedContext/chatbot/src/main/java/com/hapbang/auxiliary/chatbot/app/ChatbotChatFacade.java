@@ -8,8 +8,8 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.dto.ChatAnswerResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.ChatStreamEvent;
 import com.hapbang.auxiliary.global.ratelimit.KeyedRateLimiter;
-import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 
 import reactor.core.publisher.Flux;
 
@@ -25,38 +25,33 @@ import reactor.core.publisher.Flux;
 @Service
 public class ChatbotChatFacade {
 
-    private final ChatbotConversationService conversationService;
+    private final ChatbotConversationUseCase conversationUseCase;
     private final KeyedRateLimiter rateLimiter;
     private final ChatbotMetrics metrics;
 
-    ChatbotChatFacade(ChatbotConversationService conversationService,
+    ChatbotChatFacade(ChatbotConversationUseCase conversationUseCase,
             @Qualifier("chatbotFaqRateLimiter") KeyedRateLimiter rateLimiter, ChatbotMetrics metrics) {
-        this.conversationService = conversationService;
+        this.conversationUseCase = conversationUseCase;
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
     }
 
     @PreAuthorize(ChatbotRoles.MEMBER)
     public ChatAnswerResDto chat(long userId, String message, List<ChatHistory.Entry> history) {
-        ChatHistory.Checked checked = conversationService.checkHistory(history);
+        ChatHistory.Checked checked = conversationUseCase.checkHistory(history);
         acquire(userId, Feature.CHAT);
-        return conversationService.chat(userId, message, checked);
+        return conversationUseCase.chat(userId, message, checked);
     }
 
     @PreAuthorize(ChatbotRoles.MEMBER)
     public Flux<ChatStreamEvent> stream(long userId, String message, List<ChatHistory.Entry> history) {
-        ChatHistory.Checked checked = conversationService.checkHistory(history);
+        ChatHistory.Checked checked = conversationUseCase.checkHistory(history);
         acquire(userId, Feature.CHAT_STREAM);
-        return conversationService.stream(userId, message, checked);
+        return conversationUseCase.stream(userId, message, checked);
     }
 
     private void acquire(long userId, Feature feature) {
-        try {
-            rateLimiter.acquire(String.valueOf(userId));
-        } catch (RateLimitExceededException e) {
-            metrics.rateLimited(feature);
-            throw e;
-        }
+        ChatbotRateLimits.acquire(rateLimiter, userId, feature, metrics);
         metrics.request(feature);
     }
 }

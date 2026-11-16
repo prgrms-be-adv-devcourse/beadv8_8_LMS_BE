@@ -21,5 +21,5 @@ public enum FaqCategory {
     WITHDRAW("탈퇴");
 
     /** 화면에 보여 줄 이름 */
-    private final String displayName;
+    private final String description;
 }

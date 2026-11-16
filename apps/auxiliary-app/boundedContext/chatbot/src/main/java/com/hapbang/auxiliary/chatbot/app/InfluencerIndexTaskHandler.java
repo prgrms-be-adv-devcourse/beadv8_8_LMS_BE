@@ -110,31 +110,11 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
     }
 
     private void embedAndUpsert(List<Pending> pending, Map<String, RuntimeException> failures) {
-        if (pending.isEmpty()) {
-            return;
-        }
-        List<String> texts = new ArrayList<>();
-        for (Pending one : pending) {
-            texts.add(one.text().text());
-        }
-        List<float[]> vectors;
-        try {
-            vectors = embedder.embedDocuments(texts);
-        } catch (RuntimeException e) {
-            for (Pending one : pending) {
-                failures.put(one.docId(), e);
-            }
-            return;
-        }
-        for (int i = 0; i < pending.size(); i++) {
-            Pending one = pending.get(i);
-            try {
-                index.upsert(IndexType.INFLUENCER, one.docId(), vectors.get(i),
-                        InfluencerIndexPlan.fieldsOf(one.profile(), one.text()));
-            } catch (RuntimeException e) {
-                failures.put(one.docId(), e);
-            }
-        }
+        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.INFLUENCER, pending,
+                Pending::docId,
+                one -> one.text().text(),
+                one -> InfluencerIndexPlan.fieldsOf(one.profile(), one.text()),
+                failures);
     }
 
     private record Pending(String docId, InfluencerProfile profile, InfluencerProfileText text) {

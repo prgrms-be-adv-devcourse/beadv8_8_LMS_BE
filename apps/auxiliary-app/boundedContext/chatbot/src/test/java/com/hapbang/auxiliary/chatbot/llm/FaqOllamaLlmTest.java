@@ -2,10 +2,6 @@ package com.hapbang.auxiliary.chatbot.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 
@@ -18,10 +14,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 
-import com.hapbang.auxiliary.chatbot.app.FaqAnswer;
-import com.hapbang.auxiliary.chatbot.app.FaqChatService;
-import com.hapbang.auxiliary.chatbot.app.FaqStreamEvent;
-import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
+import com.hapbang.auxiliary.chatbot.app.FaqChatUseCase;
+import com.hapbang.auxiliary.chatbot.app.FaqSyncUseCase;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqAnswer;
+import com.hapbang.auxiliary.chatbot.app.dto.FaqStreamEvent;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.testsupport.IntegrationTest;
 
@@ -53,15 +49,15 @@ import com.hapbang.testsupport.IntegrationTest;
 class FaqOllamaLlmTest {
 
     @Autowired
-    private FaqSyncService syncService;
+    private FaqSyncUseCase syncUseCase;
 
     @Autowired
-    private FaqChatService chatService;
+    private FaqChatUseCase chatUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
         deleteIndex();
-        syncService.syncAll();
+        syncUseCase.syncAll();
     }
 
     @AfterEach
@@ -72,7 +68,7 @@ class FaqOllamaLlmTest {
     @Test
     @DisplayName("모델이 searchFaq를 불러 근거 FAQ가 붙은 답을 준다(fallback 아님)")
     void chatCallsTool() {
-        FaqAnswer answer = chatService.chat(1L, "HP 충전은 어떻게 해요?");
+        FaqAnswer answer = chatUseCase.chat(1L, "HP 충전은 어떻게 해요?");
 
         System.out.println("[FaqOllamaLlmTest] chat answer=" + answer);
         assertThat(answer.fallback()).isFalse();
@@ -83,7 +79,7 @@ class FaqOllamaLlmTest {
     @Test
     @DisplayName("스트림이 여러 조각으로 오고 done으로 끝난다")
     void streamCompletes() {
-        List<FaqStreamEvent> events = chatService.stream(1L, "출연을 취소하면 HP는 돌려받나요?").collectList()
+        List<FaqStreamEvent> events = chatUseCase.stream(1L, "출연을 취소하면 HP는 돌려받나요?").collectList()
                 .block(Duration.ofMinutes(4));
 
         System.out.println("[FaqOllamaLlmTest] stream events=" + events.size() + ", last=" + events.getLast());
@@ -95,8 +91,6 @@ class FaqOllamaLlmTest {
     }
 
     private void deleteIndex() throws Exception {
-        HttpClient.newHttpClient().send(HttpRequest.newBuilder(
-                URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-faq-ollama-768-llm")).DELETE().build(),
-                HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-faq-ollama-768-llm");
     }
 }

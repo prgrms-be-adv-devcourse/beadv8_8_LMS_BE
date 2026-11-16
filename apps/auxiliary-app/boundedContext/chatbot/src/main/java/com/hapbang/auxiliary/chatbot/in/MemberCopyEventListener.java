@@ -10,9 +10,9 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.CopyApplier;
 import com.hapbang.auxiliary.chatbot.app.MemberMasking;
+import com.hapbang.auxiliary.chatbot.domain.CopyWrite;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
-import com.hapbang.auxiliary.chatbot.out.CopyWrite;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserMaskedEvent;

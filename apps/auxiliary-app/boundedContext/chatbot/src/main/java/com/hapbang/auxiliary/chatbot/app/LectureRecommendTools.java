@@ -12,6 +12,7 @@ import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 import lombok.RequiredArgsConstructor;
 

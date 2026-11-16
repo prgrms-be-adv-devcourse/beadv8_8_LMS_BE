@@ -6,6 +6,8 @@ import java.util.Map;
 import org.jspecify.annotations.Nullable;
 import org.springframework.ai.chat.model.ToolContext;
 
+import com.hapbang.auxiliary.chatbot.app.dto.FaqHit;
+
 /**
  * 대화가 Tool에 넘기는 {@link ToolContext}의 키와 값 (#720). 챗봇 안에서만 쓰는 키다.
  * <ul>

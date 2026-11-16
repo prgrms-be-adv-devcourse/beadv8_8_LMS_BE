@@ -100,11 +100,12 @@ class RecommendEvaluationFakeTest extends RecommendEvaluation {
     void answersAreHiddenFromSignalsAndExclusions() {
         for (Answer answer : data.lectureAnswers()) {
             long memberId = answer.requesterId();
-            for (LectureSignals.Activity activity : lectureStore.activities(memberId)) {
+            LectureRecommendStore.MemberLectures mine = lectureStore.memberLectures(memberId);
+            for (LectureSignals.Activity activity : mine.activities()) {
                 assertThat(activity.lectureId()).as("회원 %d의 신호", memberId).isNotEqualTo(answer.answerId());
             }
             assertThat(lectureStore.ratings(memberId)).as("회원 %d의 별점", memberId).doesNotContainKey(answer.answerId());
-            assertThat(lectureStore.excludedLectures(memberId)).as("회원 %d의 제외 목록", memberId)
+            assertThat(mine.excluded()).as("회원 %d의 제외 목록", memberId)
                     .doesNotContain(answer.answerId());
         }
         for (Answer answer : data.influencerAnswers()) {

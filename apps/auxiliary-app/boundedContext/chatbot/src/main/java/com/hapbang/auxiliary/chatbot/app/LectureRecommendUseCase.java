@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +19,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
-import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.LectureListing;
 import com.hapbang.auxiliary.chatbot.domain.LectureTaste;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
@@ -38,13 +39,15 @@ import lombok.extern.slf4j.Slf4j;
  *     만들 수 없으면(신호도 관심사도 없음, 또는 신호 강의가 아직 색인 전) 풀은 비고 {@code needsInterest}
  *     (관심사를 주면 맞춤으로 찾을 수 있다. 모델·ES를 끈 실행이면 끈다).</li>
  *     <li>kNN(판매 중·삭제 안 됨·원본에 있음 필터) 뒤 코드에서 뺀다: 구매 {@code OWNED}·{@code PENDING}, 장바구니, 본인 강의,
- *     숨김 판매자({@link MemberVisibility}), 사본으로 다시 본 추천 불가 상태(색인이 늦은 경우).</li>
+ *     숨김 판매자({@link MemberVisibility}와 같은 규칙을 강의 사본 조회에서 함께 본다), 사본으로 다시 본 추천 불가 상태(색인이 늦은 경우).</li>
  *     <li>{@link LectureRanker}: β 혼합, 동점 순서, 판매자당 상한으로 풀 크기까지.</li>
  *     <li>이유 코드: 고른 강의마다 구매 중심·장바구니 중심·관심사 벡터 중 가장 가까운 쪽({@link LectureTaste}). 구매·장바구니면
  *     가장 가까운 신호 강의 제목을 문장에 넣는다(회원 본인 화면용. 대화 Tool은 제목을 빼고 준다, {@link LectureRecommendTools}).</li>
  *     <li>인기순 채우기: 맞춤 후보가 모자랄 때만 읽는다. {@link PopularLectureCache}의 상위 목록에서 회원별 제외를 하고, 고른 강의를
  *     ID로 다시 읽어 판매 중·판매자 보임을 확인한다. 캐시 뒤 상태가 바뀌었거나 제외 뒤 모자라면 인기순 쿼리를 직접 돈다.</li>
  * </ol>
+ * 강의 사본은 요청 안에서 같은 강의를 두 번 읽지 않는다: 후보·신호 강의는 풀을 만들 때 한 번 읽어 풀에 담고(프롬프트·답의 제목),
+ * 인기순으로 채운 강의는 확인할 때 읽은 것을 쓴다. 인기순 쿼리로 채운 강의만 답을 만들 때 더 읽는다.
  * 검색(ES·임베딩 호출)이 실패하면 모든 경로에서 인기순으로 답하고 근거는 {@link RecommendBasis#POPULAR_TEMPORARY}다
  * (지표 {@code hapbang.chatbot.recommend.search.errors}). 모델·ES를 끈 실행은 설정이라 {@link RecommendBasis#POPULAR}다.
  * DB 오류는 잡지 않는다. 같은 장애를 요청마다 로그로 남기지 않고, 호출 실패가 시작되거나 회복될 때만 남긴다.
@@ -85,16 +88,17 @@ public class LectureRecommendUseCase {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
-        Set<Long> excluded = store.excludedLectures(memberId);
-        List<LectureSignals.Signal> signals = LectureSignals.weigh(store.activities(memberId), store.ratings(memberId),
+        LectureRecommendStore.MemberLectures mine = store.memberLectures(memberId);
+        Set<Long> excluded = mine.excluded();
+        List<LectureSignals.Signal> signals = LectureSignals.weigh(mine.activities(), store.ratings(memberId),
                 properties.signalLimit(), weights());
         boolean vectorReady = index.available() && embedder.available();
         if (signals.isEmpty() && interest == null) {
             // 맞춤으로 고를 재료가 없어 원래 인기순이다. 관심사를 쓸 수 없는 실행(모델·ES 연결 없음)이면 물어보지 않는다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, vectorReady);
+            return vectorReady ? Pool.popularNeedingInterest(memberId, excluded) : Pool.popular(memberId, excluded);
         }
         if (!vectorReady) {
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, false);
+            return Pool.popular(memberId, excluded);
         }
         Pool pool;
         try {
@@ -104,7 +108,7 @@ public class LectureRecommendUseCase {
                 log.warn("강의 추천 색인·임베딩 호출이 실패하기 시작했다. 회복될 때까지 인기순으로 답한다", e.getCause());
             }
             metrics.recommendSearchError(Feature.LECTURE_RECOMMEND);
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR_TEMPORARY, false);
+            return Pool.temporaryPopular(memberId, excluded);
         }
         if (failing.compareAndSet(true, false)) {
             log.info("강의 추천 색인·임베딩 호출이 회복됐다");
@@ -132,7 +136,9 @@ public class LectureRecommendUseCase {
                 picked.add(ranked);
             }
         }
-        return toRecommendation(fillPopular(pool, picked), pool.reasons(), pool.needsInterest(), pool.basis());
+        Map<Long, LectureListing> lectures = new HashMap<>(pool.lectures());
+        return toRecommendation(fillPopular(pool, picked, lectures), pool.reasons(), pool.needsInterest(), pool.basis(),
+                lectures);
     }
 
     private Pool personalized(long memberId, @Nullable List<String> interest, List<LectureSignals.Signal> signals,
@@ -144,33 +150,42 @@ public class LectureRecommendUseCase {
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {
             // 신호 강의가 아직 색인되지 않았다. 관심사를 주면 맞춤으로 찾을 수 있다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, true);
+            return Pool.popularNeedingInterest(memberId, excluded);
         }
 
         List<RecommendVectorIndex.ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
                 properties.numCandidates(), LectureIndexDocument.RECOMMENDABLE));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (RecommendVectorIndex.ScoredId hit : hits) {
-            similarity.put(LectureIndexDocument.lectureId(hit.id()), hit.score());
+            similarity.put(LectureIndexDocument.lectureIdOf(hit.id()), hit.score());
         }
-        List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded),
+        if (similarity.isEmpty()) {
+            return Pool.popular(memberId, excluded);
+        }
+        // 후보 강의와 신호 강의(이유 문장의 기준 강의)를 한 번에 읽어 풀에 넘긴다. 프롬프트·답의 제목을 다시 읽지 않는다
+        Set<Long> readIds = new LinkedHashSet<>(similarity.keySet());
+        for (LectureSignals.Signal signal : signals) {
+            readIds.add(signal.lectureId());
+        }
+        Map<Long, LectureListing> lectures = store.listings(readIds);
+        List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded, lectures),
                 properties.popularityWeight(), size, properties.maxPerSeller());
         if (ranked.isEmpty()) {
             // 맞춤 후보가 제외 규칙으로 모두 빠졌다. 관심사를 바꿔도 같을 수 있어 묻지 않는다
-            return Pool.empty(memberId, excluded, RecommendBasis.POPULAR, false);
+            return Pool.popular(memberId, excluded);
         }
-        return new Pool(memberId, excluded, ranked, reasons(ranked, taste), RecommendBasis.PERSONALIZED, false, false);
+        return new Pool(memberId, excluded, ranked, reasons(ranked, taste), RecommendBasis.PERSONALIZED, false, false,
+                lectures);
     }
 
     // 코드에서 빼는 규칙. kNN 필터를 지나도 사본으로 다시 본다(색인이 늦게 따라온 경우)
-    private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded) {
-        Map<Long, LectureSnapshot> lectures = store.lectures(similarity.keySet());
-        Set<Long> visibleSellers = visibleSellers(lectures.values());
+    private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded,
+            Map<Long, LectureListing> lectures) {
         List<Long> kept = new ArrayList<>();
         for (Long lectureId : similarity.keySet()) {
-            LectureSnapshot lecture = lectures.get(lectureId);
+            LectureListing lecture = lectures.get(lectureId);
             if (lecture != null && lecture.recommendable() && !excluded.contains(lectureId) && lecture.sellerId() != memberId
-                    && visibleSellers.contains(lecture.sellerId())) {
+                    && lecture.sellerVisible()) {
                 kept.add(lectureId);
             }
         }
@@ -184,8 +199,10 @@ public class LectureRecommendUseCase {
     }
 
     // 모자랄 때만 인기순을 읽는다. 캐시로 채운 강의는 ID로 다시 읽어 판매 중·판매자 보임을 확인하고,
-    // 하나라도 바뀌었거나 캐시로 다 채우지 못하면 인기순 쿼리를 직접 돈다(캐시는 상위 일부만 들고 있다)
-    private List<LectureRanker.Ranked> fillPopular(Pool pool, List<LectureRanker.Ranked> picked) {
+    // 하나라도 바뀌었거나 캐시로 다 채우지 못하면 인기순 쿼리를 직접 돈다(캐시는 상위 일부만 들고 있다).
+    // 다시 읽은 강의는 lectures에 더한다(답의 제목에 쓴다)
+    private List<LectureRanker.Ranked> fillPopular(Pool pool, List<LectureRanker.Ranked> picked,
+            Map<Long, LectureListing> lectures) {
         int size = properties.resultSize();
         if (picked.size() >= size) {
             return picked;
@@ -197,33 +214,25 @@ public class LectureRecommendUseCase {
             }
         }
         List<LectureRanker.Ranked> filled = LectureRanker.fill(picked, cached, size, properties.maxPerSeller());
-        if (filled.size() >= size && stillRecommendable(filled)) {
+        if (filled.size() >= size && stillRecommendable(filled, lectures)) {
             return filled;
         }
         return LectureRanker.fill(picked, store.popular(pool.memberId(), pool.excluded(), properties.popularPoolSize()), size,
                 properties.maxPerSeller());
     }
 
-    // 인기순으로 채운 강의가 지금도 판매 중이고 판매자가 보이는지
-    private boolean stillRecommendable(List<LectureRanker.Ranked> filled) {
+    // 인기순으로 채운 강의가 지금도 판매 중이고 판매자가 보이는지. 읽은 강의는 lectures에 더한다
+    private boolean stillRecommendable(List<LectureRanker.Ranked> filled, Map<Long, LectureListing> lectures) {
         List<Long> ids = filled.stream().filter(LectureRanker.Ranked::popular).map(LectureRanker.Ranked::lectureId).toList();
-        Map<Long, LectureSnapshot> lectures = store.lectures(ids);
-        Set<Long> visibleSellers = visibleSellers(lectures.values());
+        Map<Long, LectureListing> read = store.listings(ids);
+        lectures.putAll(read);
         for (Long id : ids) {
-            LectureSnapshot lecture = lectures.get(id);
-            if (lecture == null || !lecture.recommendable() || !visibleSellers.contains(lecture.sellerId())) {
+            LectureListing lecture = read.get(id);
+            if (lecture == null || !lecture.recommendable() || !lecture.sellerVisible()) {
                 return false;
             }
         }
         return true;
-    }
-
-    private Set<Long> visibleSellers(Collection<LectureSnapshot> lectures) {
-        Set<Long> sellers = new HashSet<>();
-        for (LectureSnapshot lecture : lectures) {
-            sellers.add(lecture.sellerId());
-        }
-        return visibility.visibleOf(sellers);
     }
 
     // 고른 강의(인기순 채움 제외)마다 이유
@@ -237,22 +246,25 @@ public class LectureRecommendUseCase {
         return reasons;
     }
 
+    // lectures: 이 요청에서 이미 읽은 강의. 제목이 필요한데 아직 읽지 않은 강의(인기순 쿼리로 채운 강의)만 더 읽는다
     private LectureRecommendation toRecommendation(List<LectureRanker.Ranked> ranked,
-            Map<Long, LectureTaste.Reasoned> reasons, boolean needsInterest, RecommendBasis basis) {
-        Set<Long> titleIds = new HashSet<>();
+            Map<Long, LectureTaste.Reasoned> reasons, boolean needsInterest, RecommendBasis basis,
+            Map<Long, LectureListing> lectures) {
+        Set<Long> unread = new HashSet<>();
         for (LectureRanker.Ranked item : ranked) {
-            titleIds.add(item.lectureId());
+            unread.add(item.lectureId());
         }
         for (LectureTaste.Reasoned reasoned : reasons.values()) {
             if (reasoned.basisLectureId() != null) {
-                titleIds.add(reasoned.basisLectureId());
+                unread.add(reasoned.basisLectureId());
             }
         }
-        Map<Long, LectureSnapshot> lectures = store.lectures(titleIds);
+        unread.removeAll(lectures.keySet());
+        lectures.putAll(store.listings(unread));
         List<LectureRecommendation.Item> items = new ArrayList<>();
         for (LectureRanker.Ranked item : ranked) {
             LectureTaste.Reasoned reasoned = item.popular() ? LectureTaste.Reasoned.POPULAR : reasons.get(item.lectureId());
-            LectureSnapshot basisLecture = reasoned.basisLectureId() == null ? null : lectures.get(reasoned.basisLectureId());
+            LectureListing basisLecture = reasoned.basisLectureId() == null ? null : lectures.get(reasoned.basisLectureId());
             items.add(new LectureRecommendation.Item(item.lectureId(), lectures.get(item.lectureId()).title(), item.score(),
                     reasoned.reason(), reasoned.reason().sentence(basisLecture == null ? null : basisLecture.title())));
         }
@@ -262,9 +274,9 @@ public class LectureRecommendUseCase {
     private Map<Long, float[]> vectors(Collection<Long> lectureIds) {
         Map<Long, float[]> vectors = new HashMap<>();
         Map<String, float[]> stored = index.vectors(IndexType.LECTURE,
-                lectureIds.stream().map(LectureIndexDocument::docId).toList());
+                lectureIds.stream().map(LectureIndexDocument::docIdOf).toList());
         for (Map.Entry<String, float[]> entry : stored.entrySet()) {
-            vectors.put(LectureIndexDocument.lectureId(entry.getKey()), entry.getValue());
+            vectors.put(LectureIndexDocument.lectureIdOf(entry.getKey()), entry.getValue());
         }
         return vectors;
     }
@@ -282,22 +294,46 @@ public class LectureRecommendUseCase {
      * @param reasons         후보마다 이유 코드와 기준 강의
      * @param needsInterest   맞춤으로 고를 수 없고 관심사를 주면 찾을 수 있다
      * @param requesterHidden 요청 회원이 숨김이라 추천하지 않는다
+     * @param lectures        풀을 만들며 읽은 강의 사본(후보·신호 강의). 프롬프트와 답의 제목에 다시 쓴다
      */
-    public record Pool(long memberId, Set<Long> excluded, List<LectureRanker.Ranked> ranked,
-            Map<Long, LectureTaste.Reasoned> reasons, RecommendBasis basis, boolean needsInterest, boolean requesterHidden) {
+    public record Pool(
+            long memberId,
+            Set<Long> excluded,
+            List<LectureRanker.Ranked> ranked,
+            Map<Long, LectureTaste.Reasoned> reasons,
+            RecommendBasis basis,
+            boolean needsInterest,
+            boolean requesterHidden,
+            Map<Long, LectureListing> lectures) {
 
         public Pool {
             excluded = Set.copyOf(excluded);
             ranked = List.copyOf(ranked);
             reasons = Map.copyOf(reasons);
+            lectures = Map.copyOf(lectures);
         }
 
-        static Pool empty(long memberId, Set<Long> excluded, RecommendBasis basis, boolean needsInterest) {
-            return new Pool(memberId, excluded, List.of(), Map.of(), basis, needsInterest, false);
+        /** 맞춤 후보 없이 인기순 */
+        static Pool popular(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR, false);
+        }
+
+        /** 맞춤 후보 없이 인기순. 관심사를 주면 맞춤으로 찾을 수 있다 */
+        static Pool popularNeedingInterest(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR, true);
+        }
+
+        /** 색인·임베딩 장애로 잠시 인기순 */
+        static Pool temporaryPopular(long memberId, Set<Long> excluded) {
+            return empty(memberId, excluded, RecommendBasis.POPULAR_TEMPORARY, false);
+        }
+
+        private static Pool empty(long memberId, Set<Long> excluded, RecommendBasis basis, boolean needsInterest) {
+            return new Pool(memberId, excluded, List.of(), Map.of(), basis, needsInterest, false, Map.of());
         }
 
         static Pool forHiddenRequester(long memberId) {
-            return new Pool(memberId, Set.of(), List.of(), Map.of(), RecommendBasis.POPULAR, false, true);
+            return new Pool(memberId, Set.of(), List.of(), Map.of(), RecommendBasis.POPULAR, false, true, Map.of());
         }
 
         /** 풀의 강의 ID(점수 순) */

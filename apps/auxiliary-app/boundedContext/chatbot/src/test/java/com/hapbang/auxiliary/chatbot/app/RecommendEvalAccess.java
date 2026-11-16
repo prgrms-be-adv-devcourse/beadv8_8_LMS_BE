@@ -141,8 +141,8 @@ public final class RecommendEvalAccess {
                     lectureProperties, metrics);
             this.influencerUseCase = new InfluencerRecommendUseCase(influencerStore, visibility, index, embedder,
                     influencerProperties, metrics);
-            this.lectureButton = new LectureRecommendExplainUseCase(lectureUseCase, lectureStore, expander, reranker,
-                    tasteSupport, lectureProperties, llmProperties);
+            this.lectureButton = new LectureRecommendExplainUseCase(lectureUseCase, expander, reranker, tasteSupport,
+                    lectureProperties, llmProperties);
             this.influencerButton = new InfluencerRecommendExplainUseCase(influencerUseCase, expander, reranker, tasteSupport,
                     categoryNames, influencerProperties, llmProperties);
         }
@@ -211,14 +211,22 @@ public final class RecommendEvalAccess {
 
     /** 강의 문서를 운영 처리기와 같은 필드로 넣는다 */
     public void upsertLecture(LectureSnapshot lecture, float[] vector) {
-        index.upsert(IndexType.LECTURE, LectureIndexDocument.docId(lecture.id()), vector,
-                LectureIndexDocument.of(lecture).allFields());
+        upsert(IndexType.LECTURE, new RecommendVectorIndex.Upsert(LectureIndexDocument.docIdOf(lecture.id()), vector,
+                LectureIndexDocument.of(lecture).allFields()));
     }
 
     /** 인플루언서 문서를 운영 처리기와 같은 필드로 넣는다 */
     public void upsertInfluencer(InfluencerProfile profile, InfluencerProfileText text, float[] vector) {
-        index.upsert(IndexType.INFLUENCER, InfluencerIndexPlan.docIdOf(profile.id()), vector,
-                InfluencerIndexPlan.fieldsOf(profile, text));
+        upsert(IndexType.INFLUENCER, new RecommendVectorIndex.Upsert(InfluencerIndexPlan.docIdOf(profile.id()), vector,
+                InfluencerIndexPlan.fieldsOf(profile, text)));
+    }
+
+    // 넣지 못하면 던진다(평가가 빠진 문서로 돌지 않게)
+    private void upsert(IndexType type, RecommendVectorIndex.Upsert document) {
+        Map<String, RuntimeException> failures = index.upsertAll(type, List.of(document));
+        if (!failures.isEmpty()) {
+            throw failures.get(document.id());
+        }
     }
 
     public void refresh() {

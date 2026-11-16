@@ -1,9 +1,5 @@
 package com.hapbang.auxiliary.chatbot.app;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 
 import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.IndexedProfile;
+import com.hapbang.auxiliary.chatbot.domain.ApplySource;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -41,7 +38,6 @@ import com.hapbang.shared.member.dto.UserDto;
 @Import({FakeAiModelsConfig.class, ElasticsearchTestcontainersConfig.class})
 abstract class InfluencerIntegrationTestBase extends ChatbotIntegrationTestBase {
 
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     @Autowired
     protected CopyApplier copyApplier;
@@ -107,16 +103,15 @@ abstract class InfluencerIntegrationTestBase extends ChatbotIntegrationTestBase 
     /** 두 회원이 함께 마친 출연 */
     protected void completed(long appearanceId, long hostId, long guestId) {
         copyApplier.apply(new AppearanceSyncDto(appearanceId, hostId, guestId, AppearanceResult.COMPLETED,
-                CopyRows.SCHEDULED_AT, 0L), null);
+                CopyRows.SCHEDULED_AT, 0L), ApplySource.EVENT);
     }
 
     /** 받은 출연 리뷰 */
     protected void review(long reviewId, long appearanceId, long revieweeId, int rating) {
-        copyApplier.apply(new AppearanceReviewSyncDto(reviewId, appearanceId, revieweeId, rating), null);
+        copyApplier.apply(new AppearanceReviewSyncDto(reviewId, appearanceId, revieweeId, rating), ApplySource.EVENT);
     }
 
     private void deleteIndex() throws Exception {
-        HTTP.send(HttpRequest.newBuilder(URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-influencers-test-8"))
-                .DELETE().build(), HttpResponse.BodyHandlers.discarding());
+        ElasticsearchTestcontainersConfig.deleteIndex("chatbot-influencers-test-8");
     }
 }

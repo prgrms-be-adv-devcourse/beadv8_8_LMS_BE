@@ -3,8 +3,10 @@ package com.hapbang.auxiliary.chatbot.app;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -102,23 +104,31 @@ public class InfluencerRecommendUseCase {
             return Pool.forHiddenRequester(userId);
         }
         Set<Long> partners = store.completedPartners(userId);
-        InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
+        // 내 프로필과 함께 마친 상대의 프로필(상대 평균에 넣을 추천 가능 여부)을 한 번에 읽는다
+        Set<Long> profileIds = new LinkedHashSet<>();
+        profileIds.add(userId);
+        profileIds.addAll(partners);
+        Map<Long, InfluencerProfile> profiles = store.profiles(profileIds);
+        InfluencerProfile me = profiles.get(userId);
         // 리뷰 사본 전체를 훑는 값이라 요청마다 한 번만 센다(유사도 후보·인기순 채우기가 같이 쓴다)
         double overallMeanRating = store.overallMeanRating();
         if (!index.available() || !embedder.available()) {
             // 모델·ES를 끈 실행(설정). 다시 시도해도 같다
-            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false);
+            return Pool.popular(userId, partners, overallMeanRating);
         }
         try {
-            Taste taste = taste(userId, me, partners, interest);
+            Taste taste = taste(userId, me, recommendablePartners(partners, profiles), interest);
             Pool pool;
             if (taste == null) {
                 // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
-                pool = Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, !hasOwnProfile(me));
+                pool = hasOwnProfile(me) ? Pool.popular(userId, partners, overallMeanRating)
+                        : Pool.popularNeedingInterest(userId, partners, overallMeanRating);
             } else {
-                List<Candidate> similar = similar(userId, taste, overallMeanRating, size);
-                pool = similar.isEmpty() ? Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false)
-                        : new Pool(userId, partners, overallMeanRating, similar, RecommendBasis.PERSONALIZED, false, false);
+                Map<Long, InfluencerProfile> candidateProfiles = new HashMap<>();
+                List<Candidate> similar = similar(userId, taste, overallMeanRating, size, candidateProfiles);
+                pool = similar.isEmpty() ? Pool.popular(userId, partners, overallMeanRating)
+                        : new Pool(userId, partners, overallMeanRating, similar, RecommendBasis.PERSONALIZED, false, false,
+                                candidateProfiles);
             }
             if (searchFailing.compareAndSet(true, false)) {
                 log.info("인플루언서 추천 검색이 다시 된다");
@@ -130,16 +140,18 @@ public class InfluencerRecommendUseCase {
                 log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
             }
             metrics.recommendSearchError(Feature.INFLUENCER_RECOMMEND);
-            return Pool.empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR_TEMPORARY, false);
+            return Pool.temporaryPopular(userId, partners, overallMeanRating);
         }
     }
 
-    /** 풀의 후보에 분야를 채운다(버튼 경로의 LLM 프롬프트용). 함께 출연한 이력({@code PAST_PARTNER})은 붙이지 않는다 */
+    /**
+     * 풀의 후보에 분야를 채운다(버튼 경로의 LLM 프롬프트용). 함께 출연한 이력({@code PAST_PARTNER})은 붙이지 않는다.
+     * 프로필은 풀을 만들 때 읽은 것을 쓴다(다시 읽지 않는다)
+     */
     public List<Candidate> describe(Pool pool) {
-        Map<Long, InfluencerProfile> profiles = store.profiles(pool.memberIds());
         List<Candidate> described = new ArrayList<>();
         for (Candidate candidate : pool.candidates()) {
-            InfluencerProfile profile = profiles.get(candidate.memberId());
+            InfluencerProfile profile = pool.profiles().get(candidate.memberId());
             described.add(candidate.complete(profile == null ? List.of() : profile.categories(), false));
         }
         return described;
@@ -166,7 +178,11 @@ public class InfluencerRecommendUseCase {
             }
         }
         fillPopular(pool.userId(), picked, pool.overallMeanRating());
-        Map<Long, InfluencerProfile> profiles = store.profiles(picked.keySet());
+        // 풀의 후보는 풀을 만들 때 읽은 프로필을 쓰고, 인기순으로 채운 회원만 더 읽는다
+        Map<Long, InfluencerProfile> profiles = new HashMap<>(pool.profiles());
+        Set<Long> unread = new LinkedHashSet<>(picked.keySet());
+        unread.removeAll(profiles.keySet());
+        profiles.putAll(store.profiles(unread));
         List<Candidate> items = new ArrayList<>();
         for (Candidate candidate : picked.values()) {
             InfluencerProfile profile = profiles.get(candidate.memberId());
@@ -176,8 +192,20 @@ public class InfluencerRecommendUseCase {
         return new InfluencerRecommendation(items, pool.needsInterest(), pool.basis(), false);
     }
 
+    // 함께 마친 상대 중 추천 가능한 회원(숨김·정지·마스킹 상대의 벡터는 평균에서 뺀다)
+    private static List<Long> recommendablePartners(Set<Long> partners, Map<Long, InfluencerProfile> profiles) {
+        List<Long> recommendable = new ArrayList<>();
+        for (Long partner : partners) {
+            InfluencerProfile profile = profiles.get(partner);
+            if (profile != null && profile.recommendable()) {
+                recommendable.add(partner);
+            }
+        }
+        return recommendable;
+    }
+
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
-    private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, Set<Long> partners,
+    private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, List<Long> partners,
             @Nullable List<String> interest) {
         if (interest != null) {
             return new Taste.Single(VectorCall.run(() -> embedder.embedInterest(interest)), InfluencerReason.MATCHES_INTEREST);
@@ -185,9 +213,14 @@ public class InfluencerRecommendUseCase {
         if (me == null || !me.isInfluencer()) {
             return null;
         }
+        // 내 벡터와 상대들의 벡터를 한 번에 읽는다
         String myDocId = InfluencerIndexPlan.docIdOf(userId);
-        float[] mine = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, List.of(myDocId))).get(myDocId);
-        float[] partnerMean = partnerMean(partners);
+        List<String> docIds = new ArrayList<>();
+        docIds.add(myDocId);
+        docIds.addAll(InfluencerIndexPlan.docIdsOf(partners));
+        Map<String, float[]> stored = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds));
+        float[] mine = stored.get(myDocId);
+        float[] partnerMean = partnerMean(stored, myDocId);
         if (mine != null && partnerMean != null) {
             float[] own = TasteVectors.normalize(mine);
             float[] others = TasteVectors.normalize(partnerMean);
@@ -209,18 +242,20 @@ public class InfluencerRecommendUseCase {
         return me != null && me.isInfluencer() && InfluencerIndexPlan.hasText(me);
     }
 
-    // 추천 가능한 상대들의 벡터 평균. 없으면 null
-    private float @Nullable [] partnerMean(Set<Long> partners) {
-        List<String> docIds = InfluencerIndexPlan.docIdsOf(store.recommendableOf(partners));
+    // 추천 가능한 상대들의 벡터 평균(읽은 순서대로). 없으면 null
+    private static float @Nullable [] partnerMean(Map<String, float[]> stored, String myDocId) {
         List<float[]> vectors = new ArrayList<>();
-        for (float[] vector : VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds)).values()) {
-            vectors.add(TasteVectors.normalize(vector));
+        for (Map.Entry<String, float[]> entry : stored.entrySet()) {
+            if (!entry.getKey().equals(myDocId)) {
+                vectors.add(TasteVectors.normalize(entry.getValue()));
+            }
         }
         return vectors.isEmpty() ? null : TasteVectors.mean(vectors);
     }
 
-    // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명
-    private List<Candidate> similar(long userId, Taste taste, double overallMeanRating, int size) {
+    // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명. 추천 가능 확인으로 읽은 프로필을 candidateProfiles에 담는다
+    private List<Candidate> similar(long userId, Taste taste, double overallMeanRating, int size,
+            Map<Long, InfluencerProfile> candidateProfiles) {
         List<ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
                 properties.numCandidates(), NOT_HIDDEN));
         Map<Long, Double> similarity = new LinkedHashMap<>();
@@ -230,7 +265,8 @@ public class InfluencerRecommendUseCase {
                 similarity.put(id, hit.score());
             }
         }
-        similarity.keySet().retainAll(store.recommendableOf(similarity.keySet()));
+        candidateProfiles.putAll(store.recommendableProfiles(similarity.keySet()));
+        similarity.keySet().retainAll(candidateProfiles.keySet());
         if (similarity.isEmpty()) {
             return List.of();
         }
@@ -350,22 +386,46 @@ public class InfluencerRecommendUseCase {
      * @param partners          함께 출연을 마친 상대(이유 {@code PAST_PARTNER})
      * @param overallMeanRating 인기순으로 채울 때 쓰는 전체 평균 별점(요청마다 한 번 센다)
      * @param candidates        점수 순 맞춤 후보
+     * @param profiles          풀을 만들며 읽은 후보 프로필(추천 가능 확인). 프롬프트와 답의 분야에 다시 쓴다
      */
-    public record Pool(long userId, Set<Long> partners, double overallMeanRating, List<Candidate> candidates,
-            RecommendBasis basis, boolean needsInterest, boolean requesterHidden) {
+    public record Pool(
+            long userId,
+            Set<Long> partners,
+            double overallMeanRating,
+            List<Candidate> candidates,
+            RecommendBasis basis,
+            boolean needsInterest,
+            boolean requesterHidden,
+            Map<Long, InfluencerProfile> profiles) {
 
         public Pool {
             partners = Set.copyOf(partners);
             candidates = List.copyOf(candidates);
+            profiles = Map.copyOf(profiles);
         }
 
-        static Pool empty(long userId, Set<Long> partners, double overallMeanRating, RecommendBasis basis,
+        /** 맞춤 후보 없이 인기순 */
+        static Pool popular(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, false);
+        }
+
+        /** 맞춤 후보 없이 인기순. 관심사를 주면 맞춤으로 찾을 수 있다(본인 프로필이 없음) */
+        static Pool popularNeedingInterest(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR, true);
+        }
+
+        /** 임베딩·ES 장애로 잠시 인기순 */
+        static Pool temporaryPopular(long userId, Set<Long> partners, double overallMeanRating) {
+            return empty(userId, partners, overallMeanRating, RecommendBasis.POPULAR_TEMPORARY, false);
+        }
+
+        private static Pool empty(long userId, Set<Long> partners, double overallMeanRating, RecommendBasis basis,
                 boolean needsInterest) {
-            return new Pool(userId, partners, overallMeanRating, List.of(), basis, needsInterest, false);
+            return new Pool(userId, partners, overallMeanRating, List.of(), basis, needsInterest, false, Map.of());
         }
 
         static Pool forHiddenRequester(long userId) {
-            return new Pool(userId, Set.of(), 0, List.of(), RecommendBasis.POPULAR, false, true);
+            return new Pool(userId, Set.of(), 0, List.of(), RecommendBasis.POPULAR, false, true, Map.of());
         }
 
         /** 풀의 회원 ID(점수 순) */
