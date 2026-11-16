@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
-import com.hapbang.member.app.MemberEmailVerificationUseCase;
+import com.hapbang.member.domain.ClientIpKey;
 import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.UserRepository;
@@ -90,7 +90,7 @@ class EmailVerificationApiTest {
     @DisplayName("한 IP에서 코드 확인을 30번 넘게 하면 429 EMAIL_CODE_TOO_MANY_REQUESTS (남의 코드를 틀린 코드로 지우는 방해 제한)")
     void verifyIpLimit() throws Exception {
         String ip = newIp();
-        createdKeys.add("member:email-verify-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        createdKeys.add("member:email-verify-ip:" + hash(ClientIpKey.from(ip).orElseThrow().value()));
         for (int i = 0; i < EmailVerificationPolicy.VERIFY_IP_LIMIT; i++) {
             verifyFrom(newEmail(), "000000", ip).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
         }
@@ -267,7 +267,7 @@ class EmailVerificationApiTest {
         String hex = UUID.randomUUID().toString().replace("-", "");
         String ip = "2001:db8:%s:%s:%s:%s::1".formatted(hex.substring(0, 4), hex.substring(4, 8), hex.substring(8, 12),
                 hex.substring(12, 16));
-        createdKeys.add("member:email-code-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        createdKeys.add("member:email-code-ip:" + hash(ClientIpKey.from(ip).orElseThrow().value()));
         return ip;
     }
 

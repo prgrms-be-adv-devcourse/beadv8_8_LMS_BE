@@ -25,8 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -371,32 +369,6 @@ class MemberEmailVerificationUseCaseTest {
         useCase.consumeAfterUse("token-1", SIGN_UP);
 
         verify(store).deleteToken("token-1", SIGN_UP);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"203.0.113.5", "8.8.8.8", "2001:4860:4860::8888"})
-    @DisplayName("인터넷 주소는 공인 주소로 본다")
-    void publicAddresses(String ip) {
-        assertThat(MemberEmailVerificationUseCase.isPublicAddress(ip)).isTrue();
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"10.42.0.15", "172.16.0.1", "192.168.1.10", "127.0.0.1", "169.254.169.254", "::1",
-            "fd00::1", "fe80::1", "0.0.0.0", "", "localhost", "evil.example.com", "dead.beef"})
-    @DisplayName("사설·루프백·링크 로컬·빈 값·이름은 공인 주소로 보지 않는다(이름은 DNS 조회도 하지 않는다)")
-    void nonPublicAddresses(String ip) {
-        assertThat(MemberEmailVerificationUseCase.isPublicAddress(ip)).isFalse();
-    }
-
-    @Test
-    @DisplayName("IP 제한 단위: IPv4는 주소 그대로, IPv6는 같은 /64면 같은 것으로 센다")
-    void ipLimitKey() {
-        assertThat(MemberEmailVerificationUseCase.ipLimitKey("203.0.113.5")).isEqualTo("203.0.113.5");
-        assertThat(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2::1"))
-                .isEqualTo(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2:ffff:eeee:dddd:cccc"))
-                .isEqualTo("v6/64:2001:0db8:0001:0002");
-        assertThat(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:3::1"))
-                .isNotEqualTo(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2::1"));
     }
 
     @Test
