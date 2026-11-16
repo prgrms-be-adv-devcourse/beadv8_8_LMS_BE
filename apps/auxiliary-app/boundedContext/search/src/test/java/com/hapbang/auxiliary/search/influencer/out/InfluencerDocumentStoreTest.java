@@ -88,6 +88,31 @@ class InfluencerDocumentStoreTest {
     }
 
     @Nested
+    @DisplayName("초성·자모 칸(#973)")
+    class HangulKeyFields {
+
+        @Test
+        @DisplayName("닉네임의 초성·자모를 닉네임과 함께 쓰고, 닉네임이 바뀌면 같이 바뀐다")
+        void writtenWithNickname() throws Exception {
+            store.show(USER_ID, 1L, profile("침착맨"));
+            assertThat(source()).containsEntry("nicknameChosung", "ㅊㅊㅁ").containsEntry("nicknameJamo", "ㅊㅣㅁㅊㅏㄱㅁㅐㄴ");
+
+            store.show(USER_ID, 2L, profile("Faker 팬"));
+            assertThat(source()).containsEntry("nicknameChosung", "faker ㅍ").containsEntry("nicknameJamo", "faker ㅍㅐㄴ");
+        }
+
+        @Test
+        @DisplayName("숨기면 닉네임에서 만든 초성·자모 칸도 개인정보로 지운다")
+        void removedWhenHidden() throws Exception {
+            store.show(USER_ID, 1L, profile("침착맨"));
+
+            store.hide(USER_ID, 2L, NOW);
+
+            assertThat(source()).doesNotContainKeys("nickname", "nicknameChosung", "nicknameJamo");
+        }
+    }
+
+    @Nested
     @DisplayName("tombstone")
     class Tombstone {
 

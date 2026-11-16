@@ -10,6 +10,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
 import com.hapbang.auxiliary.search.common.out.DocumentRejectedException;
 import com.hapbang.auxiliary.search.common.out.DocumentWrites;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
@@ -40,8 +41,9 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class InfluencerDocumentStore {
 
-    /** 숨길 때 비우는 개인정보 필드 */
-    static final List<String> PERSONAL_FIELDS = List.of("nickname", "bio", "channelNames", "representativeChannelName");
+    /** 숨길 때 비우는 개인정보 필드. 닉네임에서 만든 초성·자모 칸(#973)도 닉네임과 같이 지운다 */
+    static final List<String> PERSONAL_FIELDS = List.of("nickname", "nicknameChosung", "nicknameJamo", "bio",
+            "channelNames", "representativeChannelName");
 
     /**
      * 회원 이벤트 반영 script. 문서가 없으면 {@code ctx._source}가 빈 문서(scripted upsert)다.
@@ -335,6 +337,9 @@ public class InfluencerDocumentStore {
     private static Map<String, Object> profileFields(MemberProfile profile) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("nickname", profile.nickname());
+        // 초성·자모 칸(#973): ES에 한국어 초성 기능이 없어 앱이 닉네임에서 만들어 넣는다. 이벤트·증분 보정·처음 적재가 모두 이 프로필로 쓴다
+        fields.put("nicknameChosung", HangulKeys.chosung(profile.nickname()));
+        fields.put("nicknameJamo", HangulKeys.jamo(profile.nickname()));
         fields.put("bio", profile.bio());
         fields.put("role", profile.role());
         fields.put("verified", profile.verified());

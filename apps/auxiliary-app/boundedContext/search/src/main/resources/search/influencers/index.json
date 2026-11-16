@@ -27,6 +27,11 @@
           "type": "custom",
           "tokenizer": "ko_tokenizer",
           "filter": ["nori_part_of_speech", "lowercase", "ko_synonyms"]
+        },
+        "hangul_keys": {
+          "type": "custom",
+          "tokenizer": "whitespace",
+          "filter": ["lowercase"]
         }
       }
     }
@@ -38,7 +43,12 @@
       "memberVersion": { "type": "long" },
       "hidden": { "type": "boolean" },
       "hiddenAt": { "type": "date" },
-      "nickname": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "nickname": {
+        "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search",
+        "fields": { "suggest": { "type": "search_as_you_type", "analyzer": "ko_index" } }
+      },
+      "nicknameChosung": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
+      "nicknameJamo": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
       "bio": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "role": { "type": "keyword" },
       "verified": { "type": "boolean" },
