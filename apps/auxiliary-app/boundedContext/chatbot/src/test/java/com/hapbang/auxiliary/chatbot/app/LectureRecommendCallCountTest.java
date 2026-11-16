@@ -29,8 +29,8 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.auxiliary.chatbot.support.RecommendRows;
 
 /**
- * 강의 추천 한 번이 DB를 몇 번 읽는지와 그때의 결과를 함께 고정한다 (#835 효율 리팩터). 결과는 기존 추천 테스트와 같은 규칙이고,
- * 호출 수는 리팩터 전 값을 넘지 않아야 한다.
+ * 강의 추천 한 번이 DB를 몇 번 읽는지와 그때의 결과를 함께 고정한다 (#835 효율 리팩터). 결과는 기존 추천 테스트와 같은 규칙이다.
+ * 리팩터 전 SQL은 위젯 10회·버튼 11회·인기순만 7회였다(강의 사본 3·4·2회, 판매자 보임 조회 2·2·1회).
  * <p>
  * 회원 2는 강의 20(판매자 100, 축 1)을 샀다. 맞춤 후보 21~26은 판매자 200·300이 3개씩이라 판매자당 2개로 4개만 남고,
  * 강의 27(판매자 400, 색인 안 됨)이 인기순으로 채워진다. 인기순 캐시는 미리 읽어 둔다(요청마다 읽지 않는다).
@@ -92,7 +92,7 @@ class LectureRecommendCallCountTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("위젯 경로(맞춤 4개 + 인기순 1개): 결과와 함께 SQL 10회 이하(강의 사본 3회·회원 사본 3회 이하)")
+    @DisplayName("위젯 경로(맞춤 4개 + 인기순 1개): 결과와 함께 SQL 7회(강의 사본 2회: 풀, 인기순 확인)")
     void widget() {
         CallRecorder.Recorded<LectureRecommendation> recorded = CallRecorder.record(() -> useCase.recommend(2, null));
 
@@ -106,14 +106,11 @@ class LectureRecommendCallCountTest extends ChatbotIntegrationTestBase {
                         tuple(24L, "파이썬 D", LectureRecommendReason.SIMILAR_TO_PURCHASED, "구매하신 「파이썬 입문」 강의와 비슷해요."),
                         tuple(25L, "파이썬 E", LectureRecommendReason.SIMILAR_TO_PURCHASED, "구매하신 「파이썬 입문」 강의와 비슷해요."),
                         tuple(27L, "인기 강의", LectureRecommendReason.POPULAR, "요즘 많이 듣는 강의예요."));
-        CallRecorder.Calls calls = recorded.calls();
-        assertThat(calls.sql()).as(calls.toString()).hasSizeLessThanOrEqualTo(10);
-        assertThat(calls.sqlOn("lecture_copy")).as(calls.toString()).isLessThanOrEqualTo(3);
-        assertThat(calls.sqlOn("member_copy")).as(calls.toString()).isLessThanOrEqualTo(3);
+        assertCalls(recorded.calls(), 7, 2, 1);
     }
 
     @Test
-    @DisplayName("버튼 경로(LLM이 하나 고름 + 남은 풀 + 인기순): 결과와 프롬프트의 후보 줄과 함께 SQL 11회 이하(강의 사본 4회 이하)")
+    @DisplayName("버튼 경로(LLM이 하나 고름 + 남은 풀 + 인기순): 결과·프롬프트의 후보 줄과 함께 SQL 7회(강의 사본 2회: 풀, 인기순 확인)")
     void button() {
         chatModel.reply("""
                 {"picks": [{"candidate": 2, "reason": "이 강의가 좋아요"}]}""");
@@ -135,14 +132,11 @@ class LectureRecommendCallCountTest extends ChatbotIntegrationTestBase {
                 .contains("제목: 파이썬 A | 소개: 소개 파이썬 A | 추천 근거: ")
                 .contains("제목: 파이썬 E | 소개: 소개 파이썬 E | 추천 근거: ")
                 .doesNotContain("파이썬 입문");
-        CallRecorder.Calls calls = recorded.calls();
-        assertThat(calls.sql()).as(calls.toString()).hasSizeLessThanOrEqualTo(11);
-        assertThat(calls.sqlOn("lecture_copy")).as(calls.toString()).isLessThanOrEqualTo(4);
-        assertThat(calls.sqlOn("member_copy")).as(calls.toString()).isLessThanOrEqualTo(3);
+        assertCalls(recorded.calls(), 7, 2, 1);
     }
 
     @Test
-    @DisplayName("신호가 없는 회원(인기순만): 결과와 함께 SQL 7회 이하(강의 사본 2회·회원 사본 2회 이하)")
+    @DisplayName("신호가 없는 회원(인기순만): 결과와 함께 SQL 5회(강의 사본 1회: 인기순 확인)")
     void popularOnly() {
         CallRecorder.Recorded<LectureRecommendation> recorded = CallRecorder.record(() -> useCase.recommend(3, null));
 
@@ -156,10 +150,16 @@ class LectureRecommendCallCountTest extends ChatbotIntegrationTestBase {
                         tuple(26L, "파이썬 F", LectureRecommendReason.POPULAR),
                         tuple(25L, "파이썬 E", LectureRecommendReason.POPULAR),
                         tuple(23L, "파이썬 C", LectureRecommendReason.POPULAR));
-        CallRecorder.Calls calls = recorded.calls();
-        assertThat(calls.sql()).as(calls.toString()).hasSizeLessThanOrEqualTo(7);
-        assertThat(calls.sqlOn("lecture_copy")).as(calls.toString()).isLessThanOrEqualTo(2);
-        assertThat(calls.sqlOn("member_copy")).as(calls.toString()).isLessThanOrEqualTo(2);
+        assertCalls(recorded.calls(), 5, 1, 1);
+    }
+
+    // 강의 사본 조회는 콘텐츠 제목(색인용)을 읽지 않고, 판매자 보임은 강의 사본 조회 안에서 본다(회원 사본만 읽는 조회는 요청 회원 1회)
+    private static void assertCalls(CallRecorder.Calls calls, int sql, int lectureReads, int memberOnlyReads) {
+        assertThat(calls.sql()).as(calls.toString()).hasSize(sql);
+        assertThat(calls.sqlOn("lecture_copy")).as(calls.toString()).isEqualTo(lectureReads);
+        assertThat(calls.sql().stream().filter(one -> one.contains("chatbot.member_copy") && !one.contains("chatbot.lecture_copy")))
+                .as(calls.toString()).hasSize(memberOnlyReads);
+        assertThat(calls.sql()).as(calls.toString()).noneMatch(one -> one.contains("content_titles"));
     }
 
     private void lecture(long id, long sellerId, String title, float[] vector) {
