@@ -84,8 +84,9 @@ class InfluencerIndexSetupTest {
 
         assertThat(analyze("ko_index", "에임 연습")).containsExactly("에임", "연습");
         assertThat(analyze("ko_index", "한타 설계")).containsExactly("한타", "설계");
-        // 사전에 없던 때 "에임"은 "임"이 되어 "임베딩"(임/베/딩)에 걸렸다
-        assertThat(analyze("ko_index", "임베딩 모델")).doesNotContain("에임");
+        // 사전에 없던 때 검색어 "에임"은 "임"만 남아 "임베딩"(임/베/딩)에 걸렸다
+        assertThat(analyze("ko_search", "에임")).containsExactly("에임");
+        assertThat(analyze("ko_search", "한타")).containsExactly("한타");
     }
 
     @Test
