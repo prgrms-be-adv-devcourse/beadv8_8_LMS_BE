@@ -41,8 +41,8 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 
 /**
- * 인플루언서 추천 한 번이 DB·ES를 몇 번 부르는지와 그때의 결과를 함께 고정한다 (#835 효율 리팩터). 호출 수는 리팩터 전 값을
- * 넘지 않아야 한다.
+ * 인플루언서 추천 한 번이 DB·ES를 몇 번 부르는지와 그때의 결과를 함께 고정한다 (#835 효율 리팩터).
+ * 리팩터 전은 SQL 위젯 12회·버튼 13회, ES 검색 4회였다.
  * <p>
  * 회원 1(게임)은 3(음악)과 출연을 함께 마쳐 취향이 내 분야 + 상대 평균을 섞은 값이다. 2(게임 비슷)·3·4(요리)가 맞춤 후보,
  * 5는 정지, 7·8은 프로필이 비어 인기순으로만 채워진다. 3은 리뷰(별점 4)를 받았다.
@@ -104,7 +104,7 @@ class InfluencerRecommendCallCountTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("위젯 경로(맞춤 3명 + 인기순 2명): 결과와 함께 SQL 12회·ES 검색 4회 이하")
+    @DisplayName("위젯 경로(맞춤 3명 + 인기순 2명): 결과와 함께 SQL 8회·ES 검색 3회")
     void widget() {
         CallRecorder.Recorded<InfluencerRecommendation> recorded = CallRecorder.record(() -> useCase.recommend(1L, null));
 
@@ -112,13 +112,11 @@ class InfluencerRecommendCallCountTest extends ChatbotIntegrationTestBase {
         assertThat(result.basis()).isEqualTo(RecommendBasis.PERSONALIZED);
         assertThat(result.needsInterest()).isFalse();
         assertResult(result.items());
-        CallRecorder.Calls calls = recorded.calls();
-        assertThat(calls.sql()).as(calls.toString()).hasSizeLessThanOrEqualTo(12);
-        assertThat(calls.es()).as(calls.toString()).hasSizeLessThanOrEqualTo(4);
+        assertCalls(recorded.calls());
     }
 
     @Test
-    @DisplayName("버튼 경로(LLM이 둘째를 고름): 결과·프롬프트의 후보 줄과 함께 SQL 13회·ES 검색 4회 이하")
+    @DisplayName("버튼 경로(LLM이 둘째를 고름): 결과·프롬프트의 후보 줄과 함께 SQL 8회·ES 검색 3회(프롬프트 분야를 다시 읽지 않는다)")
     void button() {
         chatModel.reply("""
                 {"picks": [{"candidate": 2, "reason": "같은 게임을 해요"}]}""");
@@ -134,9 +132,14 @@ class InfluencerRecommendCallCountTest extends ChatbotIntegrationTestBase {
         assertThat(chatModel.lastPrompt().getContents())
                 .contains("완료한 출연: 1회 | 평균 별점: 4.0 | 추천 근거: ")
                 .contains("완료한 출연: 0회 | 평균 별점: 리뷰 없음 | 추천 근거: ");
-        CallRecorder.Calls calls = recorded.calls();
-        assertThat(calls.sql()).as(calls.toString()).hasSizeLessThanOrEqualTo(13);
-        assertThat(calls.es()).as(calls.toString()).hasSizeLessThanOrEqualTo(4);
+        assertCalls(recorded.calls());
+    }
+
+    // SQL: 요청 회원 보임, 함께 마친 상대, 내·상대 프로필, 전체 평균 별점, 후보 추천 가능(프로필), 후보 인기 재료,
+    // 인기순 채우기 인기 재료, 채운 회원 프로필. ES: 내·상대 벡터, kNN, 후보 벡터
+    private static void assertCalls(CallRecorder.Calls calls) {
+        assertThat(calls.sql()).as(calls.toString()).hasSize(8);
+        assertThat(calls.es()).as(calls.toString()).containsExactly("search", "search", "search");
     }
 
     // 3·2·4는 맞춤 후보(유사도와 인기를 섞은 순서), 8·7은 인기순 채우기(인기가 같아 회원 ID 내림차순)

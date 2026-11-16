@@ -18,8 +18,8 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
  * 인플루언서 추천의 검색 장애 범위 (#720). 인기순으로 답하는 "검색 장애"는 ES·임베딩 호출 실패뿐이다.
  * 검색 구간 안의 DB 조회가 실패하면 삼키지 않고 그대로 올라간다. 저장소를 스파이로 바꿔 Spring 문맥을 따로 쓰므로 클래스를 나눴다.
  * <p>
- * 검색 구간 안의 DB 조회는 두 곳이다: 함께 마친 상대의 추천 가능 확인(상대 평균 벡터를 만들 때)과 kNN 뒤 후보의 추천 가능 확인.
- * 관심사가 있으면 상대 평균을 만들지 않으므로 kNN 뒤 확인만 지난다.
+ * 검색 구간 안의 DB 조회는 kNN 뒤 후보의 추천 가능 확인 한 곳이다. 함께 마친 상대의 추천 가능 여부는 검색 전에 내 프로필과 함께
+ * 읽은 프로필로 본다(#835). 회원 1은 함께 마친 상대가 없어 내 벡터로 찾고, 관심사 요청은 관심사로 찾는다. 둘 다 kNN 뒤 확인을 지난다.
  */
 class InfluencerRecommendSearchErrorTest extends InfluencerIntegrationTestBase {
 
@@ -43,8 +43,8 @@ class InfluencerRecommendSearchErrorTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("함께 마친 상대의 추천 가능 확인(DB, 상대 평균 벡터)이 실패하면 인기순으로 가리지 않고 예외가 그대로 올라간다")
-    void dbErrorInPartnerMeanIsNotSwallowed() {
+    @DisplayName("내 벡터로 찾은 kNN 뒤 후보의 추천 가능 확인(DB)이 실패하면 인기순으로 가리지 않고 예외가 그대로 올라간다")
+    void dbErrorAfterOwnVectorKnnIsNotSwallowed() {
         assertThatThrownBy(() -> useCase.recommend(1L, null)).isSameAs(failure);
     }
 
