@@ -388,8 +388,15 @@ public class InfluencerRecommendUseCase {
      * @param candidates        점수 순 맞춤 후보
      * @param profiles          풀을 만들며 읽은 후보 프로필(추천 가능 확인). 프롬프트와 답의 분야에 다시 쓴다
      */
-    public record Pool(long userId, Set<Long> partners, double overallMeanRating, List<Candidate> candidates,
-            RecommendBasis basis, boolean needsInterest, boolean requesterHidden, Map<Long, InfluencerProfile> profiles) {
+    public record Pool(
+            long userId,
+            Set<Long> partners,
+            double overallMeanRating,
+            List<Candidate> candidates,
+            RecommendBasis basis,
+            boolean needsInterest,
+            boolean requesterHidden,
+            Map<Long, InfluencerProfile> profiles) {
 
         public Pool {
             partners = Set.copyOf(partners);

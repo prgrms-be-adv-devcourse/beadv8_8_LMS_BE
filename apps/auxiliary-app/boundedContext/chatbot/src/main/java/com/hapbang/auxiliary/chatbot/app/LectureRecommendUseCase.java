@@ -296,8 +296,14 @@ public class LectureRecommendUseCase {
      * @param requesterHidden 요청 회원이 숨김이라 추천하지 않는다
      * @param lectures        풀을 만들며 읽은 강의 사본(후보·신호 강의). 프롬프트와 답의 제목에 다시 쓴다
      */
-    public record Pool(long memberId, Set<Long> excluded, List<LectureRanker.Ranked> ranked,
-            Map<Long, LectureTaste.Reasoned> reasons, RecommendBasis basis, boolean needsInterest, boolean requesterHidden,
+    public record Pool(
+            long memberId,
+            Set<Long> excluded,
+            List<LectureRanker.Ranked> ranked,
+            Map<Long, LectureTaste.Reasoned> reasons,
+            RecommendBasis basis,
+            boolean needsInterest,
+            boolean requesterHidden,
             Map<Long, LectureListing> lectures) {
 
         public Pool {
