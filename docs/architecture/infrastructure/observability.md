@@ -131,7 +131,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
 
-**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. annotation 값은 렌더링한 ConfigMap의 압축 JSON과 거의 같은 크기다(#959 전 운영 annotation 241,360 byte, 같은 때 `kubectl kustomize … | yq -o=json | jq -c . | wc -c`는 241,208 byte). #959 뒤 렌더링 크기는 251,110 byte라 여유가 약 11 KB다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. annotation 값은 렌더링한 ConfigMap의 압축 JSON과 거의 같은 크기다(#959 전 운영 annotation 241,360 byte, 같은 때 `kubectl kustomize … | yq -o=json | jq -c . | wc -c`는 241,208 byte). #959 뒤 렌더링 크기는 251,391 byte라 여유가 약 11 KB다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \

@@ -1337,8 +1337,7 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true,
-              "namespace": true
+              "Time": true
             },
             "renameByName": {
               "Value #A": "working set",
@@ -1347,17 +1346,18 @@
               "Value #D": "working set / limit"
             },
             "indexByName": {
-              "pod": 0,
-              "container": 1,
-              "working set": 2,
-              "RSS": 3,
-              "limit": 4,
-              "working set / limit": 5
+              "namespace": 0,
+              "pod": 1,
+              "container": 2,
+              "working set": 3,
+              "RSS": 4,
+              "limit": 5,
+              "working set / limit": 6
             }
           }
         }
       ],
-      "description": "working set이 limit에 닿으면 OOMKilled되고, 컨테이너 메모리 alert(95%)도 이 값을 본다. RSS는 프로세스의 익명 메모리(JVM heap 등)이고, working set과의 차이는 page cache·공유 메모리(PostgreSQL shared_buffers 등)·커널 메모리다. limit이 비어 있으면 limit 없는 컨테이너다.",
+      "description": "working set ÷ limit이 높을수록 OOMKilled 위험이 크다. 정확한 조건은 cgroup 메모리 사용량이 limit에 닿고 회수에 실패할 때다. 컨테이너 메모리 alert(95%)도 이 비율을 본다. RSS는 프로세스의 익명 메모리(JVM heap 등)이고, working set과의 차이는 page cache·공유 메모리(PostgreSQL shared_buffers 등)·커널 메모리다. limit이 비어 있으면 limit 없는 컨테이너다.",
       "id": 22,
       "gridPos": {
         "h": 10,
@@ -1379,9 +1379,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (pod, container) (container_memory_working_set_bytes{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"})",
+          "expr": "max by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"})",
           "refId": "A",
-          "legendFormat": "{{pod}} {{container}} working set",
+          "legendFormat": "{{namespace}}/{{pod}} {{container}} working set",
           "range": true
         },
         {
@@ -1389,9 +1389,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (pod, container) (container_memory_rss{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"})",
+          "expr": "max by (namespace, pod, container) (container_memory_rss{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"})",
           "refId": "B",
-          "legendFormat": "{{pod}} {{container}} RSS",
+          "legendFormat": "{{namespace}}/{{pod}} {{container}} RSS",
           "range": true
         },
         {
@@ -1399,9 +1399,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (pod, container) (container_spec_memory_limit_bytes{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"} > 0)",
+          "expr": "max by (namespace, pod, container) (container_spec_memory_limit_bytes{container!=\"\", container!=\"POD\", namespace=~\"$namespace\", instance=~\"$node\", pod=~\"$pod\"} > 0)",
           "refId": "C",
-          "legendFormat": "{{pod}} {{container}} limit",
+          "legendFormat": "{{namespace}}/{{pod}} {{container}} limit",
           "range": true
         }
       ],
@@ -1460,7 +1460,7 @@
           "sort": "desc"
         }
       },
-      "description": "위쪽 pod 변수로 고른 pod의 컨테이너별 working set·RSS·limit(빨간 점선). working set이 limit에 닿으면 OOMKilled된다.",
+      "description": "위쪽 pod 변수로 고른 pod의 컨테이너별 working set·RSS·limit(빨간 점선). working set이 limit에 가까울수록 OOMKilled 위험이 크다(정확한 조건은 cgroup 사용량이 limit에 닿고 회수에 실패할 때).",
       "id": 23,
       "gridPos": {
         "h": 10,
