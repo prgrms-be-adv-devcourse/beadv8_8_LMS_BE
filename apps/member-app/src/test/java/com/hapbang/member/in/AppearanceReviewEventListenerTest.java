@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -40,6 +42,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.RetryListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.test.annotation.DirtiesContext;
@@ -70,7 +74,8 @@ import io.micrometer.core.instrument.MeterRegistry;
  * 리스너를 켜는 설정이 달라 다른 테스트와 컨텍스트를 공유하지 못한다. 끝나면 컨텍스트를 닫아 DB 연결과 리스너를 정리한다.
  */
 @MemberIntegrationTest
-@Import(AppearanceReviewEventListenerTest.AppearanceTopicConfig.class)
+@Import({AppearanceReviewEventListenerTest.AppearanceTopicConfig.class,
+        AppearanceReviewEventListenerTest.DeliveryAttemptConfig.class})
 @TestPropertySource(properties = "spring.kafka.listener.auto-startup=true")
 @DirtiesContext
 class AppearanceReviewEventListenerTest {
@@ -92,8 +97,56 @@ class AppearanceReviewEventListenerTest {
         }
     }
 
+    @TestConfiguration(proxyBeanMethods = false)
+    static class DeliveryAttemptConfig {
+
+        /**
+         * 회원 오류 처리기에 붙여 전달 실패를 기록한다. 리스너 컨테이너가 시작하기 전(빈 생성 때)에 붙으므로 소비 스레드와 겹치지 않는다.
+         * {@code setRetryListeners}는 기존 RetryListener를 바꿔 끼운다. 운영 설정({@link MemberKafkaConfig})은 RetryListener를 두지 않는다.
+         */
+        @Bean
+        DeliveryAttemptRecorder deliveryAttemptRecorder(DefaultErrorHandler kafkaErrorHandler) {
+            DeliveryAttemptRecorder recorder = new DeliveryAttemptRecorder();
+            kafkaErrorHandler.setRetryListeners(recorder);
+            return recorder;
+        }
+    }
+
+    /**
+     * 오류 처리기가 출연 이벤트 전달 실패를 받을 때마다 시도 번호(1부터)를 원본 위치(partition·offset)별로 모은다 (#905).
+     * <p>
+     * 재시도하지 않는 예외({@link RejectedEventException} 등)는 1 하나만 남기고 DLT로 가고, 재시도하는 예외는 1·2·3·4를 남긴 뒤 DLT로 간다.
+     * 같은 회원(key)으로 여러 메시지가 실패할 수 있어 key가 아니라 메시지 위치로 나눈다. DLT 레코드의 원본 위치 헤더로 찾는다.
+     */
+    static class DeliveryAttemptRecorder implements RetryListener {
+
+        private final Map<RecordPosition, List<Integer>> attemptsByPosition = new ConcurrentHashMap<>();
+
+        @Override
+        public void failedDelivery(ConsumerRecord<?, ?> record, Exception ex, int deliveryAttempt) {
+            if (AppearanceEventTopic.NAME.equals(record.topic())) {
+                attemptsByPosition.computeIfAbsent(new RecordPosition(record.partition(), record.offset()),
+                        position -> new CopyOnWriteArrayList<>()).add(deliveryAttempt);
+            }
+        }
+
+        /** DLT 레코드의 원본 위치에서 오류 처리기가 받은 시도 번호들 */
+        List<Integer> attemptsOf(ConsumerRecord<String, byte[]> deadLetter) {
+            RecordPosition position = new RecordPosition(
+                    ByteBuffer.wrap(deadLetter.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_PARTITION).value()).getInt(),
+                    ByteBuffer.wrap(deadLetter.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_OFFSET).value()).getLong());
+            return List.copyOf(attemptsByPosition.getOrDefault(position, List.of()));
+        }
+
+        private record RecordPosition(int partition, long offset) {
+        }
+    }
+
     @Autowired
     KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    DeliveryAttemptRecorder deliveryAttemptRecorder;
 
     @Autowired
     MeterRegistry meterRegistry;
@@ -167,8 +220,8 @@ class AppearanceReviewEventListenerTest {
             assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_FQCN)).contains("ListenerExecutionFailedException");
             assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN))
                     .isEqualTo(RejectedEventException.class.getName());
-            // 재시도(최소 1초)를 거치지 않았다
-            assertThat(delayUntilDeadLetter(deadLetter)).isLessThan(Duration.ofSeconds(1));
+            // 오류 처리기가 한 번 받고 바로 DLT로 보냈다. 재시도했다면 DLT에 닿기 전에 1·2·3·4가 모두 남는다
+            assertThat(deliveryAttemptRecorder.attemptsOf(deadLetter)).containsExactly(1);
         });
     }
 
