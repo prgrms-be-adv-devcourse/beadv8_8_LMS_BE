@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.search.influencer.app;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +14,7 @@ import com.hapbang.auxiliary.search.common.app.SearchJobRunner;
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.common.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore;
+import com.hapbang.auxiliary.search.influencer.out.InfluencerDocumentStore.NicknameKeys;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerStats;
@@ -32,6 +34,10 @@ import lombok.extern.slf4j.Slf4j;
  * <b>정합성 점검</b>(#772): 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수를 비교해 결과를 DB({@link ConsistencyCheckStore})에 남긴다.
  * 증분 보정으로도 맞지 않는 어긋남을 알려 준다. 세는 동안 회원이 바뀌면 잠깐 다를 수 있다. 세지 못해도 통계 동기화는 실패로 치지 않고, 낡은 결과만 지운다.
  * <p>
+ * <b>닉네임 초성·자모 칸</b>(#973): 칸이 생긴 뒤의 롤링 배포에서, 재색인이 alias를 옮긴 뒤에도 잠깐 살아 있던 옛 pod가 닉네임만 바꾸고 초성·자모를
+ * 옛 값으로 남기거나, 숨기며 초성·자모를 지우지 못할 수 있다. 같은 version이라 증분 보정은 다시 쓰지 않으므로, 통계를 맞춘 뒤 보이는 문서를 넘기며
+ * 닉네임으로 다시 만든 값과 다르면 compare-and-set으로 고치고, 숨김 문서에 남은 칸은 지운다. 실패해도 통계 동기화는 실패로 치지 않는다(다음 회차).
+ * <p>
  * 프로필 이벤트를 놓친 회원을 바로잡는 일은 증분 보정({@link MemberChangeReconciler}, #772)이 회원 변경분으로 한다. 평점 전체 평균(베이지안 C)은 검색 API가
  * pod마다 계산한다(이 작업은 한 pod에서만 돌아 다른 pod가 값을 받을 수 없다).
  */
@@ -41,6 +47,9 @@ public class InfluencerStatsSync {
 
     /** 통계 한 페이지 크기(회원 API 상한) */
     static final int PAGE_SIZE = InfluencerStatsPageDto.MAX_SIZE;
+
+    /** 닉네임 초성·자모 칸을 맞출 때 한 번에 읽는 문서 수 */
+    static final int NICKNAME_PAGE_SIZE = 500;
 
     private final InfluencerIndexSetup indexSetup;
     private final InfluencerDocumentStore store;
@@ -88,7 +97,38 @@ public class InfluencerStatsSync {
         } else {
             clearConsistency();
         }
+        alignNicknameKeys();
         return result;
+    }
+
+    /**
+     * 닉네임 초성·자모 칸을 닉네임과 맞춘다(#973). 실패해도 통계는 이미 맞췄으므로 WARN만 남기고 다음 회차에 다시 한다.
+     *
+     * @return 고친 문서 수(보이는 문서 + 숨김 문서). 실패했으면 -1
+     */
+    long alignNicknameKeys() {
+        try {
+            long fixed = 0;
+            Long after = null;
+            List<NicknameKeys> page;
+            while (!(page = store.pageVisibleNicknameKeys(after, NICKNAME_PAGE_SIZE)).isEmpty()) {
+                for (NicknameKeys doc : page) {
+                    if (!doc.matchesSource() && store.writeNicknameKeys(doc) == WriteOutcome.UPDATED) {
+                        fixed++;
+                        log.info("닉네임과 다른 검색 문서의 초성·자모 칸을 고쳤다 userId={}", doc.userId());
+                    }
+                }
+                after = page.getLast().userId();
+            }
+            long cleared = store.clearHiddenNicknameKeys();
+            if (cleared > 0) {
+                log.info("숨김 검색 문서에 남은 닉네임 초성·자모 칸을 지웠다 documents={}", cleared);
+            }
+            return fixed + cleared;
+        } catch (RuntimeException e) {
+            log.warn("닉네임 초성·자모 칸을 맞추지 못해 다음 회차에 다시 한다", e);
+            return -1;
+        }
     }
 
     /** 점검 결과를 남긴다. 남기지 못해도 통계는 이미 맞췄으므로 실패로 치지 않고, 낡은 결과만 지운다(PR #833 재리뷰) */

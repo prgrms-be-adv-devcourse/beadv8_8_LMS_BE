@@ -166,6 +166,29 @@ class LectureReviewReconcilerTest {
         assertThat(registry.find("hapbang.search.lecture.reconcile.duration").timers()).isEmpty();
     }
 
+    @Test
+    @DisplayName("원문만 바뀌고 초성·자모 칸이 옛 값인 문서(롤링 배포 중 옛 pod)를 칸 맞추기가 원문으로 고친다. 다음 회차에는 고칠 것이 없다(#973)")
+    void alignsHangulKeys() throws Exception {
+        indexer.apply(lecture(LECTURE, 0L));
+        // 옛 pod: 초성·자모 칸을 모르고 제목·판매자 닉네임만 바꾼다
+        client.update(u -> u.index(LectureIndexDefinition.ALIAS).id(String.valueOf(LECTURE))
+                .doc(Map.of("title", "방송장비 추천", "sellerNickname", "소리장인")), Map.class);
+        refresh();
+
+        LectureReconcileResult result = reconciler.reconcile();
+
+        assertThat(result.count(LectureReconcileKind.HANGUL_KEYS_FIXED)).isEqualTo(1);
+        assertThat(source(LECTURE)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"))
+                .containsEntry("titleJamo", List.of("ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣㅊㅜㅊㅓㄴ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ"));
+        assertThat(registry.get("hapbang.search.lecture.reconcile.items").tag("job", "review")
+                .tag("kind", "hangul_keys_fixed").counter().count()).isEqualTo(1.0);
+
+        refresh();
+        assertThat(reconciler.reconcile().count(LectureReconcileKind.HANGUL_KEYS_FIXED)).isZero();
+    }
+
     private void refresh() {
         indexSetup.refresh(LectureIndexDefinition.ALIAS);
     }

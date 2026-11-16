@@ -82,10 +82,11 @@ public class LectureReviewReconciler {
             LectureReconcileResult result = copied.plus(aligner.align());
             metrics.reconciled(LectureSyncMetrics.JOB_REVIEW, result, Duration.ofNanos(System.nanoTime() - started));
             log.info("강의 리뷰 보정을 했다 read={}, copied={}, reviewDeleted={}, alreadyApplied={}, documents={}, "
-                            + "sellerFixed={}, ratingFixed={}", copied.read(), result.count(LectureReconcileKind.COPIED),
-                    result.count(LectureReconcileKind.REVIEW_DELETED),
+                            + "sellerFixed={}, ratingFixed={}, hangulKeysFixed={}", copied.read(),
+                    result.count(LectureReconcileKind.COPIED), result.count(LectureReconcileKind.REVIEW_DELETED),
                     result.count(LectureReconcileKind.ALREADY_APPLIED), result.read() - copied.read(),
-                    result.count(LectureReconcileKind.SELLER_FIXED), result.count(LectureReconcileKind.RATING_FIXED));
+                    result.count(LectureReconcileKind.SELLER_FIXED), result.count(LectureReconcileKind.RATING_FIXED),
+                    result.count(LectureReconcileKind.HANGUL_KEYS_FIXED));
             return result;
         } catch (IndexNotReadyException e) {
             throw e;

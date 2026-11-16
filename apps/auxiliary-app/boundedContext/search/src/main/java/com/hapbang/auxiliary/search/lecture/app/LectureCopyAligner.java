@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
 import com.hapbang.auxiliary.search.lecture.out.IndexedLecture;
 import com.hapbang.auxiliary.search.lecture.out.LectureDocumentStore;
+import com.hapbang.auxiliary.search.lecture.out.LectureHangulKeys;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexSetup;
 import com.hapbang.auxiliary.search.lecture.out.LectureRating;
 import com.hapbang.auxiliary.search.lecture.out.LectureReviewCopyStore;
@@ -18,7 +19,7 @@ import com.hapbang.auxiliary.search.lecture.out.Seller;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 강의 문서의 판매자·평점 칸을 사본과 맞춘다(#884). 모든 문서(숨긴 문서 포함)를 강의 ID 순서로 페이지마다 읽어, 그 판매자의 회원 사본과 그 강의의 리뷰
+ * 강의 문서의 판매자·평점 칸을 사본과, 초성·자모 칸을 원문과 맞춘다(#884, #973). 모든 문서(숨긴 문서 포함)를 강의 ID 순서로 페이지마다 읽어, 그 판매자의 회원 사본과 그 강의의 리뷰
  * 사본 집계를 한 번에 읽고 다른 칸만 고친다.
  * <ul>
  *     <li><b>평점 칸 경합</b>: 평점 칸은 version 보호가 없어, 리뷰 반영과 다른 스레드(보정·따라잡기)가 같은 강의를 동시에 세면 먼저 읽고 늦게
@@ -27,6 +28,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li><b>판매자 칸</b>: 회원 사본에 없는 판매자는 건너뛴다(회원 이벤트·판매자 보정이 채운다). 쓰기는 회원 version 조건이라 문서가 더 새 값이면
  *     noop이다({@link LectureDocumentStore#writeSeller}).</li>
  *     <li>재색인 뒤 따라잡기에서는 채우는 동안 바뀐 사본 값(이벤트는 사본만 고치고 문서 쓰기를 건너뜀)을 새 index에 반영한다.</li>
+ *     <li><b>초성·자모 칸</b>(#973): 칸이 생긴 뒤의 롤링 배포에서, 재색인이 alias를 옮긴 뒤에도 잠깐 살아 있던 옛 pod가 제목·닉네임만 바꾸고 초성·자모는
+ *     옛 값으로 남길 수 있다. 같은 version이라 강의 보정은 다시 쓰지 않으므로, 모든 문서를 한 번 더 넘기며 원문으로 다시 만든 값과 다르면
+ *     compare-and-set으로 고친다({@link LectureDocumentStore#writeHangulKeys}, 원문이 그사이 바뀌었으면 건드리지 않는다). version 규칙과는 상관없다.</li>
  * </ul>
  * 락은 부르는 쪽(리뷰 보정, 재색인 따라잡기)이 쥔다. 둘이 겹쳐 돌아도 같은 사본 값을 쓰므로 결과가 같다.
  */
@@ -74,7 +78,23 @@ public class LectureCopyAligner {
             read += page.size();
             after = page.getLast().lectureId();
         }
+        alignHangulKeys(counts);
         return new LectureReconcileResult(read, counts);
+    }
+
+    /** 모든 문서의 초성·자모 칸을 원문과 맞춘다(#973) */
+    private void alignHangulKeys(Map<LectureReconcileKind, Long> counts) {
+        Long after = null;
+        List<LectureHangulKeys> page;
+        while (!(page = documents.pageHangulKeys(after, PAGE_SIZE)).isEmpty()) {
+            for (LectureHangulKeys doc : page) {
+                if (!doc.matchesSource() && documents.writeHangulKeys(doc) == WriteOutcome.UPDATED) {
+                    counts.merge(LectureReconcileKind.HANGUL_KEYS_FIXED, 1L, Long::sum);
+                    log.info("원문과 다른 강의 검색 문서의 초성·자모 칸을 고쳤다 lectureId={}", doc.lectureId());
+                }
+            }
+            after = page.getLast().lectureId();
+        }
     }
 
     private void alignSeller(IndexedLecture doc, Seller copy, Map<LectureReconcileKind, Long> counts) {

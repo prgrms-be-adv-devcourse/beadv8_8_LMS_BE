@@ -104,6 +104,27 @@ class InfluencerDocumentStoreTest {
         }
 
         @Test
+        @DisplayName("초성·자모 고치기는 읽은 닉네임이 문서와 같고 보이는 문서일 때만 쓴다(compare-and-set)")
+        void writeNicknameKeysCompareAndSet() throws Exception {
+            store.show(USER_ID, 1L, profile("침착맨"));
+            client.update(u -> u.index(InfluencerIndexDefinition.ALIAS).id(String.valueOf(USER_ID))
+                    .doc(Map.of("nicknameChosung", List.of("ㅇ"))), Map.class);
+
+            assertThat(store.writeNicknameKeys(new InfluencerDocumentStore.NicknameKeys(USER_ID, "옛 닉네임", null, null)))
+                    .isEqualTo(WriteOutcome.NOOP);
+            assertThat(source()).containsEntry("nicknameChosung", List.of("ㅇ"));
+
+            assertThat(store.writeNicknameKeys(new InfluencerDocumentStore.NicknameKeys(USER_ID, "침착맨", null, null)))
+                    .isEqualTo(WriteOutcome.UPDATED);
+            assertThat(source()).containsEntry("nicknameChosung", List.of("ㅊㅊㅁ"));
+
+            store.hide(USER_ID, 2L, NOW);
+            assertThat(store.writeNicknameKeys(new InfluencerDocumentStore.NicknameKeys(USER_ID, null, null, null)))
+                    .isEqualTo(WriteOutcome.NOOP);
+            assertThat(source()).doesNotContainKeys("nicknameChosung", "nicknameJamo");
+        }
+
+        @Test
         @DisplayName("숨기면 닉네임에서 만든 초성·자모 칸도 개인정보로 지운다")
         void removedWhenHidden() throws Exception {
             store.show(USER_ID, 1L, profile("침착맨"));

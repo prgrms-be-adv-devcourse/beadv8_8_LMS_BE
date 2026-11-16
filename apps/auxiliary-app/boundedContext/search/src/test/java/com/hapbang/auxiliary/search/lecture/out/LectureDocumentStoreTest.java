@@ -225,6 +225,30 @@ class LectureDocumentStoreTest {
     }
 
     @Test
+    @DisplayName("초성·자모 칸 고치기는 읽은 원문이 문서와 같을 때만 쓴다. 그사이 원문이 바뀌었으면 그 칸은 그대로다(compare-and-set, #973)")
+    void writeHangulKeysCompareAndSet() throws Exception {
+        store.writeLecture(lecture(11L, "방송장비 추천", true, 1L), new Seller(7L, "소리장인", true, 1L), RATING, NOW);
+        client.update(u -> u.index(LectureIndexDefinition.ALIAS).id("11")
+                .doc(Map.of("titleChosung", List.of("ㅇ"), "sellerNicknameChosung", List.of("ㅇ"))), Map.class);
+        client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
+
+        LectureHangulKeys read = store.pageHangulKeys(null, 10).getFirst();
+        assertThat(read.matchesSource()).isFalse();
+        LectureHangulKeys stale = new LectureHangulKeys(11L, "옛 제목", read.titleChosung(), read.titleJamo(),
+                "소리장인", read.sellerNicknameChosung(), read.sellerNicknameJamo());
+
+        assertThat(store.writeHangulKeys(stale)).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅇ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"));
+
+        assertThat(store.writeHangulKeys(read)).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"));
+        assertThat(store.writeHangulKeys(read)).isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.writeHangulKeys(new LectureHangulKeys(99L, "없음", null, null, null, null, null)))
+                .isEqualTo(WriteOutcome.MISSING);
+    }
+
+    @Test
     @DisplayName("tombstone 정리는 오래된 숨김 문서만 지운다. 판매자가 정지된 강의는 숨김이 아니라 정지가 길어도 남는다(Q2)")
     void cleanupKeepsSuspendedSellerLectures() throws Exception {
         Instant old = NOW.minus(Duration.ofDays(8));

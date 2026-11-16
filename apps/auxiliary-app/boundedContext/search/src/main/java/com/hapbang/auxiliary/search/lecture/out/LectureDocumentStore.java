@@ -165,6 +165,28 @@ public class LectureDocumentStore {
             ctx._source.remove('lectureVersion');
             """;
 
+    /**
+     * 초성·자모 칸을 원문과 맞추는 script(#973, compare-and-set). 문서의 원문(제목·판매자 닉네임)이 <b>읽은 값과 같을 때만</b> 넘긴 초성·자모로
+     * 고친다. 읽은 뒤 강의·회원 이벤트가 원문을 바꿨으면 그 이벤트가 맞는 초성·자모도 함께 썼으므로 건드리지 않는다. version은 보지 않는다(초성·자모는
+     * 같은 문서의 원문만으로 정해지는 값이다). 값이 같으면 noop이다.
+     */
+    static final String HANGUL_KEYS_SCRIPT = """
+            boolean changed = false;
+            if (ctx._source.title == params.title) {
+              if (ctx._source.titleChosung != params.titleChosung) { ctx._source.titleChosung = params.titleChosung; changed = true; }
+              if (ctx._source.titleJamo != params.titleJamo) { ctx._source.titleJamo = params.titleJamo; changed = true; }
+            }
+            if (ctx._source.sellerNickname == params.sellerNickname) {
+              if (ctx._source.sellerNicknameChosung != params.sellerNicknameChosung) { ctx._source.sellerNicknameChosung = params.sellerNicknameChosung; changed = true; }
+              if (ctx._source.sellerNicknameJamo != params.sellerNicknameJamo) { ctx._source.sellerNicknameJamo = params.sellerNicknameJamo; changed = true; }
+            }
+            if (!changed) { ctx.op = 'noop'; }
+            """;
+
+    /** 초성·자모 칸을 원문과 비교하려고 읽는 칸({@link LectureHangulKeys}) */
+    static final List<String> HANGUL_KEY_FIELDS = List.of("title", "titleChosung", "titleJamo", "sellerNickname",
+            "sellerNicknameChosung", "sellerNicknameJamo");
+
     /** 보정·따라잡기가 원본·사본과 비교하려고 읽는 칸({@link IndexedLecture}) */
     static final List<String> INDEXED_FIELDS = List.of("lectureVersion", "hidden", "priceHp", "sellerUserId",
             "sellerNickname", "sellerActive", "sellerVersion", "averageRating", "reviewCount");
@@ -357,6 +379,53 @@ public class LectureDocumentStore {
      * @throws IllegalStateException 읽지 못한 경우
      */
     public List<IndexedLecture> page(Long afterLectureId, int size) {
+        List<IndexedLecture> lectures = new ArrayList<>();
+        for (Hit<Map> hit : pageHits(afterLectureId, size, INDEXED_FIELDS)) {
+            lectures.add(indexedLecture(Long.parseLong(hit.id()), hit.source() == null ? Map.of() : hit.source()));
+        }
+        return lectures;
+    }
+
+    /**
+     * 강의 문서의 원문과 초성·자모 칸을 강의 ID 오름차순으로 한 페이지 읽는다(#973, 숨긴 문서 포함). 칸 맞추기가 원문에서 다시 만든 값과 비교한다.
+     *
+     * @param afterLectureId 이 강의 ID보다 큰 문서부터. null이면 처음부터
+     * @return 한 페이지. 비어 있으면 끝이다
+     * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
+     * @throws IllegalStateException 읽지 못한 경우
+     */
+    @SuppressWarnings("unchecked")
+    public List<LectureHangulKeys> pageHangulKeys(Long afterLectureId, int size) {
+        List<LectureHangulKeys> lectures = new ArrayList<>();
+        for (Hit<Map> hit : pageHits(afterLectureId, size, HANGUL_KEY_FIELDS)) {
+            Map<String, Object> source = hit.source() == null ? Map.of() : hit.source();
+            lectures.add(new LectureHangulKeys(Long.parseLong(hit.id()), (String) source.get("title"),
+                    (List<String>) source.get("titleChosung"), (List<String>) source.get("titleJamo"),
+                    (String) source.get("sellerNickname"), (List<String>) source.get("sellerNicknameChosung"),
+                    (List<String>) source.get("sellerNicknameJamo")));
+        }
+        return lectures;
+    }
+
+    /**
+     * 초성·자모 칸을 읽은 원문으로 다시 만든 값으로 고친다(#973, {@link #HANGUL_KEYS_SCRIPT}). 원문이 그사이 바뀌었으면 그 칸은 그대로 둔다.
+     *
+     * @param read 칸 맞추기가 읽은 원문
+     * @return 고쳤으면 {@link WriteOutcome#UPDATED}, 같거나 원문이 바뀌었으면 {@link WriteOutcome#NOOP}, 문서가 없으면 {@link WriteOutcome#MISSING}
+     */
+    public WriteOutcome writeHangulKeys(LectureHangulKeys read) {
+        Map<String, JsonData> params = new HashMap<>();
+        putIfPresent(params, "title", read.title());
+        putIfPresent(params, "titleChosung", HangulKeys.withCompact(HangulKeys.chosung(read.title())));
+        putIfPresent(params, "titleJamo", HangulKeys.withCompact(HangulKeys.jamo(read.title())));
+        putIfPresent(params, "sellerNickname", read.sellerNickname());
+        putIfPresent(params, "sellerNicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(read.sellerNickname())));
+        putIfPresent(params, "sellerNicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(read.sellerNickname())));
+        return partialUpdate(read.lectureId(), HANGUL_KEYS_SCRIPT, params);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private List<Hit<Map>> pageHits(Long afterLectureId, int size, List<String> fields) {
         try {
             SearchResponse<Map> response = client.search(s -> s.index(LectureIndexDefinition.ALIAS)
                     .size(size)
@@ -365,13 +434,8 @@ public class LectureDocumentStore {
                             ? q.matchAll(m -> m)
                             : q.range(r -> r.number(n -> n.field("lectureId").gt(afterLectureId.doubleValue()))))
                     .sort(o -> o.field(f -> f.field("lectureId").order(SortOrder.Asc)))
-                    .source(src -> src.filter(f -> f.includes(INDEXED_FIELDS))), Map.class);
-            List<IndexedLecture> lectures = new ArrayList<>();
-            for (Hit<Map> hit : response.hits().hits()) {
-                long id = Long.parseLong(hit.id());
-                lectures.add(indexedLecture(id, hit.source() == null ? Map.of() : hit.source()));
-            }
-            return lectures;
+                    .source(src -> src.filter(f -> f.includes(fields))), Map.class);
+            return response.hits().hits();
         } catch (ElasticsearchException e) {
             writes.throwIfAliasMissing(e);
             throw new IllegalStateException("강의 검색 문서를 읽지 못했습니다 afterLectureId=" + afterLectureId, e);

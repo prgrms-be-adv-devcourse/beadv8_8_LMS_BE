@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -20,8 +21,10 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Conflicts;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.Result;
+import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.MgetResponse;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.get.GetResult;
 import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.json.JsonData;
@@ -99,6 +102,25 @@ public class InfluencerDocumentStore {
               if (category.name != name) { category.name = name; changed = true; }
             }
             if (!changed) { ctx.op = 'noop'; }
+            """;
+
+    /**
+     * 닉네임 초성·자모 칸을 원문과 맞추는 script(#973, compare-and-set). 보이는 문서이고 닉네임이 <b>읽은 값과 같을 때만</b> 넘긴 값으로 고친다.
+     * 읽은 뒤 회원 이벤트가 닉네임을 바꿨거나 숨겼으면 그 이벤트가 맞는 값을 썼으므로 건드리지 않는다. version은 보지 않는다. 값이 같으면 noop이다.
+     */
+    static final String NICKNAME_KEYS_SCRIPT = """
+            if (ctx._source.hidden == true || ctx._source.nickname != params.nickname) { ctx.op = 'noop'; return; }
+            boolean changed = false;
+            if (ctx._source.nicknameChosung != params.nicknameChosung) { ctx._source.nicknameChosung = params.nicknameChosung; changed = true; }
+            if (ctx._source.nicknameJamo != params.nicknameJamo) { ctx._source.nicknameJamo = params.nicknameJamo; changed = true; }
+            if (!changed) { ctx.op = 'noop'; }
+            """;
+
+    /** 숨김 문서에 남은 닉네임 초성·자모 칸을 지우는 script(#973). 그사이 다시 보이게 된 문서는 건드리지 않는다 */
+    static final String CLEAR_HIDDEN_NICKNAME_KEYS_SCRIPT = """
+            if (ctx._source.hidden != true) { ctx.op = 'noop'; return; }
+            ctx._source.remove('nicknameChosung');
+            ctx._source.remove('nicknameJamo');
             """;
 
     /** 증분 보정이 반영 전에 읽는 회원 이벤트 필드({@link IndexedMember}) */
@@ -364,6 +386,117 @@ public class InfluencerDocumentStore {
         params.put("personal", JsonData.of(PERSONAL_FIELDS));
         params.put("now", JsonData.of(hiddenAt.toEpochMilli()));
         return params;
+    }
+
+    /**
+     * 보이는 문서의 닉네임과 초성·자모 칸을 회원 ID 오름차순으로 한 페이지 읽는다(#973). 통계 동기화가 원문으로 다시 만든 값과 비교한다.
+     *
+     * @param afterUserId 이 회원 ID보다 큰 문서부터. null이면 처음부터
+     * @return 한 페이지. 비어 있으면 끝이다
+     * @throws com.hapbang.auxiliary.search.common.out.IndexNotReadyException alias가 없는 경우(처음 적재 전)
+     * @throws IllegalStateException 읽지 못한 경우
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public List<NicknameKeys> pageVisibleNicknameKeys(Long afterUserId, int size) {
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(InfluencerIndexDefinition.ALIAS)
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .query(q -> q.bool(b -> {
+                        b.filter(f -> f.term(t -> t.field("hidden").value(false)));
+                        if (afterUserId != null) {
+                            b.filter(f -> f.range(r -> r.number(n -> n.field("userId").gt(afterUserId.doubleValue()))));
+                        }
+                        return b;
+                    }))
+                    .sort(o -> o.field(f -> f.field("userId").order(SortOrder.Asc)))
+                    .source(src -> src.filter(f -> f.includes("nickname", "nicknameChosung", "nicknameJamo"))), Map.class);
+            return response.hits().hits().stream().map(hit -> {
+                Map<String, Object> source = hit.source() == null ? Map.of() : hit.source();
+                return new NicknameKeys(Long.parseLong(hit.id()), (String) source.get("nickname"),
+                        (List<String>) source.get("nicknameChosung"), (List<String>) source.get("nicknameJamo"));
+            }).toList();
+        } catch (ElasticsearchException e) {
+            writes.throwIfAliasMissing(e);
+            throw new IllegalStateException("검색 문서의 닉네임을 읽지 못했습니다 afterUserId=" + afterUserId, e);
+        } catch (IOException e) {
+            throw new IllegalStateException("검색 문서의 닉네임을 읽지 못했습니다 afterUserId=" + afterUserId, e);
+        }
+    }
+
+    /**
+     * 닉네임 초성·자모 칸을 읽은 닉네임으로 다시 만든 값으로 고친다(#973, {@link #NICKNAME_KEYS_SCRIPT}).
+     *
+     * @return 고쳤으면 {@link WriteOutcome#UPDATED}, 같거나 닉네임이 바뀌었거나 숨겼으면 {@link WriteOutcome#NOOP}, 문서가 없으면
+     *         {@link WriteOutcome#MISSING}
+     */
+    public WriteOutcome writeNicknameKeys(NicknameKeys read) {
+        Map<String, JsonData> params = new HashMap<>();
+        if (read.nickname() != null) {
+            params.put("nickname", JsonData.of(read.nickname()));
+            params.put("nicknameChosung", JsonData.of(HangulKeys.withCompact(HangulKeys.chosung(read.nickname()))));
+            params.put("nicknameJamo", JsonData.of(HangulKeys.withCompact(HangulKeys.jamo(read.nickname()))));
+        }
+        try {
+            return DocumentWrites.outcome(client.update(u -> u.index(InfluencerIndexDefinition.ALIAS)
+                    .id(String.valueOf(read.userId()))
+                    .requireAlias(true)
+                    .retryOnConflict(3)
+                    .script(s -> s.source(src -> src.scriptString(NICKNAME_KEYS_SCRIPT)).params(params)), Map.class)
+                    .result());
+        } catch (ElasticsearchException e) {
+            if (e.error() != null && DocumentWrites.DOCUMENT_MISSING.equals(e.error().type())) {
+                return WriteOutcome.MISSING;
+            }
+            writes.throwIfAliasMissing(e);
+            throw new IllegalStateException("검색 문서의 닉네임 초성·자모를 고치지 못했습니다 userId=" + read.userId(), e);
+        } catch (IOException e) {
+            throw new IllegalStateException("검색 문서의 닉네임 초성·자모를 고치지 못했습니다 userId=" + read.userId(), e);
+        }
+    }
+
+    /**
+     * 숨김 문서에 남은 닉네임 초성·자모 칸을 지운다(#973, 개인정보). 숨김 문서는 일반 회원 수만큼 많아 다 훑지 않고, 그 칸이 남은 문서만 찾는다.
+     * 롤링 배포 중 숨길 때 지우는 칸 목록을 모르는 옛 pod가 숨긴 문서에만 생긴다.
+     *
+     * @return 지운 문서 수
+     */
+    public long clearHiddenNicknameKeys() {
+        try {
+            Long updated = client.updateByQuery(u -> u.index(InfluencerIndexDefinition.ALIAS)
+                    // 그사이 회원 이벤트가 바꾼 문서는 그 이벤트가 맞는 값을 썼다
+                    .conflicts(Conflicts.Proceed)
+                    .query(q -> q.bool(b -> b
+                            .filter(f -> f.term(t -> t.field("hidden").value(true)))
+                            .should(s -> s.exists(e -> e.field("nicknameChosung")))
+                            .should(s -> s.exists(e -> e.field("nicknameJamo")))
+                            .minimumShouldMatch("1")))
+                    .script(s -> s.source(src -> src.scriptString(CLEAR_HIDDEN_NICKNAME_KEYS_SCRIPT))))
+                    .updated();
+            return updated == null ? 0 : updated;
+        } catch (ElasticsearchException e) {
+            writes.throwIfAliasMissing(e);
+            throw new IllegalStateException("숨김 검색 문서의 닉네임 초성·자모를 지우지 못했습니다", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("숨김 검색 문서의 닉네임 초성·자모를 지우지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 보이는 검색 문서의 닉네임과 그 초성·자모 칸(#973)
+     *
+     * @param userId          회원 ID(문서 ID)
+     * @param nickname        닉네임 원문
+     * @param nicknameChosung 닉네임 초성 칸
+     * @param nicknameJamo    닉네임 자모 칸
+     */
+    public record NicknameKeys(long userId, String nickname, List<String> nicknameChosung, List<String> nicknameJamo) {
+
+        /** 초성·자모 칸이 닉네임으로 다시 만든 값과 같은지 */
+        public boolean matchesSource() {
+            return Objects.equals(nicknameChosung, HangulKeys.withCompact(HangulKeys.chosung(nickname)))
+                    && Objects.equals(nicknameJamo, HangulKeys.withCompact(HangulKeys.jamo(nickname)));
+        }
     }
 
     private WriteOutcome writeMember(long userId, Long version, boolean visible, Map<String, Object> profile,
