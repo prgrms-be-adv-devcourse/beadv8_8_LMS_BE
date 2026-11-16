@@ -198,6 +198,22 @@ class ApiV1SearchControllerTest {
         org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).containsEntry("롤토체스", 2L);
     }
 
+    @Test
+    @DisplayName("검색어가 초성뿐이면 닉네임 초성 칸에서 낱말 앞부분으로 찾고, 0건이어도 0건 검색어로 모으지 않는다(#973)")
+    void chosungOnly() throws Exception {
+        mockMvc.perform(as(get(URL).param("keyword", "ㅁㅇㅍ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].id").value(org.hamcrest.Matchers.contains(1)));
+        mockMvc.perform(as(get(URL).param("keyword", "ㄷㅍ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].id").value(org.hamcrest.Matchers.contains(2)));
+
+        mockMvc.perform(as(get(URL).param("keyword", "ㅋㅋㅋ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").isEmpty());
+        mockMvc.perform(get(URL).param("keyword", "ㅋㅋㅋ").header(GatewayUserHeaderFilter.USER_ID, "101")
+                .header(GatewayUserHeaderFilter.USER_ROLE, "INFLUENCER"));
+        org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).isEmpty();
+    }
+
     private void influencer(long id, String nickname, String role, List<String> codes, String bio, InfluencerStats stats) {
         store.show(id, 1L, new MemberProfile(nickname, bio, role, "VERIFIED_INFLUENCER".equals(role),
                 codes.stream().map(code -> new MemberProfile.Category(code, switch (code) {

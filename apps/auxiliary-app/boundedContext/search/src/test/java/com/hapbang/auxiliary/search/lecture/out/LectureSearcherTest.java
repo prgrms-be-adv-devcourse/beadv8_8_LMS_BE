@@ -190,6 +190,39 @@ class LectureSearcherTest {
     }
 
     @Test
+    @DisplayName("검색어가 초성뿐이면 제목·판매자 닉네임 초성 칸에서 낱말 앞부분으로 찾는다. 보일 강의 조건은 같고, highlights 칸은 모두 비어 있다(#973)")
+    void chosungOnly() throws Exception {
+        write(1L, "방송장비 추천 가이드", "소개", List.of(), seller(7L, "편집장", true), null);
+        write(2L, "OBS 방송 세팅", "소개", List.of(), seller(8L, "소리장인", true), null);
+        write(3L, "보이스 발성", "소개", List.of(), seller(9L, "목소리연구소", true), null);
+        write(4L, "방송장비 고급", "소개", List.of(), seller(7L, "편집장", true), null, false);
+        write(5L, "방송장비 중급", "소개", List.of(), seller(10L, "정지된판매자", false), null);
+        refresh();
+
+        assertThat(ids(search("ㅂㅅㅈㅂ", LectureSort.DEFAULT))).containsExactly(1L);
+        assertThat(ids(search("ㅂㅅ", LectureSort.DEFAULT))).containsExactlyInAnyOrder(1L, 2L, 3L);
+        assertThat(ids(search("ㅂㅅㅈㅂ ㅊ", LectureSort.DEFAULT))).containsExactly(1L);
+        assertThat(ids(search("ㅅㄹㅈㅇ", LectureSort.DEFAULT))).containsExactly(2L);
+        assertThat(ids(search("ㅈㅂ", LectureSort.DEFAULT))).as("낱말 중간은 찾지 않는다").isEmpty();
+
+        LectureSearchItem.Highlights highlights = search("ㅂㅅㅈㅂ", LectureSort.DEFAULT).getFirst().highlights();
+        assertThat(highlights).isNotNull();
+        assertThat(highlights.title()).isNull();
+        assertThat(highlights.sellerNickname()).isNull();
+    }
+
+    @Test
+    @DisplayName("초성과 글자가 섞이거나 글자만 있으면 지금 검색 그대로다(초성 칸을 보지 않는다, #973)")
+    void notChosungOnlyUsesTextFields() throws Exception {
+        write(1L, "방송장비 추천", "소개", List.of(), seller(7L, "편집장", true), null);
+        refresh();
+
+        assertThat(ids(search("ㅂ송", LectureSort.DEFAULT))).isEmpty();
+        assertThat(ids(search("방송", LectureSort.DEFAULT))).containsExactly(1L);
+        assertThat(search("방송", LectureSort.DEFAULT).getFirst().highlights().title()).isEqualTo("<em>방송</em>장비 추천");
+    }
+
+    @Test
     @DisplayName("평균 C를 모르면(null) 평점 가산 없이 글 점수만 쓴다. 글이 같으면 강의 ID 내림차순이다")
     void noBaselineNoBoost() throws Exception {
         write(1L, "라이브 방송 기획", "소개", List.of(), seller(7L, "편집장", true), new LectureRating(5.0, 50));

@@ -8,6 +8,8 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchCondition;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSort;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
@@ -33,6 +35,7 @@ import co.elastic.clients.json.JsonData;
  *     <li>filter: 숨기지 않은 문서 + 인증 여부·팔로워·평점 최소값 + 분야(하나라도 가진 사람, OR)</li>
  *     <li>must(검색어): {@code multi_match} best_fields, 닉네임 ×3, 채널 이름 ×3, 분야 이름 ×2, 자기소개 ×1, tie_breaker 0.3.
  *     검색 분석기가 동의어를 펼친다</li>
+ *     <li>검색어가 초성뿐이면({@code ㅊㅊㅁ}) 위 대신 닉네임 초성 칸에서 낱말 앞부분으로 찾는다(#973)</li>
  *     <li>should(분야): 고른 분야마다 term. 많이 맞을수록 점수가 커진다(filter가 이미 걸렀으므로 순서에만 쓰인다)</li>
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + a·log10(1+팔로워)) × (인증이면 v)</li>
  * </ul>
@@ -45,6 +48,9 @@ public class InfluencerSearcher {
 
     /** 검색어를 찾는 필드와 가중치 */
     static final List<String> KEYWORD_FIELDS = List.of("nickname^3", "channelNames^3", "contentCategories.name^2", "bio^1");
+
+    /** 초성뿐인 검색어를 찾는 초성 칸(#973) */
+    static final List<String> CHOSUNG_FIELDS = List.of("nicknameChosung^3");
 
     static final String FOLLOWER_BOOST_SCRIPT = """
             double followers = doc['followerCount'].size() == 0 ? 0 : doc['followerCount'].value;
@@ -122,13 +128,21 @@ public class InfluencerSearcher {
         if (condition.keyword() == null) {
             return bool.build()._toQuery();
         }
-        bool.must(m -> m.multiMatch(mm -> mm.query(condition.keyword()).fields(KEYWORD_FIELDS)
-                .type(TextQueryType.BestFields).tieBreaker(0.3)));
+        bool.must(keywordQuery(condition.keyword()));
         Query base = bool.build()._toQuery();
         return Query.of(q -> q.scriptScore(ss -> ss.query(base)
                 .script(sc -> sc.source(src -> src.scriptString(FOLLOWER_BOOST_SCRIPT))
                         .params("a", JsonData.of(ranking.followerBoost()))
                         .params("v", JsonData.of(ranking.verifiedBoost())))));
+    }
+
+    /** 검색어 조건. 초성뿐이면 닉네임 초성 칸, 아니면 글 칸(#973) */
+    private static Query keywordQuery(String keyword) {
+        if (HangulKeys.isChosungOnly(keyword)) {
+            return SearchAsYouType.boolPrefix(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
+        }
+        return Query.of(q -> q.multiMatch(mm -> mm.query(keyword).fields(KEYWORD_FIELDS)
+                .type(TextQueryType.BestFields).tieBreaker(0.3)));
     }
 
     List<SortOptions> sort(InfluencerSearchCondition condition, double ratingBaseline) {

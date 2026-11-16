@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.lecture.app.LectureSearchCondition;
 import com.hapbang.auxiliary.search.lecture.app.LectureSort;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
@@ -39,6 +41,8 @@ import co.elastic.clients.util.NamedValue;
  *     <li>filter: 검색에 보일 강의 = {@code hidden=false} 그리고 {@code sellerActive=true}(#882 Q2)</li>
  *     <li>must(검색어): {@code multi_match} best_fields, 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1, tie_breaker 0.3(L11).
  *     검색 분석기가 동의어를 펼친다</li>
+ *     <li>검색어가 초성뿐이면({@code ㅂㅅㅈㅂ}) 위 대신 초성 칸에서 낱말 앞부분으로 찾는다. 제목 ×3, 판매자 닉네임 ×2(#973). 원문에 초성 글자가 없어
+ *     highlight는 구하지 않는다({@code highlights}의 칸이 모두 null)</li>
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + b × 베이지안 평균 / 5). 글이 먼저고 평점은 비슷할 때만 가른다(L11).
  *     전체 평균 C를 모르면(null) 가산 없이 글 점수만 쓴다(#883)</li>
  *     <li>highlight(검색어가 있을 때): {@code encoder: html}이라 원문의 HTML 특수 문자를 escape하고 걸린 말만 {@code <em>}으로 감싼다(L12).
@@ -54,6 +58,9 @@ public class LectureSearcher {
 
     /** 검색어를 찾는 필드와 가중치(L11 초기값, golden 테스트가 고정한다) */
     static final List<String> KEYWORD_FIELDS = List.of("title^3", "contentTitles^2", "sellerNickname^2", "description^1");
+
+    /** 초성뿐인 검색어를 찾는 초성 칸과 가중치(#973). 검색어 칸의 제목·판매자 닉네임 가중치와 같다 */
+    static final List<String> CHOSUNG_FIELDS = List.of("titleChosung^3", "sellerNicknameChosung^2");
 
     static final int DESCRIPTION_FRAGMENT_SIZE = 100;
 
@@ -92,7 +99,7 @@ public class LectureSearcher {
                         .from((int) condition.offset())
                         .size(condition.size())
                         .trackTotalHits(t -> t.count(maxTotal));
-                if (condition.keyword() != null) {
+                if (condition.keyword() != null && !HangulKeys.isChosungOnly(condition.keyword())) {
                     s.highlight(highlight());
                 }
                 return s;
@@ -124,8 +131,7 @@ public class LectureSearcher {
         if (condition.keyword() == null) {
             return bool.build()._toQuery();
         }
-        bool.must(m -> m.multiMatch(mm -> mm.query(condition.keyword()).fields(KEYWORD_FIELDS)
-                .type(TextQueryType.BestFields).tieBreaker(0.3)));
+        bool.must(keywordQuery(condition.keyword()));
         Query base = bool.build()._toQuery();
         if (ratingBaseline == null) {
             return base;
@@ -135,6 +141,15 @@ public class LectureSearcher {
                         .params("b", JsonData.of(ranking.ratingBoost()))
                         .params("m", JsonData.of(ranking.ratingPriorReviews()))
                         .params("c", JsonData.of(ratingBaseline)))));
+    }
+
+    /** 검색어 조건. 초성뿐이면 초성 칸, 아니면 글 칸(#973) */
+    private static Query keywordQuery(String keyword) {
+        if (HangulKeys.isChosungOnly(keyword)) {
+            return SearchAsYouType.boolPrefix(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
+        }
+        return Query.of(q -> q.multiMatch(mm -> mm.query(keyword).fields(KEYWORD_FIELDS)
+                .type(TextQueryType.BestFields).tieBreaker(0.3)));
     }
 
     /** 검색에 보일 강의: 판매 중(숨기지 않음)이고 판매자가 정상 */

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
@@ -91,6 +92,9 @@ public class LectureSearchFacade {
     }
 
     private void recordZeroResult(String keyword, Requester requester) {
+        if (HangulKeys.isChosungOnly(keyword)) {
+            return; // 초성뿐인 검색어는 사전·동의어로 고칠 말이 아니라 모으지 않는다(#973)
+        }
         if (requester.userId() != null) {
             zeroResultKeywords.record(keyword, requester.userId());
         } else if (requester.clientIpKey() != null) {
