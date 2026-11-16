@@ -119,7 +119,8 @@ public class RecommendVectorIndex {
     /**
      * 여러 문서를 벡터와 함께 bulk 요청 한 번으로 넣는다(같은 ID면 통째로 바꾼다). 실패는 문서별로 돌려준다:
      * ES가 거절한 문서는 그 문서의 {@link ElasticsearchException}(단건 넣기 index API와 같은 메시지, 차원이 매핑과 다른 벡터도 여기),
-     * 요청 전체가 실패하면 모든 문서에 같은 원인이다(IOException은 문서 ID를 담은 {@link IllegalStateException}).
+     * 요청 전체가 실패하면 모든 문서에 같은 예외 객체다(IOException은 그것을 감싼 {@link IllegalStateException} 하나).
+     * 같은 객체여야 색인 실행기가 같은 원인으로 묶어 WARN 한 줄로 남긴다.
      *
      * @return 넣지 못한 문서 ID → 원인(넣은 순서). 모두 들어가면 비어 있다
      */
@@ -139,15 +140,10 @@ public class RecommendVectorIndex {
         try {
             response = es().bulk(b -> b.operations(operations));
         } catch (IOException e) {
-            for (Upsert one : documents) {
-                failures.put(one.id(), new IllegalStateException("추천 색인 문서를 넣지 못했습니다 type=" + type + ", id=" + one.id(), e));
-            }
-            return failures;
+            return failAll(documents, new IllegalStateException(
+                    "추천 색인 문서를 넣지 못했습니다 type=" + type + ", docs=" + documents.size(), e));
         } catch (RuntimeException e) {
-            for (Upsert one : documents) {
-                failures.put(one.id(), e);
-            }
-            return failures;
+            return failAll(documents, e);
         }
         List<BulkResponseItem> items = response.items();
         for (int i = 0; i < documents.size(); i++) {
@@ -156,6 +152,14 @@ public class RecommendVectorIndex {
                 failures.put(documents.get(i).id(), new ElasticsearchException(INDEX_ENDPOINT,
                         ErrorResponse.of(e -> e.error(item.error()).status(item.status()))));
             }
+        }
+        return failures;
+    }
+
+    private static Map<String, RuntimeException> failAll(List<Upsert> documents, RuntimeException cause) {
+        Map<String, RuntimeException> failures = new LinkedHashMap<>();
+        for (Upsert one : documents) {
+            failures.put(one.id(), cause);
         }
         return failures;
     }
