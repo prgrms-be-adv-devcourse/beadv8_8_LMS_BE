@@ -303,6 +303,28 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("SSE: 조각을 보낸 뒤 실패하면 fallback 지표(chat_stream)를 한 번 센다")
+    void streamFailureAfterTokenCountsFallback() throws Exception {
+        chatModel.toolCallsThenFailAfterFirstToken(List.of("recommendLectures"), "강의를 골라");
+        double fallbacks = count("hapbang.chatbot.fallbacks", "feature", "chat_stream");
+
+        stream("강의 추천해 줘");
+
+        assertThat(count("hapbang.chatbot.fallbacks", "feature", "chat_stream")).isEqualTo(fallbacks + 1);
+    }
+
+    @Test
+    @DisplayName("SSE: 모델이 빈 답으로 끝내면 안내 문구 token 뒤 done(fallback=false)")
+    void streamEmptyAnswer() throws Exception {
+        chatModel.mode(FakeChatModel.Mode.EMPTY);
+
+        String body = stream("아무 말");
+
+        assertThat(eventNames(body)).containsExactly("token", "done");
+        assertThat(body).contains(ChatbotConversationUseCase.NO_ANSWER_MESSAGE).contains("\"fallback\":false");
+    }
+
+    @Test
     @DisplayName("로그에 대화 본문(질문·history)이 남지 않는다. history 개수·글자 수·부른 Tool 이름은 남긴다")
     void logsHaveNoConversation(CapturedOutput output) throws Exception {
         chatModel.toolCalls(List.of("recommendLectures"), "비밀답변문장", false);

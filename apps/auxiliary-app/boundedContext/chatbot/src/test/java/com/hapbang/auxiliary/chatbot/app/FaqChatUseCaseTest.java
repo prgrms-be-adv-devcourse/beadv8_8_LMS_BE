@@ -236,6 +236,18 @@ class FaqChatUseCaseTest {
     }
 
     @Test
+    @DisplayName("스트림이 조각을 보낸 뒤 실패하면 fallback으로 세지 않는다(자유 질문 스트림은 센다)")
+    void streamFailsAfterFirstTokenIsNotFallback() {
+        when(searchUseCase.search(anyString())).thenReturn(List.of(HIT));
+        chatModel.mode(FakeChatModel.Mode.FAIL_AFTER_FIRST_TOKEN);
+        service = service(Duration.ofSeconds(2), 4, true);
+
+        service.stream(MEMBER, "출연 취소").collectList().block(Duration.ofSeconds(5));
+
+        assertThat(registry.find("hapbang.chatbot.fallbacks").tag("feature", "faq_stream").counters()).isEmpty();
+    }
+
+    @Test
     @DisplayName("스트림이 전체 시간 상한을 넘기면 fallback으로 답한다")
     void streamTimesOut() {
         when(searchUseCase.search(anyString())).thenReturn(List.of(HIT));
