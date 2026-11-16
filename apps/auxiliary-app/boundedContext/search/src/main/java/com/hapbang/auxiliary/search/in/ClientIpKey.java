@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>공인 주소가 아니면(사설·루프백·링크 로컬 등) 키를 주지 않는다. Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호라 IP 한도를
  *     건너뛴다. 처음 한 번과 그 뒤 {@value #WARN_INTERVAL_MINUTES}분마다 한 번 WARN을 남긴다(내부 주소는 개인정보가 아니라 남긴다).</li>
  * </ul>
- * {@link #ipLimitKey}·{@link #isPublicAddress}는 회원 앱 {@code MemberEmailVerificationUseCase}(#557)를 그대로 옮긴 것이다. 두 앱이
+ * {@link #ipLimitKey}·{@link #isPublicAddress}는 회원 앱 {@code com.hapbang.member.domain.ClientIpKey}(#557에서 시작, #506에서 옮김)와 같다. 두 앱이
  * 같은 규칙이어야 하므로 한쪽을 고치면 다른 쪽도 고친다. 공용화(common)는 rate limit 공용화 판단(#697) 때 함께 본다. 회원 앱과 같이 CGNAT 대역
  * {@code 100.64/10}은 공인으로 본다(Tomcat은 내부 proxy로 건너뛰지만 우리 cluster 대역은 10.42·10.43이라 생기지 않는다).
  */
