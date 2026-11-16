@@ -35,4 +35,27 @@ else
   echo "SKIP cluster 없음 시험(k3d-hapbang-b0가 이미 있다)"
 fi
 
+# 4) 앱 로그는 앱 기동 직후부터 따라 받아(kubectl logs -f) 컨테이너 로그가 회전해도 회차 전체가 남는다(N14, ND-185, V8).
+#    --dry-run run은 명령만 출력한다. 따라 받기는 앱 기동(5단계) 뒤·정상 단계 투입(8단계) 전에 시작하고 수집(12단계)에서 멈춘다
+if kubectl config get-contexts k3d-hapbang-b0 >/dev/null 2>&1; then
+  out=$(bash "$B0" --dry-run run 1 2>&1); code=$?
+  # 시작은 따라 받는 kubectl 명령, 멈춤은 멈추는 단계가 직접 내는 dry-run 명령(+ kill)과 확인 명령으로 본다(설명 log 문장이 아니다)
+  start=$(grep -n "logs -f deploy/auxiliary-app" <<<"$out" | head -1 | cut -d: -f1)
+  stop=$(grep -n "^+ kill <앱 로그 따라 받기>" <<<"$out" | head -1 | cut -d: -f1)
+  check=$(grep -n "^+ 앱 로그 따라 받기 끊김 확인" <<<"$out" | head -1 | cut -d: -f1)
+  step5=$(grep -nE "^\[.*\] 5\. " <<<"$out" | head -1 | cut -d: -f1)
+  step8=$(grep -nE "^\[.*\] 8\. " <<<"$out" | head -1 | cut -d: -f1)
+  step12=$(grep -nE "^\[.*\] 12\. " <<<"$out" | head -1 | cut -d: -f1)
+  order="시작=${start:-없음} 멈춤=${stop:-없음} 확인=${check:-없음} 5=${step5:-없음} 8=${step8:-없음} 12=${step12:-없음}"
+  if [ "$code" = 0 ] && [ -n "$start" ] && [ -n "$stop" ] && [ -n "$check" ] && [ -n "$step5" ] && [ -n "$step8" ] \
+      && [ -n "$step12" ] && [ "$start" -gt "$step5" ] && [ "$start" -lt "$step8" ] && [ "$stop" -gt "$step12" ] \
+      && [ "$check" -gt "$stop" ]; then
+    echo "PASS 앱 로그 따라 받기(5단계 뒤 시작, 12단계에서 멈춤)"
+  else
+    echo "FAIL 앱 로그 따라 받기: exit=$code, 줄 순서=$order"; fail=1
+  fi
+else
+  echo "SKIP 앱 로그 따라 받기 시험(k3d-hapbang-b0가 없다)"
+fi
+
 exit $fail
