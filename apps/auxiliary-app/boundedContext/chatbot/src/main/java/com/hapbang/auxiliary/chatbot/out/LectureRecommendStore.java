@@ -54,19 +54,20 @@ public class LectureRecommendStore {
         return lectures;
     }
 
-    /** 강의 ID → 추천이 쓰는 강의 사본(콘텐츠 제목 없이). 없는 ID는 빠진다 */
+    /** 강의 ID → 추천이 쓰는 강의 사본(콘텐츠 제목 없이)과 판매자 보임. 없는 ID는 빠진다 */
     public Map<Long, LectureListing> listings(Collection<Long> ids) {
         Map<Long, LectureListing> listings = new HashMap<>();
         if (ids.isEmpty()) {
             return listings;
         }
         jdbc.query("""
-                SELECT id, seller_user_id, title, description, on_sale, deleted, missing_in_source
-                FROM chatbot.lecture_copy WHERE id IN (:ids)
+                SELECT l.id, l.seller_user_id, l.title, l.description, l.on_sale, l.deleted, l.missing_in_source,
+                """ + "       " + MemberCopyStore.visibleCondition("l.seller_user_id") + " AS seller_visible\n" + """
+                FROM chatbot.lecture_copy l WHERE l.id IN (:ids)
                 """, new MapSqlParameterSource("ids", ids), rs -> {
                     LectureListing listing = new LectureListing(rs.getLong("id"), rs.getLong("seller_user_id"),
                             rs.getString("title"), rs.getString("description"), rs.getBoolean("on_sale"), rs.getBoolean("deleted"),
-                            rs.getBoolean("missing_in_source"));
+                            rs.getBoolean("missing_in_source"), rs.getBoolean("seller_visible"));
                     listings.put(listing.id(), listing);
                 });
         return listings;

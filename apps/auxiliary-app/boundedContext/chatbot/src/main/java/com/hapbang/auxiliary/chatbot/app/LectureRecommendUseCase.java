@@ -39,7 +39,7 @@ import lombok.extern.slf4j.Slf4j;
  *     만들 수 없으면(신호도 관심사도 없음, 또는 신호 강의가 아직 색인 전) 풀은 비고 {@code needsInterest}
  *     (관심사를 주면 맞춤으로 찾을 수 있다. 모델·ES를 끈 실행이면 끈다).</li>
  *     <li>kNN(판매 중·삭제 안 됨·원본에 있음 필터) 뒤 코드에서 뺀다: 구매 {@code OWNED}·{@code PENDING}, 장바구니, 본인 강의,
- *     숨김 판매자({@link MemberVisibility}), 사본으로 다시 본 추천 불가 상태(색인이 늦은 경우).</li>
+ *     숨김 판매자({@link MemberVisibility}와 같은 규칙을 강의 사본 조회에서 함께 본다), 사본으로 다시 본 추천 불가 상태(색인이 늦은 경우).</li>
  *     <li>{@link LectureRanker}: β 혼합, 동점 순서, 판매자당 상한으로 풀 크기까지.</li>
  *     <li>이유 코드: 고른 강의마다 구매 중심·장바구니 중심·관심사 벡터 중 가장 가까운 쪽({@link LectureTaste}). 구매·장바구니면
  *     가장 가까운 신호 강의 제목을 문장에 넣는다(회원 본인 화면용. 대화 Tool은 제목을 빼고 준다, {@link LectureRecommendTools}).</li>
@@ -181,19 +181,11 @@ public class LectureRecommendUseCase {
     // 코드에서 빼는 규칙. kNN 필터를 지나도 사본으로 다시 본다(색인이 늦게 따라온 경우)
     private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded,
             Map<Long, LectureListing> lectures) {
-        List<LectureListing> found = new ArrayList<>();
-        for (Long lectureId : similarity.keySet()) {
-            LectureListing lecture = lectures.get(lectureId);
-            if (lecture != null) {
-                found.add(lecture);
-            }
-        }
-        Set<Long> visibleSellers = visibleSellers(found);
         List<Long> kept = new ArrayList<>();
         for (Long lectureId : similarity.keySet()) {
             LectureListing lecture = lectures.get(lectureId);
             if (lecture != null && lecture.recommendable() && !excluded.contains(lectureId) && lecture.sellerId() != memberId
-                    && visibleSellers.contains(lecture.sellerId())) {
+                    && lecture.sellerVisible()) {
                 kept.add(lectureId);
             }
         }
@@ -234,22 +226,13 @@ public class LectureRecommendUseCase {
         List<Long> ids = filled.stream().filter(LectureRanker.Ranked::popular).map(LectureRanker.Ranked::lectureId).toList();
         Map<Long, LectureListing> read = store.listings(ids);
         lectures.putAll(read);
-        Set<Long> visibleSellers = visibleSellers(read.values());
         for (Long id : ids) {
             LectureListing lecture = read.get(id);
-            if (lecture == null || !lecture.recommendable() || !visibleSellers.contains(lecture.sellerId())) {
+            if (lecture == null || !lecture.recommendable() || !lecture.sellerVisible()) {
                 return false;
             }
         }
         return true;
-    }
-
-    private Set<Long> visibleSellers(Collection<LectureListing> lectures) {
-        Set<Long> sellers = new HashSet<>();
-        for (LectureListing lecture : lectures) {
-            sellers.add(lecture.sellerId());
-        }
-        return visibility.visibleOf(sellers);
     }
 
     // 고른 강의(인기순 채움 제외)마다 이유
