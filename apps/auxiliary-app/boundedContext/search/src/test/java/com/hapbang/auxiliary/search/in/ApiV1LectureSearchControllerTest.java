@@ -52,7 +52,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 @Import(SearchElasticsearchTestcontainersConfig.class)
 @TestPropertySource(properties = {
         "hapbang.search.lecture-rate-limit.member.limit=3",
-        "hapbang.search.lecture-rate-limit.guest.limit=3"})
+        "hapbang.search.lecture-rate-limit.guest.limit=3",
+        "hapbang.search.lecture-suggestion-rate-limit.member.limit=3",
+        "hapbang.search.lecture-suggestion-rate-limit.guest.limit=3"})
 @DirtiesContext
 class ApiV1LectureSearchControllerTest {
 
@@ -213,6 +215,54 @@ class ApiV1LectureSearchControllerTest {
                 .andExpect(jsonPath("$.data.page.totalElements").value(0));
         mockMvc.perform(guest(get(URL).param("keyword", "다빈치리졸브"), "198.51.100.40")).andExpect(status().isOk());
         Assertions.assertThat(zeroResultKeywords.flush()).containsOnlyKeys("다빈치리졸브");
+    }
+
+    @Test
+    @DisplayName("자동완성: 후보는 강의 ID·제목·판매자 닉네임이다. 공백뿐이면 빈 목록, 검색어가 없거나 50자를 넘으면 400이다(#973)")
+    void suggestions() throws Exception {
+        mockMvc.perform(member(get(URL + "/suggestions").param("keyword", "프리"), 401L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].lectureId").value(1))
+                .andExpect(jsonPath("$.data[0].title").value("프리미어 컷편집 입문"))
+                .andExpect(jsonPath("$.data[0].sellerNickname").value("편집장"));
+        mockMvc.perform(member(get(URL + "/suggestions").param("keyword", " "), 401L))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").isEmpty());
+        mockMvc.perform(member(get(URL + "/suggestions"), 402L)).andExpect(status().isBadRequest());
+        mockMvc.perform(member(get(URL + "/suggestions").param("keyword", "가".repeat(51)), 402L))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("자동완성 한도는 본 검색과 따로 센다: 자동완성이 429여도 본 검색은 된다. 지표는 target=lecture_suggestion이다(#973)")
+    void suggestionRateLimitSeparate() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(member(get(URL + "/suggestions").param("keyword", "프"), 403L)).andExpect(status().isOk());
+        }
+        mockMvc.perform(member(get(URL + "/suggestions").param("keyword", "프"), 403L))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(header().exists("Retry-After"));
+        mockMvc.perform(member(get(URL).param("keyword", "프리미어"), 403L)).andExpect(status().isOk());
+
+        Assertions.assertThat(registry.counter("hapbang.search.rate.limit.rejected", "target", "lecture_suggestion",
+                "requester", "member").count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("자동완성은 비회원도 쓰고 접속 IP마다 한도를 센다. 넘으면 429이고 다른 IP는 200이다(#973)")
+    void guestSuggestions() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.40"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].lectureId").value(1));
+        }
+        mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.40"))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+        mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.41"))
+                .andExpect(status().isOk());
+
+        Assertions.assertThat(registry.counter("hapbang.search.rate.limit.rejected", "target", "lecture_suggestion",
+                "requester", "guest").count()).isEqualTo(1);
     }
 
     private void lecture(long id, String title, String description, List<String> contentTitles, LectureRating rating,

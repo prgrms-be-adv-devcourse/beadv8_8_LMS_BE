@@ -130,6 +130,19 @@ class LectureSearchFacadeTest {
     }
 
     @Test
+    @DisplayName("초성뿐인 검색어는 0건이어도 0건 검색어로 모으지 않는다. 0건 지표는 센다(#973)")
+    void chosungOnlyNotCollected() {
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(0, List.of()));
+        PageRequest page = PageRequest.of(0, 20);
+
+        facade.search(Requester.member(1L), "ㅋㅋㅋ", page);
+        facade.search(Requester.member(2L), "ㅋㅋㅋ", page);
+
+        assertThat(zeroResultKeywords.flush()).isEmpty();
+        assertThat(registry.counter("hapbang.search.zero.results", "target", "lecture").count()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("검색어는 앞뒤·연속 공백을 정리하고, 비면 검색어 없음이다")
     void normalizes() {
         assertThat(LectureSearchFacade.keyword("  프리미어   컷편집 ")).isEqualTo("프리미어 컷편집");

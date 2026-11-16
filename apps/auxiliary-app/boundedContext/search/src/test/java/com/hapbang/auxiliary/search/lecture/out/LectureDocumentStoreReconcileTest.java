@@ -59,6 +59,20 @@ class LectureDocumentStoreReconcileTest {
     }
 
     @Test
+    @DisplayName("처음 적재 bulk도 강의 이벤트와 같은 초성·자모 칸을 채운다(#973)")
+    void loadLecturesFillsHangulKeys() throws Exception {
+        String index = setup.createIndex();
+
+        store.loadLectures(index, List.of(new LectureLoad(lecture(11L, true, 2L), SELLER, RATING)), NOW);
+        setup.refresh(index);
+
+        assertThat(source(index, 11L)).containsEntry("titleChosung", List.of("ㄱㅇ11"))
+                .containsEntry("titleJamo", List.of("ㄱㅏㅇㅇㅡㅣ11"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅍㅈㅈ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅍㅕㄴㅈㅣㅂㅈㅏㅇ"));
+    }
+
+    @Test
     @DisplayName("보정은 문서들의 강의 version·숨김·가격·판매자·평점 칸을 한 번에 읽고, 문서가 없는 강의는 빠진다")
     void findLectures() {
         SearchElasticsearch.createLectureIndex(client);

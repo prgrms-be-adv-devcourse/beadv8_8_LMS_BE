@@ -202,6 +202,53 @@ class LectureDocumentStoreTest {
     }
 
     @Test
+    @DisplayName("제목·판매자 닉네임의 초성·자모 칸(띄어쓰기를 뺀 값 포함)을 원문과 함께 쓴다: 새 문서, 제목 수정, 판매자 update_by_query·문서 하나 쓰기(#973)")
+    void hangulKeys() throws Exception {
+        store.writeLecture(lecture(11L, "방송장비 추천", true, 1L), new Seller(7L, "소리장인", true, 1L), RATING, NOW);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"))
+                .containsEntry("titleJamo", List.of("ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣㅊㅜㅊㅓㄴ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ"));
+
+        store.writeLecture(lecture(11L, "OBS 세팅", true, 2L), null, RATING, NOW);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("obs ㅅㅌ", "obsㅅㅌ"))
+                .containsEntry("titleJamo", List.of("obs ㅅㅔㅌㅣㅇ", "obsㅅㅔㅌㅣㅇ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"));
+
+        assertThat(store.updateSeller(new Seller(7L, "편집왕", true, 2L))).isEqualTo(1);
+        assertThat(source(11L)).containsEntry("sellerNicknameChosung", List.of("ㅍㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅍㅕㄴㅈㅣㅂㅇㅗㅏㅇ"));
+
+        assertThat(store.writeSeller(11L, new Seller(7L, null, true, 3L))).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L).get("sellerNicknameChosung")).isNull();
+        assertThat(source(11L).get("sellerNicknameJamo")).isNull();
+    }
+
+    @Test
+    @DisplayName("초성·자모 칸 고치기는 읽은 원문이 문서와 같을 때만 쓴다. 그사이 원문이 바뀌었으면 그 칸은 그대로다(compare-and-set, #973)")
+    void writeHangulKeysCompareAndSet() throws Exception {
+        store.writeLecture(lecture(11L, "방송장비 추천", true, 1L), new Seller(7L, "소리장인", true, 1L), RATING, NOW);
+        client.update(u -> u.index(LectureIndexDefinition.ALIAS).id("11")
+                .doc(Map.of("titleChosung", List.of("ㅇ"), "sellerNicknameChosung", List.of("ㅇ"))), Map.class);
+        client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
+
+        LectureHangulKeys read = store.pageHangulKeys(null, 10).getFirst();
+        assertThat(read.matchesSource()).isFalse();
+        LectureHangulKeys stale = new LectureHangulKeys(11L, "옛 제목", read.titleChosung(), read.titleJamo(),
+                "소리장인", read.sellerNicknameChosung(), read.sellerNicknameJamo());
+
+        assertThat(store.writeHangulKeys(stale)).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅇ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"));
+
+        assertThat(store.writeHangulKeys(read)).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"));
+        assertThat(store.writeHangulKeys(read)).isEqualTo(WriteOutcome.NOOP);
+        assertThat(store.writeHangulKeys(new LectureHangulKeys(99L, "없음", null, null, null, null, null)))
+                .isEqualTo(WriteOutcome.MISSING);
+    }
+
+    @Test
     @DisplayName("tombstone 정리는 오래된 숨김 문서만 지운다. 판매자가 정지된 강의는 숨김이 아니라 정지가 길어도 남는다(Q2)")
     void cleanupKeepsSuspendedSellerLectures() throws Exception {
         Instant old = NOW.minus(Duration.ofDays(8));

@@ -8,7 +8,9 @@ import org.springframework.data.domain.Pageable;
 
 import com.hapbang.auxiliary.global.response.RsData;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
+import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSuggestion;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
+import com.hapbang.auxiliary.search.lecture.app.dto.LectureSuggestion;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -55,4 +57,24 @@ public interface ApiV1SearchSpec {
             @Parameter(hidden = true) HttpServletRequest request,
             @Parameter(description = "검색어(최대 50자). 없으면 판매 중인 강의 전체", example = "프리미어") @Size(max = 50) String keyword,
             @Parameter(description = "page(0부터), size(기본 20, 최대 100), sort(latest,desc, rating,desc, price,asc, price,desc 중 하나. price만 쓰면 오름차순)") Pageable pageable);
+
+    @Operation(summary = "인플루언서 검색어 자동완성", description = """
+            입력 중인 검색어로 인플루언서 후보를 최대 5개 준다(로그인 회원). 닉네임 낱말 앞부분으로 찾고, 치는 도중의 글자(방ㅅ·방소)도 잇는다. \
+            초성만 치면(ㅊㅊㅁ) 닉네임 초성으로 찾는다. 순서는 맞은 정도 → 팔로워 → 회원 ID다. \
+            검색어는 꼭 넘기고(최대 50자), 공백뿐이면 빈 목록이다. 검색할 수 없으면 503 SEARCH_UNAVAILABLE(후보를 숨기면 된다). \
+            누르면 userId로 프로필에 가거나 nickname으로 인플루언서 검색을 하면 된다.""")
+    RsData<List<InfluencerSuggestion>> suggestInfluencers(
+            @Parameter(description = "입력 중인 검색어(최대 50자)", example = "침착") @Size(max = 50) String keyword);
+
+    @Operation(summary = "강의 검색어 자동완성 (비회원 가능)", description = """
+            입력 중인 검색어로 판매 중인 강의 후보를 최대 5개 준다. 강의 제목·판매자 닉네임의 낱말 앞부분으로 찾고, \
+            치는 도중의 글자(방ㅅ·방소·플)도 잇는다. 초성만 치면(ㅂㅅㅈㅂ) 제목·판매자 닉네임 초성으로 찾는다. \
+            순서는 맞은 정도 → 리뷰 수 → 최신이다. 검색어는 꼭 넘기고(최대 50자), 공백뿐이면 빈 목록이다. \
+            본 검색과 따로 회원은 회원마다, 비회원은 접속 IP마다 1분에 120번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS(Retry-After 초). \
+            입력할 때마다 부르지 말고 잠깐 멈췄을 때(예: 300ms) 부른다. 검색할 수 없거나 429면 후보를 숨기면 된다. \
+            누르면 lectureId로 강의 상세에 가거나 title로 강의 검색을 하면 된다. 검색어 강조(highlights)는 없다.""")
+    RsData<List<LectureSuggestion>> suggestLectures(
+            @Parameter(hidden = true) Principal principal,
+            @Parameter(hidden = true) HttpServletRequest request,
+            @Parameter(description = "입력 중인 검색어(최대 50자)", example = "프리") @Size(max = 50) String keyword);
 }

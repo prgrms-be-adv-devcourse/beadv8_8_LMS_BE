@@ -198,6 +198,49 @@ class ApiV1SearchControllerTest {
         org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).containsEntry("롤토체스", 2L);
     }
 
+    @Test
+    @DisplayName("검색어가 초성뿐이면 닉네임 초성 칸에서 낱말 앞부분으로 찾고, 0건이어도 0건 검색어로 모으지 않는다(#973)")
+    void chosungOnly() throws Exception {
+        mockMvc.perform(as(get(URL).param("keyword", "ㅁㅇㅍ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].id").value(org.hamcrest.Matchers.contains(1)));
+        mockMvc.perform(as(get(URL).param("keyword", "ㄷㅍ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].id").value(org.hamcrest.Matchers.contains(2)));
+
+        mockMvc.perform(as(get(URL).param("keyword", "ㅋㅋㅋ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").isEmpty());
+        mockMvc.perform(get(URL).param("keyword", "ㅋㅋㅋ").header(GatewayUserHeaderFilter.USER_ID, "101")
+                .header(GatewayUserHeaderFilter.USER_ROLE, "INFLUENCER"));
+        org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("자동완성: 닉네임 앞부분·치는 도중 글자·초성으로 후보(회원 ID·닉네임)를 주고, 숨긴 사람은 빠진다. 공백뿐이면 빈 목록이다(#973)")
+    void suggestions() throws Exception {
+        String url = URL + "/suggestions";
+        mockMvc.perform(as(get(url).param("keyword", "메이")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].userId").value(1))
+                .andExpect(jsonPath("$.data[0].nickname").value("메이플용사"))
+                .andExpect(jsonPath("$.data.length()").value(1));
+        mockMvc.perform(as(get(url).param("keyword", "단ㅍ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].userId").value(org.hamcrest.Matchers.contains(2)));
+        mockMvc.perform(as(get(url).param("keyword", "ㅇㄹ"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].userId").value(org.hamcrest.Matchers.contains(3)));
+        mockMvc.perform(as(get(url).param("keyword", "  "))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test
+    @DisplayName("자동완성: 비회원은 401, 검색어가 없으면 400, 50자를 넘으면 400 INVALID_REQUEST다(#973)")
+    void suggestionRequests() throws Exception {
+        String url = URL + "/suggestions";
+        mockMvc.perform(get(url).param("keyword", "메이")).andExpect(status().isUnauthorized());
+        mockMvc.perform(as(get(url))).andExpect(status().isBadRequest());
+        mockMvc.perform(as(get(url).param("keyword", "가".repeat(51)))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
     private void influencer(long id, String nickname, String role, List<String> codes, String bio, InfluencerStats stats) {
         store.show(id, 1L, new MemberProfile(nickname, bio, role, "VERIFIED_INFLUENCER".equals(role),
                 codes.stream().map(code -> new MemberProfile.Category(code, switch (code) {

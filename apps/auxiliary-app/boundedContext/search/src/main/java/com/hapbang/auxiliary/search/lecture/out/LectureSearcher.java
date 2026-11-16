@@ -11,9 +11,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.lecture.app.LectureSearchCondition;
 import com.hapbang.auxiliary.search.lecture.app.LectureSort;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
+import com.hapbang.auxiliary.search.lecture.app.dto.LectureSuggestion;
 import com.hapbang.auxiliary.search.lecture.config.LectureRankingProperties;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -39,6 +42,8 @@ import co.elastic.clients.util.NamedValue;
  *     <li>filter: 검색에 보일 강의 = {@code hidden=false} 그리고 {@code sellerActive=true}(#882 Q2)</li>
  *     <li>must(검색어): {@code multi_match} best_fields, 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1, tie_breaker 0.3(L11).
  *     검색 분석기가 동의어를 펼친다</li>
+ *     <li>검색어가 초성뿐이면({@code ㅂㅅㅈㅂ}) 위 대신 초성 칸에서 낱말 앞부분으로 찾는다. 제목 ×3, 판매자 닉네임 ×2(#973). 원문에 초성 글자가 없어
+ *     highlight는 구하지 않는다({@code highlights}의 칸이 모두 null)</li>
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + b × 베이지안 평균 / 5). 글이 먼저고 평점은 비슷할 때만 가른다(L11).
  *     전체 평균 C를 모르면(null) 가산 없이 글 점수만 쓴다(#883)</li>
  *     <li>highlight(검색어가 있을 때): {@code encoder: html}이라 원문의 HTML 특수 문자를 escape하고 걸린 말만 {@code <em>}으로 감싼다(L12).
@@ -54,6 +59,18 @@ public class LectureSearcher {
 
     /** 검색어를 찾는 필드와 가중치(L11 초기값, golden 테스트가 고정한다) */
     static final List<String> KEYWORD_FIELDS = List.of("title^3", "contentTitles^2", "sellerNickname^2", "description^1");
+
+    /** 초성뿐인 검색어를 찾는 초성 칸과 가중치(#973). 검색어 칸의 제목·판매자 닉네임 가중치와 같다 */
+    static final List<String> CHOSUNG_FIELDS = List.of("titleChosung^3", "sellerNicknameChosung^2");
+
+    /** 자동완성 후보를 찾는 칸(#973): 원문 낱말 앞부분(nori) */
+    static final List<String> SUGGEST_FIELDS = List.of("title.suggest^3", "sellerNickname.suggest^2");
+
+    /** 자동완성 후보를 찾는 칸(#973): 자모 앞부분(치는 도중의 {@code 방ㅅ}·{@code 방소}) */
+    static final List<String> JAMO_FIELDS = List.of("titleJamo^3", "sellerNicknameJamo^2");
+
+    /** 자동완성 응답에 싣는 칸 */
+    static final List<String> SUGGESTION_SOURCE = List.of("lectureId", "title", "sellerNickname");
 
     static final int DESCRIPTION_FRAGMENT_SIZE = 100;
 
@@ -92,7 +109,7 @@ public class LectureSearcher {
                         .from((int) condition.offset())
                         .size(condition.size())
                         .trackTotalHits(t -> t.count(maxTotal));
-                if (condition.keyword() != null) {
+                if (condition.keyword() != null && !HangulKeys.isChosungOnly(condition.keyword())) {
                     s.highlight(highlight());
                 }
                 return s;
@@ -103,6 +120,39 @@ public class LectureSearcher {
             return new SearchResult(Math.min(total, maxTotal), items);
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("강의를 검색하지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 검색어 자동완성 후보(#973). 보일 강의(본 검색과 같은 filter)만 낱말 앞부분으로 찾는다.
+     * <ul>
+     *     <li>검색어가 초성뿐이면 제목·판매자 닉네임 초성 칸</li>
+     *     <li>그 밖이면 자동완성 칸(원문 낱말 앞부분, nori) 또는 자모 칸(치는 도중의 입력) 중 하나라도 맞으면 후보다. 둘 다 맞으면 점수가 더 높다</li>
+     * </ul>
+     * 순서는 점수 → 리뷰 수 → 강의 ID 내림차순이다. 평점 가산은 하지 않는다(입력할 때마다 부르는 가벼운 요청이고, 평균 C를 구하지 않게).
+     *
+     * @param keyword 정리한 검색어(비어 있지 않음)
+     * @throws IllegalStateException ES에 닿지 못했거나 거절당했을 때(alias가 없는 처음 적재 전 포함)
+     */
+    @SuppressWarnings("rawtypes")
+    public List<LectureSuggestion> suggest(String keyword, int size) {
+        BoolQuery.Builder bool = visible().must(SearchAsYouType.suggest(keyword, CHOSUNG_FIELDS, SUGGEST_FIELDS, JAMO_FIELDS));
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(LectureIndexDefinition.ALIAS)
+                    .query(bool.build()._toQuery())
+                    .sort(o -> o.score(sc -> sc.order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("reviewCount").order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("lectureId").order(SortOrder.Desc)))
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .source(src -> src.filter(f -> f.includes(SUGGESTION_SOURCE))), Map.class);
+            return response.hits().hits().stream().map(hit -> {
+                Map<?, ?> source = hit.source();
+                return new LectureSuggestion(number(source.get("lectureId")), (String) source.get("title"),
+                        (String) source.get("sellerNickname"));
+            }).toList();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("강의 검색어 자동완성 후보를 찾지 못했습니다", e);
         }
     }
 
@@ -124,8 +174,7 @@ public class LectureSearcher {
         if (condition.keyword() == null) {
             return bool.build()._toQuery();
         }
-        bool.must(m -> m.multiMatch(mm -> mm.query(condition.keyword()).fields(KEYWORD_FIELDS)
-                .type(TextQueryType.BestFields).tieBreaker(0.3)));
+        bool.must(keywordQuery(condition.keyword()));
         Query base = bool.build()._toQuery();
         if (ratingBaseline == null) {
             return base;
@@ -135,6 +184,15 @@ public class LectureSearcher {
                         .params("b", JsonData.of(ranking.ratingBoost()))
                         .params("m", JsonData.of(ranking.ratingPriorReviews()))
                         .params("c", JsonData.of(ratingBaseline)))));
+    }
+
+    /** 검색어 조건. 초성뿐이면 초성 칸, 아니면 글 칸(#973) */
+    private static Query keywordQuery(String keyword) {
+        if (HangulKeys.isChosungOnly(keyword)) {
+            return SearchAsYouType.hangulKeys(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
+        }
+        return Query.of(q -> q.multiMatch(mm -> mm.query(keyword).fields(KEYWORD_FIELDS)
+                .type(TextQueryType.BestFields).tieBreaker(0.3)));
     }
 
     /** 검색에 보일 강의: 판매 중(숨기지 않음)이고 판매자가 정상 */

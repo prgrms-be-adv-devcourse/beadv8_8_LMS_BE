@@ -12,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
@@ -79,7 +80,10 @@ public class InfluencerSearchFacade {
         metrics.searched(result.total() == 0 ? "empty" : "ok", Duration.ofNanos(System.nanoTime() - started));
         if (result.total() == 0 && condition.keyword() != null && !hasFilter(condition)) {
             metrics.zeroResult();
-            zeroResultKeywords.record(condition.keyword(), userId);
+            // 초성뿐인 검색어는 사전·동의어로 고칠 말이 아니라 모으지 않는다(#973)
+            if (!HangulKeys.isChosungOnly(condition.keyword())) {
+                zeroResultKeywords.record(condition.keyword(), userId);
+            }
         }
         return new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()), result.total());
     }

@@ -54,9 +54,9 @@ class LectureIndexCatchUp implements IndexCatchUp {
         boolean ran = jobRunner.run(SearchJob.LECTURE_RECONCILE, () -> {
             LectureReconcileResult lectures = reconciler.reconcile();
             LectureReconcileResult fields = aligner.align();
-            log.info("강의 검색 재색인 뒤 따라잡기를 했다 startedAt={}, lectureFixed={}, sellerFixed={}, ratingFixed={}", from,
-                    lectures.fixed(), fields.count(LectureReconcileKind.SELLER_FIXED),
-                    fields.count(LectureReconcileKind.RATING_FIXED));
+            log.info("강의 검색 재색인 뒤 따라잡기를 했다 startedAt={}, lectureFixed={}, sellerFixed={}, ratingFixed={}, "
+                            + "hangulKeysFixed={}", from, lectures.fixed(), fields.count(LectureReconcileKind.SELLER_FIXED),
+                    fields.count(LectureReconcileKind.RATING_FIXED), fields.count(LectureReconcileKind.HANGUL_KEYS_FIXED));
             caughtUp.set(true);
         });
         if (!ran) {

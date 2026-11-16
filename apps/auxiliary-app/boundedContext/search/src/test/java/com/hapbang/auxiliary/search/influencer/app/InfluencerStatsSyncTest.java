@@ -237,6 +237,29 @@ class InfluencerStatsSyncTest {
         assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
     }
 
+    @Test
+    @DisplayName("닉네임만 바뀌고 초성·자모가 옛 값인 보이는 문서는 고치고, 숨김 문서에 남은 초성·자모는 지운다(롤링 배포 중 옛 pod, #973)")
+    void alignsNicknameKeys() throws Exception {
+        store.show(1L, 1L, profile());
+        store.show(2L, 1L, profile());
+        store.hide(2L, 2L, Instant.parse("2026-11-10T00:00:00Z"));
+        // 옛 pod: 닉네임만 바꾸고, 숨긴 문서에는 초성·자모를 남긴다
+        client.update(u -> u.index(InfluencerIndexDefinition.ALIAS).id("1").doc(Map.of("nickname", "침착맨")), Map.class);
+        client.update(u -> u.index(InfluencerIndexDefinition.ALIAS).id("2")
+                .doc(Map.of("nicknameChosung", List.of("ㄴㅋㄴㅇ"), "nicknameJamo", List.of("ㄴㅣㄱ"))), Map.class);
+        source.influencer(1L, null, 0);
+        refresh();
+
+        sync.sync();
+
+        assertThat(source(1L)).containsEntry("nicknameChosung", List.of("ㅊㅊㅁ"))
+                .containsEntry("nicknameJamo", List.of("ㅊㅣㅁㅊㅏㄱㅁㅐㄴ"));
+        assertThat(source(2L)).containsEntry("hidden", true).doesNotContainKeys("nicknameChosung", "nicknameJamo");
+
+        refresh();
+        assertThat(sync.alignNicknameKeys()).isZero();
+    }
+
     private long savedDifference() {
         return checks.find(ConsistencyCheck.INFLUENCER).orElseThrow().difference();
     }

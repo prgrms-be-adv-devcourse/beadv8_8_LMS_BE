@@ -166,6 +166,54 @@ class LectureReviewReconcilerTest {
         assertThat(registry.find("hapbang.search.lecture.reconcile.duration").timers()).isEmpty();
     }
 
+    @Test
+    @DisplayName("원문만 바뀌고 초성·자모 칸이 옛 값인 문서(롤링 배포 중 옛 pod)를 칸 맞추기가 원문으로 고친다. 다음 회차에는 고칠 것이 없다(#973)")
+    void alignsHangulKeys() throws Exception {
+        indexer.apply(lecture(LECTURE, 0L));
+        // 옛 pod: 초성·자모 칸을 모르고 제목·판매자 닉네임만 바꾼다
+        client.update(u -> u.index(LectureIndexDefinition.ALIAS).id(String.valueOf(LECTURE))
+                .doc(Map.of("title", "방송장비 추천", "sellerNickname", "소리장인")), Map.class);
+        refresh();
+
+        LectureReconcileResult result = reconciler.reconcile();
+
+        assertThat(result.count(LectureReconcileKind.HANGUL_KEYS_FIXED)).isEqualTo(1);
+        assertThat(source(LECTURE)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"))
+                .containsEntry("titleJamo", List.of("ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣㅊㅜㅊㅓㄴ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ"));
+        assertThat(registry.get("hapbang.search.lecture.reconcile.items").tag("job", "review")
+                .tag("kind", "hangul_keys_fixed").counter().count()).isEqualTo(1.0);
+
+        refresh();
+        assertThat(reconciler.reconcile().count(LectureReconcileKind.HANGUL_KEYS_FIXED)).isZero();
+    }
+
+    @Test
+    @DisplayName("초성·자모 칸 맞추기가 실패해도 리뷰 보정 회차는 실패가 아니고 평점 칸은 맞춰진다(#973)")
+    void hangulKeysFailureDoesNotFailReconcile() throws Exception {
+        LectureDocumentStore failing = new LectureDocumentStore(client) {
+            @Override
+            public java.util.List<com.hapbang.auxiliary.search.lecture.out.LectureHangulKeys> pageHangulKeys(
+                    Long afterLectureId, int size) {
+                throw new IllegalStateException("ES 장애");
+            }
+        };
+        LectureReviewReconciler withFailing = new LectureReviewReconciler(reviews, source,
+                new LectureCopyAligner(indexSetup, failing, members, reviews), null, new LectureSyncMetrics(registry),
+                CLOCK);
+        indexer.apply(lecture(LECTURE, 0L));
+        source.review(review(1L, 4, true, false, 0L));
+        refresh();
+
+        LectureReconcileResult result = withFailing.reconcile();
+
+        assertThat(result.count(LectureReconcileKind.RATING_FIXED)).isEqualTo(1);
+        assertThat(source(LECTURE)).containsEntry("averageRating", 4.0);
+        assertThat(registry.get("hapbang.search.lecture.reconcile.duration").tag("job", "review")
+                .tag("outcome", "success").timer().count()).isEqualTo(1);
+    }
+
     private void refresh() {
         indexSetup.refresh(LectureIndexDefinition.ALIAS);
     }

@@ -8,9 +8,12 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchCondition;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSort;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
+import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSuggestion;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.influencer.config.SearchRankingProperties;
 
@@ -33,6 +36,7 @@ import co.elastic.clients.json.JsonData;
  *     <li>filter: 숨기지 않은 문서 + 인증 여부·팔로워·평점 최소값 + 분야(하나라도 가진 사람, OR)</li>
  *     <li>must(검색어): {@code multi_match} best_fields, 닉네임 ×3, 채널 이름 ×3, 분야 이름 ×2, 자기소개 ×1, tie_breaker 0.3.
  *     검색 분석기가 동의어를 펼친다</li>
+ *     <li>검색어가 초성뿐이면({@code ㅊㅊㅁ}) 위 대신 닉네임 초성 칸에서 낱말 앞부분으로 찾는다(#973)</li>
  *     <li>should(분야): 고른 분야마다 term. 많이 맞을수록 점수가 커진다(filter가 이미 걸렀으므로 순서에만 쓰인다)</li>
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + a·log10(1+팔로워)) × (인증이면 v)</li>
  * </ul>
@@ -45,6 +49,13 @@ public class InfluencerSearcher {
 
     /** 검색어를 찾는 필드와 가중치 */
     static final List<String> KEYWORD_FIELDS = List.of("nickname^3", "channelNames^3", "contentCategories.name^2", "bio^1");
+
+    /** 초성뿐인 검색어를 찾는 초성 칸(#973) */
+    static final List<String> CHOSUNG_FIELDS = List.of("nicknameChosung^3");
+
+    /** 자동완성 후보를 찾는 칸(#973): 닉네임 낱말 앞부분(nori), 닉네임 자모 앞부분(치는 도중의 입력) */
+    static final List<String> SUGGEST_FIELDS = List.of("nickname.suggest^3");
+    static final List<String> JAMO_FIELDS = List.of("nicknameJamo^3");
 
     static final String FOLLOWER_BOOST_SCRIPT = """
             double followers = doc['followerCount'].size() == 0 ? 0 : doc['followerCount'].value;
@@ -88,6 +99,36 @@ public class InfluencerSearcher {
         }
     }
 
+    /**
+     * 검색어 자동완성 후보(#973). 숨기지 않은 인플루언서만 닉네임 낱말 앞부분으로 찾는다(초성뿐이면 초성 칸, 그 밖이면 원문 앞부분 칸 또는 자모 칸,
+     * {@link SearchAsYouType#suggest}). 순서는 점수 → 팔로워 → 회원 ID다.
+     *
+     * @param keyword 정리한 검색어(비어 있지 않음)
+     * @throws IllegalStateException ES에 닿지 못했거나 거절당했을 때(alias가 없는 처음 적재 전 포함)
+     */
+    @SuppressWarnings("rawtypes")
+    public List<InfluencerSuggestion> suggest(String keyword, int size) {
+        Query query = Query.of(q -> q.bool(b -> b.filter(f -> f.term(t -> t.field("hidden").value(false)))
+                .must(SearchAsYouType.suggest(keyword, CHOSUNG_FIELDS, SUGGEST_FIELDS, JAMO_FIELDS))));
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(InfluencerIndexDefinition.ALIAS)
+                    .query(query)
+                    .sort(o -> o.score(sc -> sc.order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("followerCount").order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("userId").order(SortOrder.Asc)))
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .source(src -> src.filter(f -> f.includes("userId", "nickname"))), Map.class);
+            return response.hits().hits().stream().map(hit -> {
+                Map<?, ?> source = hit.source();
+                return new InfluencerSuggestion(((Number) source.get("userId")).longValue(),
+                        (String) source.get("nickname"));
+            }).toList();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("인플루언서 검색어 자동완성 후보를 찾지 못했습니다", e);
+        }
+    }
+
     /** 보이는 문서의 출연 평점 전체 평균(리뷰 수 가중). 리뷰가 하나도 없으면 null */
     public Double ratingBaseline() {
         try {
@@ -122,13 +163,21 @@ public class InfluencerSearcher {
         if (condition.keyword() == null) {
             return bool.build()._toQuery();
         }
-        bool.must(m -> m.multiMatch(mm -> mm.query(condition.keyword()).fields(KEYWORD_FIELDS)
-                .type(TextQueryType.BestFields).tieBreaker(0.3)));
+        bool.must(keywordQuery(condition.keyword()));
         Query base = bool.build()._toQuery();
         return Query.of(q -> q.scriptScore(ss -> ss.query(base)
                 .script(sc -> sc.source(src -> src.scriptString(FOLLOWER_BOOST_SCRIPT))
                         .params("a", JsonData.of(ranking.followerBoost()))
                         .params("v", JsonData.of(ranking.verifiedBoost())))));
+    }
+
+    /** 검색어 조건. 초성뿐이면 닉네임 초성 칸, 아니면 글 칸(#973) */
+    private static Query keywordQuery(String keyword) {
+        if (HangulKeys.isChosungOnly(keyword)) {
+            return SearchAsYouType.hangulKeys(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
+        }
+        return Query.of(q -> q.multiMatch(mm -> mm.query(keyword).fields(KEYWORD_FIELDS)
+                .type(TextQueryType.BestFields).tieBreaker(0.3)));
     }
 
     List<SortOptions> sort(InfluencerSearchCondition condition, double ratingBaseline) {

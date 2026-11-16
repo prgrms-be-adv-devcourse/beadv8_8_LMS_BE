@@ -19,6 +19,8 @@ public enum LectureReconcileKind {
     SELLER_FIXED("seller_fixed", true),
     /** 평점 칸이 리뷰 사본 집계와 달라 고쳤다(칸 맞추기. 평점 칸 경합으로 남은 옛 값 포함) */
     RATING_FIXED("rating_fixed", true),
+    /** 초성·자모 칸이 원문과 달라 고쳤다(칸 맞추기, #973. 롤링 배포 중 옛 pod가 원문만 바꾼 문서) */
+    HANGUL_KEYS_FIXED("hangul_keys_fixed", true),
     /** 이미 같거나 더 새 값이었다(이벤트가 반영함) */
     ALREADY_APPLIED("already_applied", false),
     /** 원본 정보가 빠졌거나 ES가 그 값 때문에 거절해 건너뛰었다(멈추면 회차가 영영 끝나지 않는다) */
