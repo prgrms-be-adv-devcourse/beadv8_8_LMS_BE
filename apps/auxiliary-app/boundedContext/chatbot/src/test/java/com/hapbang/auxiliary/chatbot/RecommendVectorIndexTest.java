@@ -1,7 +1,6 @@
 package com.hapbang.auxiliary.chatbot;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 import java.net.URI;
@@ -25,11 +24,13 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.Field;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.ScoredId;
+import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.Upsert;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
 import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.testsupport.IntegrationTest;
 
+import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -93,10 +94,12 @@ class RecommendVectorIndexTest {
     @DisplayName("kNN: 필터(on_sale=true)를 걸고 유사도 높은 순, 점수는 코사인 유사도")
     void knnWithFilter() {
         index.ensureIndex(TYPE, FIELDS);
-        index.upsert(TYPE, "1", FakeEmbeddingModel.axis(0), Map.of("on_sale", true, "seller_id", 10L, "title", "같은 방향"));
-        index.upsert(TYPE, "2", FakeEmbeddingModel.withCosine(0, 1, 0.6), Map.of("on_sale", true, "seller_id", 11L,
-                "title", "조금 다름"));
-        index.upsert(TYPE, "3", FakeEmbeddingModel.axis(0), Map.of("on_sale", false, "seller_id", 12L, "title", "판매 중 아님"));
+        assertThat(index.upsertAll(TYPE, List.of(
+                new Upsert("1", FakeEmbeddingModel.axis(0), Map.of("on_sale", true, "seller_id", 10L, "title", "같은 방향")),
+                new Upsert("2", FakeEmbeddingModel.withCosine(0, 1, 0.6), Map.of("on_sale", true, "seller_id", 11L,
+                        "title", "조금 다름")),
+                new Upsert("3", FakeEmbeddingModel.axis(0), Map.of("on_sale", false, "seller_id", 12L, "title", "판매 중 아님")))))
+                .isEmpty();
         index.refresh(TYPE);
 
         List<ScoredId> hits = index.knn(TYPE, FakeEmbeddingModel.axis(0), 5, 50, Map.of("on_sale", true));
@@ -111,7 +114,7 @@ class RecommendVectorIndexTest {
     void storedVectorsAreReadable() throws Exception {
         index.ensureIndex(TYPE, FIELDS);
         float[] vector = FakeEmbeddingModel.withCosine(0, 2, 0.8);
-        index.upsert(TYPE, "7", vector, Map.of("on_sale", true, "seller_id", 10L, "title", "강의7"));
+        upsert("7", vector, Map.of("on_sale", true, "seller_id", 10L, "title", "강의7"));
         index.refresh(TYPE);
 
         JsonNode source = JSON.readTree(get("/" + index.indexName(TYPE) + "/_doc/7")).get("_source");
@@ -130,7 +133,7 @@ class RecommendVectorIndexTest {
     void partialUpdateKeepsVector() {
         index.ensureIndex(TYPE, FIELDS);
         float[] vector = FakeEmbeddingModel.axis(1);
-        index.upsert(TYPE, "8", vector, Map.of("on_sale", true, "seller_id", 10L, "title", "강의8"));
+        upsert("8", vector, Map.of("on_sale", true, "seller_id", 10L, "title", "강의8"));
 
         assertThat(index.update(TYPE, "8", Map.of("on_sale", false))).isTrue();
         assertThat(index.update(TYPE, "없음", Map.of("on_sale", false))).isFalse();
@@ -146,15 +149,16 @@ class RecommendVectorIndexTest {
     @DisplayName("지우기는 없는 문서여도 된다. 차원이 매핑과 다른 벡터는 ES가 거절한다")
     void deleteAndDimensionCheck() {
         index.ensureIndex(TYPE, FIELDS);
-        index.upsert(TYPE, "9", FakeEmbeddingModel.axis(2), Map.of("on_sale", true, "seller_id", 10L, "title", "강의9"));
+        upsert("9", FakeEmbeddingModel.axis(2), Map.of("on_sale", true, "seller_id", 10L, "title", "강의9"));
 
         index.delete(TYPE, "9");
         index.delete(TYPE, "없음");
         index.refresh(TYPE);
 
         assertThat(index.vectors(TYPE, List.of("9"))).isEmpty();
-        assertThatThrownBy(() -> index.upsert(TYPE, "10", new float[] {1, 0, 0}, Map.of()))
-                .isInstanceOf(RuntimeException.class);
+        Map<String, RuntimeException> failures = index.upsertAll(TYPE, List.of(new Upsert("10", new float[] {1, 0, 0}, Map.of())));
+        assertThat(failures).containsOnlyKeys("10");
+        assertThat(failures.get("10")).isInstanceOf(ElasticsearchException.class);
     }
 
     @Test
@@ -170,6 +174,10 @@ class RecommendVectorIndexTest {
         assertVector(documents.get(0), FakeEmbeddingModel.axis(3));
         assertThat(documents.get(1)).hasSize(FakeEmbeddingModel.DIMENSIONS);
         assertVector(query, FakeEmbeddingModel.axis(4));
+    }
+
+    private void upsert(String id, float[] vector, Map<String, Object> fields) {
+        assertThat(index.upsertAll(TYPE, List.of(new Upsert(id, vector, fields)))).isEmpty();
     }
 
     private static void assertVector(float[] actual, float[] expected) {
