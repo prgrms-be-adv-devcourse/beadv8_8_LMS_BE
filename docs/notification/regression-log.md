@@ -86,6 +86,181 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-108 · 2026-11-17 · 통과 (N15 #970 S6 리뷰 반영, 검증기 판정 조건 정렬·재판정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-108 |
+| 실행 날짜 | 2026-11-17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 작업 트리 미커밋 |
+| 작업 트리 변경 | NR-107과 같다 + `verify_n15.py` 판정 조건(ND-199)·머리말, `n15.sh` 머리말, `l6.js` 임계값(요청 이름별 p95·연결 만료·티켓 실패·checks), 문서 문구 |
+| 대상 기능 | N15 판정기, 운영 L6 도구 |
+| 관련 NT ID | NT-LOAD-L3·L5B·L5F·L6 |
+| 명령 | `python -I -m unittest discover -s loadtest/notification/tests`, `verify_n15.py l5 …`(S·B·M·F 유효 회차), `verify_n15.py l3 …`(2회차), k6 `inspect`(l6·stomp load), `bash -n n15.sh`, `n15.sh --dry-run l4 1` |
+| 실행 환경 | 로컬 Windows. 재판정은 저장된 회차 산출물만 읽음(cluster 쓰지 않음) |
+| 결과 | 통과 |
+| 건수 | 새 시험 3건 RED(L5B 분포 99/2, L5F retry 19, L3 중복·측정 제외 집계) → GREEN, 스크립트 시험 77 OK. 재판정 rc 0: L5-S·B·M·F, L3 2회차. L5B 회차별 100/1(기대 100/1), L5F retry 20(기록), L3 중복 수신 0·측정 제외 0·버림 0(기록). l6 임계값 11개 확인 |
+| 실패 원인 분류 | 도구 결함(판정 조건이 시험 명세와 다름: 3개 더 보고 1개 덜 봄, S6 리뷰) |
+| 수정 내용 | ND-199. 앞 판정은 각 회차 폴더 `result.before-specalign.json`으로 보존 |
+| 재실행 결과 | 위 건수 |
+| 미검증 항목 | Gradle 시험은 Java 변경이 없어 NR-107 결과를 쓴다 |
+| 관련 변경 | #970 |
+
+#### NR-107 · 2026-11-17 · 통과 (N15 #970 운영 준비 도구, 운영 실행 없음)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-107 |
+| 실행 날짜 | 2026-11-16~17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 작업 트리 미커밋 |
+| 작업 트리 변경 | NR-106과 같다 + `rest.js`·`stomp.js` `PROFILE=load`, `stomp-common.js`, `l6.js`, `test_sanitize_summary.py` 1건, 문서(ND-198, test-spec L1·L2·L6, 결과 문서 운영 실행 방법·U13 전달문 초안) |
+| 대상 기능 | 운영 부하 도구(L1·L2·L6)와 알림 회귀 |
+| 관련 NT ID | NT-LOAD-L1·L2·L6(도구만), 알림 전체 회귀 |
+| 명령 | `grafana/k6:1.0.0 inspect --execution-requirements`(rest load, stomp smoke·load, l6 혼합·챗봇만, l6 확인 표시 없음), `python -I -m unittest discover -s loadtest/notification/tests`, `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Docker Desktop. 네트워크 요청 없음(k6 inspect는 init 단계만), 가짜 계정 파일 |
+| 결과 | 통과 |
+| 건수 | k6 inspect: rest load 100/s 10분·최대 VU 200, stomp load 세 단계(0초 50·4분 20초 50·8분 40초 100) 최대 VU 200·끝 13분, l6 네 시나리오·최대 VU 410, 확인 표시 없으면 init에서 멈춤. 스크립트 시험 75 OK. `:notification:test` 547 / 실패 0 / 오류 0 / 건너뜀 2, `verifyModuleStructure` 성공, `:auxiliary-app:check` 성공(`:auxiliary-app:test`는 UP-TO-DATE, 17 / 0 / 0 / 0은 이전 실행 결과) |
+| 실패 원인 분류 | 없음 |
+| 수정 내용 | 첫 inspect에서 `docker -e PROFILE`이 k6 `__ENV`에 들어가지 않아 smoke로 읽혔다(inspect는 시스템 환경 변수를 넣지 않음). 확인 명령을 `--env`로 바꿔 다시 확인했다. 스크립트·절차서는 `k6 run`에 `--env`로 넘긴다 |
+| 재실행 결과 | 위 건수가 재실행 결과다 |
+| 미검증 항목 | 운영 L1·L2·L6 실행(알림 담당·챗봇 담당 확인 뒤), 실제 로그인·티켓 발급·연결(네트워크 없이 구성만 확인), 새 sanitize 시험은 기존 코드에서 처음부터 통과(특성 확인 시험, RED 없음) |
+| 관련 변경 | #970 |
+
+#### NR-106 · 2026-11-16 · 통과 (N15 #970 L3, 1회차 무효·2회차 유효)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-106 |
+| 실행 날짜 | 2026-11-16 19:57~20:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 앱 이미지 `cf9d7470…`, k6 `grafana/k6:1.0.0`(`sha256:f2127029…`) |
+| 작업 트리 변경 | NR-105와 같다 + `n15.sh` L3 k6 이미지 받기 방식, `verify_n15.py` 라벨 없는 histogram 분위수 |
+| 대상 기능 | 저장→실시간 전달(격리, STOMP 100연결, 충전 완료 알림 6,000건 초당 20건) |
+| 관련 NT ID | NT-LOAD-L3 |
+| 명령 | `loadtest/notification/n15.sh l3 1`, `n15.sh l3 2` |
+| 실행 환경 | NR-103과 같다. 앱 pod는 server 노드, k6 pod는 agent 노드(같은 Docker VM 커널 시계). 연결은 사용자 헤더 직접 + 앱 티켓 발급·출처 검사·티켓 검증 그대로, JWT 서명 검증 없음(ND-195) |
+| 결과 | 통과(2회차) |
+| 건수 | 저장→수신 p50 5.7ms·p95 9.8ms·p99 12.9ms·최대 352.6ms(기준 p95 1초), 유실 0/6,000, 중복 수신 0, 모르는 ID 0, 연결 100/100, 티켓 실패 0, 수집 전 끊김 0, `realtime.dropped` 0 |
+| 실패 원인 분류 | 1회차: 도구 결함(`k3d image import`가 Docker Desktop containerd 저장소의 다중 플랫폼 이미지에서 노드 가져오기에 실패하고도 성공으로 끝남 → k6 pod `ErrImageNeverPull`) |
+| 수정 내용 | k6 이미지는 노드가 버전 고정으로 직접 받게 함(IfNotPresent), pod 실패 시 상태·로그 보존, 이미지 ID 기록. 시험 `L3K6PodTest` RED → GREEN. S4: 같은 manifest의 짧은 pod로 100연결·티켓·출처 검사·정상 종료 확인. 구간 지표 분위수는 라벨 없는 histogram용 함수로 고침(시험 RED → GREEN, 같은 수집 데이터로 다시 기록, 원래 결과 `result.before-histogram.json` 보존. 판정 항목 아님) |
+| 재실행 결과 | 2회차가 재실행이다 |
+| 미검증 항목 | 운영 환경 지연(격리 값, ND-188), Gateway JWT 검증 구간(ND-195) |
+| 관련 변경 | #970 |
+
+**메모**
+- 보조 구간(ND-162): publish p95 4.8ms·p99 7.3ms, send p95 4.8ms·p99 5.0ms(합산하지 않음).
+- 자원: CPU 최대 1,283m, 메모리 최대 625MiB(704Mi의 약 89%), Hikari active 최대 0·pending 0·timeout 0(5초 표본).
+
+#### NR-105 · 2026-11-16 · 통과 (N15 #970 L5-F)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-105 |
+| 실행 날짜 | 2026-11-16 19:28~19:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 앱 이미지 `cf9d7470…` |
+| 작업 트리 변경 | NR-104와 같다 + `verify_n15.py` 측정 창 밖 회차 분리 |
+| 대상 기능 | 예약 배치 실패 경로: 정상 990 + 실패 10(복제본 삭제) + 기한 지남 20 |
+| 관련 NT ID | NT-LOAD-L5F |
+| 명령 | `loadtest/notification/n15.sh l5 F 1` |
+| 실행 환경 | NR-103과 같다 |
+| 결과 | 통과 |
+| 건수 | 정상 990건 11회차 안(회차당 96~99건, 11회차 18건), 최대 지연 635.1초(기준 720), 실패 10건 모두 첫 시도 회차 + 2회차에 건너뜀(실패 3회), ERROR 10·abandoned 10·retry 20, 복제본 재생성 0(149번 확인), 기한 지남 20건 기한 뒤 건너뜀·알림 0, 회차 실행 최대 0.50초, 중복·누락 0 |
+| 실패 원인 분류 | 실패 없음. 처음 판정의 "회차 누락" 실패는 검증기 결함: 앱 재기동 직후 보낼 시각 전 회차(기한 지남 처리, 회차 번호 -3)의 로그를 1회차부터 시작한다고 가정한 목록에 넣었다 |
+| 수정 내용 | 측정 창 밖 회차는 `preWindowRuns`로 따로 남김, 시험 RED → GREEN. 같은 수집 데이터 재판정, 원래 결과 `result.before-prewindow.json` 보존. S·B·M 재판정 결과는 그대로 |
+| 재실행 결과 | 재판정만 |
+| 미검증 항목 | 없음(L5 시나리오 4개 완료) |
+| 관련 변경 | #970 |
+
+**메모**
+- 계산식 전제(ND-194)가 운영 이미지에서도 성립했다(정상 11회차, 실패는 3회차 동안 자리 차지).
+- 자원: CPU 최대 1,910m, 메모리 최대 585MiB, Hikari active 최대 1·pending 0.
+
+#### NR-104 · 2026-11-16 · 통과 (N15 #970 L5-S·L5-B·L5-M)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-104 |
+| 실행 날짜 | 2026-11-16 16:49~17:25 (KST), 재판정 17:48 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 앱 이미지 `cf9d7470…` |
+| 작업 트리 변경 | NR-103과 같다 + `verify_n15.py` 회차 배정(row_run, ND-197) |
+| 대상 기능 | 예약 배치 몰림: 한 회차 100건, 배치 경계 101건, 연속 1,000건(격리) |
+| 관련 NT ID | NT-LOAD-L5S, NT-LOAD-L5B, NT-LOAD-L5M |
+| 명령 | `loadtest/notification/n15.sh l5 S 1`, `l5 B 1`, `l5 M 1`. 재판정 `python -I loadtest/notification/verify_n15.py l5 <fixture>/manifest.json <회차 폴더>` |
+| 실행 환경 | NR-103과 같다(B0 cluster, 회차마다 초기화) |
+| 결과 | 통과 |
+| 건수 | S: 1회차 100건, 최대 지연 35.5초(기준 120). B: 1회차 100·2회차 1, 최대 지연 95.0초(기준 180). M: 10회차 각 100, 최대 지연 575.3초(기준 660). 회차 실행 최대 0.58초, 회차 누락 0, 중복·누락 0, 예상 밖 오류 0 |
+| 실패 원인 분류 | 실패 없음. 처음 판정의 M 회차별 집계(7회차 101·10회차 99)는 검증기 결함: 8회차가 계산상 발화보다 1ms 일찍 시작했다 |
+| 수정 내용 | 회차 배정을 회차 끝 로그 기준으로 바꿈, 시험 RED → GREEN(70 OK). S·B·M 재판정, 원래 결과 `result.before-rowrun.json` 보존(ND-197) |
+| 재실행 결과 | 재판정만(회차 다시 실행 안 함, ND-197) |
+| 미검증 항목 | L5-F(다음 기록) |
+| 관련 변경 | #970 |
+
+**메모**
+- 회차 폴더: `n15-l5S-20261116-164920-r1`, `n15-l5B-20261116-165911-r1`, `n15-l5M-20261116-171007-r1`. 첫 L5-S 시작은 스크립트 복사본 경로 오류로 첫 명령에서 멈췄다(cluster 변경 없음, 빈 폴더 지움).
+- 지연 정의: `processed_at - send_at`. 첫 회차는 보낼 시각 뒤 첫 35초라 최소 지연이 약 35초다.
+
+#### NR-103 · 2026-11-16 · 통과 (N15 #970 L4, 1회차 무효·2회차 유효)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-103 |
+| 실행 날짜 | 2026-11-16 16:02~16:43 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준), 앱 이미지 `cf9d7470…`(운영 코드 변경 없음) |
+| 작업 트리 변경 | NR-102와 같다(커밋 전) + `n15.sh` 수집 단계 수정(phase_clock), `verify_n15.py` 시계 차 필드·ND-196 기록 항목 |
+| 대상 기능 | L4 밀린 이벤트 회복(격리) |
+| 관련 NT ID | NT-LOAD-L4 |
+| 명령 | `loadtest/notification/n15.sh l4 1`, `n15.sh l4 2`(B0 cluster `k3d-hapbang-b0`, fixture `~/.hapbang/load-tests/n15/l4`) |
+| 실행 환경 | Windows 10 Pro, Docker Desktop 29.8.0, k3d B0 cluster(재생성 없이 start, `b0.sh setup`으로 이미지 다시 빌드). Kafka 700Mi, `synchronous_commit=off`. 측정 전 호스트 앱 정리 |
+| 결과 | 통과(2회차) |
+| 건수 | 2회차: V0-1~7·V1~V8·L4 회복 통과. 할당 완료 → lag 0 46.7초(기준 300초) |
+| 실패 원인 분류 | 1회차: 도구 결함(n15.sh 수집 단계 `$(for … \| head -n 1)`가 pipefail·errexit 아래 SIGPIPE로 141 종료, timing.json·검증 없음) |
+| 수정 내용 | `phase_clock`으로 파이프를 끊지 않게 고침, 시험 `ClockMarkTest` RED → GREEN(S4 최소 재현 rc=141). 검증기의 시계 차를 `clusterClock`에서 읽게 고침. ND-196: V8의 실시간 전달 버림 조건을 L4에서는 기록 항목으로 분리(같은 수집 데이터 재판정, 원래 결과 `result.before-timingfix.json`·`result.before-nd196.json` 보존) |
+| 재실행 결과 | 2회차가 재실행이다 |
+| 미검증 항목 | L4 반복 측정(ND-196으로 유효 1회), 운영 환경 회복 시간(격리 값) |
+| 관련 변경 | #970 |
+
+**메모**
+- 1회차 참고값(무효): 할당 완료 → lag 0 50.1초.
+- 2회차 기록 항목: `realtime.dropped{queue_full}` 1,335, 메모리 최대 617MiB(704Mi의 약 88%), CPU 최대 4,526m, Hikari active 최대 4·pending 0. 수치 원본은 `docs/load-test/notification-load.md`.
+- 2회차가 도는 중에 `n15.sh`를 고쳐(L3 추가) bash가 바뀐 파일을 이어 읽을 위험이 있어, 회차 시작 때 내용으로 되돌렸다가 끝난 뒤 다시 넣었다. 이후 회차 중에는 스크립트를 고치지 않는다.
+
+#### NR-102 · 2026-11-16 · 통과 (N15 #970 측정 도구 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-102 |
+| 실행 날짜 | 2026-11-16 15:46~15:56 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `0322495f`(기준) |
+| 작업 트리 변경 | 있음(커밋 전). 알림 문서(decisions·test-spec·이 문서·PROGRESS), `docs/load-test/{README.md,notification-load.md}`, 알림 테스트 소스(`loadtest` 생성기·시험, `app.ScheduleDispatcherFailureSlotTest`), `loadtest/notification/{n15.sh,verify_n15.py,k3d/tools/poll_group_lag.sh,queries/l5_*.sql,tests/test_n15_scripts.py}`. 운영 코드 변경 없음 |
+| 대상 기능 | N15 격리 시험 도구: B0 fixture 불변, L4·L5·L3 fixture, L5-F 계산식 전제, L4·L5 판정·lag 관측·운영 context 거절 |
+| 관련 NT ID | NT-LOAD-L4·L5S·L5B·L5M·L5F·L3(도구·전제 부분), NT-B0-01~10(회귀) |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check --continue`, `python -I -m unittest discover -s loadtest/notification/tests`, `bash loadtest/notification/tests/b0_guard_test.sh` |
+| 실행 환경 | Windows 10 Pro, Gradle 9.7.1, Docker Desktop 실행 중, Testcontainers postgres·kafka·redis. B0 cluster는 멈춰 있음(측정 아님) |
+| 결과 | 통과 |
+| 건수 | `:notification` 성공 545(실패 0, 오류 0, 건너뜀 2: 환경 변수가 있을 때만 도는 내보내기 시험 `B0FixtureExportTest`·`N15FixtureExportTest`), `:auxiliary-app` 17, 스크립트 시험 62(B0 43 + N15 19), guard 통과. XML 기준, 새 실행 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음. 첫 명령은 `:notification:verifyModuleStructure`라는 없는 작업 이름으로 Gradle이 바로 실패했다(작업 선택 오류, 시험 실행 전). 이름을 루트 작업으로 고쳐 다시 실행했다 |
+| 재실행 결과 | 위 명령이 재실행 결과다 |
+| 미검증 항목 | 실제 L3·L4·L5 회차(B0 cluster, 다음 기록), L1·L2·L6(운영) |
+| 관련 변경 | #970 |
+
+**메모**
+- 뮤테이션 확인(되돌림, 운영 코드 diff 0): B0 크기 하나(LEGACY 50→51) → `B0FixtureInvarianceTest` 3건 실패. `ScheduleDispatcher.MAX_FAILURES` 3→4 → `ScheduleDispatcherFailureSlotTest` 실패(건너뜀이 한 회차 늦음).
+- `B0FixtureInvarianceTest`·`ScheduleDispatcherFailureSlotTest`는 지금 코드의 동작을 고정하는 시험이라 처음부터 통과했다(TDD의 실패 단계 대신 뮤테이션으로 검출력을 확인). `poll_group_lag.sh`의 커밋 전 partition 처리는 시험보다 먼저 고쳤다(순서 예외).
+
 #### NR-101 · 2026-11-16 · 통과 (N14 #955 PR 리뷰 반영)
 
 | 항목 | 값 |

@@ -298,6 +298,28 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 | NT-REF-05 | N14 재측정 | B0 cluster, fixture, N14 커밋 이미지 | `b0.sh run <n>` 5회 | V0~V8 통과, F의 SHA-256이 B0와 같고, 처리량 CV ≤ 10%, 정상 단계 처리량 중앙값 ≥ B0 중앙값의 90% | 불합격이면 `3f5f8319` 이미지 대조 5회 | ND-175·ND-183 | — | E2E(k3d) | 유효 |
 | NT-REF-06 | 등록기 빈의 의존 관계 | NT-REF-01 | 소비자 여섯 개 | 빈마다 예전 `@Bean` 메서드처럼 설정 클래스 빈과 받은 빈(소비자 값, 팩토리, 템플릿, 오류 처리기)에 의존한다고 기록돼 있다. DLT 토픽 선언은 `NotificationKafkaTopicConfig`에 의존한다 | — | ND-184 | — | 통합(문맥) | 유효 |
 
+### 2.18 LOAD — 본 부하 시험
+
+N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격리(B0 cluster `k3d-hapbang-b0`, 실제 이미지, 운영 limit, ND-155·ND-171의 B0 조건) 결과는 운영 용량·운영 지연을 보증하지 않는다. 모든 실행에서 p95·p99, 오류율, 처리량, Kafka lag, Hikari(active·pending·timeout), CPU·메모리·GC를 기록한다(ND-157). 앱 pod 재시작·OOMKilled, Kafka·PostgreSQL 재시작, 실행 중 배포, 투입 검증 실패는 그 회차를 무효로 한다. 결과는 [regression-log.md](regression-log.md)와 [알림 본 부하 결과](../load-test/notification-load.md)에 남긴다.
+
+시각 정의(코드 기준):
+- 예약 지연 = 예약 행 `processed_at`(보냄·건너뜀으로 끝낸 시각, `ScheduleDispatcher.dispatchLocked`가 행을 잠근 뒤 읽은 시각) − `send_at`. 보낸 예약은 알림 `occurred_at`도 같은 시각이다(ND-148).
+- 예약 배치 회차 = 매분 35초(KST, `NotificationScheduleBatch` cron) 실행 한 번. 회차마다 기한 지난 예약을 최대 100건 건너뜀으로 끝내고(`skipExpired`), 보낼 예약을 `send_at, id` 순서로 최대 100건 고른다(`JdbcScheduleStore.findDueIds`). 회차 실행 여부는 `schedule.runs{outcome}`과 "예약 배치를 실행했다" 로그로 본다.
+- 실패 예약의 최종 처리 기한 = 그 예약의 첫 시도 회차 + 2회차. 3번째 연속 실패에서 건너뜀으로 끝난다(`ScheduleDispatcher.MAX_FAILURES`, ND-147). 업무 기한이 먼저 지나면 그 회차의 `skipExpired`가 건너뜀으로 끝낸다.
+- 저장→전달 지연 = STOMP 클라이언트 프레임 수신 시각 − 알림 행 `created_at`(앱 JVM 시각, 저장 때 `@CreatedDate`). 프레임 `notification.id`로 맞춘다(ND-193).
+
+| 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| NT-LOAD-L1 | 운영 REST 조회 혼합 | 운영 시험 계정, N14 이상 배포, 운영 E2E 기간 아님(ND-158), 공지 | `loadtest/k6/notification/rest.js` `PROFILE=load` 100 RPS 10분, GET만(목록 50%·안 읽은 수 50%) | 앱 p95 500ms 이하, 5xx 1% 미만, 보내지 못한 요청 0.1% 미만, Hikari 연결 대기 시간 초과 0 | 요약은 허용 목록만(ND-174). CPU credit 전후 값 기록 | ND-155·ND-157·ND-174 | `GET /api/v1/notifications`, `GET /api/v1/notifications/unread-count` | 부하(운영) | 유효 |
+| NT-LOAD-L2 | 운영 STOMP 연결 유지 | NT-LOAD-L1과 같음 | `stomp.js` `PROFILE=load` 연결 50 → 100 → 200, 단계마다 4분 20초, 모두 13분(access token 15분 안), 시험 계정 최대 10개, 서버 heart-beat 25초 | OOMKilled 0, 컨테이너 메모리 limit의 85% 이하, 비정상 끊김(1006) 0 | 모든 연결이 setup에서 받은 access token이 끝나기 전에 끝나므로 연결 만료(4401, ND-056)도 0이어야 한다(나오면 기록하고 원인 확인). 티켓 발급 한도(NT-RT-05) 안에서 계정에 고르게 나눠 연결한다. 알림 쓰기 없음(ND-188) | ND-155·ND-157·ND-188·ND-198, U13 | 연결 티켓, WebSocket | 부하(운영) | 유효 |
+| NT-LOAD-L3 | 저장→실시간 전달(격리) | 격리 cluster, 시험 회원 복제본, 회원마다 기존 계약대로 연결 티켓 발급·STOMP 연결 100개 | 연결된 받는 사람에게 가는 단건 알림 이벤트를 소비 처리량보다 낮은 고정 속도로 투입 | 저장→전달 지연 p95 1초 이하, 유실률(저장된 시험 대상 알림 중 받지 못한 고유 알림) 0.1% 미만. 중복 수신·수신 누락·측정 제외(하루 묶음 갱신 등)를 따로 센다. 앱·클라이언트 시계 차와 시간대를 기록한다 | `realtime.publish.latency`·`send.latency`는 보조이며 합산하지 않는다. 앱의 티켓 발급·검증·연결 만료를 우회하지 않는다. Gateway가 없어 사용자 헤더를 직접 주고 JWT 서명 검증은 거치지 않는다(ND-195, 결과 조건에 적음). 계약대로 연결할 수 없으면 실행하지 않고 보고한다 | ND-188·ND-193·ND-195·ND-027·ND-162 | 연결 티켓, WebSocket 프레임 | 부하(격리) | 유효 |
+| NT-LOAD-L4 | 밀린 이벤트 회복(격리) | 격리 cluster, L4 fixture·manifest(B0와 독립, ND-189), 앱 replicas 0 | 정상 백로그 10,000건 투입 → replicas 1. 회복 뒤 의도한 실패 레코드를 별도 단계로 투입 | 다섯 group partition 할당 완료 시각부터 5분 안에 다섯 group lag 0, manifest대로 저장(종류·결과별), 같은 원본 키 중복 0, 예상 밖 DLT 0. 입력 완료·replicas 1 전환·할당 완료·lag 0 시각을 모두 기록한다. 실패 단계는 재시도 횟수·DLT 건수와 대상·복구 시간을 따로 기록한다 | 정상 백로그에 재시도·DLT 대상 없음. LEGACY·재전송·받을 수 없는 회원(정지·탈퇴)은 포함하고, 받는 사람 복제본 없음(DLT)은 실패 단계다(ND-190). B0 기본 fixture SHA-256 불변. 실시간 전달 버림(`realtime.dropped`)과 메모리 사용은 판정하지 않고 기록한다(ND-196) | ND-189·ND-190·ND-196·ND-166 | 알림 소비 토픽 5개 + 회원 토픽 | 부하(격리) | 유효 |
+| NT-LOAD-L5S | 예약 배치 한 회차(격리) | 격리 cluster, 활성 회원 복제본 | 보낼 시각이 같은 예약 100건(Kafka 이벤트로 생성, ND-191) | 1회차 안에 100건 보냄, 알림 100건, 중복·누락 0, 최대 지연 2분 이하(⌈N/100⌉+1), 회차 실행 60초 미만, 회차 누락 0 | — | ND-191·ND-192 | 출연 이벤트(`APPEARANCE_REQUEST_EXPIRING` 예약) | 부하(격리) | 유효 |
+| NT-LOAD-L5B | 배치 경계 이월(격리) | NT-LOAD-L5S와 같음 | 같은 시각 예약 101건 | 1회차 100건·2회차 1건 보냄, 중복·누락 0, 최대 지연 3분 이하, 회차 실행 60초 미만, 회차 누락 0 | — | ND-192 | 위와 같음 | 부하(격리) | 유효 |
+| NT-LOAD-L5M | 연속 다회차(격리) | NT-LOAD-L5S와 같음 | 같은 시각 예약 1,000건 | 10회차 안에 모두 보냄, 중복·누락 0, 최대 지연 11분 이하, 회차 실행 60초 미만, 회차 누락 0 | — | ND-192 | 위와 같음 | 부하(격리) | 유효 |
+| NT-LOAD-L5F | 실패 경로(격리) | NT-LOAD-L5S와 같음. 예약 생성 뒤 실패 대상 10명의 복제본을 격리 DB에서 지움(ND-191) | 같은 시각 정상 990 + 실패 10, 기한 지남 예약은 별도 | 정상 990건이 11회차(⌈(990 + 3×10)/100⌉) 안에 모두 보냄, 최대 지연 12분 이하. 실패 10건은 각자 첫 시도 회차 + 2회차에 건너뜀, ERROR `NOTIFICATION_SCHEDULE_FAILED` 10건, `schedule.outcomes{result=abandoned}` 10. 기한 지남 예약은 건너뜀. 의도한 건너뜀과 회차 누락·중복·미처리를 따로 센다 | 시험 중 실패 대상 복제본이 다시 생기면 무효. 정렬·재선정 전제가 코드와 다르면 기대값을 바꾸지 않고 보고한다(ND-194) | ND-191·ND-194·ND-147 | 위와 같음 | 부하(격리) | 유효 |
+| NT-LOAD-L6 | 알림·챗봇 혼합(운영) | NT-LOAD-L1 선행 조건 + 챗봇 담당 확인 | `l6.js` 10분: 알림 L1 + STOMP 100 + 챗봇(LLM을 부르지 않는 GET 위주 + LLM 약 1 RPS. 비율은 챗봇 담당 확인값, 경로는 FAQ 모아보기·FAQ 대화로 두고 담당 확인). 챗봇 단독 비교는 `CHATBOT_ONLY=1` | 알림은 NT-LOAD-L1·L2 기준을 만족한다. 챗봇 p95는 단독 대비 악화율을 기록한다 | 챗봇 담당 확인 전에는 실행하지 않는다(ND-187) | ND-157·ND-187, U13 | 알림 REST·WebSocket, 챗봇 GET | 부하(운영) | 유효 |
+
 ## 3. 완료 증거 매핑
 
 [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거 6개(원문 그대로)와 이를 판정하는 NT 항목이다. 증거를 시연·실행한 결과는 [regression-log.md](regression-log.md)에 남긴다. 여기 연결은 실행 기록이 아니다.
@@ -334,7 +356,8 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 | OBS 계측 | 12 | 12 | 0 | 0 | 0 |
 | B0 부하 도구·기준선 | 11 | 11 | 0 | 0 | 0 |
 | REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
-| **합계** | **151** | **147** | **4** | **0** | **0** |
+| LOAD 본 부하 시험 | 9 | 9 | 0 | 0 | 0 |
+| **합계** | **160** | **156** | **4** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -417,6 +440,11 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 | NT-REF-04 (N14) | `in.event.NotificationKafkaListenerConfigurationTest`(Kafka 시험 문맥, 리스너 여섯 개) | 전부 |
 | NT-REF-05 (N14) | `loadtest/notification/b0.sh run <n>` 5회(N14 커밋 이미지, 결과는 regression-log·B0 기준선 문서) | 전부 |
 | NT-REF-06 (N14) | `in.event.kafka.NotificationKafkaConsumerDependencyTest`(S6 리뷰 뒤, DLT 토픽 의존 빠짐으로 RED 확인) | 전부 |
+| NT-LOAD-L4 (N15) | `loadtest.L4FixtureGeneratorTest`(L4 fixture), `loadtest.B0FixtureInvarianceTest`(B0 기본 출력 불변, ND-189), `loadtest/notification/tests/test_n15_scripts.py`(회복 판정·lag 관측), 실행은 `loadtest/notification/n15.sh l4`(결과는 regression-log·본 부하 결과) | 일부(판정 부품). 전부는 실행 |
+| NT-LOAD-L5S·L5B·L5M (N15) | `loadtest.L5FixturesTest`, `test_n15_scripts.py`(회차·L5B 회차별 분포·지연·회차 누락·중복 판정), 실행은 `n15.sh l5 <S·B·M>` | 일부(판정 부품). 전부는 실행 |
+| NT-LOAD-L5F (N15) | `app.ScheduleDispatcherFailureSlotTest`(계산식 전제: 실패 예약 자리 차지와 3번째 시도 건너뜀, ND-194), `loadtest.L5FixturesTest`, `test_n15_scripts.py`, 실행은 `n15.sh l5 F` | 일부(전제·판정 부품). 전부는 실행 |
+| NT-LOAD-L3 (N15) | `loadtest.L3FixturesTest`(fixture), `test_n15_scripts.py`(지연·유실 판정, 중복 수신·측정 제외 집계, 투입 속도, k6 pod), 실행은 `n15.sh l3`(k6 `loadtest/k6/notification/l3.js`) | 일부(판정 부품). 전부는 실행 |
+| NT-LOAD-L1·L2·L6 (N15) | `loadtest/notification/tests/test_sanitize_summary.py`(운영 요약에서 access token을 빼고 지표·판정을 남김), k6 `inspect`로 프로필 구성 확인(NR-107), 실행은 `rest.js`·`stomp.js` `PROFILE=load`, `l6.js`(docs/load-test/notification-load.md "운영 실행 방법") | 없음(도구 부품만). 운영 실행 미실행 |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
 - 작성 때 발행되지 않던 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. M1~M8은 모두 완료됐다(PROGRESS 3장).
 
@@ -428,6 +456,9 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-17 decisions.md ND-199 반영(N15 S6 리뷰, #970): 4장 연결 표 NT-LOAD-L3·L5 행의 판정·집계 범위를 검증기와 맞췄다. 집계는 그대로.
+- 2026-11-16 decisions.md ND-198 반영(N15 운영 준비, #970): NT-LOAD-L2를 access token 수명 안 13분(단계마다 4분 20초)·시험 계정 최대 10개로 고치고, NT-LOAD-L6에 스크립트와 길이(10분)를 적었다. 집계는 그대로.
+- 2026-11-16 decisions.md ND-187~ND-194 반영(N15 본 부하 시험, #970): 2.18 LOAD(NT-LOAD-L1~L4·L5S·L5B·L5M·L5F·L6)와 시각 정의를 더했다. 집계 151 → 160, 유효 156.
 - 2026-11-16 N14 PR 리뷰 반영(#955): NT-REF-01 기대 결과의 기본 후보에서 빠지는 Kafka 빈을 시험·코드와 같이 다섯 종으로 바로잡았다(settings·DLT 토픽 선언은 기본 후보). NT-B0-10의 `b0_guard_test.sh`에 끊김 확인 순서(스냅샷 → 대기 → 멈춤 → 비교)와 모의 따라 받기 실행(정상 통과, 먼저 끝남·스냅샷 실패는 실패)을 더했다. 검증 변환 부품의 단위 시험 `in.event.kafka.RejectedEventsTest`(실패 때만 메시지를 만듦, ND-181)를 더했다. 집계는 그대로.
 - 2026-11-16 decisions.md ND-185 반영(N14 B0 도구): NT-B0-10 합격 기준에 앱 로그 따라 받기를 더했다(`b0_guard_test.sh`). 집계는 그대로.
 - 2026-11-15 decisions.md ND-179~ND-183 반영(N14 구조 리팩토링, #955): 2.17 REF(NT-REF-01~05)를 더했다. 집계 145 → 150, 유효 146. 구현 뒤 4장 연결 표에 NT-REF 테스트를 더했다. S6 리뷰 뒤 ND-184로 NT-REF-06을 더했다(집계 151, 유효 147).
