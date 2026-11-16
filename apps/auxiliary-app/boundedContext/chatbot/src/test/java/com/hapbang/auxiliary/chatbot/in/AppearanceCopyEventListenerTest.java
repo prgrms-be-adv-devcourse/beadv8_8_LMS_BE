@@ -62,8 +62,8 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
     private static KafkaProducer<String, byte[]> producer;
 
     static ChatbotKafkaSettings settings() {
-        return ChatbotKafkaSettings.of(TOPIC, GROUP, ChatbotKafkaSettings.APPEARANCE_TRUSTED_PACKAGE, 1,
-                Duration.ofMillis(100), Duration.ofMillis(100));
+        return ChatbotKafkaSettings.of(TOPIC, GROUP, ChatbotKafkaSettings.APPEARANCE_TRUSTED_PACKAGE,
+                new ChatbotKafkaSettings.Retry.ThenDeadLetter(1, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     @DynamicPropertySource
@@ -142,6 +142,19 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
         await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
                 assertThat(rows.appearance(4)).containsEntry("result", "CANCELED").containsEntry("version", 1L));
         assertThat(deadLetterKeys()).doesNotContain("appearance-request:11", "appearance-recruit:12", "appearance:4");
+    }
+
+    @Test
+    @DisplayName("발행 쪽이 이벤트에 필드를 더해도(최상위·안쪽 객체) 모르는 필드는 무시하고 반영한다. DLT로 보내지 않는다")
+    void ignoresUnknownFields() {
+        send("appearance:5", "AppearanceChangedEvent", """
+                {"appearance":{"id":5,"hostId":10,"guestId":20,"result":"COMPLETED",
+                "scheduledAt":"2026-11-20T20:00:00","version":1,"newInnerField":"x"},"newTopField":{"a":1}}""");
+
+        // 처리 순서와 DLT를 한 번 읽는 근거는 위 skipsCancelRequestEvents와 같다
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.appearance(5)).containsEntry("result", "COMPLETED").containsEntry("version", 1L));
+        assertThat(deadLetterKeys()).doesNotContain("appearance:5");
     }
 
     @Test

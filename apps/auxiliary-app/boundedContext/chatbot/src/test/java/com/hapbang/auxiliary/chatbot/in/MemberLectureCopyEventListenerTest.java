@@ -2,6 +2,8 @@ package com.hapbang.auxiliary.chatbot.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -10,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -29,12 +33,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.auxiliary.chatbot.app.MemberMasking;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
@@ -67,14 +74,18 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
 
     private static KafkaProducer<String, byte[]> producer;
 
+    @MockitoSpyBean
+    private MemberMasking memberMasking;
+
+    // 운영과 같은 방식(회원은 성공할 때까지, 강의는 정해진 횟수 뒤 DLT)에 간격만 줄인다
     static ChatbotKafkaSettings memberSettings() {
-        return ChatbotKafkaSettings.of(MEMBER_TOPIC, MEMBER_GROUP, ChatbotKafkaSettings.MEMBER_TRUSTED_PACKAGE, 1,
-                Duration.ofMillis(100), Duration.ofMillis(100));
+        return ChatbotKafkaSettings.of(MEMBER_TOPIC, MEMBER_GROUP, ChatbotKafkaSettings.MEMBER_TRUSTED_PACKAGE,
+                new ChatbotKafkaSettings.Retry.UntilSuccess(Duration.ofMillis(100)));
     }
 
     static ChatbotKafkaSettings lectureSettings() {
-        return ChatbotKafkaSettings.of(LECTURE_TOPIC, LECTURE_GROUP, ChatbotKafkaSettings.LECTURE_TRUSTED_PACKAGE, 1,
-                Duration.ofMillis(100), Duration.ofMillis(100));
+        return ChatbotKafkaSettings.of(LECTURE_TOPIC, LECTURE_GROUP, ChatbotKafkaSettings.LECTURE_TRUSTED_PACKAGE,
+                new ChatbotKafkaSettings.Retry.ThenDeadLetter(1, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     @DynamicPropertySource
@@ -147,6 +158,53 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
                 assertThat(rows.row("lecture_purchase_copy", "order_item_id", 72)).isNotEmpty());
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM chatbot.lecture_purchase_copy WHERE buyer_user_id = 2", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("마스킹 반영이 여러 번 실패해도 DLT로 보내지 않고 성공할 때까지 다시 시도한다. 그동안 뒤 회원 이벤트는 앞지르지 않는다")
+    void maskingRetriesUntilSuccess() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicBoolean laterEventAppliedFirst = new AtomicBoolean();
+        doAnswer(invocation -> {
+            // 운영 기본값(3번 재시도 뒤 DLT)이면 4번째 실패에서 DLT로 간다. 그보다 많이 실패시킨다
+            if (calls.incrementAndGet() <= 5) {
+                throw new DataAccessResourceFailureException("DB가 잠시 응답하지 않음");
+            }
+            laterEventAppliedFirst.set(jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM chatbot.member_copy WHERE id = 8", Integer.class) > 0);
+            return invocation.callRealMethod();
+        }).when(memberMasking).mask(argThat(event -> event.userId() == 6L));
+
+        send(MEMBER_TOPIC, "6", MEMBER_EVENT + "UserMaskedEvent", """
+                {"userId":6,"maskedAt":"2026-11-09T01:00:00Z"}""");
+        // 같은 파티션의 다른 회원 이벤트. 앞 마스킹이 끝나기 전에 반영되면 순서가 깨진 것이다
+        send(MEMBER_TOPIC, "8", MEMBER_EVENT + "UserModifiedEvent", """
+                {"user":{"id":8,"nickname":"회원","role":"USER","status":"ACTIVE","version":1,
+                "contentCategories":[],"bio":null}}""");
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
+            assertThat(rows.maskedMembers()).contains(6L);
+            assertThat(rows.row("member_copy", "id", 8)).isNotEmpty();
+        });
+        assertThat(calls).hasValue(6);
+        assertThat(laterEventAppliedFirst).isFalse();
+        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
+            consumer.subscribe(List.of(memberSettings().deadLetterTopic()));
+            List<String> keys = new ArrayList<>();
+            consumer.poll(Duration.ofSeconds(2)).forEach(record -> keys.add(record.key()));
+            assertThat(keys).doesNotContain("6");
+        }
+    }
+
+    @Test
+    @DisplayName("발행 쪽이 회원 이벤트에 필드를 더해도(최상위·안쪽 객체) 모르는 필드는 무시하고 반영한다")
+    void ignoresUnknownFields() {
+        send(MEMBER_TOPIC, "5", MEMBER_EVENT + "UserModifiedEvent", """
+                {"user":{"id":5,"nickname":"회원","role":"USER","status":"ACTIVE","version":1,
+                "contentCategories":[],"bio":null,"newInnerField":"x"},"newTopField":{"a":1}}""");
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.row("member_copy", "id", 5)).containsEntry("role", "USER").containsEntry("version", 1L));
     }
 
     @Test

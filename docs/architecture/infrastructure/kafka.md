@@ -130,7 +130,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | broker 중단(발행 쪽) | 전송이 실패하고 publication이 미완료로 남는다 | 앱의 재발행 배치가 매분 다시 보낸다("발행" 절). 재기동해도 보낸다 | `BillingEventKafkaTest.republish()`, `MemberEventKafkaRecoveryIntegrationTest`, 앱별 `*EventRepublishUseCaseTest` |
 | broker 중단(소비 쪽) | 소비자가 재연결을 기다린다. offset은 커밋된 곳에 그대로 있다 | broker가 돌아오면 이어서 읽는다 | `LectureMemberEventListenerTest.broker가_멈췄다_살아나면_그_뒤에_발행한_회원_이벤트를_반영한다` |
 | consumer 중단(앱 장애·배포) | 그 그룹의 backlog가 쌓인다. Grafana lag series는 consumer가 없는 동안 사라진다 | 앱이 다시 뜨면 마지막 커밋 offset부터 읽고 lag가 줄어든다 | `LectureMemberEventListenerTest.소비를_멈춘_사이_쌓인_회원_이벤트를_재개하면_모두_반영한다`, 로컬 k3d 기록(#339) |
-| 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |
+| 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다. **예외: `auxiliary-app.chatbot-member-copy`** 는 DLT로 보내지 않고 10초마다 성공할 때까지 다시 시도한다(그동안 이 그룹의 뒤 메시지는 기다린다, #835). 마스킹을 이벤트로만 알 수 있어 DLT로 보내면 지울 개인 활동 데이터가 남기 때문이다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |
 | 읽을 수 없는 메시지 | 재시도 없이 바로 DLT로 보낸다 | 값을 고쳐 runbook으로 넣거나 그대로 둔다 | 앱별 "깨진 메시지" 테스트 |
 | broker 디스크 유실 | 이미 완료 처리된 publication은 다시 보내지 않으므로 그 이벤트는 사라진다 | 회원 복제본은 관리자 Backfill로 회원 앱의 현재 정보에 다시 맞춘다(출연·지갑·채팅) | billing 절차는 [`docs/deploy/k8s.md`](../../deploy/k8s.md) "billing-app 회원 이벤트 DLT 복구" |
 
