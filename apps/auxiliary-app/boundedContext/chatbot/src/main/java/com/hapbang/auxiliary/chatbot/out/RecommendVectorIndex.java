@@ -117,25 +117,9 @@ public class RecommendVectorIndex {
     }
 
     /**
-     * 문서를 벡터와 함께 넣는다(같은 ID면 통째로 바꾼다).
-     *
-     * @param vector 임베딩({@code ChatbotEmbedder}가 차원을 확인한 값). 차원이 매핑과 다르면 ES가 거절한다
-     * @param fields 벡터 밖의 필드 값
-     */
-    public void upsert(IndexType type, String id, float[] vector, Map<String, Object> fields) {
-        Map<String, Object> document = new HashMap<>(fields);
-        document.put(EMBEDDING_FIELD, vector);
-        try {
-            es().index(i -> i.index(indexName(type)).id(id).document(document));
-        } catch (IOException e) {
-            throw new IllegalStateException("추천 색인 문서를 넣지 못했습니다 type=" + type + ", id=" + id, e);
-        }
-    }
-
-    /**
-     * 여러 문서를 벡터와 함께 bulk 요청 한 번으로 넣는다(같은 ID면 통째로 바꾼다). 문서마다 {@link #upsert}를 부른 것과 같은
-     * 실패를 문서별로 돌려준다: ES가 거절한 문서는 그 문서의 {@link ElasticsearchException}(단건 넣기와 같은 메시지),
-     * 요청 전체가 실패하면 모든 문서에 단건 넣기와 같은 예외다.
+     * 여러 문서를 벡터와 함께 bulk 요청 한 번으로 넣는다(같은 ID면 통째로 바꾼다). 실패는 문서별로 돌려준다:
+     * ES가 거절한 문서는 그 문서의 {@link ElasticsearchException}(단건 넣기 index API와 같은 메시지, 차원이 매핑과 다른 벡터도 여기),
+     * 요청 전체가 실패하면 모든 문서에 같은 원인이다(IOException은 문서 ID를 담은 {@link IllegalStateException}).
      *
      * @return 넣지 못한 문서 ID → 원인(넣은 순서). 모두 들어가면 비어 있다
      */
