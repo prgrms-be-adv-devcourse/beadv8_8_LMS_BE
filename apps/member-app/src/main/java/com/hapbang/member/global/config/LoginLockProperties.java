@@ -24,8 +24,10 @@ public record LoginLockProperties(@DefaultValue("5") int maxFailures, @DefaultVa
         if (maxFailures < 1) {
             throw new IllegalArgumentException("hapbang.auth.login-lock.max-failures는 1 이상이어야 합니다.");
         }
-        if (emailMaxFailures < 1) {
-            throw new IllegalArgumentException("hapbang.auth.login-lock.email-max-failures는 1 이상이어야 합니다.");
+        // 이메일 전체 상한이 IP별 횟수보다 작으면 IP 하나로 이메일 전체를 잠글 수 있어, 남이 내 이메일을 잠그는 문제(#506)가 다시 생긴다
+        if (emailMaxFailures < maxFailures) {
+            throw new IllegalArgumentException(
+                    "hapbang.auth.login-lock.email-max-failures는 max-failures 이상이어야 합니다.");
         }
         requirePositive(duration, "duration");
         requirePositive(emailWindow, "email-window");
