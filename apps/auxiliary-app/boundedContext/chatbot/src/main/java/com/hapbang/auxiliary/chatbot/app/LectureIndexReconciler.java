@@ -35,22 +35,28 @@ public class LectureIndexReconciler {
 
     private final LectureRecommendStore store;
     private final RecommendVectorIndex index;
+    private final ChatbotEmbedder embedder;
     private final IndexTaskStore taskStore;
     private final ChatbotLectureRecommendProperties properties;
     private final Clock clock;
 
-    LectureIndexReconciler(LectureRecommendStore store, RecommendVectorIndex index, IndexTaskStore taskStore,
-            ChatbotLectureRecommendProperties properties, @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
+    LectureIndexReconciler(LectureRecommendStore store, RecommendVectorIndex index, ChatbotEmbedder embedder,
+            IndexTaskStore taskStore, ChatbotLectureRecommendProperties properties,
+            @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.store = store;
         this.index = index;
+        this.embedder = embedder;
         this.taskStore = taskStore;
         this.properties = properties;
         this.clock = clock;
     }
 
-    /** ES 연결이 있는 실행인지 */
+    /**
+     * ES 연결과 임베딩 모델이 모두 있는 실행인지. 색인 실행기({@link LectureIndexTaskHandler#available()})와 같은 조건이다.
+     * 임베딩 모델이 없으면 실행기가 가져가지 않을 요청만 쌓이므로 점검하지 않는다.
+     */
     public boolean available() {
-        return index.available();
+        return index.available() && embedder.available();
     }
 
     /**
