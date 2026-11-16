@@ -91,7 +91,13 @@ class LectureGoldenQueryTest {
             doc(23, "OBS 송출", "기본 설정", List.of(), "송출러A", 3.0, 40),
             doc(24, "OBS 송출 설정 방법 총정리", "기본 설정", List.of(), "송출러B", 5.0, 40),
             doc(25, "스트리머 장비 총정리", "음향 장비와 조명", List.of("1강 마이크", "2강 조명"), "장비리뷰어", 4.5, 14),
-            doc(26, "쇼츠 기획과 편집", "숏폼 알고리즘 이해", List.of("1강 캡컷 컷편집"), "숏폼장인", 4.3, 11));
+            doc(26, "쇼츠 기획과 편집", "숏폼 알고리즘 이해", List.of("1강 캡컷 컷편집"), "숏폼장인", 4.3, 11),
+            // 27·28(#972): 사전에 "에임"이 없으면 "임"만 남아 27(임베딩 → 임/베/딩)에 걸린다. 평점은 비워 평점 전체 평균 C를 바꾸지 않는다
+            doc(27, "임베딩 모델 고르기", "검색에 쓸 임베딩 비교", List.of(), "AI연구소", null, 0),
+            doc(28, "발로란트 조준 루틴", "하루 15분 연습", List.of("1강 에임 연습", "2강 크로스헤어"), "발로장인", null, 0),
+            // 29·30(#972): 영문으로만 쓴 강의와 "다빈치"만 쓴 강의. 동의어를 "다빈치 리졸브, DaVinci Resolve" 한 줄로 묶으면 구절로만 찾혀 30이 빠진다
+            doc(29, "DaVinci Resolve 컬러 페이지", "노드와 LUT 기초", List.of(), "컬러리스트", null, 0),
+            doc(30, "무료 영상 툴 비교", "오픈샷, 다빈치 무료판, 클립챔프 장단점", List.of(), "툴리뷰어", null, 0));
 
     enum Mode { ORDER, SET }
 
@@ -129,7 +135,9 @@ class LectureGoldenQueryTest {
             new Case("L17 '송출' → 글이 더 맞는 23(평점 3.0)이 24(5.0)보다 위", "송출", LectureSort.DEFAULT, Mode.ORDER, List.of(23L, 24L), List.of()),
             new Case("L18 '마이크' → 콘텐츠·소개", "마이크", LectureSort.DEFAULT, Mode.SET, List.of(14L, 25L), List.of()),
             new Case("L19 평점순(베이지안 m=5) → 리뷰 많은 5.0(24)·4.8(1·21) 순, 리뷰 1건 4.9(7)는 위로 못 옴, 숨김 제외", null, LectureSort.RATING, Mode.ORDER, List.of(24L, 1L, 21L), HIDDEN),
-            new Case("L20 검색어 없음 → 최신순(ID 내림차순), 숨김 제외", null, LectureSort.DEFAULT, Mode.ORDER, List.of(26L, 25L, 24L), HIDDEN));
+            new Case("L20 검색어 없음 → 최신순(ID 내림차순), 숨김 제외", null, LectureSort.DEFAULT, Mode.ORDER, List.of(30L, 29L, 28L), HIDDEN),
+            new Case("L21 '에임' 사용자 사전 → 제목(9)·콘텐츠(28), '임'만 겹치는 임베딩 강의(27) 제외", "에임", LectureSort.DEFAULT, Mode.SET, List.of(9L, 28L), List.of(27L)),
+            new Case("L22 'DaVinci Resolve' 동의어 → 한글(3)·영문(29)·'다빈치'만 쓴 강의(30)", "DaVinci Resolve", LectureSort.DEFAULT, Mode.SET, List.of(3L, 29L, 30L), List.of()));
 
     private final ElasticsearchClient client = SearchElasticsearch.client();
 
