@@ -16,6 +16,7 @@ import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.lecture.app.LectureSearchCondition;
 import com.hapbang.auxiliary.search.lecture.app.LectureSort;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
+import com.hapbang.auxiliary.search.lecture.app.dto.LectureSuggestion;
 import com.hapbang.auxiliary.search.lecture.config.LectureRankingProperties;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -61,6 +62,15 @@ public class LectureSearcher {
 
     /** 초성뿐인 검색어를 찾는 초성 칸과 가중치(#973). 검색어 칸의 제목·판매자 닉네임 가중치와 같다 */
     static final List<String> CHOSUNG_FIELDS = List.of("titleChosung^3", "sellerNicknameChosung^2");
+
+    /** 자동완성 후보를 찾는 칸(#973): 원문 낱말 앞부분(nori) */
+    static final List<String> SUGGEST_FIELDS = List.of("title.suggest^3", "sellerNickname.suggest^2");
+
+    /** 자동완성 후보를 찾는 칸(#973): 자모 앞부분(치는 도중의 {@code 방ㅅ}·{@code 방소}) */
+    static final List<String> JAMO_FIELDS = List.of("titleJamo^3", "sellerNicknameJamo^2");
+
+    /** 자동완성 응답에 싣는 칸 */
+    static final List<String> SUGGESTION_SOURCE = List.of("lectureId", "title", "sellerNickname");
 
     static final int DESCRIPTION_FRAGMENT_SIZE = 100;
 
@@ -110,6 +120,39 @@ public class LectureSearcher {
             return new SearchResult(Math.min(total, maxTotal), items);
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("강의를 검색하지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 검색어 자동완성 후보(#973). 보일 강의(본 검색과 같은 filter)만 낱말 앞부분으로 찾는다.
+     * <ul>
+     *     <li>검색어가 초성뿐이면 제목·판매자 닉네임 초성 칸</li>
+     *     <li>그 밖이면 자동완성 칸(원문 낱말 앞부분, nori) 또는 자모 칸(치는 도중의 입력) 중 하나라도 맞으면 후보다. 둘 다 맞으면 점수가 더 높다</li>
+     * </ul>
+     * 순서는 점수 → 리뷰 수 → 강의 ID 내림차순이다. 평점 가산은 하지 않는다(입력할 때마다 부르는 가벼운 요청이고, 평균 C를 구하지 않게).
+     *
+     * @param keyword 정리한 검색어(비어 있지 않음)
+     * @throws IllegalStateException ES에 닿지 못했거나 거절당했을 때(alias가 없는 처음 적재 전 포함)
+     */
+    @SuppressWarnings("rawtypes")
+    public List<LectureSuggestion> suggest(String keyword, int size) {
+        BoolQuery.Builder bool = visible().must(SearchAsYouType.suggest(keyword, CHOSUNG_FIELDS, SUGGEST_FIELDS, JAMO_FIELDS));
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(LectureIndexDefinition.ALIAS)
+                    .query(bool.build()._toQuery())
+                    .sort(o -> o.score(sc -> sc.order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("reviewCount").order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("lectureId").order(SortOrder.Desc)))
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .source(src -> src.filter(f -> f.includes(SUGGESTION_SOURCE))), Map.class);
+            return response.hits().hits().stream().map(hit -> {
+                Map<?, ?> source = hit.source();
+                return new LectureSuggestion(number(source.get("lectureId")), (String) source.get("title"),
+                        (String) source.get("sellerNickname"));
+            }).toList();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("강의 검색어 자동완성 후보를 찾지 못했습니다", e);
         }
     }
 

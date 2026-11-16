@@ -13,6 +13,7 @@ import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchCondition;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSort;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
+import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSuggestion;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.influencer.config.SearchRankingProperties;
 
@@ -51,6 +52,10 @@ public class InfluencerSearcher {
 
     /** 초성뿐인 검색어를 찾는 초성 칸(#973) */
     static final List<String> CHOSUNG_FIELDS = List.of("nicknameChosung^3");
+
+    /** 자동완성 후보를 찾는 칸(#973): 닉네임 낱말 앞부분(nori), 닉네임 자모 앞부분(치는 도중의 입력) */
+    static final List<String> SUGGEST_FIELDS = List.of("nickname.suggest^3");
+    static final List<String> JAMO_FIELDS = List.of("nicknameJamo^3");
 
     static final String FOLLOWER_BOOST_SCRIPT = """
             double followers = doc['followerCount'].size() == 0 ? 0 : doc['followerCount'].value;
@@ -91,6 +96,36 @@ public class InfluencerSearcher {
             return new SearchResult(Math.min(total, maxTotal), items);
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("인플루언서를 검색하지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 검색어 자동완성 후보(#973). 숨기지 않은 인플루언서만 닉네임 낱말 앞부분으로 찾는다(초성뿐이면 초성 칸, 그 밖이면 원문 앞부분 칸 또는 자모 칸,
+     * {@link SearchAsYouType#suggest}). 순서는 점수 → 팔로워 → 회원 ID다.
+     *
+     * @param keyword 정리한 검색어(비어 있지 않음)
+     * @throws IllegalStateException ES에 닿지 못했거나 거절당했을 때(alias가 없는 처음 적재 전 포함)
+     */
+    @SuppressWarnings("rawtypes")
+    public List<InfluencerSuggestion> suggest(String keyword, int size) {
+        Query query = Query.of(q -> q.bool(b -> b.filter(f -> f.term(t -> t.field("hidden").value(false)))
+                .must(SearchAsYouType.suggest(keyword, CHOSUNG_FIELDS, SUGGEST_FIELDS, JAMO_FIELDS))));
+        try {
+            SearchResponse<Map> response = client.search(s -> s.index(InfluencerIndexDefinition.ALIAS)
+                    .query(query)
+                    .sort(o -> o.score(sc -> sc.order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("followerCount").order(SortOrder.Desc)))
+                    .sort(o -> o.field(f -> f.field("userId").order(SortOrder.Asc)))
+                    .size(size)
+                    .trackTotalHits(t -> t.enabled(false))
+                    .source(src -> src.filter(f -> f.includes("userId", "nickname"))), Map.class);
+            return response.hits().hits().stream().map(hit -> {
+                Map<?, ?> source = hit.source();
+                return new InfluencerSuggestion(((Number) source.get("userId")).longValue(),
+                        (String) source.get("nickname"));
+            }).toList();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("인플루언서 검색어 자동완성 후보를 찾지 못했습니다", e);
         }
     }
 

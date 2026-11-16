@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.auxiliary.search.lecture.app.LectureSearchCondition;
 import com.hapbang.auxiliary.search.lecture.app.LectureSort;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
+import com.hapbang.auxiliary.search.lecture.app.dto.LectureSuggestion;
 import com.hapbang.auxiliary.search.lecture.config.LectureRankingProperties;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
@@ -223,6 +224,65 @@ class LectureSearcherTest {
     }
 
     @Test
+    @DisplayName("자동완성은 제목·판매자 닉네임의 낱말 앞부분으로 찾는다. 낱말 중간(nori가 나눈 낱말)도 찾고 소개·콘텐츠 제목은 보지 않는다(#973)")
+    void suggestByPrefix() throws Exception {
+        write(1L, "프리미어 프로 기초", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(2L, "프리랜서 영상 편집", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(3L, "방송장비 추천 가이드", "프리미어 쓰는 법도", List.of("프리미어 설치"), seller(8L, "소리장인", true), null);
+        refresh();
+
+        assertThat(suggestIds("프리")).containsExactlyInAnyOrder(1L, 2L);
+        assertThat(suggestIds("프리미어 프")).containsExactly(1L);
+        assertThat(suggestIds("장비")).containsExactly(3L);
+        assertThat(suggestIds("소리")).containsExactly(3L);
+        assertThat(searcher.suggest("방송", 5)).containsExactly(new LectureSuggestion(3L, "방송장비 추천 가이드", "소리장인"));
+    }
+
+    @Test
+    @DisplayName("자동완성은 치는 도중의 글자(방ㅅ·방소·플·프림)도 자모 칸으로 이어 찾는다(#973)")
+    void suggestWhileTyping() throws Exception {
+        write(1L, "방송장비 추천", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(2L, "프리미어 기초", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(3L, "보이스 발성", "소개", List.of(), seller(8L, "목소리연구소", true), null);
+        refresh();
+
+        for (String typing : List.of("방ㅅ", "방소", "방송ㅈ")) {
+            assertThat(suggestIds(typing)).as(typing).containsExactly(1L);
+        }
+        for (String typing : List.of("플", "프림", "프리밍")) {
+            assertThat(suggestIds(typing)).as(typing).containsExactly(2L);
+        }
+        assertThat(suggestIds("방송장비 ㅊ")).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("자동완성: 초성뿐이면 초성 칸으로 찾고, 보일 강의만 나온다(판매 중지·정지 판매자 제외, #973)")
+    void suggestChosungAndVisibleOnly() throws Exception {
+        write(1L, "방송장비 추천", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(2L, "방송장비 고급", "소개", List.of(), seller(7L, "편집왕", true), null, false);
+        write(3L, "방송장비 중급", "소개", List.of(), seller(9L, "정지된판매자", false), null);
+        refresh();
+
+        assertThat(suggestIds("ㅂㅅㅈㅂ")).containsExactly(1L);
+        assertThat(suggestIds("ㅍㅈㅇ")).containsExactly(1L);
+        assertThat(suggestIds("방송")).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("자동완성: 맞은 정도가 같으면 리뷰 수 → 최신 순이고, 넘긴 수까지만 준다(#973)")
+    void suggestOrderAndSize() throws Exception {
+        write(1L, "방송 기초", "소개", List.of(), seller(7L, "편집왕", true), new LectureRating(4.0, 3));
+        write(2L, "방송 기초", "소개", List.of(), seller(7L, "편집왕", true), new LectureRating(4.0, 10));
+        write(3L, "방송 기초", "소개", List.of(), seller(7L, "편집왕", true), null);
+        write(4L, "방송 기초", "소개", List.of(), seller(7L, "편집왕", true), null);
+        refresh();
+
+        assertThat(searcher.suggest("방송", 5).stream().map(LectureSuggestion::lectureId).toList())
+                .containsExactly(2L, 1L, 4L, 3L);
+        assertThat(searcher.suggest("방송", 2)).hasSize(2);
+    }
+
+    @Test
     @DisplayName("평균 C를 모르면(null) 평점 가산 없이 글 점수만 쓴다. 글이 같으면 강의 ID 내림차순이다")
     void noBaselineNoBoost() throws Exception {
         write(1L, "라이브 방송 기획", "소개", List.of(), seller(7L, "편집장", true), new LectureRating(5.0, 50));
@@ -264,6 +324,10 @@ class LectureSearcherTest {
 
         assertThatThrownBy(() -> search("프리미어", LectureSort.DEFAULT)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(searcher::ratingBaseline).isInstanceOf(IllegalStateException.class);
+    }
+
+    private List<Long> suggestIds(String keyword) {
+        return searcher.suggest(keyword, 5).stream().map(LectureSuggestion::lectureId).toList();
     }
 
     private List<LectureSearchItem> search(String keyword, LectureSort sort) {
