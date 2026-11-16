@@ -93,6 +93,23 @@ class InfluencerIndexRequestTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("정합 점검: 끝나지 않은 요청이 이미 있는 회원은 다시 적지 않는다. 끝난 요청만 있는 회원은 어긋나면 적는다(강의 점검과 같다)")
+    void checkerSkipsPendingDocs() {
+        influencer(11L, "GAME", "롤");
+        influencer(12L, "MUSIC", "노래");
+        influencer(13L, "GAME", "발로란트");
+        clearTasks();
+        jdbcTemplate.update("INSERT INTO chatbot.index_task (index_type, doc_id, action, next_attempt_at, created_at, done_at)"
+                + " VALUES ('INFLUENCER', '13', 'UPSERT', now(), now(), now())");
+
+        assertThat(checker.check()).isEqualTo(3);
+        // 실행기가 아직 처리하지 않았어도(첫 전체 색인이 길어짐) 다음 점검은 같은 회원을 또 적지 않는다
+        assertThat(checker.check()).isZero();
+        assertThat(jdbcTemplate.queryForList("SELECT doc_id FROM chatbot.index_task WHERE done_at IS NULL"
+                + " AND index_type = 'INFLUENCER'", String.class)).containsExactlyInAnyOrder("11", "12", "13");
+    }
+
+    @Test
     @DisplayName("정합 점검은 회원을 페이지로 나눠 끝까지 훑는다(페이지 크기 2, 회원 5명: 마지막 페이지가 모자라도 모두 본다)")
     void checkerPagesThroughAllMembers() {
         for (long id = 21; id <= 25; id++) {
