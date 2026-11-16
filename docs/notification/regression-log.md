@@ -86,6 +86,73 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-100 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 뒤 B0 도구 확인, 비공식 회차)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-100 |
+| 실행 날짜 | 2026-11-16 12:35~12:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 앱 이미지 `f3c15dca`(pod 안 `app.jar` `6d56bbe7…`). 도구: 미커밋 변경(S6 반영: `cleanup()` 하나로 정리, `stop_log_follow()`의 끊김 확인, `.gitattributes` `* text eol=lf`) |
+| 대상 기능 | ND-185 앱 로그 따라 받기의 멈춤·끊김 확인이 실제 회차에서 동작하는지 |
+| 관련 NT ID | NT-B0-10 |
+| 명령 | `bash loadtest/notification/tests/b0_guard_test.sh`(강화 전 RED → 뒤 GREEN); `python -I -m unittest discover -s loadtest/notification/tests`; `loadtest/notification/b0.sh run 9` |
+| 실행 환경 | NR-098과 같다 |
+| 결과 | 통과. guard 시험 통과, 스크립트 시험 43 OK. 도구 확인 회차 `b0-20261116-123539-r9`: V0~V8 PASS, F `5a7ab852…`, `logCoversRound=true`, 끊김 확인 통과(`app.log`·`app-final.log` 5,670,918바이트, `app-log.stderr` 0바이트). 처리량 197.0건/초·투입 242.4건/초는 공식 회차가 아니라 판정에 쓰지 않는다 |
+| 건수 | 위 결과 |
+| 실패 원인 분류 | — |
+| 수정 내용 | S6 리뷰: guard 시험이 설명 로그 문장만 보아 실제 멈춤을 확인하지 않았다 → 멈춤 단계가 dry-run 표지(`+ kill <앱 로그 따라 받기>`, 끊김 확인)를 내게 하고 그것을 순서와 함께 단언 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 강화한 guard 시험이 수정 전 "멈춤=없음 확인=없음"으로 실패, 수정 뒤 통과 |
+| 미검증 항목 | 따라 받기가 실제로 끊기는 경우의 멈춤(재현하지 않음) |
+| 관련 변경 | #955 |
+
+#### NR-099 · 2026-11-16 · 통과(기능)·참고(성능) (N14 #955 ND-183 대조 측정, 리팩토링 전 dev 이미지)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-099 |
+| 실행 날짜 | 2026-11-16 11:29~12:23 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | 이미지: worktree `../beadv8_8_LMS_BE-n14-control`(detached `3f5f8319`, 변경 0). 측정 도구: `feature/tkt-955` 작업 트리(NR-098과 같은 미커밋 도구 변경) |
+| 커밋 | `3f5f8319`(리팩토링 전 dev). 회차 폴더 `conditions.txt`의 `git=`은 측정 도구를 돈 메인 작업 트리 HEAD(`f3c15dca`)가 찍혔으므로 이 표가 정정이다 |
+| 대상 기능 | ND-183 대조 측정(N14 불합격 원인 가름) |
+| 관련 NT ID | NT-REF-05(대조) |
+| 명령 | `./gradlew -p <worktree> :auxiliary-app:bootJar` → `docker build`(태그 `hapbang/auxiliary-app:local`·`control-3f5f8319`) → `k3d image import` → `loadtest/notification/b0.sh run 1`~`5` |
+| 실행 환경 | NR-098과 같은 호스트·Docker Desktop·`k3d-hapbang-b0`, 같은 fixture(`bea6c107…`)·Kafka 700Mi·`synchronous_commit=off`·sampler. Gradle daemon 정지 |
+| 결과 | 기능 통과: 5회 모두 V0~V8 PASS, F `5a7ab852…`(5461행). 성능(참고, 판정에 쓰지 않음): 처리량 중앙값 199.01건/초, CV 21.86% |
+| 건수 | 처리량 110.96 / 190.61 / 203.06 / 199.01 / 202.76, 투입 136.5 / 253.0 / 257.2 / 251.4 / 258.2, p95 38.08 / 26.48 / 26.67 / 26.57 / 26.50, p99 55.62 / 29.30 / 29.33 / 29.31 / 29.30, GC 27·24·24·24·24, Hikari 활성 최대 2~3·대기 0, 실패 단계 복구 398.3~433.4초. 회차 폴더 `b0-20261116-112932-r1`·`114014-r2`·`115100-r3`·`120142-r4`·`121223-r5` |
+| 실패 원인 분류 | 성능 차이: 환경(F-ENV) 쪽 근거 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 이미지 확인: 대조 jar에 리팩토링 클래스(`NotificationKafkaConsumerRegistrar`·`RejectedEvents`) 0개·기존 설정·리스너 클래스 있음. 회차마다 실행 중인 pod 안 `/app/app.jar` SHA-256이 대조 jar(`bec2d278…`)와 같았다. docker 이미지 `b64e261e…`, containerd `fdba615f…` |
+| 미검증 항목 | 대조 1회차의 투입 속도 급락(136.5) 원인. 환경 변화와 리팩토링 영향의 정량 분리(같은 시간대 비교로 근거만 얻음) |
+| 관련 변경 | #955. 측정 뒤 N14 이미지로 복구(docker `bec6d883…`, pod 안 jar `6d56bbe7…`, imageID `3b578c0a…`) |
+
+#### NR-098 · 2026-11-16 · 불합격(성능, ND-175) (N14 #955 B0 재측정 공식 5회)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-098 |
+| 실행 날짜 | 2026-11-16 09:09~11:16 (KST). 공식 5회 10:23~11:16 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 앱 이미지: `f3c15dca`(로컬 커밋, Push 전). 측정 도구: 같은 HEAD + 미커밋 변경(B0 도구 줄 끝 LF 변환, `b0.sh` 앱 로그 따라 받기, guard 시험, `loadtest/notification/.gitattributes`) |
+| 작업 트리 변경 | 위 도구 변경. 앱 코드 변경 없음 |
+| 대상 기능 | N14 리팩토링 뒤 B0 재측정(ND-175·ND-183) |
+| 관련 NT ID | NT-REF-05, NT-B0-10(guard 시험 추가) |
+| 명령 | `loadtest/notification/b0.sh setup`(bootJar·이미지 `bec6d883…`), `b0.sh run 1`~`5`; `bash loadtest/notification/tests/b0_guard_test.sh`; `python -I -m unittest discover -s loadtest/notification/tests` |
+| 실행 환경 | Windows 10, Docker Desktop(측정 전 다시 켬), `k3d-hapbang-b0`(멈춰 있던 cluster를 `k3d cluster start`로 다시 시작, 재생성 아님), fixture `bea6c107…`, Kafka 700Mi, `auxiliary` `synchronous_commit=off`, sampler 그대로. 공식 5회 전 호스트 정리(Slack·Notion 종료, Chrome 창 축소, Gradle daemon 정지, 여유 메모리 2.5 → 4.0GB) |
+| 결과 | 기능 통과: 5회 모두 V0~V8 PASS, F `5a7ab852…`(5461행, B0와 같음). 성능 불합격: 처리량 중앙값 198.66건/초 < 213.768(B0 237.52의 83.6%), CV 1.07%. p95 26.57·p99 29.31초(B0와 같은 10~30초 구간) |
+| 건수 | 처리량 202.11 / 198.66 / 198.66 / 198.35 / 202.74, 투입 254.7 / 249.6 / 254.2 / 250.5 / 254.4(B0 290~303), GC 24~26회, Hikari 활성 최대 2~4·대기 0, 실패 단계 복구 402.4~434.4초, 관측 오차 2.3~2.5%. 회차 폴더 `b0-20261116-102321-r1`·`103405-r2`·`104432-r3`·`105508-r4`·`110538-r5`. 스크립트 시험 43 OK, guard 시험 통과 |
+| 실패 원인 분류 | 미분류(성능). 대조 측정(NR-099)은 환경 쪽 근거 |
+| 수정 내용 | 공식 5회 전 무효 회차: ① `b0-20261116-090943-r1` — 체크아웃이 B0 도구를 CRLF로 써서 도구 pod의 polling 스크립트가 문법 오류로 끝남(`$'\r': command not found`) → 작업 트리 도구 파일 27개를 LF로 바꾸고 `loadtest/notification/.gitattributes`(`* text eol=lf`) 추가. ② `092256-r1`·`093651-r2`·`094804-r3`·`095854-r4`(219.79 / 195.18 / 185.24 / 115.41건/초, 투입 274.7 → 139.4로 함께 하락) — r4는 앱 로그 회전으로 V8 `logCoversRound=false`(오류 건수는 기대와 같음) → `b0.sh`가 앱 기동 직후부터 `kubectl logs -f`로 받게 수정(V8 기준 그대로). 호스트 정리 뒤 1회차부터 다시 쟀다 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | guard 시험 "앱 로그 따라 받기"가 수정 전 실패(따라 받기 명령 없음), 수정 뒤 통과. 공식 5회 모두 `logCoversRound=true` |
+| 미검증 항목 | 환경 변화의 원인(투입 속도 B0 대비 −15.7%), 운영 처리량. 공식 판정 후속은 ND-186(불합격 유지, 예외 병합 추진) |
+| 관련 변경 | #955 |
+
 #### NR-097 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 반영 뒤)
 
 | 항목 | 값 |
