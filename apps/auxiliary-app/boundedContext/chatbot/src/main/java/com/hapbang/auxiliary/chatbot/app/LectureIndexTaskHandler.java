@@ -90,26 +90,10 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
     }
 
     private void embedAndUpsert(List<LectureSnapshot> lectures, Map<Long, String> docIds, Map<String, RuntimeException> failures) {
-        if (lectures.isEmpty()) {
-            return;
-        }
-        List<float[]> vectors;
-        try {
-            vectors = embedder.embedDocuments(lectures.stream().map(LectureSnapshot::indexText).toList());
-        } catch (RuntimeException e) {
-            for (LectureSnapshot lecture : lectures) {
-                failures.put(docIds.get(lecture.id()), e);
-            }
-            return;
-        }
-        for (int i = 0; i < lectures.size(); i++) {
-            LectureSnapshot lecture = lectures.get(i);
-            String docId = docIds.get(lecture.id());
-            try {
-                index.upsert(IndexType.LECTURE, docId, vectors.get(i), LectureIndexDocument.of(lecture).allFields());
-            } catch (RuntimeException e) {
-                failures.put(docId, e);
-            }
-        }
+        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.LECTURE, lectures,
+                lecture -> docIds.get(lecture.id()),
+                LectureSnapshot::indexText,
+                lecture -> LectureIndexDocument.of(lecture).allFields(),
+                failures);
     }
 }
