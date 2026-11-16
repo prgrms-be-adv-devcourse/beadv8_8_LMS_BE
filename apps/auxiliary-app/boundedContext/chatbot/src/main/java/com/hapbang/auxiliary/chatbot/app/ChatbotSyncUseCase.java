@@ -135,6 +135,8 @@ public class ChatbotSyncUseCase {
         try {
             found = jobLock.tryAcquire(target.job());
         } catch (JobLock.JobLockException e) {
+            // 공통 핸들러는 다시 보내면 되는 거절을 DEBUG로만 남긴다. 관리자 실행은 드물어 요청마다 WARN으로 남긴다
+            log.warn("실행 락을 시도하지 못해 관리자 싱크를 시작하지 못했다 type={}, adminId={}", type, adminId, e);
             throw new ChatbotException(ChatbotErrorCode.SYNC_LOCK_UNAVAILABLE, e);
         }
         JobLock.Lease lease = found.orElseThrow(() -> new ChatbotException(ChatbotErrorCode.SYNC_ALREADY_RUNNING));

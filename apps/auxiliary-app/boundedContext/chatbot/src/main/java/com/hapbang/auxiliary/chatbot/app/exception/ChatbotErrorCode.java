@@ -25,4 +25,10 @@ public enum ChatbotErrorCode implements BaseErrorCode {
 
     private final HttpStatus status;
     private final String message;
+
+    /** 락을 시도하지 못한 것은 DB가 잠시 안 되는 것이라 다시 보내면 된다. 거절한 곳({@code ChatbotSyncUseCase})이 WARN을 남긴다 */
+    @Override
+    public boolean isRetryLater() {
+        return this == SYNC_LOCK_UNAVAILABLE;
+    }
 }
