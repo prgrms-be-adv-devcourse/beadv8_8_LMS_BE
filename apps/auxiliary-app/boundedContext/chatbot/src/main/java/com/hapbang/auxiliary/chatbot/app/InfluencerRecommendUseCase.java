@@ -265,7 +265,7 @@ public class InfluencerRecommendUseCase {
                 similarity.put(id, hit.score());
             }
         }
-        candidateProfiles.putAll(store.recommendableOf(similarity.keySet()));
+        candidateProfiles.putAll(store.recommendableProfiles(similarity.keySet()));
         similarity.keySet().retainAll(candidateProfiles.keySet());
         if (similarity.isEmpty()) {
             return List.of();

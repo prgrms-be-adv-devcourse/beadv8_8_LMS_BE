@@ -39,7 +39,7 @@ class InfluencerRecommendSearchErrorTest extends InfluencerIntegrationTestBase {
         influencer(1L, "GAME", "롤");
         influencer(2L, "GAME", "발로란트");
         index(1L, 2L);
-        doThrow(failure).when(store).recommendableOf(anyCollection());
+        doThrow(failure).when(store).recommendableProfiles(anyCollection());
     }
 
     @Test

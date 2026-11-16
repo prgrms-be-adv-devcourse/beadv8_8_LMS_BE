@@ -112,7 +112,7 @@ public class InfluencerRecommendStore {
     }
 
     /** 주어진 회원 중 추천 가능한 회원의 프로필(회원 ID → 프로필) */
-    public Map<Long, InfluencerProfile> recommendableOf(Collection<Long> ids) {
+    public Map<Long, InfluencerProfile> recommendableProfiles(Collection<Long> ids) {
         if (ids.isEmpty()) {
             return Map.of();
         }
