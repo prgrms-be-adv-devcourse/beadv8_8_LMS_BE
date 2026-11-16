@@ -1,11 +1,9 @@
 package com.hapbang.auxiliary.chatbot.app;
 
-import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.ai.chat.client.ChatClient;
@@ -98,7 +96,7 @@ public class FaqChatUseCase {
     }
 
     /**
-     * 스트림 FAQ 대화. 구독할 때 회로·동시 상한을 확인한다.
+     * 스트림 FAQ 대화. 구독할 때 회로·동시 상한을 확인한다. 시간 상한·끊김 처리는 {@link LlmTokenStream}이다.
      * 첫 조각 전에 실패하면 fallback 답을 {@code token} + {@code done}으로, 조각을 보낸 뒤 실패하면 {@code error}로 끝낸다.
      */
     public Flux<FaqStreamEvent> stream(long memberId, String message) {
@@ -108,42 +106,26 @@ public class FaqChatUseCase {
                 return fallbackStream(call.blocked(), message);
             }
             Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
-            AtomicBoolean emitted = new AtomicBoolean(false);
-            Duration total = properties.streamTimeout();
-            long deadline = System.nanoTime() + total.toNanos();
-
-            Flux<FaqStreamEvent> tokens = prompt(memberId, message, sources)
-                    .stream()
-                    .content()
-                    // 전체 시간 상한: 첫 조각은 total, 다음 조각은 남은 시간까지 기다린다
-                    .timeout(Mono.delay(total),
-                            token -> Mono.delay(Duration.ofNanos(Math.max(0, deadline - System.nanoTime()))))
-                    .filter(token -> !token.isEmpty())
-                    .map(token -> {
-                        emitted.set(true);
-                        return (FaqStreamEvent) new FaqStreamEvent.Token(token);
-                    });
-
-            return tokens
-                    .concatWith(Flux.defer(() -> {
-                        call.succeeded();
+            return LlmTokenStream.<String, FaqStreamEvent>stream(call, properties.streamTimeout(),
+                    prompt(memberId, message, sources).stream().content(),
+                    texts -> texts,
+                    FaqStreamEvent.Token::new,
+                    emitted -> {
                         FaqAnswer answer = answered(Feature.FAQ_STREAM, NO_ANSWER_MESSAGE, sources);
                         FaqStreamEvent done = new FaqStreamEvent.Done(answer.sources(), false);
                         // 모델이 빈 답으로 끝냈으면 안내 문구를 먼저 보낸다
-                        return emitted.get() ? Flux.just(done) : Flux.just(new FaqStreamEvent.Token(NO_ANSWER_MESSAGE), done);
-                    }))
-                    .onErrorResume(e -> {
+                        return emitted ? Flux.just(done) : Flux.just(new FaqStreamEvent.Token(NO_ANSWER_MESSAGE), done);
+                    },
+                    (e, emitted) -> {
                         call.failed(e);
                         FallbackReason reason = e instanceof TimeoutException ? FallbackReason.TIMEOUT : FallbackReason.ERROR;
-                        if (!emitted.get()) {
+                        if (!emitted) {
                             log.warn("FAQ 스트림이 첫 조각 전에 실패해 fallback으로 답한다 reason={}", reason.tag(), e);
                             return fallbackStream(reason, message);
                         }
                         log.warn("FAQ 스트림이 도중에 실패했다 reason={}", reason.tag(), e);
                         return Flux.just(new FaqStreamEvent.Error(STREAM_ERROR_MESSAGE));
-                    })
-                    // 사용자가 연결을 끊으면 성공도 실패도 아니다. 자리만 돌려준다
-                    .doOnCancel(call::cancelled);
+                    });
         });
     }
 

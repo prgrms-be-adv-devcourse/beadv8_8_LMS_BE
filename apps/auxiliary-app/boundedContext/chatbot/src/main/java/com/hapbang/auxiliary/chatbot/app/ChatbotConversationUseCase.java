@@ -6,7 +6,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.ai.chat.client.ChatClient;
@@ -121,6 +120,7 @@ public class ChatbotConversationUseCase {
 
     /**
      * 스트림 자유 질문. 구독할 때 회로·동시 상한을 확인한다. 이벤트 순서는 {@link ChatStreamEvent}에 있다.
+     * 시간 상한·끊김 처리는 FAQ 스트림과 같은 {@link LlmTokenStream}이다.
      */
     public Flux<ChatStreamEvent> stream(long memberId, String message, ChatHistory.Checked history) {
         List<Message> messages = history.messages();
@@ -132,45 +132,21 @@ public class ChatbotConversationUseCase {
             if (call.blocked() != null) {
                 return fallbackStream(call.blocked(), message, sources, cards, history, start);
             }
-            AtomicBoolean emitted = new AtomicBoolean(false);
-            Duration total = properties.streamTimeout();
-            long deadline = System.nanoTime() + total.toNanos();
-
-            Flux<ChatStreamEvent> tokens = prompt(memberId, message, messages, sources, cards)
-                    .stream()
-                    .chatResponse()
-                    .timeout(Mono.delay(total),
-                            response -> Mono.delay(Duration.ofNanos(Math.max(0, deadline - System.nanoTime()))))
-                    // Tool 호출 상한은 예외가 아니라 상한 안내문이 든 응답으로 온다. 실패로 바꾼다
-                    .<String>handle((response, sink) -> {
-                        if (ToolCallLimitReached.isLimitResponse(response)) {
-                            sink.error(new ToolCallLimitReached());
-                            return;
-                        }
-                        String text = response.getResult() == null ? null : response.getResult().getOutput().getText();
-                        if (text != null) {
-                            sink.next(text);
-                        }
-                    })
-                    .filter(token -> !token.isEmpty())
-                    .map(token -> {
-                        emitted.set(true);
-                        return (ChatStreamEvent) new ChatStreamEvent.Token(token);
-                    });
-
-            return tokens
-                    .concatWith(Flux.defer(() -> {
-                        call.succeeded();
+            return LlmTokenStream.<ChatResponse, ChatStreamEvent>stream(call, properties.streamTimeout(),
+                    prompt(memberId, message, messages, sources, cards).stream().chatResponse(),
+                    ChatbotConversationUseCase::texts,
+                    ChatStreamEvent.Token::new,
+                    emitted -> {
                         logDone(Feature.CHAT_STREAM, history, cards, start, false);
                         List<ChatStreamEvent> tail = new ArrayList<>();
-                        if (!emitted.get()) {
+                        if (!emitted) {
                             tail.add(new ChatStreamEvent.Token(NO_ANSWER_MESSAGE));
                         }
                         addCards(tail, cards);
                         tail.add(new ChatStreamEvent.Done(FaqAnswer.sourcesOf(sources), false));
                         return Flux.fromIterable(tail);
-                    }))
-                    .onErrorResume(e -> {
+                    },
+                    (e, emitted) -> {
                         FallbackReason reason = reasonOf(e);
                         if (reason == FallbackReason.TOOL_LIMIT) {
                             call.cancelled();
@@ -178,7 +154,7 @@ public class ChatbotConversationUseCase {
                             call.failed(e);
                         }
                         logFailure(Feature.CHAT_STREAM, reason, e);
-                        if (!emitted.get()) {
+                        if (!emitted) {
                             return fallbackStream(reason, message, sources, cards, history, start);
                         }
                         metrics.fallback(Feature.CHAT_STREAM, reason);
@@ -187,9 +163,21 @@ public class ChatbotConversationUseCase {
                         addCards(tail, cards);
                         tail.add(new ChatStreamEvent.Error(STREAM_ERROR_MESSAGE));
                         return Flux.fromIterable(tail);
-                    })
-                    // 사용자가 연결을 끊으면 성공도 실패도 아니다. 자리만 돌려준다
-                    .doOnCancel(call::cancelled);
+                    });
+        });
+    }
+
+    // Tool 호출 상한은 예외가 아니라 상한 안내문이 든 응답으로 온다. 실패로 바꾼다
+    private static Flux<String> texts(Flux<ChatResponse> responses) {
+        return responses.handle((response, sink) -> {
+            if (ToolCallLimitReached.isLimitResponse(response)) {
+                sink.error(new ToolCallLimitReached());
+                return;
+            }
+            String text = response.getResult() == null ? null : response.getResult().getOutput().getText();
+            if (text != null) {
+                sink.next(text);
+            }
         });
     }
 
