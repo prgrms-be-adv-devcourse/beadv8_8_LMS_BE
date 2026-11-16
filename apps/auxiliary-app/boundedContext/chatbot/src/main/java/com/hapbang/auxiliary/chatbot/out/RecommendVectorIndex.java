@@ -19,12 +19,16 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
+import co.elastic.clients.elasticsearch._types.ErrorResponse;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorIndexOptionsType;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorSimilarity;
 import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
+import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.SourceFilter;
 import lombok.Getter;
@@ -53,6 +57,8 @@ import lombok.extern.slf4j.Slf4j;
 public class RecommendVectorIndex {
 
     static final String EMBEDDING_FIELD = "embedding";
+    // 단건 넣기(index API)의 endpoint 이름. bulk 문서 오류를 단건 넣기와 같은 예외 메시지로 만든다
+    private static final String INDEX_ENDPOINT = "es/index";
 
     private final ChatbotIndexProperties properties;
     private final @Nullable ElasticsearchClient client;
@@ -124,6 +130,59 @@ public class RecommendVectorIndex {
         } catch (IOException e) {
             throw new IllegalStateException("추천 색인 문서를 넣지 못했습니다 type=" + type + ", id=" + id, e);
         }
+    }
+
+    /**
+     * 여러 문서를 벡터와 함께 bulk 요청 한 번으로 넣는다(같은 ID면 통째로 바꾼다). 문서마다 {@link #upsert}를 부른 것과 같은
+     * 실패를 문서별로 돌려준다: ES가 거절한 문서는 그 문서의 {@link ElasticsearchException}(단건 넣기와 같은 메시지),
+     * 요청 전체가 실패하면 모든 문서에 단건 넣기와 같은 예외다.
+     *
+     * @return 넣지 못한 문서 ID → 원인(넣은 순서). 모두 들어가면 비어 있다
+     */
+    public Map<String, RuntimeException> upsertAll(IndexType type, List<Upsert> documents) {
+        Map<String, RuntimeException> failures = new LinkedHashMap<>();
+        if (documents.isEmpty()) {
+            return failures;
+        }
+        String index = indexName(type);
+        List<BulkOperation> operations = new ArrayList<>();
+        for (Upsert one : documents) {
+            Map<String, Object> document = new HashMap<>(one.fields());
+            document.put(EMBEDDING_FIELD, one.vector());
+            operations.add(BulkOperation.of(o -> o.index(i -> i.index(index).id(one.id()).document(document))));
+        }
+        BulkResponse response;
+        try {
+            response = es().bulk(b -> b.operations(operations));
+        } catch (IOException e) {
+            for (Upsert one : documents) {
+                failures.put(one.id(), new IllegalStateException("추천 색인 문서를 넣지 못했습니다 type=" + type + ", id=" + one.id(), e));
+            }
+            return failures;
+        } catch (RuntimeException e) {
+            for (Upsert one : documents) {
+                failures.put(one.id(), e);
+            }
+            return failures;
+        }
+        List<BulkResponseItem> items = response.items();
+        for (int i = 0; i < documents.size(); i++) {
+            BulkResponseItem item = items.get(i);
+            if (item.error() != null) {
+                failures.put(documents.get(i).id(), new ElasticsearchException(INDEX_ENDPOINT,
+                        ErrorResponse.of(e -> e.error(item.error()).status(item.status()))));
+            }
+        }
+        return failures;
+    }
+
+    /**
+     * {@link #upsertAll}에 넘기는 문서 하나.
+     *
+     * @param vector 임베딩({@code ChatbotEmbedder}가 차원을 확인한 값)
+     * @param fields 벡터 밖의 필드 값
+     */
+    public record Upsert(String id, float[] vector, Map<String, Object> fields) {
     }
 
     /**
