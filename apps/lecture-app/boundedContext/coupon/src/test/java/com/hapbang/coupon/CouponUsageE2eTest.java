@@ -383,7 +383,8 @@ class CouponUsageE2eTest {
         long badCoupon = budgetCoupon(now, false);
         long platformCoupon = budgetCoupon(now, true);
         long sellerCoupon = couponRepository.saveAndFlush(Coupon.createSeller(SELLER_ID,
-                com.hapbang.coupon.domain.CouponFixture.lectureRate().build(), now)).getId();
+                com.hapbang.coupon.domain.CouponFixture.lectureRate()
+                        .issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
         long bad = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, badCoupon, "bad-budget",
                 now.minusSeconds(60), now.minusSeconds(30), now)).getId();
         long seller = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, sellerCoupon, "good-seller",
