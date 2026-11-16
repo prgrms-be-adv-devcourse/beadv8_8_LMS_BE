@@ -260,6 +260,40 @@ class NotificationKafkaMetricsIntegrationTest {
         await().atMost(TIMEOUT).until(() -> latencyCount() - before == 2);
     }
 
+    /**
+     * B0 정상 단계 완료 판정(ND-167)은 이 count가 레코드마다 정확히 한 번 는다는 데 기댄다. 저장 결과와 상관없이(새로 만듦·같은
+     * 사건·받는 사람 제외·하루 묶음에 더함) 성공한 레코드마다 한 번, 실패 뒤 재시도로 성공해도 한 번이다
+     */
+    @Test
+    void 저장_결과와_재시도와_상관없이_성공한_레코드마다_소비_지연을_정확히_한_번_잰다() {
+        long active = member(UserStatus.ACTIVE);
+        long suspended = member(UserStatus.SUSPENDED);
+        long retried = member(UserStatus.ACTIVE);
+        long chargeId = nextId();
+        AtomicBoolean failed = new AtomicBoolean();
+        doAnswer(invocation -> {
+            if (failed.compareAndSet(false, true)) {
+                throw new TransientDataAccessResourceException("저장 뒤 일시 실패(시험)");
+            }
+            return invocation.callRealMethod();
+        }).when(relay).publishAfterCommit(anyLong(), eq(retried));
+        long before = latencyCount();
+
+        kafka.send(TOPIC, "point-charge:" + chargeId, new ChargeCompletedEvent(chargeId, active, 1L, 1L, AT));
+        kafka.send(TOPIC, "point-charge:" + chargeId, new ChargeCompletedEvent(chargeId, active, 1L, 1L, AT));
+        kafka.send(TOPIC, "point-charge:once-s", new ChargeCompletedEvent(nextId(), suspended, 1L, 1L, AT));
+        kafka.send(TOPIC, "settlement:once-1", new PayoutCompletedEvent(nextId(), active, PayoutType.NORMAL,
+                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 1_000L, AT));
+        kafka.send(TOPIC, "settlement:once-2", new PayoutCompletedEvent(nextId(), active, PayoutType.NORMAL,
+                SettlementSourceType.LECTURE_ORDER_ITEM, nextId(), 2_000L, AT.plusSeconds(60)));
+        kafka.send(TOPIC, "point-charge:once-retry", new ChargeCompletedEvent(nextId(), retried, 1L, 1L, AT));
+        awaitProcessed();
+
+        assertThat(failed).isTrue();
+        // 만듦·같은 사건·받는 사람 제외·묶음 만듦·묶음에 더함·재시도 뒤 성공 6 + 표식 1
+        assertThat(latencyCount() - before).isEqualTo(7);
+    }
+
     // Kafka client 지표 (NT-OBS-10)
 
     @Test

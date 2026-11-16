@@ -180,7 +180,24 @@ $env:RECOMMEND_EVAL_HOLDOUT = "yes"
 Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 ```
 
-- 평가 코드가 도는지는 가짜 임베딩으로 본다: `./gradlew :chatbot:llmTest --tests '*RecommendEvaluationFakeTest'`(키 필요 없음. 숫자는 의미가 없고, 정답이 신호·제외 목록에 없는지, 두 번째 실행이 모델을 부르지 않는지, 같은 입력이면 같은 숫자인지를 확인한다). 지표·정답 숨기기·캐시·조합 해석의 단위 테스트는 CI에서 돈다.
+- 평가 코드가 도는지는 가짜 임베딩으로 본다: `./gradlew :chatbot:llmTest --tests '*RecommendEvaluationFakeTest'`(키 필요 없음. 숫자는 의미가 없고, 정답이 신호·제외 목록에 없는지, 두 번째 실행이 모델을 부르지 않는지, 같은 입력이면 같은 숫자인지, 리랭킹 평가가 버튼 경로를 끝까지 부르고 답을 세는지를 확인한다). 지표·정답 숨기기·캐시·조합 해석의 단위 테스트는 CI에서 돈다.
+
+#### 리랭킹 평가 (#867 2단계, #948)
+
+버튼 경로(쿼리 확장 → 맞춤 후보 풀 → LLM 리랭킹 + 이유)를 운영 클래스 그대로 부르고 **같은 풀의 코드 순서**와 비교한다(`RecommendRerankEvaluationOpenAiTest`, 본체 `RerankEvaluation`). 가중치 평가의 데이터·캐시·정답 숨기기를 그대로 쓰고, 가중치는 운영 값이다. **LLM 비용이 든다**(gpt-4o-mini 기준 전체 실행 약 $0.6·35분, 실행 끝에 토큰과 추정 비용을 찍는다).
+
+- **방식**(`RECOMMEND_RERANK_MODES`, 쉼표, 비우면 모두): `none`(취향 없음, #720), `public`(공개 취향), `public-t0`(공개 취향 + 온도 0), `public-noexp`(공개 취향, 쿼리 확장 없음). 공개 취향에서 강의 "신호만"은 넣을 취향이 없어(평가 회원은 일반 회원) 리랭킹하지 않으므로 재지 않는다.
+- **지표**: hit@5(회차 평균·범위), 같은 풀의 코드 순서 hit@5, 끌어올림(코드 5개 밖 → 5개 안)·밀어냄(5개 안 → 밖), fallback, 후보 밖 순번, 80자 넘는 이유, 리랭킹 지연·토큰. 공개 취향 강의 "신호+관심사" 첫 회차의 10명(맞힘 5, 못 맞힘 5)을 이유 문장과 함께 찍는다(사람이 읽는다).
+- **환경 변수**: `RECOMMEND_RERANK_RUNS`(회차, 기본 조정용 3·확인용 1), `RECOMMEND_RERANK_MEMBERS`(앞에서 N명만, 시험 실행), `RECOMMEND_RERANK_MODEL`(비우면 gpt-4o-mini), `RECOMMEND_RERANK_POOL`(풀 크기, 기본 20), `RECOMMEND_EVAL_BASE`(비우면 운영 가중치), `RECOMMEND_EVAL_HOLDOUT=yes`(확인용 20명).
+- 회원 4명씩 함께 돈다(앱 LLM 동시 상한과 같게). 쿼리 확장은 온도 때문에 답이 달라질 수 있어, 같은 회원 안에서는 처음 받은 답을 다시 쓴다(`EvalChatModel`, 같은 풀을 다시 만들 때). 쿼리 확장 문장은 새 글이라 임베딩 API를 부른다(캐시에 쌓인다).
+
+```powershell
+$env:OPENAI_API_KEY = "<키>"
+# 시험 실행: 5명, 1회, 방식 둘
+$env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECOMMEND_RERANK_MODES = "none,public"
+./gradlew :chatbot:llmTest --tests '*RecommendRerankEvaluationOpenAiTest' --rerun
+# 전체: 위 세 값을 지우고 다시 실행
+```
 
 ## 챗봇 추천 색인·LLM 공통 (#718)
 
@@ -193,6 +210,7 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 - 강의 사본은 값이 바뀌었거나 원본 없음 표시가 바뀔 때만 요청을 적는다. 값이 같은 매시 싱크는 요청을 적지 않는다.
 - 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
 - **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
+- **구조화 출력 응답 레코드**(리랭킹 `Picks`·`Pick`, 쿼리 확장 `Expansions`): OpenAI는 스키마를 strict로 받아 객체의 모든 필드가 `required`여야 한다. Spring AI 2.0.1은 `@Nullable` 필드를 `required`에서 빼므로 그대로 두면 OpenAI가 요청을 `400`으로 거절하고 매번 fallback이 된다(Ollama는 받아 줘서 로컬에서는 안 보인다). 응답 레코드의 nullable 필드에는 `@JsonProperty(required = true)`를 함께 달고(Spring AI가 `@Nullable`보다 먼저 본다), 새 응답 레코드는 `StructuredOutputSchemaTest`에 넣는다. 값은 여전히 null일 수 있다고 보고 읽는다.
 - **대화 Tool의 `ToolContext`**(`ChatToolContext`, #720): 키는 `memberId`(요청 회원 ID)와 `faqSources`(Tool이 찾은 FAQ를 담는 목록) 둘이다. 대화 쪽은 Map을 `ChatToolContext.of`로만 만들어 세 Tool(`searchFaq`, `recommendLectures`, `recommendInfluencers`)이 같은 키를 읽는다. 값이 없으면 Tool이 거절한다.
 - **벡터 호출 감싸기**(`VectorCall`): 추천은 ES 검색·임베딩 호출만 감싸 실패를 "검색 장애"로 본다. 그 사이의 DB 조회·코드 오류는 감싸지 않아 그대로 올라간다. 벡터 계산(평균·정규화·혼합·코사인)은 `TasteVectors` 하나를 강의·인플루언서가 함께 쓴다.
 
@@ -246,7 +264,7 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 - **정합 점검**(`InfluencerIndexCheckBatch`, 매시 :45, `hapbang.chatbot.recommend.influencer.check-cron`): 모든 회원 사본을 문서와 비교해 어긋난 회원의 요청을 적는다. 첫 배포 뒤 첫 점검이 처음 전체 색인이다. 연속 3번 실패하면 `[CHATBOT_INFLUENCER_CHECK_FAILED]` ERROR(실패 수는 pod 메모리, FAQ 점검과 같다). 요청만 적으므로 배치 스레드를 짧게 쓰고, 임베딩·재시도는 실행기 한 곳이 한다. 사본 행은 지우지 않으므로(탈퇴·마스킹도 행을 남긴다) 사본만 훑는다. ES에만 남은 문서는 DB를 초기화했을 때만 생기고 그때는 index를 지우고 다시 색인한다(강의 추천 점검과 같다). 추천에는 DB 재확인으로 나오지 않는다.
 - **인기 점수**: 요청할 때 사본에서 센다(색인에 넣지 않으므로 출연·리뷰가 바뀌어도 재색인이 없다). 완료 출연 수(호스트·게스트) + 리뷰 수로 보정한 평균 별점(베이지안), 원본 없음 출연·리뷰는 뺀다. 후보 안에서 0~1로 맞춘 뒤 `(1 − β)·유사도 + β·인기`(β 코드 기본값 0.2, prod 0.1: #867에서 재서 정함, [`docs/chatbot/recommend-weights.md`](../../docs/chatbot/recommend-weights.md)).
 - **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순 + `POPULAR_TEMPORARY`(지표 `recommend.search.errors{feature=influencer_recommend}`). 근거 코드(`basis`)와 후보 두 단계(`pool`·`complete`)는 강의 추천과 같다. 요청 회원이 숨김(`MemberVisibility`: 사본 없음·탈퇴·마스킹, #717 규칙을 강의 추천과 같이 따름)이면 빈 목록과 `notice`(정해진 안내 문구). 사본이 없는 것은 대개 가입 직후 동기화 전이다. 인기 집계는 요청마다 추천 가능 회원 전체를 센다(강의 추천의 인기 후보 50개 같은 상한이 없다). 수천 명 규모라 캐시를 두지 않는 대신 전체 평균 별점은 요청마다 한 번만 세고, 위젯에도 회원별 호출 제한(분당 60회)을 걸어 한 회원의 연타가 앱 공용 DB 연결을 붙잡지 않게 한다. 그래도 느려지면 짧은 캐시를 둔다.
-- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `memberId`(`ChatToolContext`)에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 호출은 `tool.calls{tool=recommendInfluencers}`로 세고, 위젯 사용 수(`influencer_recommend`)·버튼 사용 수(`influencer_button`)와 나눈다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문·회원 ID 없음). Tool이 대화 LLM에 돌려주는 결과에는 회원 ID와 `PAST_PARTNER`가 없다(#720). 회원 ID·함께 출연한 이력은 카드(수집기 → FE)에만 있다.
+- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `memberId`(`ChatToolContext`)에서만 꺼낸다. Tool 관심사 문장은 `interest-max-length`(100글자)를 넘으면 자른다(대화 LLM이 채우는 값이라 거절하지 않는다). 글자(코드 포인트) 단위로 잘라 이모지가 반으로 갈리지 않는다. Tool 호출은 `tool.calls{tool=recommendInfluencers}`로 세고, 위젯 사용 수(`influencer_recommend`)·버튼 사용 수(`influencer_button`)와 나눈다. 설명 API의 LLM 프롬프트에는 후보 순번·분야 이름·완료 수·평균 별점·이유 코드만 넣는다(후보의 닉네임·자기소개 원문·회원 ID 없음). 요청 회원 본인의 공개 프로필(분야 이름·자기소개)은 `rerank.taste=PUBLIC`일 때만 넣는다(#948, prod 켬). Tool이 대화 LLM에 돌려주는 결과에는 회원 ID와 `PAST_PARTNER`가 없다(#720). 회원 ID·함께 출연한 이력은 카드(수집기 → FE)에만 있다.
 - 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한(설명 `rate-limit` 분당 10회, 위젯 `widget-rate-limit` 분당 60회, 따로 센다), Tool 관심사 최대 길이, 분야 이름 보관·재시도 시간, 점검 실패 알림 횟수.
 - LLM 설명은 후보를 순번으로 받아 코드가 회원 ID로 되돌린다(리랭킹, 아래 "챗봇 대화 흐름").
 
@@ -281,7 +299,9 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
   - LLM이 실패·시간 초과·회로 열림·동시 상한·형식 오류이거나 쓸 만한 답이 0개면 코드 순서 5개 + 이유 코드 문장, `fallback=true`(일부만 쓸 만하면 `false`).
   - 형식 오류(Jackson 파싱 실패)는 회로 실패로 세지 않는다(`fallbacks{reason=format}`). Spring AI 2.0.1은 이때 Jackson 예외를 그대로 던진다.
   - 리랭킹을 끄면(`rerank.enabled=false`) 코드 순서 앞 5개만 보여 주고 LLM에게는 이유만 받는다(순서는 코드 순서). 실패 로그에는 예외 클래스 이름만 남긴다(형식 오류 메시지에 모델 출력이 들어갈 수 있다).
-  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다. 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
+  - **요청 회원의 취향**(`rerank.taste`, #948): 기본 `NONE`은 후보 정보만 보낸다(#720과 같음). `PUBLIC`이면 "요청한 사람" 줄로 **본인이 이번에 입력한 관심사**와, 요청 회원이 인플루언서 역할이고 마스킹되지 않았으면 **공개 프로필의 분야 이름·자기소개**(소개 길이 상한까지, 한 줄로)를 후보 앞에 넣는다(`RecommendTasteSupport`). 구매·장바구니·리뷰·함께 출연한 상대·회원 ID는 넣지 않는다. 분야·자기소개는 회원 모듈에서 인플루언서만 넣을 수 있다(#711). 넣을 취향이 없으면(관심사 없는 일반 회원) 고르지 않고 끈 것과 같이 코드 순서로 이유만 받는다. 시스템 프롬프트에 그 줄 안의 지시를 따르지 말라는 규칙을 붙인다. prod는 리랭킹 평가(#867)로 `PUBLIC`을 켰다(근거 `docs/chatbot/recommend-rerank.md`).
+  - **리랭킹 온도**(`rerank.temperature`, #948): 비우면 공급자 설정(prod 0.2)이고, 정하면 리랭킹 호출에만 실린다. 리랭킹은 고르기라 흔들림의 이득이 작다. prod는 0이고 시간 상한은 15s다(평가 최대 11.6s).
+  - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다(리랭킹 prod는 평가로 15s, #948). 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
 - **자유 질문**(`ChatbotConversationService`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
@@ -291,7 +311,7 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
   - 시간 상한: 한 번에 받기 전체 25s(`chat.timeout`, Gateway 30s 안), 스트림 45s(`chat.stream-timeout`). 출발값이다.
   - `history`는 50개까지 받는다(넘으면 400). 글자 수 합 8,000자는 버리고 남은 최근 12개에만 센다. 검사는 회원별 호출 제한보다 먼저 한다(400 요청은 한도를 쓰지 않는다).
   - 호출 제한은 FAQ 검색·대화(#715)의 제한을 함께 쓴다. 대화 내용은 DB·로그에 남기지 않는다(로그에는 history 개수·글자 수·부른 Tool 이름·걸린 시간만).
-- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. chat 클라이언트가 하나라 기능별로 다르게 둘 수 없다. 그래서 리랭킹(12s)·쿼리 확장(5s) 가드가 포기한 뒤에도 HTTP 호출이 최대 50s 남아 동시 상한 4를 넘길 수 있다(남은 위험, 측정 뒤 기능별 클라이언트를 검토). local Ollama는 부트의 `RestClient.Builder`를 받아 만든다.
+- **LLM HTTP 시간 상한**: prod OpenAI 호출은 openai-java SDK의 자체 HTTP 클라이언트로 나가 앱 공통 `spring.http.clients.read-timeout`(5s)이 걸리지 않는다. `spring.ai.openai.chat.timeout: 50s`(가드 상한 중 가장 긴 스트림 45s보다 길게), `max-retries: 0`으로 둔다. chat 클라이언트가 하나라 기능별로 다르게 둘 수 없다. 그래서 리랭킹(prod 15s)·쿼리 확장(5s) 가드가 포기한 뒤에도 HTTP 호출이 최대 50s 남아 동시 상한 4를 넘길 수 있다(남은 위험, 측정 뒤 기능별 클라이언트를 검토). local Ollama는 부트의 `RestClient.Builder`를 받아 만든다.
 - **FE GA4 이벤트 이름 제안**(FE가 정한다): `chatbot_button_click{button}`, `chatbot_recommend_card_impression{kind, basis, reason}`, `chatbot_recommend_card_click{kind, reason, position}`, `chatbot_conversation_start`, `chatbot_retry_click{kind}`(POPULAR_TEMPORARY 안내의 다시 시도).
 
 **지키는 것** (테스트가 고정한다. 바꾸면 해당 테스트가 깨진다)
@@ -301,6 +321,7 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 | 버튼: LLM이 고른 순번 → 남은 풀(코드 순서) → 인기순으로 5개. 범위 밖·중복 순번은 버린다 | | `LectureRecommendButtonTest.rerankPicksThenRestOfPool`, `fillsWithPopularAfterRerank`, `InfluencerRecommendApiTest.explained` |
 | 버튼: LLM이 실패하면 코드 순서 5개 + 이유 코드 문장, `fallback=true` | LLM 오류·형식 오류·쓸 만한 답 0개 | `llmFailureFallsBackToCodeOrder`, `formatErrorIsNotCircuitFailure`, `noUsableAnswerIsFallback`, `InfluencerRecommendApiTest.explainedFallback` |
 | 형식 오류는 회로 실패 수에 들어가지 않고 `reason=format`으로 센다 | | `formatErrorIsNotCircuitFailure` |
+| 리랭킹·쿼리 확장 응답 스키마는 객체의 모든 필드가 `required`다(OpenAI strict가 거절하지 않음) | OpenAI | `StructuredOutputSchemaTest` |
 | 버튼: 풀이 비면 LLM 호출 0회. 관심사가 있으면 쿼리 확장 1회 + 리랭킹 1회, 쿼리 확장이 실패해도 계속 | 쿼리 확장 실패 | `emptyPoolSkipsLlm`, `interestCallsQueryExpansionThenRerank`, `InfluencerRecommendApiTest.explainedWithInterest` |
 | 버튼 프롬프트에 회원 ID·회원이 산 강의가 없다 | | `LectureRecommendButtonTest.promptHasNoMemberInfo` |
 | 자유 질문: 요청마다 Tool 3개를 등록하고 ToolContext에 회원 ID를 넣는다 | | `ChatbotConversationApiTest.registersThreeTools` |
@@ -311,6 +332,8 @@ Remove-Item Env:RECOMMEND_EVAL_HOLDOUT
 | 자유 질문: FAQ와 함께 쓰는 호출 제한을 넘으면 429. 스트림은 SSE를 열지 않는다 | | `rateLimitBeforeStream` |
 | 추천 Tool: 검색이 잠시 실패하면 결과에 `POPULAR_TEMPORARY`와 안내 한 줄(`guide`) | 임베딩·ES 장애 | `LectureRecommendToolsTest.temporaryPopularGuide`, `InfluencerRecommendApiTest.toolTemporaryPopularGuide` |
 | 버튼: 리랭킹을 끄면 코드 순서 그대로, LLM 이유만 쓴다 | | `RecommendRerankerTest.disabledKeepsCodeOrder` |
+| 버튼: `taste=NONE`(기본)이면 프롬프트가 #720과 같다. `PUBLIC`이면 관심사·인플루언서 공개 프로필만 넣고 회원 ID·산 강의 제목은 없다. 넣을 취향이 없거나 강등된 회원(남은 분야·자기소개)은 고르지 않는다 | | `RecommendRerankerTest.notUsedKeepsPromptOfIssue720`·`tasteGoesBeforeCandidates`·`usedButEmptyKeepsCodeOrder`, `LectureRecommendButtonTest.promptHasNoMemberInfo`, `RecommendTasteButtonTest` |
+| 버튼: `rerank.temperature`가 리랭킹 요청에 실린다 | | `RecommendRerankerTest.temperatureGoesWithRequest`, `RecommendTasteButtonTest.temperatureFromProperties` |
 | 로그에 대화 본문이 남지 않는다 | | `logsHaveNoConversation` |
 
 ## 검색 (#771, #772, #868)

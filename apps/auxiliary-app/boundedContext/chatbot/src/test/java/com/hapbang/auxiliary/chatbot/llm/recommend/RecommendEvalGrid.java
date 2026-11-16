@@ -1,5 +1,8 @@
 package com.hapbang.auxiliary.chatbot.llm.recommend;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,7 +12,11 @@ import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySource;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.io.FileSystemResource;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
@@ -53,10 +60,30 @@ final class RecommendEvalGrid {
 
     private final List<ConfigurationPropertySource> base;
 
+    /** 운영 설정 파일. Gradle 테스트의 작업 폴더(chatbot 모듈) 기준 */
+    static final Path PROD_PROFILE = Path.of("..", "..", "src", "main", "resources", "application-prod.yaml");
+
     /** @param base 지금 설정값(평가에서는 테스트 컨텍스트의 Environment) */
     RecommendEvalGrid(Iterable<ConfigurationPropertySource> base) {
         this.base = new ArrayList<>();
         base.forEach(this.base::add);
+    }
+
+    /**
+     * 운영 프로필({@code application-prod.yaml}) 값을 테스트 설정보다 앞에 둔 조합기(#867 2단계). 리랭킹 평가가 운영 가중치를 다시 적지 않고
+     * 파일에서 읽는다(가중치를 바꾸면 평가도 따라간다). 운영 파일에 없는 키는 테스트 설정·코드 기본값이다.
+     */
+    static RecommendEvalGrid withProdProfile(Iterable<ConfigurationPropertySource> base) {
+        List<ConfigurationPropertySource> sources = new ArrayList<>();
+        try {
+            for (PropertySource<?> source : new YamlPropertySourceLoader().load("prod", new FileSystemResource(PROD_PROFILE))) {
+                ConfigurationPropertySources.from(source).forEach(sources::add);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("운영 설정 파일을 읽지 못했습니다 " + PROD_PROFILE.toAbsolutePath(), e);
+        }
+        base.forEach(sources::add);
+        return new RecommendEvalGrid(sources);
     }
 
     /**

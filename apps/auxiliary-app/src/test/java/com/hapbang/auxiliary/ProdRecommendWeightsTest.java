@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.offset;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,12 +21,14 @@ import org.springframework.core.io.ClassPathResource;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
+import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
+import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties.Taste;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 
 /**
- * 운영 프로필의 추천 가중치(#867)가 설정 record에 그대로 묶이는지 확인한다.
+ * 운영 프로필의 추천 가중치(#867)와 리랭킹 설정(#948)이 설정 record에 그대로 묶이는지 확인한다.
  * <p>
  * 운영 동작을 바꾸는 값이 {@code application-prod.yaml}에만 있고 다른 테스트는 이 파일을 읽지 않는다. 키를 잘못 쓰면(예:
  * {@code rating-1}) 오류 없이 무시되고 기본값으로 배포되므로, 알 수 없는 키가 있으면 실패하게 묶는다({@link NoUnboundElementsBindHandler}).
@@ -35,6 +38,7 @@ class ProdRecommendWeightsTest {
 
     private static final String LECTURE = "hapbang.chatbot.recommend.lecture";
     private static final String INFLUENCER = "hapbang.chatbot.recommend.influencer";
+    private static final String RERANK = "hapbang.chatbot.recommend.rerank";
     private static final Validator VALIDATOR = Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
@@ -73,6 +77,19 @@ class ProdRecommendWeightsTest {
         assertThat(influencer.popularity().completedWeight()).isEqualTo(1.0);
         assertThat(influencer.popularity().ratingWeight()).isEqualTo(1.0);
         assertThat(influencer.popularity().priorReviews()).isEqualTo(5.0);
+    }
+
+    @Test
+    void 리랭킹은_공개_취향과_온도_0과_15초_상한이고_나머지는_기본값이다() throws IOException {
+        ChatbotRecommendLlmProperties.Rerank rerank = bind(RERANK, ChatbotRecommendLlmProperties.Rerank.class);
+
+        assertThat(VALIDATOR.validate(rerank)).isEmpty();
+        assertThat(rerank.taste()).isEqualTo(Taste.PUBLIC);
+        assertThat(rerank.temperature()).isEqualTo(0.0);
+        assertThat(rerank.timeout()).isEqualTo(Duration.ofSeconds(15));
+        assertThat(rerank.enabled()).isTrue();
+        assertThat(rerank.model()).isEmpty();
+        assertThat(rerank.poolSize()).isEqualTo(20);
     }
 
     // 설정 record가 모르는 키가 있으면 실패한다(오타가 조용히 기본값으로 배포되지 않게)

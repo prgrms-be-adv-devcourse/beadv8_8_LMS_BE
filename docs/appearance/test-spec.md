@@ -202,7 +202,7 @@
 | `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
 | 끝난 요청서(`HOLD_FAILED`) → `UserMaskedEvent` 두 번 (#675) | 채널 URL `withdrawn`, 같은 key 표지 반영 뒤 DLT 없음 |
 | 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
-| 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
+| 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(오류 처리기 전달 시도 `[1]`, #905) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
 | DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
 
 ### 4.4.1 탈퇴 회원 파기: 호스트 채널 URL — `AppearanceHostChannelMaskTest` (#675)

@@ -17,6 +17,7 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
@@ -28,6 +29,7 @@ import com.hapbang.auxiliary.chatbot.app.RecommendEvalAccess;
 import com.hapbang.auxiliary.chatbot.config.ChatbotIndexProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
+import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Member;
 import com.hapbang.auxiliary.chatbot.llm.recommend.RecommendEvalData.Split;
@@ -182,6 +184,12 @@ abstract class RecommendEvaluation {
         loader.copies(RecommendEvalHoldout.hide(data));
         loader.vectors(data);
         grid = new RecommendEvalGrid(ConfigurationPropertySources.get(environment));
+    }
+
+    /** 리랭킹 평가에 필요한 것: 채팅 모델과 테스트 컨텍스트의 리랭킹 설정(운영 기본값과 같다) */
+    RerankEvaluation rerankEvaluation() {
+        return new RerankEvaluation(data, access, RecommendEvalGrid.withProdProfile(ConfigurationPropertySources.get(environment)),
+                cache, context.getBean(ChatModel.class), context.getBean(ChatbotRecommendLlmProperties.class));
     }
 
     /** 다른 임베딩 모델로 벡터만 다시 넣는다(캐시 확인용) */

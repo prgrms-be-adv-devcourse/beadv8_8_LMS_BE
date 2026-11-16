@@ -48,17 +48,35 @@ class NotificationOutcomeRecorderTest {
     }
 
     @Test
-    void 트랜잭션_밖의_소비_문맥이면_바로_결과별로_센다() {
+    void 트랜잭션_밖의_소비_문맥이면_레코드_처리가_성공한_뒤에_결과별로_센다() {
         recorder.enter(TOPIC);
 
         recorder.record(NotificationWriteResult.created(1L));
         recorder.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.UPDATED));
         recorder.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.DUPLICATE));
         recorder.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.SKIPPED_RECEIVER));
+        assertThat(count("skipped_receiver")).isZero();
+
+        recorder.succeeded();
 
         assertThat(count("created")).isEqualTo(1.0);
         assertThat(count("updated")).isEqualTo(1.0);
         assertThat(count("duplicate")).isEqualTo(1.0);
+        assertThat(count("skipped_receiver")).isEqualTo(1.0);
+    }
+
+    /** 트랜잭션 밖 경로(요청 만료 리스너)에서 레코드가 실패해 재시도되면 앞 시도의 결과를 버린다. 성공한 시도만 한 번 센다(ND-177) */
+    @Test
+    void 트랜잭션_밖_결과는_레코드가_실패하면_버리고_재시도가_성공하면_한_번만_센다() {
+        recorder.enter(TOPIC);
+        recorder.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.SKIPPED_RECEIVER));
+        recorder.exit();
+
+        recorder.enter(TOPIC);
+        recorder.record(NotificationWriteResult.of(NotificationWriteResult.Outcome.SKIPPED_RECEIVER));
+        recorder.succeeded();
+        recorder.exit();
+
         assertThat(count("skipped_receiver")).isEqualTo(1.0);
     }
 

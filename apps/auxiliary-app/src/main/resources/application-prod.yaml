@@ -79,6 +79,15 @@ hapbang:
       influencer:
         # β 0.2 → 0.1: 상위 20개 안 정답 0.500 → 0.613. 0은 받은 별점이 순서에 안 쓰여 0.1. 20명 hit@5 0.300
         popularity-weight: 0.1
+      # 버튼 경로 리랭킹(#948). 같은 평가(gpt-4o-mini)로 정했다. 근거 표: docs/chatbot/recommend-rerank.md
+      rerank:
+        # none → public: 본인이 이번에 쓴 관심사와 인플루언서의 공개 프로필(분야·자기소개)만 넣는다.
+        # 80명 hit@5 강의 0.317 → 0.375, 인플루언서 0.188 → 0.217. 넣을 취향이 없으면 순서를 바꾸지 않는다(취향 없이 바꾸면 손해였다)
+        taste: public
+        # 비움(0.2) → 0: 고르기라 흔들림의 이득이 없다. 80명 강의 0.375 → 0.383, 인플루언서 3회 결과가 같았다
+        temperature: 0
+        # 12s → 15s: 평가 최대 11.6s. 쿼리 확장 5s를 더한 LLM 상한 20s에 임베딩·ES를 더해도 Gateway 30s 안
+        timeout: 15s
   search:
     elasticsearch:
       # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806)

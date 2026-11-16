@@ -27,6 +27,7 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
 import com.hapbang.auxiliary.chatbot.app.QueryExpander;
 import com.hapbang.auxiliary.chatbot.app.RecommendReranker;
+import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
 import com.hapbang.auxiliary.chatbot.support.CopyRows;
 import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.auxiliary.chatbot.support.RecommendRows;
@@ -143,7 +144,8 @@ class ChatOllamaLlmTest {
                 "제목: 일러스트 입문 | 소개: 드로잉 기초 | 추천 근거: 입력한 관심사와 맞음",
                 "제목: SQL 첫걸음 | 소개: 데이터베이스 질의 | 추천 근거: 입력한 관심사와 맞음");
 
-        RecommendReranker.Reranked result = reranker.rerank(Feature.LECTURE_BUTTON, "수강할 강의", candidates, 5);
+        RecommendReranker.Reranked result = reranker.rerank(Feature.LECTURE_BUTTON, "수강할 강의", candidates, 5,
+                RecommendTaste.NOT_USED);
 
         System.out.println("[ChatOllamaLlmTest] rerank order=" + result.order() + ", reasons=" + result.reasons()
                 + ", fallback=" + result.fallback());

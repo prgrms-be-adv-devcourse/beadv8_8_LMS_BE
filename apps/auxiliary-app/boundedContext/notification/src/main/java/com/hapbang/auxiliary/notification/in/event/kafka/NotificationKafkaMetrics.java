@@ -106,6 +106,8 @@ public class NotificationKafkaMetrics {
             @Override
             public void success(ConsumerRecord<K, V> record, Consumer<K, V> consumer) {
                 safely(() -> recordLatency(record));
+                // 트랜잭션 밖에서 기록한 저장 결과는 레코드가 성공했을 때만 센다(ND-177). 실패한 시도는 afterRecord에서 버린다
+                safely(outcomes::succeeded);
             }
 
             @Override
