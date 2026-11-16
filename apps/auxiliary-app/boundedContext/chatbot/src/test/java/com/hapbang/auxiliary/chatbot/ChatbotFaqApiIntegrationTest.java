@@ -38,6 +38,8 @@ import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 
+import com.jayway.jsonpath.JsonPath;
+
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
@@ -229,6 +231,26 @@ class ChatbotFaqApiIntegrationTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/chatbot/faqs").param("category", "COUPON").with(login(8L, Role.USER)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("검색어 글자 수는 코드 포인트로 센다: 이모지 200개(UTF-16 400)는 검색하고, 201개는 한글 201자와 같은 400 응답")
+    void searchQueryCountsCodePoints() throws Exception {
+        String emoji = "😀";
+        String hangulBody = mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", "가".repeat(201))
+                        .with(login(9L, Role.USER)))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String sizeMessage = JsonPath.read(hangulBody, "$.errors[0].message");
+        assertThat(sizeMessage).contains("200");
+
+        mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", emoji.repeat(201)).with(login(9L, Role.USER)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("q"))
+                .andExpect(jsonPath("$.errors[0].message").value(sizeMessage));
+        mockMvc.perform(get("/api/v1/chatbot/faqs/search").param("q", emoji.repeat(200)).with(login(9L, Role.USER)))
+                .andExpect(status().isOk());
     }
 
     private static MockHttpServletRequestBuilder chat(String path, String message) {
