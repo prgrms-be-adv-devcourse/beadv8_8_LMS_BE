@@ -213,9 +213,14 @@ public class InfluencerRecommendUseCase {
         if (me == null || !me.isInfluencer()) {
             return null;
         }
+        // 내 벡터와 상대들의 벡터를 한 번에 읽는다
         String myDocId = InfluencerIndexPlan.docIdOf(userId);
-        float[] mine = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, List.of(myDocId))).get(myDocId);
-        float[] partnerMean = partnerMean(partners);
+        List<String> docIds = new ArrayList<>();
+        docIds.add(myDocId);
+        docIds.addAll(InfluencerIndexPlan.docIdsOf(partners));
+        Map<String, float[]> stored = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds));
+        float[] mine = stored.get(myDocId);
+        float[] partnerMean = partnerMean(stored, myDocId);
         if (mine != null && partnerMean != null) {
             float[] own = TasteVectors.normalize(mine);
             float[] others = TasteVectors.normalize(partnerMean);
@@ -237,12 +242,13 @@ public class InfluencerRecommendUseCase {
         return me != null && me.isInfluencer() && InfluencerIndexPlan.hasText(me);
     }
 
-    // 추천 가능한 상대들의 벡터 평균. 없으면 null
-    private float @Nullable [] partnerMean(List<Long> partners) {
-        List<String> docIds = InfluencerIndexPlan.docIdsOf(partners);
+    // 추천 가능한 상대들의 벡터 평균(읽은 순서대로). 없으면 null
+    private static float @Nullable [] partnerMean(Map<String, float[]> stored, String myDocId) {
         List<float[]> vectors = new ArrayList<>();
-        for (float[] vector : VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds)).values()) {
-            vectors.add(TasteVectors.normalize(vector));
+        for (Map.Entry<String, float[]> entry : stored.entrySet()) {
+            if (!entry.getKey().equals(myDocId)) {
+                vectors.add(TasteVectors.normalize(entry.getValue()));
+            }
         }
         return vectors.isEmpty() ? null : TasteVectors.mean(vectors);
     }
