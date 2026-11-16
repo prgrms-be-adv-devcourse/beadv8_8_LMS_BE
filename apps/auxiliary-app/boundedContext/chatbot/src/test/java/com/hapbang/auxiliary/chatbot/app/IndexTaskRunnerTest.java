@@ -179,6 +179,18 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("실패 원인(last_error)은 컬럼 길이(500자)를 코드포인트로 세어 자른다. 경계의 이모지를 반으로 자르지 않는다")
+    void lastErrorCutsByCodePoint() {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        LocalDateTime leaseUntil = now().plus(LEASE);
+        List<Long> ids = claim(leaseUntil).stream().map(IndexTask::id).toList();
+
+        store.retryLater(ids, now().plusSeconds(30), "a".repeat(499) + "😀" + "b".repeat(10), leaseUntil);
+
+        assertThat(row("5")).containsEntry("last_error", "a".repeat(499) + "😀");
+    }
+
+    @Test
     @DisplayName("다시 시도 간격은 두 배씩 늘고 상한(1시간)에서 멈춘다")
     void backoffIsCapped() {
         IndexTaskRunner runner = runner(LEASE, lectures);
