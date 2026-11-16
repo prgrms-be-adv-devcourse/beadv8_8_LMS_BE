@@ -60,8 +60,11 @@ public interface ApiV1MemberPasswordSpec {
                     + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED. "
                     + "복구 기한(30일, 기한 안에 지갑 장애로 복구가 실패했으면 7일 더) 안의 탈퇴 회원(탈퇴 기능이 켜져 있을 때)은 409 WITHDRAWN_RESTORABLE과 restorableUntil을 주고, "
                     + "복구 티켓은 쿠키(RESTORE_TICKET, HttpOnly, 경로 /api/v1/members/restore, 10분)로 준다. "
-                    + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다.")
+                    + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다. "
+                    + "한 IP(IPv6는 /64)는 1분에 10번까지 로그인 요청을 보낼 수 있다(성공·실패 모두 셈, #506). "
+                    + "넘으면 429 TOO_MANY_REQUESTS와 Retry-After 헤더(다시 보낼 수 있을 때까지 남은 초).")
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
+                                                   @Parameter(hidden = true) HttpServletRequest httpRequest,
                                                    @Parameter(hidden = true) HttpServletResponse response);
 
     @Operation(summary = "비밀번호 재설정",

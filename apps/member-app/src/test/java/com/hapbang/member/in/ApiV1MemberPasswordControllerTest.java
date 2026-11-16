@@ -24,9 +24,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.ClientIpKey;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
@@ -249,6 +251,26 @@ class ApiV1MemberPasswordControllerTest {
     }
 
     @Test
+    @DisplayName("한 IP가 1분에 10번을 넘으면 11번째는 429 TOO_MANY_REQUESTS와 Retry-After, X-Forwarded-For를 바꿔도 같고 다른 IP는 그대로다 (#506)")
+    void login_ipRateLimited() throws Exception {
+        String ip = newIp();
+        for (int i = 0; i < 10; i++) {
+            login(newEmail(), "abcd1234", ip).andExpect(status().isUnauthorized());
+        }
+
+        login(newEmail(), "abcd1234", ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(result -> assertThat(Long.parseLong(result.getResponse().getHeader(HttpHeaders.RETRY_AFTER)))
+                        .isBetween(1L, 60L));
+        mockMvc.perform(post(LOGIN).with(remoteAddr(ip)).header("X-Forwarded-For", "198.51.100.77")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"abcd1234\"}".formatted(newEmail())))
+                .andExpect(status().isTooManyRequests());
+        login(newEmail(), "abcd1234", newIp()).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("비밀번호를 바꾸면 예전 refresh token은 폐기되고, 이 기기는 새 쿠키를 받고, 새 비밀번호로 로그인된다")
     void changePassword() throws Exception {
         String email = signedUp("abcd1234");
@@ -336,6 +358,27 @@ class ApiV1MemberPasswordControllerTest {
     private ResultActions login(String email, String password) throws Exception {
         return mockMvc.perform(post(LOGIN).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)));
+    }
+
+    private ResultActions login(String email, String password, String ip) throws Exception {
+        return mockMvc.perform(post(LOGIN).with(remoteAddr(ip)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)));
+    }
+
+    private static RequestPostProcessor remoteAddr(String ip) {
+        return request -> {
+            request.setRemoteAddr(ip);
+            return request;
+        };
+    }
+
+    /** 테스트끼리 겹치지 않는 공인 IP(IPv6 문서용 대역, /64가 서로 다름)를 만들고 IP 한도 키를 정리 대상에 넣는다 (#506) */
+    private String newIp() {
+        UUID random = UUID.randomUUID();
+        String ip = "2001:db8:%x:%x::1".formatted(random.getMostSignificantBits() & 0xffff,
+                random.getLeastSignificantBits() & 0xffff);
+        createdKeys.add("member:login-ip-rate:" + sha256(ClientIpKey.from(ip).orElseThrow().value()));
+        return ip;
     }
 
     /** 가입하고 이메일을 돌려준다 */

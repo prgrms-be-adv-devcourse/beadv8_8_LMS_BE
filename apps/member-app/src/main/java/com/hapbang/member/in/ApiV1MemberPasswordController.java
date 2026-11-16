@@ -72,15 +72,17 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
 
     /**
      * 로그인: refresh token 쿠키. 복구할 수 있는 탈퇴 회원이면 복구 티켓 쿠키를 붙이고 409는 공통 예외 처리에 맡긴다
-     * (본문에는 복구 기한만, #633). 로그인에 성공하면 앞사람이 남긴 복구 티켓 쿠키를 지운다(공용 PC)
+     * (본문에는 복구 기한만, #633). 로그인에 성공하면 앞사람이 남긴 복구 티켓 쿠키를 지운다(공용 PC).
+     * 접속 IP는 IP 한도(#506)에 쓴다(코드 받기와 같은 값)
      */
     @Override
     @PostMapping("/login")
     public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request,
+                                                          HttpServletRequest httpRequest,
                                                           HttpServletResponse response) {
         User user;
         try {
-            user = memberFacade.passwordLogin(request.email(), request.password());
+            user = memberFacade.passwordLogin(request.email(), request.password(), httpRequest.getRemoteAddr());
         } catch (WithdrawnRestorableException e) {
             response.addHeader(HttpHeaders.SET_COOKIE, restoreTicketCookies.issue(e.getRestoreTicket()).toString());
             throw e;

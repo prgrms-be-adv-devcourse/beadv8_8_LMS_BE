@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>없는 이메일과 틀린 비밀번호는 같은 오류(INVALID_CREDENTIALS)로 답해 가입된 이메일인지 알려주지 않는다.
  *     없는 이메일도 가짜 해시로 같은 계산을 해서 응답 시간으로도 구별되지 않게 한다</li>
  *     <li>같은 이메일로 연속으로 틀리면 잠근다 (없는 이메일도 똑같이 센다). 성공하면 실패 횟수를 지운다</li>
+ *     <li>비밀번호를 비교하기 전에 IP 한도(#506, {@link LoginRateLimit})를 센다</li>
  *     <li>비밀번호가 맞아도 정지·탈퇴 회원은 로그인할 수 없다. 복구 기한 안의 탈퇴 회원은 복구 티켓을 준다({@link MemberLoginGuard}, #593)</li>
  * </ul>
  */
@@ -32,20 +33,26 @@ public class MemberPasswordLoginUseCase {
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptStore loginAttemptStore;
     private final MemberLoginGuard memberLoginGuard;
+    private final LoginRateLimit loginRateLimit;
     /** 없는 이메일일 때 비교할 해시 (응답 시간을 맞추려고 실제 해시와 같은 비용으로 만든다) */
     private final String dummyHash;
 
     public MemberPasswordLoginUseCase(PasswordCredentialRepository passwordCredentialRepository,
                                       PasswordEncoder passwordEncoder, LoginAttemptStore loginAttemptStore,
-                                      MemberLoginGuard memberLoginGuard) {
+                                      MemberLoginGuard memberLoginGuard, LoginRateLimit loginRateLimit) {
         this.passwordCredentialRepository = passwordCredentialRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginAttemptStore = loginAttemptStore;
         this.memberLoginGuard = memberLoginGuard;
+        this.loginRateLimit = loginRateLimit;
         this.dummyHash = passwordEncoder.encode("dummy-password-for-timing-1");
     }
 
-    public User login(String email, String password) {
+    /**
+     * @param clientIp {@code request.getRemoteAddr()}
+     */
+    public User login(String email, String password, String clientIp) {
+        loginRateLimit.acquire(clientIp);
         String normalizedEmail = MemberEmail.normalize(email);
         if (loginAttemptStore.isLocked(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.LOGIN_LOCKED);

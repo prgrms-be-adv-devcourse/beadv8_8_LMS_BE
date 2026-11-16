@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
+import com.hapbang.member.global.ratelimit.RateLimitExceededException;
 import com.hapbang.member.out.LoginAttemptStore;
 import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
@@ -33,22 +35,37 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 class MemberPasswordLoginUseCaseTest {
 
+    private static final String IP = "203.0.113.10";
+
     /** 실제 BCrypt로 해시를 만들고 비교한다 */
     private final PasswordEncoder passwordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
     private PasswordCredentialRepository passwordCredentialRepository;
     private LoginAttemptStore loginAttemptStore;
+    private LoginRateLimit loginRateLimit;
     private MemberPasswordLoginUseCase useCase;
 
     @BeforeEach
     void setUp() {
         passwordCredentialRepository = mock(PasswordCredentialRepository.class);
         loginAttemptStore = mock(LoginAttemptStore.class);
+        loginRateLimit = mock(LoginRateLimit.class);
         // 탈퇴 기능이 꺼진 판단(복구 티켓 없음)으로 둔다. 복구 티켓 판단은 MemberLoginGuardTest가 확인한다
         @SuppressWarnings("unchecked")
         ObjectProvider<MemberWithdrawalUseCase> withdrawalDisabled = mock(ObjectProvider.class);
         MemberLoginGuard memberLoginGuard = new MemberLoginGuard(withdrawalDisabled, mock(RestoreTicketStore.class));
         useCase = new MemberPasswordLoginUseCase(passwordCredentialRepository, passwordEncoder, loginAttemptStore,
-                memberLoginGuard);
+                memberLoginGuard, loginRateLimit);
+    }
+
+    @Test
+    @DisplayName("IP 한도를 넘으면 비밀번호를 비교하지 않고 429로 거절한다 (잠금 실패 횟수도 세지 않는다)")
+    void rateLimited() {
+        willThrow(new RateLimitExceededException(30)).given(loginRateLimit).acquire(IP);
+
+        assertThatThrownBy(() -> useCase.login("tester1@example.com", "abcd1234", IP))
+                .isInstanceOf(RateLimitExceededException.class);
+        verify(passwordCredentialRepository, never()).findByUserEmail(anyString());
+        verify(loginAttemptStore, never()).recordFailure(anyString());
     }
 
     @Test
@@ -56,7 +73,7 @@ class MemberPasswordLoginUseCaseTest {
     void login() {
         User user = registered("tester1@example.com", "abcd1234", UserStatus.ACTIVE);
 
-        User result = useCase.login(" Tester1@Example.com ", "abcd1234");
+        User result = useCase.login(" Tester1@Example.com ", "abcd1234", IP);
 
         assertThat(result).isSameAs(user);
         verify(loginAttemptStore).reset("tester1@example.com");
@@ -68,7 +85,7 @@ class MemberPasswordLoginUseCaseTest {
     void login_wrongPassword() {
         registered("tester1@example.com", "abcd1234", UserStatus.ACTIVE);
 
-        assertError(() -> useCase.login("tester1@example.com", "wrong1234"), MemberErrorCode.INVALID_CREDENTIALS);
+        assertError(() -> useCase.login("tester1@example.com", "wrong1234", IP), MemberErrorCode.INVALID_CREDENTIALS);
         verify(loginAttemptStore).recordFailure("tester1@example.com");
         verify(loginAttemptStore, never()).reset(anyString());
     }
@@ -78,7 +95,7 @@ class MemberPasswordLoginUseCaseTest {
     void login_unknownEmail() {
         given(passwordCredentialRepository.findByUserEmail("none@example.com")).willReturn(Optional.empty());
 
-        assertError(() -> useCase.login("none@example.com", "abcd1234"), MemberErrorCode.INVALID_CREDENTIALS);
+        assertError(() -> useCase.login("none@example.com", "abcd1234", IP), MemberErrorCode.INVALID_CREDENTIALS);
         verify(loginAttemptStore).recordFailure("none@example.com");
     }
 
@@ -88,7 +105,7 @@ class MemberPasswordLoginUseCaseTest {
         registered("tester1@example.com", "abcd1234", UserStatus.ACTIVE);
         given(loginAttemptStore.isLocked("tester1@example.com")).willReturn(true);
 
-        assertError(() -> useCase.login("tester1@example.com", "abcd1234"), MemberErrorCode.LOGIN_LOCKED);
+        assertError(() -> useCase.login("tester1@example.com", "abcd1234", IP), MemberErrorCode.LOGIN_LOCKED);
         verify(passwordCredentialRepository, never()).findByUserEmail(any());
     }
 
@@ -97,7 +114,7 @@ class MemberPasswordLoginUseCaseTest {
     void login_inactiveMember() {
         registered("tester1@example.com", "abcd1234", UserStatus.SUSPENDED);
 
-        assertError(() -> useCase.login("tester1@example.com", "abcd1234"), MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertError(() -> useCase.login("tester1@example.com", "abcd1234", IP), MemberErrorCode.LOGIN_NOT_ALLOWED);
         verify(loginAttemptStore).reset("tester1@example.com");
     }
 
@@ -106,7 +123,7 @@ class MemberPasswordLoginUseCaseTest {
     void login_nullPassword() {
         registered("tester1@example.com", "abcd1234", UserStatus.ACTIVE);
 
-        assertError(() -> useCase.login("tester1@example.com", null), MemberErrorCode.INVALID_CREDENTIALS);
+        assertError(() -> useCase.login("tester1@example.com", null, IP), MemberErrorCode.INVALID_CREDENTIALS);
     }
 
     private User registered(String email, String password, UserStatus status) {
