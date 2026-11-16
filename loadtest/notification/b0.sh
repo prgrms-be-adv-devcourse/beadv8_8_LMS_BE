@@ -312,24 +312,35 @@ cleanup() {
   true
 }
 
-# 앱 로그 따라 받기를 멈추고 끊기지 않았는지 확인한다(ND-185). 비교용으로 그때 남은 컨테이너 로그를 app-final.log에 받고, 그 마지막 줄이
-# app.log에 없으면(pod 재시작·연결 끊김으로 따라 받기가 먼저 끝남) 회차를 멈춘다
-LOG_FLUSH_SECONDS=2 # 따라 받는 kubectl이 마지막 줄을 파일에 쓸 시간
+# 앱 로그 따라 받기를 멈추고 끊기지 않았는지 확인한다(ND-185). 비교용 컨테이너 로그(app-final.log)를 먼저 받고, 따라 받는 kubectl이 그
+# 줄까지 쓸 시간을 기다린 뒤 멈춘다. 스냅샷의 마지막 줄이 app.log에 없으면(pod 재시작·연결 끊김으로 따라 받기가 먼저 끝남) 회차를 멈춘다.
+# 멈춘 뒤에 스냅샷을 받으면 그사이 앱이 쓴 줄이 app.log에 없어 거짓 실패가 난다(PR 리뷰). 스냅샷을 못 받거나 비어도 통과로 보지 않는다
+LOG_FLUSH_SECONDS=2 # 따라 받는 kubectl이 스냅샷 마지막 줄을 파일에 쓸 시간
 stop_log_follow() {
   local out=$1 last
   if [ "$DRY" = 1 ]; then
+    echo "+ kubectl --context $CTX -n $APP_NS logs deploy/auxiliary-app > $out/app-final.log" >&2
+    echo "+ sleep $LOG_FLUSH_SECONDS" >&2
+    echo "+ kill -0 <앱 로그 따라 받기>(이미 끝났으면 실패)" >&2
     echo "+ kill <앱 로그 따라 받기>" >&2
     echo "+ 앱 로그 따라 받기 끊김 확인(app-final.log 마지막 줄이 app.log에 있는지)" >&2
     return
   fi
+  kubectl --context "$CTX" -n "$APP_NS" logs deploy/auxiliary-app > "$out/app-final.log" \
+    || die "비교용 app-final.log를 받지 못했다(kubectl logs 실패). 따라 받기 끊김을 확인할 수 없다"
   sleep "$LOG_FLUSH_SECONDS"
+  # 따라 받는 kubectl은 pod 종료·연결 끊김일 때만 스스로 끝난다. 그 뒤 앱이 쓴 줄이 없어 비교가 맞더라도 정상으로 보지 않는다
+  if ! kill -0 "$logs_pid" 2>/dev/null; then
+    logs_pid=
+    die "앱 로그 따라 받기가 kill 전에 이미 끝나 있었다(pod 재시작·연결 끊김, app-log.stderr 확인)"
+  fi
   kill "$logs_pid" 2>/dev/null || true
   wait "$logs_pid" 2>/dev/null || true
   logs_pid=
-  kubectl --context "$CTX" -n "$APP_NS" logs deploy/auxiliary-app > "$out/app-final.log"
-  last=$(grep -v '^[[:space:]]*$' "$out/app-final.log" | tail -n 1)
-  [ -z "$last" ] || grep -qxF -- "$last" "$out/app.log" \
-    || die "앱 로그 따라 받기가 끊겼다(app-final.log 마지막 줄이 app.log에 없다, app-log.stderr 확인)"
+  last=$(grep -v '^[[:space:]]*$' "$out/app-final.log" | tail -n 1 || true)
+  [ -n "$last" ] || die "비교용 app-final.log를 받지 못했다(빈 로그). 따라 받기 끊김을 확인할 수 없다"
+  grep -qxF -- "$last" "$out/app.log" \
+    || die "앱 로그 따라 받기가 끊겼다(app-final.log 마지막 줄이 app.log에 없다. 수집 지연이 LOG_FLUSH_SECONDS보다 길었거나 줄이 빠졌다, app-log.stderr 확인)"
 }
 
 run_once() {

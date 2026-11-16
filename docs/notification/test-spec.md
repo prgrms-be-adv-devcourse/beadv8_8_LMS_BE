@@ -291,7 +291,7 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NT-REF-01 | 소비자 빈 등록 | 알림 Kafka 설정 + Boot Kafka 자동 설정 | 소비자 여섯 개 | 소비자마다 settings·ConsumerFactory·DLT ProducerFactory·DLT KafkaTemplate·오류 처리기·ContainerFactory·DLT 토픽 빈이 지금 이름·타입으로 있다. Kafka 빈 여섯 종은 `defaultCandidate=false`·`autowireCandidate=true`이고 이름으로 주입된다. Boot 기본 Kafka 빈도 함께 만들어진다 | Bean 이름은 시험에 문자열로 적는다 | ND-180·ND-182 | — | 통합(문맥) | 유효 |
+| NT-REF-01 | 소비자 빈 등록 | 알림 Kafka 설정 + Boot Kafka 자동 설정 | 소비자 여섯 개 | 소비자마다 settings·ConsumerFactory·DLT ProducerFactory·DLT KafkaTemplate·오류 처리기·ContainerFactory·DLT 토픽 빈이 지금 이름·타입으로 있다. settings·DLT 토픽 선언을 뺀 Kafka 빈 다섯 종(ConsumerFactory·DLT ProducerFactory·DLT KafkaTemplate·오류 처리기·ContainerFactory)은 `defaultCandidate=false`·`autowireCandidate=true`이고 이름으로 주입된다. settings·DLT 토픽 선언은 기본 후보다. Boot 기본 Kafka 빈도 함께 만들어진다 | Bean 이름은 시험에 문자열로 적는다 | ND-180·ND-182 | — | 통합(문맥) | 유효 |
 | NT-REF-02 | 소비자 구성 값 | NT-REF-01 | 소비자 여섯 개 | consumer 설정(group·offset·자동 커밋·토픽 자동 생성), 역직렬화 체인(신뢰 패키지·타입 헤더 유지, 강의는 바이트), 동시성·AckMode·autoStartup(회원만 기동 때 시작)·observation·interceptor, backoff(처음·배수·최대·횟수)·재시도 안 하는 예외, DLT 토픽·partition 규칙·producer 설정·직렬화기·결과 대기, DLT 토픽 선언(partition·복제·보존)이 지금과 같다 | — | ND-154·ND-179·ND-182 | kafka.md 재시도와 DLT | 통합(문맥) | 유효 |
 | NT-REF-03 | 활성 속성 | — | 소비자별 활성 속성 미설정·`true`·`false`·대소문자 변형 | 미설정·`true`(대소문자 무관)면 그 소비자의 빈이 모두 있고, `false`면 하나도 없다. 다른 소비자 빈에는 영향이 없다 | `@ConditionalOnBooleanProperty`와 같은 판정 | ND-180·ND-182 | — | 통합(문맥) | 유효 |
 | NT-REF-04 | 리스너 구성 | Kafka 시험 문맥 | 리스너 컨테이너 등록부 | 리스너 여섯 개의 컨테이너 ID·구독 토픽·group·사용 factory·autoStartup이 지금과 같다 | — | ND-181·ND-182 | — | 통합(Kafka) | 유효 |
@@ -428,6 +428,7 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-16 N14 PR 리뷰 반영(#955): NT-REF-01 기대 결과의 기본 후보에서 빠지는 Kafka 빈을 시험·코드와 같이 다섯 종으로 바로잡았다(settings·DLT 토픽 선언은 기본 후보). NT-B0-10의 `b0_guard_test.sh`에 끊김 확인 순서(스냅샷 → 대기 → 멈춤 → 비교)와 모의 따라 받기 실행(정상 통과, 먼저 끝남·스냅샷 실패는 실패)을 더했다. 검증 변환 부품의 단위 시험 `in.event.kafka.RejectedEventsTest`(실패 때만 메시지를 만듦, ND-181)를 더했다. 집계는 그대로.
 - 2026-11-16 decisions.md ND-185 반영(N14 B0 도구): NT-B0-10 합격 기준에 앱 로그 따라 받기를 더했다(`b0_guard_test.sh`). 집계는 그대로.
 - 2026-11-15 decisions.md ND-179~ND-183 반영(N14 구조 리팩토링, #955): 2.17 REF(NT-REF-01~05)를 더했다. 집계 145 → 150, 유효 146. 구현 뒤 4장 연결 표에 NT-REF 테스트를 더했다. S6 리뷰 뒤 ND-184로 NT-REF-06을 더했다(집계 151, 유효 147).
 - 2026-11-15 decisions.md ND-177 반영(PR Bot 리뷰, #946): NT-OBS-11에 트랜잭션 밖 경로의 재시도·DLT 기준과 연결 테스트를 더했다. 집계는 그대로.

@@ -19,10 +19,22 @@ public final class RejectedEvents {
      * @throws RejectedEventException 값 검증 실패
      */
     public static <T> T orReject(String message, Supplier<T> convert) {
+        return orReject(() -> message, convert);
+    }
+
+    /**
+     * 메시지에 이벤트 종류 등을 붙여야 할 때 쓴다. 메시지는 검증에 실패했을 때만 만든다(레코드마다 문자열을 만들지 않는다).
+     *
+     * @param message 검증에 실패했을 때 만들 예외 메시지(원인은 검증 예외)
+     * @param convert 이벤트를 바꾸는 일
+     * @return 바꾼 값
+     * @throws RejectedEventException 값 검증 실패
+     */
+    public static <T> T orReject(Supplier<String> message, Supplier<T> convert) {
         try {
             return convert.get();
         } catch (IllegalArgumentException e) {
-            throw new RejectedEventException(message, e);
+            throw new RejectedEventException(message.get(), e);
         }
     }
 }

@@ -166,7 +166,7 @@ public class NotificationLectureEventListener implements NotificationEventSubscr
 
     /** 예약 명령으로 바꾼다(N10). 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다 */
     private static List<ScheduleCommand> scheduleCommands(Object event) {
-        return RejectedEvents.orReject("예약을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
+        return RejectedEvents.orReject(() -> "예약을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
                 () -> switch (event) {
                     case LectureOrderPaidEvent paid -> ScheduleInputs.orderPaid(paid);
                     case LectureOrderItemCanceledEvent canceled -> ScheduleInputs.orderItemCanceled(canceled);
@@ -181,7 +181,7 @@ public class NotificationLectureEventListener implements NotificationEventSubscr
      * 직접·첫 재생 구매 확정은 빈 목록이라 알림 없이 커밋한다
      */
     private static List<NotificationDraft> drafts(Object event) {
-        return RejectedEvents.orReject("알림을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
+        return RejectedEvents.orReject(() -> "알림을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
                 () -> switch (event) {
                     case LectureApprovedEvent approved -> List.of(LectureProgressAlerts.approved(approved));
                     case LectureRejectedEvent rejected -> List.of(LectureProgressAlerts.rejected(rejected));

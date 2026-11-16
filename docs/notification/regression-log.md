@@ -86,6 +86,29 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-101 · 2026-11-16 · 통과 (N14 #955 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-101 |
+| 실행 날짜 | 2026-11-16 13:50~14:27 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | `40b23291` 위 미커밋 변경(PR 리뷰 반영) |
+| 작업 트리 변경 | `loadtest/notification/b0.sh`, `loadtest/notification/tests/b0_guard_test.sh`, `.../in/event/kafka/RejectedEvents.java`, `.../in/event/NotificationLectureEventListener.java`, 새 파일 `.../in/event/kafka/RejectedEventsTest.java`(`...`는 `apps/auxiliary-app/boundedContext/notification/src/{main,test}/java/com/hapbang/auxiliary/notification`), `docs/notification/test-spec.md`·`decisions.md`·`regression-log.md` |
+| 대상 기능 | ① `b0.sh` 끊김 확인 순서(스냅샷 → 대기 → 멈춤 → 비교, 스냅샷 실패·빈 로그는 실패) ② 강의 리스너 검증 변환 메시지를 실패 때만 만듦(`RejectedEvents.orReject(Supplier<String>, …)`) ③ test-spec NT-REF-01 문장 |
+| 관련 NT ID | NT-B0-10, NT-REF-01~04·06, 회귀 전체 |
+| 명령 | `bash loadtest/notification/tests/b0_guard_test.sh`(4회); `python -I -m unittest discover -s loadtest/notification/tests -p "test_*.py"`; `./gradlew :notification:test --tests "*.RejectedEventsTest"`; `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, Git Bash, JDK 25(Gradle Toolchain). guard 시험의 dry-run 단계는 B0 cluster context `k3d-hapbang-b0`, 모의 실행 단계는 cluster 없이 모의 kubectl·모의 따라 받기 |
+| 결과 | 통과. guard 시험 PASS 7·SKIP 1(cluster가 있어 "cluster 없음" 시험은 건너뜀)을 S6 반영 뒤 4회 연속, 모의 반복 프로세스 남음 0, 스크립트 시험 43 OK. `:notification:test` 529(실패 0·오류 0·건너뜀 1, 새 `RejectedEventsTest` 3 포함), `:auxiliary-app:test` 16, `verifyModuleStructure` 통과. 세 Gradle 태스크 모두 새로 실행(UP-TO-DATE 아님) |
+| 건수 | 위 결과 |
+| 실패 원인 분류 | — |
+| 수정 내용 | PR 리뷰 지적 3건: 멈춘 뒤 스냅샷을 받아 생기는 거짓 실패, 문서의 빈 종류 수, 강의 리스너가 레코드마다 메시지를 미리 만듦. S6 리뷰 뒤: 따라 받기가 kill 전에 끝났으면 비교 결과와 상관없이 실패(그 뒤 앱 로그가 없으면 비교로 드러나지 않았다), guard 시험 중단 때 모의 프로세스 정리(trap)·함수 추출 확인. S6 두 축 리뷰 뒤: dry-run에 생존 확인 줄을 넣고 guard 시험이 스냅샷 → 대기 → 생존 확인 → kill → 비교 순서를 모두 단언, `RejectedEvents`의 String 판이 Supplier 판을 부르게 해 중복 제거(이 뒤 Gradle 세 태스크 다시 실행, 결과 같음) |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | guard 시험이 수정 전 실패 4건: dry-run 순서(스냅샷=없음), 모의 정상 따라 받기의 거짓 실패(종료 코드 2), 먼저 끝난 따라 받기의 원인 문구 없음, 스냅샷 실패 문구 없음(종료 코드 1). `RejectedEventsTest`는 오버로드가 없어 컴파일 실패였다. 메시지를 먼저 만드는 뮤테이션에서 3건 모두 실패했고, 되돌린 뒤 통과했다(diff 16줄 그대로). S6 반영의 "먼저 끝난 따라 받기" 실패는 그 die를 지운 뮤테이션에서 두 사례가 실패(조용한 경우는 종료 코드 0으로 통과)했고, 되돌린 뒤 통과했다. 순서 단언은 생존 확인 dry-run 줄을 지운 뮤테이션에서 "생존=없음"으로 실패했고 되돌린 뒤 통과했다 |
+| 미검증 항목 | 실제 B0 회차는 돌리지 않았다(사용자 결정, 측정 논리 무변경). 구성 시험 A·B 파일은 바꾸지 않았다 |
+| 관련 변경 | #955 |
+
 #### NR-100 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 뒤 B0 도구 확인, 비공식 회차)
 
 | 항목 | 값 |
