@@ -34,7 +34,7 @@ class RecommendVectorIndexBulkFailureTest {
             new RecommendVectorIndex.Upsert("2", new float[] {1}, Map.of()));
 
     @Test
-    @DisplayName("bulk 요청이 IOException이면 모든 문서가 문서 ID를 담은 IllegalStateException으로 실패한다")
+    @DisplayName("bulk 요청이 IOException이면 모든 문서가 그것을 감싼 IllegalStateException 하나로 실패한다")
     @SuppressWarnings("unchecked")
     void ioFailure() throws IOException {
         IOException cause = new IOException("연결 끊김");
@@ -43,10 +43,10 @@ class RecommendVectorIndexBulkFailureTest {
         Map<String, RuntimeException> failures = index.upsertAll(IndexType.LECTURE, documents);
 
         assertThat(failures).containsOnlyKeys("1", "2");
+        // 같은 객체여야 색인 실행기가 같은 원인으로 묶어 WARN 한 줄로 남긴다
         assertThat(failures.get("1")).isInstanceOf(IllegalStateException.class).hasCause(cause)
-                .hasMessage("추천 색인 문서를 넣지 못했습니다 type=LECTURE, id=1");
-        assertThat(failures.get("2")).isInstanceOf(IllegalStateException.class).hasCause(cause)
-                .hasMessage("추천 색인 문서를 넣지 못했습니다 type=LECTURE, id=2");
+                .hasMessage("추천 색인 문서를 넣지 못했습니다 type=LECTURE, docs=2");
+        assertThat(failures.get("2")).isSameAs(failures.get("1"));
     }
 
     @Test
