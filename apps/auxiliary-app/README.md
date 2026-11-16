@@ -54,7 +54,7 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 ## 권한
 
 - 업무 API는 로그인을 요구한다. 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·Prometheus 수집 밖의 요청에 로그인을 요구한다. 업무 API의 예외는 둘이다.
-    - 강의 검색 `GET /api/v1/search/lectures`: 비회원도 쓴다. 회원이면 헤더로 인증되어 회원 한도로 센다(#883).
+    - 강의 검색 `GET /api/v1/search/lectures`·검색어 자동완성 `GET /api/v1/search/lectures/suggestions`: 비회원도 쓴다. 회원이면 헤더로 인증되어 회원 한도로 센다(#883, #973).
     - 알림 웹소켓 핸드셰이크 `GET /api/v1/notifications/ws`: 브라우저가 업그레이드 요청에 인증 헤더를 싣지 못하므로 열고, 인증은 알림 연결 티켓으로 한다(`docs/notification/decisions.md` ND-060).
 - 새 공개 경로는 모듈이 따로 열지 않고 공통 `SecurityConfig`에 이유와 함께 더한다.
 - 역할 검사는 각 모듈 Facade의 `@PreAuthorize`로 한다. 챗봇은 로그인 회원 전체(`USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN`)가 쓴다(11/06 결정, #715).
