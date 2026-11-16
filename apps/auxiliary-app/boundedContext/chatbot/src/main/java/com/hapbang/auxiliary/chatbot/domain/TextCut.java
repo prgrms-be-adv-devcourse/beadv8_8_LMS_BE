@@ -3,6 +3,7 @@ package com.hapbang.auxiliary.chatbot.domain;
 /**
  * 글을 글자 수 상한으로 자른다. 코드포인트로 센다: 요청 검사(정규식의 {@code .})와 같은 기준이고, 이모지 같은 서로게이트 쌍을
  * 반으로 자르지 않는다(짝 잃은 서로게이트는 임베딩·LLM 요청이나 JSON 응답에서 오류가 될 수 있다).
+ * 엔티티(싱크 회차 오류)와 Store도 쓰므로 domain에 둔다.
  */
 public final class TextCut {
 
