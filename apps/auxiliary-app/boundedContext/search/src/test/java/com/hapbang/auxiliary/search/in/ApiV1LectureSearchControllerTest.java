@@ -248,6 +248,23 @@ class ApiV1LectureSearchControllerTest {
                 "requester", "member").count()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("자동완성은 비회원도 쓰고 접속 IP마다 한도를 센다. 넘으면 429이고 다른 IP는 200이다(#973)")
+    void guestSuggestions() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.40"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].lectureId").value(1));
+        }
+        mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.40"))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+        mockMvc.perform(guest(get(URL + "/suggestions").param("keyword", "ㅍㄹ"), "203.0.113.41"))
+                .andExpect(status().isOk());
+
+        Assertions.assertThat(registry.counter("hapbang.search.rate.limit.rejected", "target", "lecture_suggestion",
+                "requester", "guest").count()).isEqualTo(1);
+    }
+
     private void lecture(long id, String title, String description, List<String> contentTitles, LectureRating rating,
             long priceHp) {
         List<LectureContentSyncDto> contents = new java.util.ArrayList<>();
