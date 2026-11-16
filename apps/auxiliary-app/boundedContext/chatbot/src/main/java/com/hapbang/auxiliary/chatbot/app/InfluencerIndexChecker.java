@@ -27,6 +27,8 @@ import lombok.extern.slf4j.Slf4j;
  * (첫 배포 뒤에는 문서가 하나도 없어 모든 추천 가능 회원이 요청으로 들어간다).
  * <ul>
  *     <li>비교 규칙은 처리기와 같은 {@link InfluencerIndexPlan}이다. 할 일이 있는 회원만 적는다.</li>
+ *     <li>끝나지 않은 요청이 이미 있는 회원은 적지 않는다(강의 점검과 같다). 그 요청이 처리될 때 지금 사본 상태로 맞춘다.
+ *     첫 전체 색인이 한 시간 안에 끝나지 않아도 점검마다 같은 요청이 쌓이지 않는다.</li>
  *     <li>요청만 적고 임베딩·쓰기는 실행기가 한다. 실패한 문서의 다시 시도도 실행기 한 곳이 맡는다(재시도를 겹치지 않는다).</li>
  *     <li>분야 이름 표를 받을 수 없으면 이름이 필요 없는 판정(마스킹 삭제·숨김)만 적고, 끝까지 훑은 뒤 실패로 끝낸다(다음 점검이 나머지를 본다).</li>
  *     <li>회원 싱크(매시 :15) 뒤에 돈다. 이벤트가 조용히 빠져도 최대 한 시간 뒤에는 색인이 사본을 따라간다.</li>
@@ -114,8 +116,11 @@ public class InfluencerIndexChecker {
                     skipped++;
                 }
             }
-            indexTaskStore.addAll(IndexType.INFLUENCER, stale, IndexAction.UPSERT, CopyTimes.now(clock));
-            queued += stale.size();
+            stale.removeAll(indexTaskStore.pendingDocIds(IndexType.INFLUENCER, stale));
+            if (!stale.isEmpty()) {
+                indexTaskStore.addAll(IndexType.INFLUENCER, stale, IndexAction.UPSERT, CopyTimes.now(clock));
+                queued += stale.size();
+            }
             afterId = ids.getLast();
         }
         if (queued > 0) {
