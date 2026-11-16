@@ -22,7 +22,10 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -38,9 +41,11 @@ import com.hapbang.auxiliary.chatbot.support.ChatbotTestClock;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** 색인 요청 실행기를 실제 DB로 확인한다(#718 공통 기반). 처리기는 테스트가 만든 가짜다 */
+@ExtendWith(OutputCaptureExtension.class)
 class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
 
     private static final Duration LEASE = Duration.ofMinutes(5);
+    private static final String STUCK = "[CHATBOT_INDEX_TASK_STUCK]";
 
     @Autowired
     private IndexTaskStore store;
@@ -130,6 +135,47 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
         assertThat(counter("LECTURE", "failed")).isEqualTo(2);
         assertThat(row("5")).containsEntry("next_attempt_at", now().plusSeconds(30));
         assertThat(row("6")).containsEntry("next_attempt_at", now().plusSeconds(30));
+    }
+
+    @Test
+    @DisplayName("처리기 전체가 예외를 던지면 문서마다가 아니라 종류마다 한 줄(문서 수·예시 문서 ID·원인)만 남긴다. 문서별 재시도는 그대로다")
+    void handlerExceptionLogsOneLine(CapturedOutput output) {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "6", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "7", IndexAction.UPSERT, now());
+        lectures.throwAll = true;
+
+        runner(LEASE, lectures).runOnce();
+
+        assertThat(output).contains("색인 요청 여러 건이 같은 원인으로 실패해 나중에 다시 한다 type=LECTURE, docs=3, docIds=[5, 6, 7]")
+                .doesNotContain("색인 요청이 실패해 나중에 다시 한다");
+        assertThat(count(output.getAll(), "IllegalStateException: 처리기 전체 실패")).isEqualTo(1);
+        assertThat(row("7")).containsEntry("attempts", 1).containsEntry("next_attempt_at", now().plusSeconds(30))
+                .hasEntrySatisfying("last_error", error -> assertThat((String) error).startsWith("IllegalStateException: 처리기 전체 실패"));
+    }
+
+    @Test
+    @DisplayName("문서마다 다른 원인으로 실패하면 문서별로 남기고, 알림 횟수(3번)를 넘긴 문서는 회차당 [CHATBOT_INDEX_TASK_STUCK] 한 줄(건수·예시 문서 ID)로 알린다")
+    void stuckDocumentsAlertOncePerRun(CapturedOutput output) {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        store.add(IndexType.LECTURE, "6", IndexAction.UPSERT, now());
+        lectures.failures.put("5", 3);
+        lectures.failures.put("6", 3);
+        IndexTaskRunner runner = runner(LEASE, lectures);
+
+        runner.runOnce();
+        clock.advance(Duration.ofSeconds(30));
+        runner.runOnce();
+        assertThat(output).doesNotContain(STUCK);
+        assertThat(count(output.getAll(), "색인 요청이 실패해 나중에 다시 한다 type=LECTURE")).isEqualTo(4);
+
+        clock.advance(Duration.ofSeconds(60));
+        runner.runOnce();
+
+        assertThat(count(output.getAll(), STUCK)).isEqualTo(1);
+        assertThat(output).contains(STUCK + " 색인 요청이 계속 실패한다 stuck=2, docIds=[LECTURE:5, LECTURE:6], alertAfterAttempts=3");
+        assertThat(count(output.getAll(), "색인 요청이 실패해 나중에 다시 한다 type=LECTURE")).isEqualTo(6);
+        assertThat(row("5")).containsEntry("attempts", 3).containsEntry("next_attempt_at", now().plusSeconds(120));
     }
 
     @Test
@@ -333,6 +379,14 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
 
     private LocalDateTime now() {
         return CopyTimes.now(clockBean);
+    }
+
+    private static int count(String text, String part) {
+        int count = 0;
+        for (int at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length())) {
+            count++;
+        }
+        return count;
     }
 
     private int pending() {
