@@ -63,7 +63,7 @@ class RecommendIndexCallCountTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("세 문서 중 하나를 ES가 거절하면 그 문서만 실패이고 나머지는 들어간다. 넣기 요청은 3회 이하")
+    @DisplayName("세 문서 중 하나를 ES가 거절하면 그 문서만 실패이고 나머지는 들어간다. 넣기는 bulk 요청 1회(전에는 문서마다 3회)")
     void oneRejected() {
         CallRecorder.Recorded<Map<String, RuntimeException>> recorded =
                 CallRecorder.record(() -> handler.handle(docs(40, 41, 42)));
@@ -77,7 +77,7 @@ class RecommendIndexCallCountTest extends ChatbotIntegrationTestBase {
         assertThat(index.vectors(IndexType.LECTURE, List.of("40", "41", "42"))).containsOnlyKeys("40", "42");
         CallRecorder.Calls calls = recorded.calls();
         assertThat(calls.es().stream().filter(request -> !request.equals("search")).toList()).as(calls.toString())
-                .hasSizeLessThanOrEqualTo(3);
+                .containsExactly("bulk");
     }
 
     private void lecture(RecommendRows data, long id, String title, float[] vector) {
