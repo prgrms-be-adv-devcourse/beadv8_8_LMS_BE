@@ -118,8 +118,7 @@ public class ChatbotSyncUseCase {
             return skipped(type, trigger, "다른 실행이 락을 쥐고 있습니다.");
         }
         try (JobLock.Lease ignored = lease.get()) {
-            closeOrphans(type);
-            return execute(target, syncRunRepository.save(SyncRun.start(type, trigger, null, now())));
+            return execute(target, startRun(type, trigger, null));
         }
     }
 
@@ -142,8 +141,7 @@ public class ChatbotSyncUseCase {
         JobLock.Lease lease = found.orElseThrow(() -> new ChatbotException(ChatbotErrorCode.SYNC_ALREADY_RUNNING));
         SyncRun run = null;
         try {
-            closeOrphans(type);
-            run = syncRunRepository.save(SyncRun.start(type, SyncTrigger.ADMIN, adminId, now()));
+            run = startRun(type, SyncTrigger.ADMIN, adminId);
             SyncRun started = run;
             taskExecutor.execute(() -> {
                 try (JobLock.Lease ignored = lease) {
@@ -165,6 +163,12 @@ public class ChatbotSyncUseCase {
             }
             throw e;
         }
+    }
+
+    // 락을 쥔 뒤 배치·관리자 실행이 같게 한다: 이전 실행이 남긴 회차를 닫고 새 회차를 RUNNING으로 남긴다
+    private SyncRun startRun(SyncType type, SyncTrigger trigger, Long adminId) {
+        closeOrphans(type);
+        return syncRunRepository.save(SyncRun.start(type, trigger, adminId, now()));
     }
 
     // 락을 쥔 지금 그 종류의 RUNNING 회차는 끝을 기록하지 못한 이전 실행이다(DB 장애, pod 종료). 실패로 닫는다
