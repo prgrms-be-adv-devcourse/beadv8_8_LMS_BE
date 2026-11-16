@@ -23,6 +23,7 @@
 ## 현재 수집 상태 (#480)
 
 - **지표**: 모듈 앱 7개(member·lecture·appearance·customer-support·billing·chat·auxiliary)가 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, billing #552, chat #590, auxiliary #714, 나머지 #528). Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
+- **Grafana 자체 지표**: 수집하지 않고 `/metrics`도 끈다. 인증 없이 `/grafana/metrics`로 공개되던 endpoint였다(#940, [Gateway 구성](../../deploy/gateway.md#본문연결grafanatrace)). 다시 수집하려면 basic auth를 걸고 켠다.
 - **HTTP 응답 시간 bucket** (#617): 7개 앱이 `management.metrics.distribution.slo.http.server.requests`에 경계 10개(5·10·25·50·100·250·500·1000·2500·5000ms)를 같은 값으로 두어 `http_server_requests_seconds_bucket`을 낸다. p50·p95·p99는 `histogram_quantile`로 계산한다. `percentiles-histogram`은 bucket이 기본 69개(5ms~5s로 좁혀도 48개)라 쓰지 않았다. Prometheus memory limit이 384Mi이고 2026-11-03 사용량이 211Mi였기 때문이다. bucket은 uri·method·status 조합마다 11개(`+Inf` 포함)씩 생긴다. 2026-11-03 운영의 조합은 20개라 약 220 series가 늘어난다. 진행 중 요청 수(`http.server.requests.active`)는 접두어가 같아 bucket이 따라 붙으므로 빈 값으로 끈다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 앱 운영 로그는 JSON 한 줄(Boot `logstash` 형식, [로그 표준](../../dev/logging.md))이고 수집할 때 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
 - **trace**: Envoy가 업무 요청을 모두(Grafana·Kafka UI 요청은 빼고, #679) OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 7개(lecture #579, member·appearance·billing·chat #631, customer-support #663, auxiliary #714)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
@@ -103,7 +104,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
 - WebSocket(STOMP) 메시지: 연결을 여는 HTTP 요청만 span이 남고 메시지 단위 trace는 없다.
 
-### Dashboard (#531, #597, #601, #617)
+### Dashboard (#531, #597, #601, #617, #959)
 
 새 component(kube-state-metrics, node-exporter, DB·Kafka exporter)는 띄우지 않고 지금 수집하는 지표만 쓴다. kube-state-metrics는 medium node 메모리 예산 때문에 켜지 않았다.
 
@@ -111,7 +112,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 | --- | --- | --- |
 | 앱 개요 (`hapbang-apps`) | 앱 Micrometer, cAdvisor | 앱별 요약 표(scrape 상태, 가동 시간, heap, 메모리/limit 현재·기간 최대, 요청 수, 5xx 비율, 평균·최대 응답, GC 정지 비율, DB 연결 대기·timeout, ERROR 로그, 열린 circuit breaker)와 앱별 비교 시계열. 요청 한도(429)·업로드 자리 없음(503) 거절 수와 업로드 동시 수/상한도 본다(#698). 앱 이름을 누르면 같은 시간 범위로 `hapbang-jvm`을 연다 |
 | JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대, 앱 전체 p50·p95·p99와 URI별 p95), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다. customer-support-app은 Native Image라 GC pause·non-heap 패널이 빈다. heap 패널의 max 선과 개요의 heap 사용률은 `jvm_memory_max_bytes > 0`만 쓰므로 값이 나오지 않는다. 원시 지표 `jvm_memory_max_bytes{area="heap"}`는 −1이다(정상, [Native Image](native-image.md)) |
-| Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
+| Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너별 working set·RSS·limit 표(현재, limit 없는 컨테이너 포함)와 `pod` 변수로 고른 pod의 working set·RSS·limit 시계열(#959. Kafka·Elasticsearch·Redis·PostgreSQL 같은 platform 컨테이너도 앱과 같이 본다), 컨테이너 재생성, 최근 시작한 컨테이너 |
 | Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
 | Kafka (`hapbang-kafka`) | 앱 Kafka client, Spring Kafka | 소비 그룹·토픽별 lag, 소비 건수, listener 처리 결과(성공·실패, 재시도 포함)·처리 시간, 마지막 poll 뒤 경과 시간, 할당된 partition, rebalance, KafkaTemplate 전송 결과·시간, 토픽별 전송 레코드·오류·재시도, 그룹별 DLT 적재(#339). 실패·DLT 개요 값은 pod가 뜬 뒤 누적이다. 처음 실패할 때 생기는 series는 `increase()`가 첫 값을 놓치기 때문이다 |
 
@@ -123,7 +124,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 - 앱 개요의 cAdvisor 지표(메모리/limit, CPU): cAdvisor에는 앱 label이 없어 pod 이름(`<앱>-<replicaset hash>-<5자>`)에서 앱 이름을 꺼낸다. Deployment가 아닌 workload나 이름 규칙이 다른 pod는 잡히지 않는다.
 - circuit breaker 실패율: `resilience4j_circuitbreaker_failure_rate`는 sliding window의 최소 호출 수를 채우기 전에는 -1이라, 호출이 드문 지금(2026-11-03 운영 전부 -1)은 그리지 않는다. 대신 호출 결과(`failed`)와 상태를 본다.
 - 나가는 HTTP 호출: `http_client_requests_seconds` series는 앱이 그 대상을 처음 부른 뒤에 생긴다. pod가 새로 뜬 뒤 호출이 없으면 비어 있다.
-- PostgreSQL·Kafka·Redis 내부 지표: exporter가 없다. 앱 쪽 HikariCP·Kafka client 지표만 있다.
+- PostgreSQL·Kafka·Redis 내부 지표: exporter가 없다. 앱 쪽 HikariCP·Kafka client 지표만 있다. 컨테이너 메모리(working set·RSS·limit)는 cAdvisor로 Kubernetes 자원 dashboard에서 보지만, 프로세스 안쪽(Kafka·Elasticsearch JVM heap, Redis `used_memory`)은 나누어 볼 수 없다.
 - Kafka consumer 중단: lag는 consumer client가 보고하는 값이라, consumer가 멈추면 lag가 늘지 않고 series가 사라진다. Kafka dashboard의 "소비 그룹" 수가 줄어드는 것으로 본다. broker 쪽 lag는 exporter가 필요하다.
 - 미완료 publication 수: 지표가 없다. 발행 실패는 "발행 실패"(KafkaTemplate 결과)로만 본다.
 - DLT 토픽별 지표는 첫 DLT 전송 뒤 1~2분 늦게 나타난다. Micrometer가 Kafka client의 새 지표(토픽별 지표 포함)를 60초마다 등록하기 때문이다. "listener 처리 실패"는 재시도마다 세므로 DLT 건수가 아니다.
@@ -131,7 +132,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
 
-**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #698 뒤 이 ConfigMap의 JSON은 약 241 KB(현재 운영 annotation 약 236 KB)라 여유가 21 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. annotation 값은 렌더링한 ConfigMap의 압축 JSON과 거의 같은 크기다(#959 전 운영 annotation 241,360 byte, 같은 때 `kubectl kustomize … | yq -o=json | jq -c . | wc -c`는 241,208 byte). #959 뒤 렌더링 크기는 251,391 byte라 여유가 약 11 KB다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \
@@ -141,8 +142,6 @@ kubectl --context hapbang-k3s apply -f dashboards.yaml
 ```
 
 Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다. dashboard 다섯 개(#601)를 쓰며 7일 최대 418 MiB(93%, 2026-11-03)가 되어 limit을 512 MiB로 올렸다(#608, `k8s/gateway/overlays/prod/grafana.yaml`).
-
-client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 ConfigMap 전체를 넣는다. 세 파일 합계 약 110 KB에서 annotation은 약 150 KB다. 한도에 가까워지면 `--server-side`로 적용하거나 ConfigMap을 나눈다.
 
 ## Alert 정책 (#629)
 
@@ -225,7 +224,7 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 | 대사 중단 | warning | 강의·출연 `runs_total{status="INCOMPLETE"}`가 1시간 안에 늘었거나 새로 생김(#804) | 즉시 | 중단된 실행은 불일치 지표를 바꾸지 않는다. 사유는 관리자 API `GET .../admin/hp-reconciliations/latest`와 Loki `{app="<앱>"} \|= "대사"`로 본다(지갑 조회 실패면 circuit breaker·billing-app). 원인을 고친 뒤 관리자 수동 대사로 다시 돌린다. 복구 통보는 마지막 중단 뒤 1시간이 지났거나 pod가 다시 떴다는 뜻이지 다시 돌아 끝까지 비교했다는 뜻이 아니므로 `/latest`로 확인한다. 대사 도중 pod가 내려가 `RUNNING`으로 남은 실행도 센다. 강의는 기동할 때 정리하며 세고(#805), 출연은 배포 중 옛 pod가 아직 대사 중일 수 있어(maxSurge 1) 다음 실행이 `abandon-after`(1시간)보다 오래된 것만 정리하며 세므로 최대 약 24시간 늦게 잡힌다(#821) |
 | 지표 수집 끊김 | critical | `up{job="kubernetes-pods"}` < 1 (pod별) | 5분 | pod 상태(`kubectl get pod`)와 로그. 기동 실패·재시작 반복·NetworkPolicy를 본다 |
 | 컨테이너 재시작 | warning | 같은 pod 이름에서 cAdvisor 컨테이너 ID가 최근 15분에 2개 이상(Kubernetes dashboard "컨테이너 재생성"과 같은 계산) | 즉시 | `kubectl describe pod`의 Last State. Reason `OOMKilled`(Exit Code 137)면 컨테이너 limit 부족, 앱 컨테이너의 Exit Code 3이면 JVM `OutOfMemoryError`로 스스로 끝낸 것이다(`-XX:+ExitOnOutOfMemoryError`, #854. 직전 로그 `Terminating due to java.lang.OutOfMemoryError`). platform 컨테이너도 본다. Deployment 배포는 pod 이름이 바뀌어 세지 않고, 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다 |
-| 컨테이너 메모리 | warning | working set ÷ memory limit > 95% (`namespace`·`pod`·`container`별, limit 있는 컨테이너만. 앱·platform 모두) | 10분 | Kubernetes 자원 dashboard "메모리 사용률 / limit"으로 언제부터 올랐는지 보고, 앱이면 JVM dashboard에서 heap(`-Xmx` 상한)과 heap 밖을 나눠 본다. 계속 오르면 누수, 계단처럼 올랐으면 부하·설정 변경이다. limit은 node 메모리 예산([k3s](k3s.md)) 안에서 올린다. 갑자기 치솟아 바로 OOMKilled되면 이 alert는 울리지 않고 컨테이너 재시작 alert로 알게 된다. 재시작 alert도 짧게 살고 끝나기를 반복하는 컨테이너는 늦게 울리거나 놓친다(아래 "메모리 부족을 받는 경로") |
+| 컨테이너 메모리 | warning | working set ÷ memory limit > 95% (`namespace`·`pod`·`container`별, limit 있는 컨테이너만. 앱·platform 모두) | 10분 | Kubernetes 자원 dashboard "메모리 사용률 / limit"으로 언제부터 올랐는지 보고, 앱이면 JVM dashboard에서 heap(`-Xmx` 상한)과 heap 밖을 나눠 본다. platform 컨테이너(Kafka 등)는 같은 dashboard의 "고른 pod의 메모리와 limit"에서 working set과 RSS를 나눠 본다. 계속 오르면 누수, 계단처럼 올랐으면 부하·설정 변경이다. limit은 node 메모리 예산([k3s](k3s.md)) 안에서 올린다. 갑자기 치솟아 바로 OOMKilled되면 이 alert는 울리지 않고 컨테이너 재시작 alert로 알게 된다. 재시작 alert도 짧게 살고 끝나기를 반복하는 컨테이너는 늦게 울리거나 놓친다(아래 "메모리 부족을 받는 경로") |
 | node 디스크 사용률 | critical | `/dev/root` 사용 ÷ 크기 > 85% | 15분 | kubelet은 85%에서 안 쓰는 이미지를 지운다(기본값). 15분 넘게 내려가지 않으면 보존 기간(Prometheus·Loki·Tempo·Kafka)과 이미지를 줄인다. PVC(local-path)도 이 디스크에 있다 |
 | HTTPS 인증서 만료 임박 | warning | `certmanager_certificate_expiration_timestamp_seconds`까지 21일 미만 | 즉시 | cert-manager는 만료 30일 전에 갱신한다. `kubectl describe certificate`로 Order·Challenge(HTTP-01)와 cert-manager 로그를 본다([Gateway](../../deploy/gateway.md)) |
 | circuit breaker 열림 | critical | `resilience4j_circuitbreaker_state{state=~"open\|half_open\|forced_open"}` (앱·대상별) | 2분 | open과 half_open을 오가도 울리도록 둘을 함께 본다. 대상이 billing이면 HP 보류·지급, toss면 충전 결제가 멈춘다 |
