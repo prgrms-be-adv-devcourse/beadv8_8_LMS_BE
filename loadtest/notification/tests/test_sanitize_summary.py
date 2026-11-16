@@ -50,6 +50,30 @@ class SanitizeSummaryTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(target.exists())
 
+    def test_N15_운영_프로필의_지표와_판정을_남기고_계정_토큰은_뺀다(self):
+        raw = {
+            "setup_data": {"tokens": ["eyJhbGciOiJSUzI1NiJ9.a.b", "eyJhbGciOiJSUzI1NiJ9.c.d"], "endMs": 1},
+            "metrics": {
+                "stomp_connected": {"count": 200, "thresholds": {"count>=200": False}},
+                "stomp_abnormal_close": {"count": 0},
+                "stomp_expired_close": {"count": 0},
+                "stomp_ticket_failed": {"count": 0},
+                "dropped_iterations{scenario:notification_rest}": {"count": 3, "thresholds": {"count<60": False}},
+                "chatbot_rate_limited": {"count": 2},
+            },
+            "root_group": {"checks": {"ws ticket 200": {"passes": 200, "fails": 0}}},
+        }
+        code, target = run(raw)
+        self.assertEqual(code, 0)
+        text = target.read_text(encoding="utf-8")
+        self.assertNotIn("eyJ", text)
+        summary = json.loads(text)
+        self.assertEqual(summary["metrics"]["stomp_connected"], {"count": 200, "thresholds": {"count>=200": False}})
+        self.assertEqual(summary["metrics"]["dropped_iterations{scenario:notification_rest}"]["count"], 3)
+        for name in ("stomp_expired_close", "stomp_ticket_failed", "chatbot_rate_limited"):
+            self.assertIn(name, summary["metrics"])
+        self.assertEqual(summary["checks"]["ws ticket 200"], {"passes": 200, "fails": 0})
+
 
 if __name__ == "__main__":
     unittest.main()
