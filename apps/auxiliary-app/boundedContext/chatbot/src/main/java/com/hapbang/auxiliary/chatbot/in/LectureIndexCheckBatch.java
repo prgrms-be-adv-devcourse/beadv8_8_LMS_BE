@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 강의 추천 색인 정합 점검 (#718). 앱이 뜬 뒤 한 번(처음 전체 색인), 그리고 매시 강의 싱크(:20) 뒤(:50, 설정값)에 돈다.
  * 실패해도 다음 점검에서 다시 한다. 색인 요청을 적기만 하므로 짧다(사본을 읽고 ES 문서 필드를 비교).
- * {@code index-check-alert-after-failures}번 연속 실패하면 {@code [CHATBOT_LECTURE_INDEX_CHECK_FAILED]} ERROR로 알린다
+ * {@code check-alert-after-failures}번 연속 실패하면 {@code [CHATBOT_LECTURE_INDEX_CHECK_FAILED]} ERROR로 알린다
  * (그 전은 WARN, 인플루언서 점검과 같다).
  */
 @Slf4j
@@ -52,7 +52,7 @@ class LectureIndexCheckBatch {
                 log.info("강의 추천 색인이 사본과 달라 색인을 요청했다 trigger={}, requested={}", trigger, requested);
             }
         } catch (RuntimeException e) {
-            ConsecutiveFailures.Failure failure = consecutiveFailures.failed(properties.indexCheckAlertAfterFailures());
+            ConsecutiveFailures.Failure failure = consecutiveFailures.failed(properties.checkAlertAfterFailures());
             if (failure.alert()) {
                 log.error("[CHATBOT_LECTURE_INDEX_CHECK_FAILED] 강의 추천 색인 정합 점검이 연속으로 실패했다 trigger={}, failures={}",
                         trigger, failure.count(), e);

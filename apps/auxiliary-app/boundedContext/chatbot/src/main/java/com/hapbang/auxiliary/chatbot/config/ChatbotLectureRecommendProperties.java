@@ -39,7 +39,7 @@ import jakarta.validation.constraints.Positive;
  * @param buttonRateLimit  챗봇 "강의 추천받기" 버튼(LLM 비용)의 회원별 호출 제한
  * @param widgetRateLimit  위젯 API 전체(관심사 여부와 상관없이)의 회원별 호출 제한. 연타가 공용 DB 연결을 붙잡지 않게 넓게 둔다
  * @param indexCheckBatch  정합 점검이 한 번에 읽는 강의 수
- * @param indexCheckAlertAfterFailures 정합 점검이 이 횟수 연속 실패하면 ERROR로 알린다(인플루언서 점검과 같은 값)
+ * @param checkAlertAfterFailures 정합 점검이 이 횟수 연속 실패하면 ERROR로 알린다(인플루언서 점검과 같은 값)
  */
 @Validated
 @ConfigurationProperties("hapbang.chatbot.recommend.lecture")
@@ -59,7 +59,7 @@ public record ChatbotLectureRecommendProperties(
         @DefaultValue @Valid RateLimit buttonRateLimit,
         @DefaultValue @Valid WidgetRateLimit widgetRateLimit,
         @DefaultValue("500") @Positive int indexCheckBatch,
-        @DefaultValue("3") @Positive int indexCheckAlertAfterFailures) {
+        @DefaultValue("3") @Positive int checkAlertAfterFailures) {
 
     /**
      * 신호 가중치. 강의 가중 = 기본(구매 또는 장바구니) + 그 강의 리뷰 별점 보정, 0 아래로 내리지 않는다(0이면 신호에서 뺀다).
