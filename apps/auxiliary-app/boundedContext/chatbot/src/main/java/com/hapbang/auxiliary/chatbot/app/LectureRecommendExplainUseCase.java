@@ -11,7 +11,7 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
-import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.LectureListing;
 import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 /**
@@ -64,11 +64,11 @@ public class LectureRecommendExplainUseCase {
     // 강의마다 공개 정보 한 줄: 제목·소개(잘라서)·이유 코드 설명. 기준 강의 제목(회원이 산 강의)은 넣지 않는다.
     // 강의는 풀을 만들 때 읽은 사본을 쓴다(다시 읽지 않는다)
     private List<String> candidateLines(LectureRecommendUseCase.Pool pool) {
-        Map<Long, LectureSnapshot> lectures = pool.lectures();
+        Map<Long, LectureListing> lectures = pool.lectures();
         int descriptionMax = llmProperties.rerank().descriptionMaxLength();
         List<String> lines = new ArrayList<>();
         for (LectureRanker.Ranked ranked : pool.ranked()) {
-            LectureSnapshot lecture = lectures.get(ranked.lectureId());
+            LectureListing lecture = lectures.get(ranked.lectureId());
             String title = lecture == null ? "" : lecture.title();
             String description = lecture == null || lecture.description() == null ? ""
                     : TextCut.head(lecture.description(), descriptionMax).replace('\n', ' ');

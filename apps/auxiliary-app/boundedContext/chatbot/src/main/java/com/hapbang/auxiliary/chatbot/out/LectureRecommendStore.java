@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.hapbang.auxiliary.chatbot.domain.LectureListing;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
@@ -39,7 +40,7 @@ public class LectureRecommendStore {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    /** 강의 ID → 강의 사본. 없는 ID는 빠진다 */
+    /** 강의 ID → 강의 사본(색인용, 콘텐츠 제목 포함). 없는 ID는 빠진다 */
     public Map<Long, LectureSnapshot> lectures(Collection<Long> ids) {
         Map<Long, LectureSnapshot> lectures = new HashMap<>();
         if (ids.isEmpty()) {
@@ -51,6 +52,24 @@ public class LectureRecommendStore {
                     lectures.put(lecture.id(), lecture);
                 });
         return lectures;
+    }
+
+    /** 강의 ID → 추천이 쓰는 강의 사본(콘텐츠 제목 없이). 없는 ID는 빠진다 */
+    public Map<Long, LectureListing> listings(Collection<Long> ids) {
+        Map<Long, LectureListing> listings = new HashMap<>();
+        if (ids.isEmpty()) {
+            return listings;
+        }
+        jdbc.query("""
+                SELECT id, seller_user_id, title, description, on_sale, deleted, missing_in_source
+                FROM chatbot.lecture_copy WHERE id IN (:ids)
+                """, new MapSqlParameterSource("ids", ids), rs -> {
+                    LectureListing listing = new LectureListing(rs.getLong("id"), rs.getLong("seller_user_id"),
+                            rs.getString("title"), rs.getString("description"), rs.getBoolean("on_sale"), rs.getBoolean("deleted"),
+                            rs.getBoolean("missing_in_source"));
+                    listings.put(listing.id(), listing);
+                });
+        return listings;
     }
 
     /** ID 순으로 이 ID 다음 강의 사본을 limit개 읽는다(전체 점검용) */

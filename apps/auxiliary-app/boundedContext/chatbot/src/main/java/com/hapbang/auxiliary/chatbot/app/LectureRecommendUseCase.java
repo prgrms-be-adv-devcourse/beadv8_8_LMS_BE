@@ -19,7 +19,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
-import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.LectureListing;
 import com.hapbang.auxiliary.chatbot.domain.LectureTaste;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
@@ -136,7 +136,7 @@ public class LectureRecommendUseCase {
                 picked.add(ranked);
             }
         }
-        Map<Long, LectureSnapshot> lectures = new HashMap<>(pool.lectures());
+        Map<Long, LectureListing> lectures = new HashMap<>(pool.lectures());
         return toRecommendation(fillPopular(pool, picked, lectures), pool.reasons(), pool.needsInterest(), pool.basis(),
                 lectures);
     }
@@ -167,7 +167,7 @@ public class LectureRecommendUseCase {
         for (LectureSignals.Signal signal : signals) {
             readIds.add(signal.lectureId());
         }
-        Map<Long, LectureSnapshot> lectures = store.lectures(readIds);
+        Map<Long, LectureListing> lectures = store.listings(readIds);
         List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded, lectures),
                 properties.popularityWeight(), size, properties.maxPerSeller());
         if (ranked.isEmpty()) {
@@ -180,10 +180,10 @@ public class LectureRecommendUseCase {
 
     // 코드에서 빼는 규칙. kNN 필터를 지나도 사본으로 다시 본다(색인이 늦게 따라온 경우)
     private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded,
-            Map<Long, LectureSnapshot> lectures) {
-        List<LectureSnapshot> found = new ArrayList<>();
+            Map<Long, LectureListing> lectures) {
+        List<LectureListing> found = new ArrayList<>();
         for (Long lectureId : similarity.keySet()) {
-            LectureSnapshot lecture = lectures.get(lectureId);
+            LectureListing lecture = lectures.get(lectureId);
             if (lecture != null) {
                 found.add(lecture);
             }
@@ -191,7 +191,7 @@ public class LectureRecommendUseCase {
         Set<Long> visibleSellers = visibleSellers(found);
         List<Long> kept = new ArrayList<>();
         for (Long lectureId : similarity.keySet()) {
-            LectureSnapshot lecture = lectures.get(lectureId);
+            LectureListing lecture = lectures.get(lectureId);
             if (lecture != null && lecture.recommendable() && !excluded.contains(lectureId) && lecture.sellerId() != memberId
                     && visibleSellers.contains(lecture.sellerId())) {
                 kept.add(lectureId);
@@ -210,7 +210,7 @@ public class LectureRecommendUseCase {
     // 하나라도 바뀌었거나 캐시로 다 채우지 못하면 인기순 쿼리를 직접 돈다(캐시는 상위 일부만 들고 있다).
     // 다시 읽은 강의는 lectures에 더한다(답의 제목에 쓴다)
     private List<LectureRanker.Ranked> fillPopular(Pool pool, List<LectureRanker.Ranked> picked,
-            Map<Long, LectureSnapshot> lectures) {
+            Map<Long, LectureListing> lectures) {
         int size = properties.resultSize();
         if (picked.size() >= size) {
             return picked;
@@ -230,13 +230,13 @@ public class LectureRecommendUseCase {
     }
 
     // 인기순으로 채운 강의가 지금도 판매 중이고 판매자가 보이는지. 읽은 강의는 lectures에 더한다
-    private boolean stillRecommendable(List<LectureRanker.Ranked> filled, Map<Long, LectureSnapshot> lectures) {
+    private boolean stillRecommendable(List<LectureRanker.Ranked> filled, Map<Long, LectureListing> lectures) {
         List<Long> ids = filled.stream().filter(LectureRanker.Ranked::popular).map(LectureRanker.Ranked::lectureId).toList();
-        Map<Long, LectureSnapshot> read = store.lectures(ids);
+        Map<Long, LectureListing> read = store.listings(ids);
         lectures.putAll(read);
         Set<Long> visibleSellers = visibleSellers(read.values());
         for (Long id : ids) {
-            LectureSnapshot lecture = read.get(id);
+            LectureListing lecture = read.get(id);
             if (lecture == null || !lecture.recommendable() || !visibleSellers.contains(lecture.sellerId())) {
                 return false;
             }
@@ -244,9 +244,9 @@ public class LectureRecommendUseCase {
         return true;
     }
 
-    private Set<Long> visibleSellers(Collection<LectureSnapshot> lectures) {
+    private Set<Long> visibleSellers(Collection<LectureListing> lectures) {
         Set<Long> sellers = new HashSet<>();
-        for (LectureSnapshot lecture : lectures) {
+        for (LectureListing lecture : lectures) {
             sellers.add(lecture.sellerId());
         }
         return visibility.visibleOf(sellers);
@@ -266,7 +266,7 @@ public class LectureRecommendUseCase {
     // lectures: 이 요청에서 이미 읽은 강의. 제목이 필요한데 아직 읽지 않은 강의(인기순 쿼리로 채운 강의)만 더 읽는다
     private LectureRecommendation toRecommendation(List<LectureRanker.Ranked> ranked,
             Map<Long, LectureTaste.Reasoned> reasons, boolean needsInterest, RecommendBasis basis,
-            Map<Long, LectureSnapshot> lectures) {
+            Map<Long, LectureListing> lectures) {
         Set<Long> unread = new HashSet<>();
         for (LectureRanker.Ranked item : ranked) {
             unread.add(item.lectureId());
@@ -277,11 +277,11 @@ public class LectureRecommendUseCase {
             }
         }
         unread.removeAll(lectures.keySet());
-        lectures.putAll(store.lectures(unread));
+        lectures.putAll(store.listings(unread));
         List<LectureRecommendation.Item> items = new ArrayList<>();
         for (LectureRanker.Ranked item : ranked) {
             LectureTaste.Reasoned reasoned = item.popular() ? LectureTaste.Reasoned.POPULAR : reasons.get(item.lectureId());
-            LectureSnapshot basisLecture = reasoned.basisLectureId() == null ? null : lectures.get(reasoned.basisLectureId());
+            LectureListing basisLecture = reasoned.basisLectureId() == null ? null : lectures.get(reasoned.basisLectureId());
             items.add(new LectureRecommendation.Item(item.lectureId(), lectures.get(item.lectureId()).title(), item.score(),
                     reasoned.reason(), reasoned.reason().sentence(basisLecture == null ? null : basisLecture.title())));
         }
@@ -315,7 +315,7 @@ public class LectureRecommendUseCase {
      */
     public record Pool(long memberId, Set<Long> excluded, List<LectureRanker.Ranked> ranked,
             Map<Long, LectureTaste.Reasoned> reasons, RecommendBasis basis, boolean needsInterest, boolean requesterHidden,
-            Map<Long, LectureSnapshot> lectures) {
+            Map<Long, LectureListing> lectures) {
 
         public Pool {
             excluded = Set.copyOf(excluded);
