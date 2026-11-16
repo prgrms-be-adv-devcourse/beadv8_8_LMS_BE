@@ -45,7 +45,7 @@ class InfluencerIndexSetupTest {
     void notReadyWithoutAlias() throws Exception {
         assertThatThrownBy(setup::ensureReady).isInstanceOf(IndexNotReadyException.class);
 
-        assertThat(synonyms()).hasSize(11).contains("먹방, mukbang");
+        assertThat(synonyms()).hasSize(14).contains("먹방, mukbang");
         assertThat(setup.state().indices()).isEmpty();
 
         setup.switchAlias(List.of(), setup.createIndex());
@@ -89,6 +89,18 @@ class InfluencerIndexSetupTest {
     }
 
     @Test
+    @DisplayName("편집 프로그램의 한글·영문 표기는 낱말마다 동의어로 펼친다. 띄어 쓴 이름·제품 이름이 붙은 검색어도 함께 펼친다(#972)")
+    void editingToolNames() throws Exception {
+        SearchElasticsearch.createIndex(client);
+
+        assertThat(analyze("ko_search", "Premiere")).contains("premiere", "프리미어");
+        assertThat(analyze("ko_search", "프리미어 프로")).contains("프리미어", "premiere", "프로");
+        assertThat(analyze("ko_search", "다빈치")).contains("다빈치", "davinci");
+        assertThat(analyze("ko_search", "DaVinci Resolve")).contains("davinci", "다빈치", "resolve", "리졸브");
+        assertThat(analyze("ko_search", "다빈치리졸브")).contains("다빈치", "davinci", "리졸브", "resolve");
+    }
+
+    @Test
     @DisplayName("ES의 동의어 묶음이 레포 파일과 다르면 묶음 전체를 바꾼다")
     void replacesDifferentSynonyms() throws Exception {
         client.synonyms().putSynonym(p -> p.id(IndexDefinition.SYNONYMS_SET)
@@ -96,7 +108,7 @@ class InfluencerIndexSetupTest {
 
         setup.syncSynonyms();
 
-        assertThat(synonyms()).hasSize(11).doesNotContain("스타, 스타크래프트");
+        assertThat(synonyms()).hasSize(14).doesNotContain("스타, 스타크래프트");
     }
 
     @Test
@@ -109,7 +121,7 @@ class InfluencerIndexSetupTest {
         assertThatThrownBy(this::synonyms).isInstanceOf(co.elastic.clients.elasticsearch._types.ElasticsearchException.class);
 
         setup.resyncSynonyms();
-        assertThat(synonyms()).hasSize(11);
+        assertThat(synonyms()).hasSize(14);
     }
 
     @Test
@@ -126,7 +138,7 @@ class InfluencerIndexSetupTest {
 
         assertThatThrownBy(brokenSetup::resyncSynonyms).isInstanceOf(SynonymsRejectedException.class);
         brokenSetup.ensureReady();
-        assertThat(synonyms()).hasSize(11);
+        assertThat(synonyms()).hasSize(14);
     }
 
     @Test
