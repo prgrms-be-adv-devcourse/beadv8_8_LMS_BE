@@ -111,14 +111,17 @@ public class InfluencerRecommendStore {
                 (rs, row) -> toProfile(rs));
     }
 
-    /** 주어진 회원 중 추천 가능한 회원 */
-    public Set<Long> recommendableOf(Collection<Long> ids) {
+    /** 주어진 회원 중 추천 가능한 회원의 프로필(회원 ID → 프로필) */
+    public Map<Long, InfluencerProfile> recommendableOf(Collection<Long> ids) {
         if (ids.isEmpty()) {
-            return Set.of();
+            return Map.of();
         }
-        return new LinkedHashSet<>(jdbc.queryForList(
-                "SELECT m.id FROM chatbot.member_copy m WHERE " + IN_IDS + " AND " + RECOMMENDABLE,
-                new MapSqlParameterSource("ids", ids), Long.class));
+        Map<Long, InfluencerProfile> profiles = new HashMap<>();
+        jdbc.query(PROFILES + "AND " + RECOMMENDABLE, new MapSqlParameterSource("ids", ids), rs -> {
+            InfluencerProfile profile = toProfile(rs);
+            profiles.put(profile.id(), profile);
+        });
+        return profiles;
     }
 
     /** 이 회원과 출연을 함께 마친 상대(원본 없음 제외, 본인 제외) */
