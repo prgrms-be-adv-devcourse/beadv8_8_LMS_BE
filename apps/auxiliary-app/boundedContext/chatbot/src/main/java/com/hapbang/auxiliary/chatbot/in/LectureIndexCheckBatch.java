@@ -1,12 +1,11 @@
 package com.hapbang.auxiliary.chatbot.in;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.app.ConsecutiveFailures;
 import com.hapbang.auxiliary.chatbot.app.LectureIndexReconciler;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.global.scheduling.ConditionalOnSchedulingEnabled;
@@ -29,7 +28,7 @@ class LectureIndexCheckBatch {
     private final LectureIndexReconciler reconciler;
     private final ChatbotLectureRecommendProperties properties;
     // 연속 실패 수(이 pod가 떠 있는 동안, 기동 점검 포함). 기동 점검 스레드와 정시 점검이 함께 셀 수 있다
-    private final AtomicInteger consecutiveFailures = new AtomicInteger();
+    private final ConsecutiveFailures consecutiveFailures = new ConsecutiveFailures();
 
     /** 기동과 readiness를 막지 않게 별도 스레드에서 돈다 */
     @EventListener(ApplicationReadyEvent.class)
@@ -48,17 +47,18 @@ class LectureIndexCheckBatch {
         }
         try {
             int requested = reconciler.check();
-            consecutiveFailures.set(0);
+            consecutiveFailures.succeeded();
             if (requested > 0) {
                 log.info("강의 추천 색인이 사본과 달라 색인을 요청했다 trigger={}, requested={}", trigger, requested);
             }
         } catch (RuntimeException e) {
-            int failures = consecutiveFailures.incrementAndGet();
-            if (failures >= properties.indexCheckAlertAfterFailures()) {
+            ConsecutiveFailures.Failure failure = consecutiveFailures.failed(properties.indexCheckAlertAfterFailures());
+            if (failure.alert()) {
                 log.error("[CHATBOT_LECTURE_INDEX_CHECK_FAILED] 강의 추천 색인 정합 점검이 연속으로 실패했다 trigger={}, failures={}",
-                        trigger, failures, e);
+                        trigger, failure.count(), e);
             } else {
-                log.warn("강의 추천 색인 점검이 실패했다. 다음 점검에서 다시 한다 trigger={}, failures={}", trigger, failures, e);
+                log.warn("강의 추천 색인 점검이 실패했다. 다음 점검에서 다시 한다 trigger={}, failures={}",
+                        trigger, failure.count(), e);
             }
         }
     }

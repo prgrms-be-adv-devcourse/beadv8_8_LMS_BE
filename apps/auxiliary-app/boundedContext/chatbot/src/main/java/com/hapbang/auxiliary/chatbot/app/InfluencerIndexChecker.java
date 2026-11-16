@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -49,7 +48,7 @@ public class InfluencerIndexChecker {
     private final ChatbotInfluencerRecommendProperties properties;
     private final Clock clock;
     // 정시 점검의 연속 실패 수(이 pod가 떠 있는 동안)
-    private final AtomicInteger consecutiveFailures = new AtomicInteger();
+    private final ConsecutiveFailures consecutiveFailures = new ConsecutiveFailures();
 
     InfluencerIndexChecker(InfluencerIndexTaskHandler handler, RecommendVectorIndex index, InfluencerRecommendStore store,
             ChatbotCategoryNames categoryNames, IndexTaskStore indexTaskStore, ChatbotInfluencerRecommendProperties properties,
@@ -70,13 +69,14 @@ public class InfluencerIndexChecker {
     public void checkOnSchedule() {
         try {
             check();
-            consecutiveFailures.set(0);
+            consecutiveFailures.succeeded();
         } catch (RuntimeException e) {
-            int failures = consecutiveFailures.incrementAndGet();
-            if (failures >= properties.checkAlertAfterFailures()) {
-                log.error("[CHATBOT_INFLUENCER_CHECK_FAILED] 인플루언서 색인 정합 점검이 연속으로 실패했다 failures={}", failures, e);
+            ConsecutiveFailures.Failure failure = consecutiveFailures.failed(properties.checkAlertAfterFailures());
+            if (failure.alert()) {
+                log.error("[CHATBOT_INFLUENCER_CHECK_FAILED] 인플루언서 색인 정합 점검이 연속으로 실패했다 failures={}",
+                        failure.count(), e);
             } else {
-                log.warn("인플루언서 색인 정합 점검이 실패했다. 다음 정시에 다시 한다 failures={}", failures, e);
+                log.warn("인플루언서 색인 정합 점검이 실패했다. 다음 정시에 다시 한다 failures={}", failure.count(), e);
             }
         }
     }
