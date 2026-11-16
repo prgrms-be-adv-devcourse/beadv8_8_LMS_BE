@@ -78,6 +78,15 @@ public class InfluencerRecommendStore {
             + " AND EXISTS (SELECT 1 FROM chatbot.member_copy m WHERE m.id = r.reviewee_user_id AND %s)"
             + " GROUP BY r.reviewee_user_id";
 
+    // 회원마다 완료 출연 수·받은 리뷰 수·별점 합을 한 문장으로. 세 %s 모두 같은 회원 조건(별칭 m). 회원 ID 오름차순
+    private static final String STATS = "SELECT m.id, coalesce(c.completed, 0) AS completed, coalesce(r.reviews, 0) AS reviews, "
+            + "coalesce(r.rating_sum, 0) AS rating_sum\n"
+            + "FROM chatbot.member_copy m\n"
+            + "LEFT JOIN (" + COMPLETED_COUNTS + ") c ON c.member_id = m.id\n"
+            + "LEFT JOIN (" + REVIEW_SUMS + ") r ON r.member_id = m.id\n"
+            + "WHERE %s\n"
+            + "ORDER BY m.id";
+
     private static final String IN_IDS = "m.id IN (:ids)";
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -131,9 +140,11 @@ public class InfluencerRecommendStore {
      * 회원 ID 오름차순.
      */
     public List<InfluencerPopularity.Stats> popularityStatsOfRecommendable() {
-        List<Long> ids = jdbc.queryForList("SELECT m.id FROM chatbot.member_copy m WHERE " + RECOMMENDABLE + " ORDER BY m.id",
-                new MapSqlParameterSource(), Long.class);
-        return stats(RECOMMENDABLE, new MapSqlParameterSource(), new LinkedHashSet<>(ids));
+        List<InfluencerPopularity.Stats> stats = new ArrayList<>();
+        jdbc.query(STATS.formatted(RECOMMENDABLE, RECOMMENDABLE, RECOMMENDABLE), new MapSqlParameterSource(), rs -> {
+            stats.add(toStats(rs));
+        });
+        return stats;
     }
 
     /** 모든 받은 출연 리뷰의 평균 별점(리뷰가 없으면 0) */
@@ -143,22 +154,23 @@ public class InfluencerRecommendStore {
         return mean == null ? 0 : mean;
     }
 
-    // memberCondition: 별칭 m(member_copy)에 거는 조건
+    // memberCondition: 별칭 m(member_copy)에 거는 조건. 주어진 순서로 돌려주고, 사본이 없는 ID는 0이다
     private List<InfluencerPopularity.Stats> stats(String memberCondition, MapSqlParameterSource params, Set<Long> ids) {
-        Map<Long, Long> completed = new HashMap<>();
-        jdbc.query(COMPLETED_COUNTS.formatted(memberCondition), params, rs -> {
-            completed.put(rs.getLong("member_id"), rs.getLong("completed"));
-        });
-        Map<Long, ReviewSum> reviews = new HashMap<>();
-        jdbc.query(REVIEW_SUMS.formatted(memberCondition), params, rs -> {
-            reviews.put(rs.getLong("member_id"), new ReviewSum(rs.getLong("reviews"), rs.getLong("rating_sum")));
+        Map<Long, InfluencerPopularity.Stats> found = new HashMap<>();
+        jdbc.query(STATS.formatted(memberCondition, memberCondition, memberCondition), params, rs -> {
+            InfluencerPopularity.Stats one = toStats(rs);
+            found.put(one.memberId(), one);
         });
         List<InfluencerPopularity.Stats> stats = new ArrayList<>();
         for (Long id : ids) {
-            ReviewSum review = reviews.getOrDefault(id, ReviewSum.NONE);
-            stats.add(new InfluencerPopularity.Stats(id, completed.getOrDefault(id, 0L), review.count(), review.sum()));
+            stats.add(found.getOrDefault(id, new InfluencerPopularity.Stats(id, 0, 0, 0)));
         }
         return stats;
+    }
+
+    private static InfluencerPopularity.Stats toStats(ResultSet rs) throws SQLException {
+        return new InfluencerPopularity.Stats(rs.getLong("id"), rs.getLong("completed"), rs.getLong("reviews"),
+                rs.getLong("rating_sum"));
     }
 
     private static InfluencerProfile toProfile(ResultSet rs) throws SQLException {
@@ -166,10 +178,5 @@ public class InfluencerRecommendStore {
         List<String> categories = array == null ? List.of() : List.of((String[]) array.getArray());
         return new InfluencerProfile(rs.getLong("id"), Role.valueOf(rs.getString("role")),
                 UserStatus.valueOf(rs.getString("status")), categories, rs.getString("bio"), rs.getBoolean("masked"));
-    }
-
-    private record ReviewSum(long count, long sum) {
-
-        static final ReviewSum NONE = new ReviewSum(0, 0);
     }
 }
