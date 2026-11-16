@@ -22,7 +22,9 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>IP는 {@code request.getRemoteAddr()}만 쓴다({@link ClientIpKey}).</li>
  *     <li>공인 주소가 아니면 IP 한도를 건너뛴다. Envoy 앞 경로가 깨져 모두가 같은 내부 주소로 보이는 신호라, 그때 한 사람이 모든 회원의 로그인을
- *     막지 않게 한다. 그동안은 로그인 잠금이 대입을 막는다.</li>
+ *     막지 않게 한다. 그동안은 로그인 잠금이 대입을 막는다. 처음 한 번과 그 뒤 {@value #WARN_INTERVAL_MINUTES}분마다 WARN을 남기고,
+ *     이 WARN에는 그 내부 주소를 남긴다(어떤 내부 주소로 보이는지가 경로 진단에 필요하다. 공인 IP는 이 경로로 오지 않는다. 검색 #883·이메일 인증
+ *     #557과 같다).</li>
  *     <li>거절은 요청마다 로그를 남기지 않는다({@code docs/dev/logging.md} 429). 처음 한 번과 그 뒤 {@value #WARN_INTERVAL_MINUTES}분마다
  *     그 사이 건수를 WARN 한 줄로 남긴다. IP는 남기지 않는다(남용한 IP는 같은 시각 Envoy access log의 429로 찾는다).</li>
  * </ul>
