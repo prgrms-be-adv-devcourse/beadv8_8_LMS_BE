@@ -2,6 +2,9 @@ package com.hapbang.auxiliary.chatbot.domain;
 
 import java.util.Objects;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 받은 값(이벤트·싱크)을 사본에 반영한 결과 (#716). 이벤트와 싱크가 같은 판정을 쓴다.
  * <p>
@@ -23,6 +26,7 @@ import java.util.Objects;
  * 마스킹한 회원의 데이터(#717)는 반영하지 않고 {@link #DISCARDED}로 센다. 어긋남·경고 집계에 넣지 않는다. 마스킹 회원의 회원 행은
  * 역할·상태만 반영하지만 분야·자기소개를 버리므로 역시 {@link #DISCARDED}로 센다.
  */
+@RequiredArgsConstructor
 public enum CopyOutcome {
 
     INSERTED(SyncMismatchKind.ONLY_IN_SOURCE, true, "우리 행이 없어 넣음"),
@@ -38,17 +42,8 @@ public enum CopyOutcome {
     private final SyncMismatchKind mismatch;
     /** 사본의 값(해시)이 바뀌었는지 */
     private final boolean valueChanged;
+    @Getter
     private final String description;
-
-    CopyOutcome(SyncMismatchKind mismatch, boolean valueChanged, String description) {
-        this.mismatch = mismatch;
-        this.valueChanged = valueChanged;
-        this.description = description;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 
     /**
      * 반영 전 우리 행과 받은 값으로 결과를 정한다.

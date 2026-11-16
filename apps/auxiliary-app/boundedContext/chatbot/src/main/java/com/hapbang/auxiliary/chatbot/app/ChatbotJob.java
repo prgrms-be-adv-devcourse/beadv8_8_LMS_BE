@@ -2,12 +2,16 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import com.hapbang.auxiliary.global.scheduling.JobLockKey;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 한 번에 한 곳에서만 실행하는 챗봇 작업과 그 advisory lock 번호 (#716, #715, #717).
  * <p>
  * auxiliary database를 검색·알림 모듈과 함께 쓰므로 번호가 모듈 사이에서도 겹치면 안 된다. 그 작업을 더한 이슈 번호 × 1000 + 순번을 쓰고,
  * 한 번 정한 번호는 바꾸지 않는다({@link JobLockKey}). enum 안에서 겹치지 않는지는 테스트가 본다.
  */
+@RequiredArgsConstructor
 public enum ChatbotJob implements JobLockKey {
 
     /** #716 */
@@ -34,17 +38,8 @@ public enum ChatbotJob implements JobLockKey {
 
     private final long lockKey;
     private final String tag;
+    @Getter
     private final String description;
-
-    ChatbotJob(long lockKey, String tag, String description) {
-        this.lockKey = lockKey;
-        this.tag = tag;
-        this.description = description;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 
     @Override
     public long lockKey() {

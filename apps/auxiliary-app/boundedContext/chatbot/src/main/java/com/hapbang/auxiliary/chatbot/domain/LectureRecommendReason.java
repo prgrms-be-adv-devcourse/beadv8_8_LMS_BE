@@ -2,10 +2,15 @@ package com.hapbang.auxiliary.chatbot.domain;
 
 import org.jspecify.annotations.Nullable;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 강의 추천 이유 코드 (#718). 계산 중에 이미 아는 "왜 이 강의가 나왔는지"를 카드마다 하나 남긴다.
  * 카드 문구, 이유별 클릭률(GA4), 맞춤이 아닌 카드 구분({@link #POPULAR})에 쓴다.
  */
+@Getter
+@RequiredArgsConstructor
 public enum LectureRecommendReason {
 
     SIMILAR_TO_PURCHASED("구매한 강의와 비슷함"),
@@ -14,14 +19,6 @@ public enum LectureRecommendReason {
     POPULAR("맞춤 후보가 모자라 인기순으로 채움");
 
     private final String description;
-
-    LectureRecommendReason(String description) {
-        this.description = description;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 
     /**
      * LLM 없이 보여 줄 이유 문장.

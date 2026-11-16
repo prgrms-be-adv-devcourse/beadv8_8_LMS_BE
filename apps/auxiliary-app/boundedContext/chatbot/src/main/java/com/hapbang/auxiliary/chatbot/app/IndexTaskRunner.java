@@ -28,6 +28,9 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore.IndexTask;
 
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -223,19 +226,13 @@ public class IndexTaskRunner {
     }
 
     /** 지표 {@value ChatbotMetrics#INDEX_TASKS}의 {@code result} 태그 */
+    @Getter(AccessLevel.PACKAGE)
+    @RequiredArgsConstructor
     enum Result {
         DONE("색인 요청을 끝냄"),
         FAILED("색인 요청이 실패해 다시 시도함");
 
         private final String description;
-
-        Result(String description) {
-            this.description = description;
-        }
-
-        String getDescription() {
-            return description;
-        }
 
         String tag() {
             return name().toLowerCase(Locale.ROOT);

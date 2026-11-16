@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.IntToDoubleFunction;
 
+import lombok.RequiredArgsConstructor;
+
 /**
  * 회원 활동에서 강의별 신호 가중을 정한다 (#718).
  * <ul>
@@ -23,6 +25,7 @@ public final class LectureSignals {
     }
 
     /** 신호의 출처. 선언 순서가 강한 순서다(같은 강의에 둘 다 있으면 앞의 것으로 본다) */
+    @RequiredArgsConstructor
     public enum Source {
 
         PURCHASED("구매(OWNED)", LectureRecommendReason.SIMILAR_TO_PURCHASED),
@@ -30,11 +33,6 @@ public final class LectureSignals {
 
         private final String description;
         private final LectureRecommendReason reason;
-
-        Source(String description, LectureRecommendReason reason) {
-            this.description = description;
-            this.reason = reason;
-        }
 
         public String description() {
             return description;

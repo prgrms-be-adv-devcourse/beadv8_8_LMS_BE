@@ -27,6 +27,8 @@ import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.SourceFilter;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -265,6 +267,8 @@ public class RecommendVectorIndex {
     }
 
     /** 벡터 밖 필드의 매핑 종류 */
+    @Getter
+    @RequiredArgsConstructor
     public enum Field {
         KEYWORD("정확히 맞추는 문자열(필터·집계)"),
         LONG("정수"),
@@ -272,14 +276,6 @@ public class RecommendVectorIndex {
         STORED_TEXT("저장만 하고 검색하지 않는 문자열(표시·해시)");
 
         private final String description;
-
-        Field(String description) {
-            this.description = description;
-        }
-
-        public String getDescription() {
-            return description;
-        }
 
         Property property() {
             return switch (this) {

@@ -12,6 +12,7 @@ import com.hapbang.auxiliary.chatbot.app.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.config.ChatbotChatProperties;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.RequiredArgsConstructor;
 
 /**
  * FE가 보낸 이전 대화 (#720, 11/09 결정: 서버는 대화를 저장하지 않는다).
@@ -37,15 +38,12 @@ public final class ChatHistory {
     }
 
     /** 대화의 역할 */
+    @RequiredArgsConstructor
     public enum Role {
         USER("사용자 메시지"),
         ASSISTANT("챗봇 답변");
 
         private final String description;
-
-        Role(String description) {
-            this.description = description;
-        }
 
         public String description() {
             return description;
