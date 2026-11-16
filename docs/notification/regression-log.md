@@ -86,6 +86,142 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-101 · 2026-11-16 · 통과 (N14 #955 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-101 |
+| 실행 날짜 | 2026-11-16 13:50~14:27 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | `40b23291` 위 미커밋 변경(PR 리뷰 반영) |
+| 작업 트리 변경 | `loadtest/notification/b0.sh`, `loadtest/notification/tests/b0_guard_test.sh`, `.../in/event/kafka/RejectedEvents.java`, `.../in/event/NotificationLectureEventListener.java`, 새 파일 `.../in/event/kafka/RejectedEventsTest.java`(`...`는 `apps/auxiliary-app/boundedContext/notification/src/{main,test}/java/com/hapbang/auxiliary/notification`), `docs/notification/test-spec.md`·`decisions.md`·`regression-log.md` |
+| 대상 기능 | ① `b0.sh` 끊김 확인 순서(스냅샷 → 대기 → 멈춤 → 비교, 스냅샷 실패·빈 로그는 실패) ② 강의 리스너 검증 변환 메시지를 실패 때만 만듦(`RejectedEvents.orReject(Supplier<String>, …)`) ③ test-spec NT-REF-01 문장 |
+| 관련 NT ID | NT-B0-10, NT-REF-01~04·06, 회귀 전체 |
+| 명령 | `bash loadtest/notification/tests/b0_guard_test.sh`(4회); `python -I -m unittest discover -s loadtest/notification/tests -p "test_*.py"`; `./gradlew :notification:test --tests "*.RejectedEventsTest"`; `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, Git Bash, JDK 25(Gradle Toolchain). guard 시험의 dry-run 단계는 B0 cluster context `k3d-hapbang-b0`, 모의 실행 단계는 cluster 없이 모의 kubectl·모의 따라 받기 |
+| 결과 | 통과. guard 시험 PASS 7·SKIP 1(cluster가 있어 "cluster 없음" 시험은 건너뜀)을 S6 반영 뒤 4회 연속, 모의 반복 프로세스 남음 0, 스크립트 시험 43 OK. `:notification:test` 529(실패 0·오류 0·건너뜀 1, 새 `RejectedEventsTest` 3 포함), `:auxiliary-app:test` 16, `verifyModuleStructure` 통과. 세 Gradle 태스크 모두 새로 실행(UP-TO-DATE 아님) |
+| 건수 | 위 결과 |
+| 실패 원인 분류 | — |
+| 수정 내용 | PR 리뷰 지적 3건: 멈춘 뒤 스냅샷을 받아 생기는 거짓 실패, 문서의 빈 종류 수, 강의 리스너가 레코드마다 메시지를 미리 만듦. S6 리뷰 뒤: 따라 받기가 kill 전에 끝났으면 비교 결과와 상관없이 실패(그 뒤 앱 로그가 없으면 비교로 드러나지 않았다), guard 시험 중단 때 모의 프로세스 정리(trap)·함수 추출 확인. S6 두 축 리뷰 뒤: dry-run에 생존 확인 줄을 넣고 guard 시험이 스냅샷 → 대기 → 생존 확인 → kill → 비교 순서를 모두 단언, `RejectedEvents`의 String 판이 Supplier 판을 부르게 해 중복 제거(이 뒤 Gradle 세 태스크 다시 실행, 결과 같음) |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | guard 시험이 수정 전 실패 4건: dry-run 순서(스냅샷=없음), 모의 정상 따라 받기의 거짓 실패(종료 코드 2), 먼저 끝난 따라 받기의 원인 문구 없음, 스냅샷 실패 문구 없음(종료 코드 1). `RejectedEventsTest`는 오버로드가 없어 컴파일 실패였다. 메시지를 먼저 만드는 뮤테이션에서 3건 모두 실패했고, 되돌린 뒤 통과했다(diff 16줄 그대로). S6 반영의 "먼저 끝난 따라 받기" 실패는 그 die를 지운 뮤테이션에서 두 사례가 실패(조용한 경우는 종료 코드 0으로 통과)했고, 되돌린 뒤 통과했다. 순서 단언은 생존 확인 dry-run 줄을 지운 뮤테이션에서 "생존=없음"으로 실패했고 되돌린 뒤 통과했다 |
+| 미검증 항목 | 실제 B0 회차는 돌리지 않았다(사용자 결정, 측정 논리 무변경). 구성 시험 A·B 파일은 바꾸지 않았다 |
+| 관련 변경 | #955 |
+
+#### NR-100 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 뒤 B0 도구 확인, 비공식 회차)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-100 |
+| 실행 날짜 | 2026-11-16 12:35~12:46 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 앱 이미지 `f3c15dca`(pod 안 `app.jar` `6d56bbe7…`). 도구: 미커밋 변경(S6 반영: `cleanup()` 하나로 정리, `stop_log_follow()`의 끊김 확인, `.gitattributes` `* text eol=lf`) |
+| 대상 기능 | ND-185 앱 로그 따라 받기의 멈춤·끊김 확인이 실제 회차에서 동작하는지 |
+| 관련 NT ID | NT-B0-10 |
+| 명령 | `bash loadtest/notification/tests/b0_guard_test.sh`(강화 전 RED → 뒤 GREEN); `python -I -m unittest discover -s loadtest/notification/tests`; `loadtest/notification/b0.sh run 9` |
+| 실행 환경 | NR-098과 같다 |
+| 결과 | 통과. guard 시험 통과, 스크립트 시험 43 OK. 도구 확인 회차 `b0-20261116-123539-r9`: V0~V8 PASS, F `5a7ab852…`, `logCoversRound=true`, 끊김 확인 통과(`app.log`·`app-final.log` 5,670,918바이트, `app-log.stderr` 0바이트). 처리량 197.0건/초·투입 242.4건/초는 공식 회차가 아니라 판정에 쓰지 않는다 |
+| 건수 | 위 결과 |
+| 실패 원인 분류 | — |
+| 수정 내용 | S6 리뷰: guard 시험이 설명 로그 문장만 보아 실제 멈춤을 확인하지 않았다 → 멈춤 단계가 dry-run 표지(`+ kill <앱 로그 따라 받기>`, 끊김 확인)를 내게 하고 그것을 순서와 함께 단언 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 강화한 guard 시험이 수정 전 "멈춤=없음 확인=없음"으로 실패, 수정 뒤 통과 |
+| 미검증 항목 | 따라 받기가 실제로 끊기는 경우의 멈춤(재현하지 않음) |
+| 관련 변경 | #955 |
+
+#### NR-099 · 2026-11-16 · 통과(기능)·참고(성능) (N14 #955 ND-183 대조 측정, 리팩토링 전 dev 이미지)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-099 |
+| 실행 날짜 | 2026-11-16 11:29~12:23 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | 이미지: worktree `../beadv8_8_LMS_BE-n14-control`(detached `3f5f8319`, 변경 0). 측정 도구: `feature/tkt-955` 작업 트리(NR-098과 같은 미커밋 도구 변경) |
+| 커밋 | `3f5f8319`(리팩토링 전 dev). 회차 폴더 `conditions.txt`의 `git=`은 측정 도구를 돈 메인 작업 트리 HEAD(`f3c15dca`)가 찍혔으므로 이 표가 정정이다 |
+| 대상 기능 | ND-183 대조 측정(N14 불합격 원인 가름) |
+| 관련 NT ID | NT-REF-05(대조) |
+| 명령 | `./gradlew -p <worktree> :auxiliary-app:bootJar` → `docker build`(태그 `hapbang/auxiliary-app:local`·`control-3f5f8319`) → `k3d image import` → `loadtest/notification/b0.sh run 1`~`5` |
+| 실행 환경 | NR-098과 같은 호스트·Docker Desktop·`k3d-hapbang-b0`, 같은 fixture(`bea6c107…`)·Kafka 700Mi·`synchronous_commit=off`·sampler. Gradle daemon 정지 |
+| 결과 | 기능 통과: 5회 모두 V0~V8 PASS, F `5a7ab852…`(5461행). 성능(참고, 판정에 쓰지 않음): 처리량 중앙값 199.01건/초, CV 21.86% |
+| 건수 | 처리량 110.96 / 190.61 / 203.06 / 199.01 / 202.76, 투입 136.5 / 253.0 / 257.2 / 251.4 / 258.2, p95 38.08 / 26.48 / 26.67 / 26.57 / 26.50, p99 55.62 / 29.30 / 29.33 / 29.31 / 29.30, GC 27·24·24·24·24, Hikari 활성 최대 2~3·대기 0, 실패 단계 복구 398.3~433.4초. 회차 폴더 `b0-20261116-112932-r1`·`114014-r2`·`115100-r3`·`120142-r4`·`121223-r5` |
+| 실패 원인 분류 | 성능 차이: 환경(F-ENV) 쪽 근거 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| RED 확인 | 이미지 확인: 대조 jar에 리팩토링 클래스(`NotificationKafkaConsumerRegistrar`·`RejectedEvents`) 0개·기존 설정·리스너 클래스 있음. 회차마다 실행 중인 pod 안 `/app/app.jar` SHA-256이 대조 jar(`bec2d278…`)와 같았다. docker 이미지 `b64e261e…`, containerd `fdba615f…` |
+| 미검증 항목 | 대조 1회차의 투입 속도 급락(136.5) 원인. 환경 변화와 리팩토링 영향의 정량 분리(같은 시간대 비교로 근거만 얻음) |
+| 관련 변경 | #955. 측정 뒤 N14 이미지로 복구(docker `bec6d883…`, pod 안 jar `6d56bbe7…`, imageID `3b578c0a…`) |
+
+#### NR-098 · 2026-11-16 · 불합격(성능, ND-175) (N14 #955 B0 재측정 공식 5회)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-098 |
+| 실행 날짜 | 2026-11-16 09:09~11:16 (KST). 공식 5회 10:23~11:16 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 앱 이미지: `f3c15dca`(로컬 커밋, Push 전). 측정 도구: 같은 HEAD + 미커밋 변경(B0 도구 줄 끝 LF 변환, `b0.sh` 앱 로그 따라 받기, guard 시험, `loadtest/notification/.gitattributes`) |
+| 작업 트리 변경 | 위 도구 변경. 앱 코드 변경 없음 |
+| 대상 기능 | N14 리팩토링 뒤 B0 재측정(ND-175·ND-183) |
+| 관련 NT ID | NT-REF-05, NT-B0-10(guard 시험 추가) |
+| 명령 | `loadtest/notification/b0.sh setup`(bootJar·이미지 `bec6d883…`), `b0.sh run 1`~`5`; `bash loadtest/notification/tests/b0_guard_test.sh`; `python -I -m unittest discover -s loadtest/notification/tests` |
+| 실행 환경 | Windows 10, Docker Desktop(측정 전 다시 켬), `k3d-hapbang-b0`(멈춰 있던 cluster를 `k3d cluster start`로 다시 시작, 재생성 아님), fixture `bea6c107…`, Kafka 700Mi, `auxiliary` `synchronous_commit=off`, sampler 그대로. 공식 5회 전 호스트 정리(Slack·Notion 종료, Chrome 창 축소, Gradle daemon 정지, 여유 메모리 2.5 → 4.0GB) |
+| 결과 | 기능 통과: 5회 모두 V0~V8 PASS, F `5a7ab852…`(5461행, B0와 같음). 성능 불합격: 처리량 중앙값 198.66건/초 < 213.768(B0 237.52의 83.6%), CV 1.07%. p95 26.57·p99 29.31초(B0와 같은 10~30초 구간) |
+| 건수 | 처리량 202.11 / 198.66 / 198.66 / 198.35 / 202.74, 투입 254.7 / 249.6 / 254.2 / 250.5 / 254.4(B0 290~303), GC 24~26회, Hikari 활성 최대 2~4·대기 0, 실패 단계 복구 402.4~434.4초, 관측 오차 2.3~2.5%. 회차 폴더 `b0-20261116-102321-r1`·`103405-r2`·`104432-r3`·`105508-r4`·`110538-r5`. 스크립트 시험 43 OK, guard 시험 통과 |
+| 실패 원인 분류 | 미분류(성능). 대조 측정(NR-099)은 환경 쪽 근거 |
+| 수정 내용 | 공식 5회 전 무효 회차: ① `b0-20261116-090943-r1` — 체크아웃이 B0 도구를 CRLF로 써서 도구 pod의 polling 스크립트가 문법 오류로 끝남(`$'\r': command not found`) → 작업 트리 도구 파일 27개를 LF로 바꾸고 `loadtest/notification/.gitattributes`(`* text eol=lf`) 추가. ② `092256-r1`·`093651-r2`·`094804-r3`·`095854-r4`(219.79 / 195.18 / 185.24 / 115.41건/초, 투입 274.7 → 139.4로 함께 하락) — r4는 앱 로그 회전으로 V8 `logCoversRound=false`(오류 건수는 기대와 같음) → `b0.sh`가 앱 기동 직후부터 `kubectl logs -f`로 받게 수정(V8 기준 그대로). 호스트 정리 뒤 1회차부터 다시 쟀다 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | guard 시험 "앱 로그 따라 받기"가 수정 전 실패(따라 받기 명령 없음), 수정 뒤 통과. 공식 5회 모두 `logCoversRound=true` |
+| 미검증 항목 | 환경 변화의 원인(투입 속도 B0 대비 −15.7%), 운영 처리량. 공식 판정 후속은 ND-186(불합격 유지, 예외 병합 추진) |
+| 관련 변경 | #955 |
+
+#### NR-097 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-097 |
+| 실행 날짜 | 2026-11-16 00:21~00:26 (KST). 의존 관계 시험 단독 실행 00:1x |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 미커밋 작업 트리(기준 `3f5f8319`) |
+| 작업 트리 변경 | NR-096 변경 + S6 반영: 등록기 DLT 토픽 선언이 `NotificationKafkaTopicConfig` 빈에 의존하게 함(ND-184), `ValueFormat.valueType()`, `UnsupportedEvents.skipOrReject`, 강의 리스너 검증 변환을 `RejectedEvents.orReject`로, `NotificationKafkaConsumerDependencyTest` 추가 |
+| 대상 기능 | N14 리팩토링 전후 동일성, 등록기 빈 의존 관계 |
+| 관련 NT ID | NT-REF-01~04·06, 회귀 전체 |
+| 명령 | `./gradlew :notification:test --tests '*NotificationKafkaConsumerDependencyTest'`(반영 전·뒤); `./gradlew :notification:test`; `./gradlew verifyModuleStructure`; `./gradlew :auxiliary-app:check`; `python -I -m unittest discover -s loadtest/notification/tests` |
+| 실행 환경 | NR-096과 같다 |
+| 결과 | 통과(모두 종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행했다 |
+| 건수 | `:notification` 526(실패 0·오류 0·건너뜀 1), 이 중 구성 시험 A 55·B 1·의존 관계 6. `:auxiliary-app` 16. 스크립트 시험 43 |
+| 실패 원인 분류 | — |
+| 수정 내용 | S6 Spec 리뷰가 "supplier 안 `getBean`은 의존 관계를 남기지 않는다"고 지적했다. 시험을 먼저 써 보니 Spring은 supplier 안의 `getBean`도 만드는 빈의 의존 관계로 기록해, 빠진 것은 static 조립 메서드를 쓰는 DLT 토픽 선언의 `NotificationKafkaTopicConfig` 의존 하나였다. 등록기가 그 빈을 먼저 찾게 고쳤다 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 의존 관계 시험 6건(소비자마다)이 DLT 토픽 → `notificationKafkaTopicConfig` 의존 없음으로 실패했다. 나머지 단정(팩토리·템플릿·오류 처리기·컨테이너 팩토리의 의존)은 반영 전에도 통과했다. 반영 뒤 6건 통과. 구성 시험 A·B 파일의 SHA-256은 NR-096과 같다 |
+| 미검증 항목 | B0 재측정 5회(NT-REF-05, 커밋 뒤), CI 전체 `./gradlew check` |
+| 관련 변경 | #955 |
+
+#### NR-096 · 2026-11-16 · 통과 (N14 #955 구조 리팩토링 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-096 |
+| 실행 날짜 | 2026-11-15 23:53 ~ 2026-11-16 00:01 (KST). 구성 시험 단독 실행은 2026-11-15 23:25~23:45 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 미커밋 작업 트리(기준 `3f5f8319`) |
+| 작업 트리 변경 | Kafka 설정 공통화(`NotificationKafkaConsumer`·`NotificationKafkaConsumerRegistrar`, 설정 클래스 3개의 토픽별 `@Bean` 제거), 리스너 공통 부품(`NotificationEventSubscriber`·`RejectedEvents`·`UnsupportedEvents`, 리스너 6개), 구성 시험 2개 추가, `NotificationKafkaDeadLetterTest` 호출부 2곳(없앤 `@Bean` 메서드 대신 `NotificationKafkaConsumer.MEMBER.settings()`·`deadLetterProducerFactory`, 단정은 그대로) |
+| 대상 기능 | N14 리팩토링 전후 동일성 |
+| 관련 NT ID | NT-REF-01~04, 회귀 전체 |
+| 명령 | `./gradlew :notification:test --tests '*NotificationKafkaConsumerConfigurationTest' --tests '*NotificationKafkaListenerConfigurationTest'`(리팩토링 전·뮤테이션·리팩토링 뒤); `./gradlew :notification:test`; `./gradlew verifyModuleStructure`; `./gradlew :auxiliary-app:check`; `python -I -m unittest discover -s loadtest/notification/tests`; `bash loadtest/notification/tests/b0_guard_test.sh` |
+| 실행 환경 | Windows 10, Git Bash, JDK 25(Gradle toolchain), Docker Desktop(Testcontainers) |
+| 결과 | 통과(모두 종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행했다(`:auxiliary-app:check` 안의 `:notification:test`는 바로 앞 실행의 UP-TO-DATE) |
+| 건수 | `:notification` 520(실패 0·오류 0·건너뜀 1: 환경 변수가 있을 때만 도는 `B0FixtureExportTest`), 이 중 구성 시험 A 55·B 1. `:auxiliary-app` 16. 스크립트 시험 43, guard 시험 통과(cluster 없음 시험 1건은 `k3d-hapbang-b0`가 있어 건너뜀) |
+| 실패 원인 분류 | — |
+| 수정 내용 | 구성 시험 A 첫 작성 때 시험 쪽 결함 2건: ① broker 없는 문맥에서 Boot `KafkaAdmin`이 DLT 토픽 생성을 기다려 10분을 넘김 → 시험 문맥에서만 `spring.kafka.admin.auto-create=false`(NewTopic 빈은 그대로 만든다), ② 재시도 listener가 lambda라 `getEnclosingClass()`가 null → `getNestHost()`로 확인. 시험 B 첫 실행은 Docker Desktop이 꺼져 문맥이 뜨지 않음(환경) → 켠 뒤 통과 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 구성 시험은 리팩토링 전 코드를 정답으로 고정하는 시험이라 처음부터 통과한다(ND-182). 뮤테이션으로 실패를 확인했다: 시험 A — backoff 최대값 +1(6건), 강의 ContainerFactory를 바로 시작하는 factory로(1건), 채팅 DLT 템플릿의 `defaultCandidate` 제거(플래그 1건과 Boot 기본 `kafkaTemplate`이 물러나 이름 없는 주입 1건) → 55건 중 9건 실패. 시험 B — 강의 바로 시작 뮤테이션에서 `notification-lecture-events` autoStartup 기대 false·실제 true. 모두 되돌린 뒤 `git diff` 운영 코드 0줄. 리팩토링 뒤 두 시험 파일의 SHA-256(`dab52c8a…`, `d82f50e8…`)이 리팩토링 전과 같다 |
+| 미검증 항목 | B0 재측정 5회(NT-REF-05, 커밋 뒤), CI 전체 `./gradlew check` |
+| 관련 변경 | #955 |
+
 #### NR-095 · 2026-11-15 · 통과 (N13 #946 PR #954 CI 실패 수정)
 
 | 항목 | 값 |

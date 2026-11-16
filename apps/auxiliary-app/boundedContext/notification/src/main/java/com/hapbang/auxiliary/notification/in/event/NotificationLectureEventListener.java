@@ -25,11 +25,13 @@ import com.hapbang.auxiliary.notification.app.ScheduleCommand;
 import com.hapbang.auxiliary.notification.app.ScheduleInputs;
 import com.hapbang.auxiliary.notification.app.ScheduleService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
+import com.hapbang.auxiliary.notification.in.event.kafka.NotificationEventSubscriber;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
 import com.hapbang.auxiliary.notification.in.event.kafka.ObjectionLegacyFormat;
 import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
+import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEvents;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
 import com.hapbang.shared.lecture.event.LectureApprovedEvent;
@@ -75,7 +77,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Slf4j
 @Component
 @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-public class NotificationLectureEventListener {
+public class NotificationLectureEventListener implements NotificationEventSubscriber {
 
     /** 리스너 컨테이너 ID(소비 그룹 이름과 다르다) */
     public static final String LISTENER_ID = "notification-lecture-events";
@@ -164,17 +166,14 @@ public class NotificationLectureEventListener {
 
     /** 예약 명령으로 바꾼다(N10). 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다 */
     private static List<ScheduleCommand> scheduleCommands(Object event) {
-        try {
-            return switch (event) {
-                case LectureOrderPaidEvent paid -> ScheduleInputs.orderPaid(paid);
-                case LectureOrderItemCanceledEvent canceled -> ScheduleInputs.orderItemCanceled(canceled);
-                case LectureOrderItemConfirmedEvent confirmed -> ScheduleInputs.orderItemConfirmed(confirmed);
-                case LectureObjectionFiledEvent filed -> ScheduleInputs.objectionFiled(filed);
-                default -> List.of();
-            };
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("예약을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(), e);
-        }
+        return RejectedEvents.orReject(() -> "예약을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
+                () -> switch (event) {
+                    case LectureOrderPaidEvent paid -> ScheduleInputs.orderPaid(paid);
+                    case LectureOrderItemCanceledEvent canceled -> ScheduleInputs.orderItemCanceled(canceled);
+                    case LectureOrderItemConfirmedEvent confirmed -> ScheduleInputs.orderItemConfirmed(confirmed);
+                    case LectureObjectionFiledEvent filed -> ScheduleInputs.objectionFiled(filed);
+                    default -> List.<ScheduleCommand>of();
+                });
     }
 
     /**
@@ -182,26 +181,24 @@ public class NotificationLectureEventListener {
      * 직접·첫 재생 구매 확정은 빈 목록이라 알림 없이 커밋한다
      */
     private static List<NotificationDraft> drafts(Object event) {
-        try {
-            return switch (event) {
-                case LectureApprovedEvent approved -> List.of(LectureProgressAlerts.approved(approved));
-                case LectureRejectedEvent rejected -> List.of(LectureProgressAlerts.rejected(rejected));
-                case LectureOrderPaidEvent paid -> List.of(LectureProgressAlerts.paid(paid));
-                case LectureOrderHoldFailedEvent failed -> List.of(LectureProgressAlerts.holdFailed(failed));
-                case LectureOrderItemCanceledEvent canceled -> List.of(LectureProgressAlerts.canceled(canceled));
-                case LectureOrderItemConfirmedEvent confirmed -> LectureProgressAlerts.confirmed(confirmed);
-                case LectureObjectionFiledEvent filed -> LectureProgressAlerts.objectionFiled(filed);
-                case LectureObjectionResolvedEvent resolved -> LectureObjectionAlerts.resolved(resolved);
-                case LectureObjectionReturnCompletedEvent completed ->
-                        List.of(LectureObjectionAlerts.returnCompleted(completed));
-                case LectureObjectionWithdrawnEvent withdrawn -> List.of(LectureObjectionAlerts.withdrawn(withdrawn));
-                case LectureObjectionReturnActionRequiredEvent delayed ->
-                        List.of(LectureObjectionAlerts.returnActionRequired(delayed));
-                default -> throw new IllegalStateException("처리기가 없는 강의 이벤트입니다: " + event.getClass());
-            };
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(), e);
-        }
+        return RejectedEvents.orReject(() -> "알림을 만들 수 없는 강의 이벤트입니다: " + event.getClass().getSimpleName(),
+                () -> switch (event) {
+                    case LectureApprovedEvent approved -> List.of(LectureProgressAlerts.approved(approved));
+                    case LectureRejectedEvent rejected -> List.of(LectureProgressAlerts.rejected(rejected));
+                    case LectureOrderPaidEvent paid -> List.of(LectureProgressAlerts.paid(paid));
+                    case LectureOrderHoldFailedEvent failed -> List.of(LectureProgressAlerts.holdFailed(failed));
+                    case LectureOrderItemCanceledEvent canceled -> List.of(LectureProgressAlerts.canceled(canceled));
+                    case LectureOrderItemConfirmedEvent confirmed -> LectureProgressAlerts.confirmed(confirmed);
+                    case LectureObjectionFiledEvent filed -> LectureProgressAlerts.objectionFiled(filed);
+                    case LectureObjectionResolvedEvent resolved -> LectureObjectionAlerts.resolved(resolved);
+                    case LectureObjectionReturnCompletedEvent completed ->
+                            List.of(LectureObjectionAlerts.returnCompleted(completed));
+                    case LectureObjectionWithdrawnEvent withdrawn ->
+                            List.of(LectureObjectionAlerts.withdrawn(withdrawn));
+                    case LectureObjectionReturnActionRequiredEvent delayed ->
+                            List.of(LectureObjectionAlerts.returnActionRequired(delayed));
+                    default -> throw new IllegalStateException("처리기가 없는 강의 이벤트입니다: " + event.getClass());
+                });
     }
 
     private static ObjectionLegacyFormat classify(Class<?> type, byte[] json) {
@@ -252,13 +249,8 @@ public class NotificationLectureEventListener {
         return new String(header.value(), StandardCharsets.UTF_8);
     }
 
-    /** {@code @KafkaListener}의 토픽(SpEL {@code __listener.topic}) */
-    public String getTopic() {
-        return settings.topic();
-    }
-
-    /** {@code @KafkaListener}의 소비자 그룹(SpEL {@code __listener.groupId}) */
-    public String getGroupId() {
-        return settings.groupId();
+    @Override
+    public NotificationKafkaConsumerSettings settings() {
+        return settings;
     }
 }

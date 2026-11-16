@@ -44,11 +44,7 @@ class NotificationKafkaDeadLetterTest {
 
     @Test
     void 운영_소비자_값은_재시도_3회_1초부터_10초_DLT는_원본과_같은_3개_partition이다() {
-        NotificationKafkaConsumerSettings settings = new NotificationKafkaConfig("localhost:9092",
-                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaConsumerFactoryCustomizer.class),
-                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class),
-                noMetrics())
-                .notificationMemberEventSettings();
+        NotificationKafkaConsumerSettings settings = NotificationKafkaConsumer.MEMBER.settings();
 
         assertThat(settings.topic()).isEqualTo(NotificationKafkaConstants.MEMBER_EVENTS_TOPIC);
         assertThat(settings.groupId()).isEqualTo(NotificationKafkaConstants.MEMBER_REPLICA_GROUP);
@@ -98,7 +94,7 @@ class NotificationKafkaDeadLetterTest {
                 new StaticListableBeanFactory().getBeanProvider(DefaultKafkaConsumerFactoryCustomizer.class),
                 new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class),
                 noMetrics())
-                .notificationMemberEventDeadLetterProducerFactory(settings(Duration.ofSeconds(10)))
+                .deadLetterProducerFactory(settings(Duration.ofSeconds(10)))
                 .getConfigurationProperties();
 
         assertThat(properties)

@@ -3,12 +3,8 @@ package com.hapbang.auxiliary.notification.in.event.kafka;
 import java.time.Duration;
 
 import org.apache.kafka.common.TopicPartition;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaOperations;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
@@ -24,80 +20,23 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
  *     <li>DLT에는 원본과 같은 partition 번호로 보낸다.</li>
  *     <li>DLT 발행 결과를 기다리고 실패·시간 초과면 예외를 던져 offset을 커밋하지 않는다(DLT 발행 실패는 처리 성공이 아니다).</li>
  * </ul>
- * 오류 처리기는 기본 후보에서 빼서 Boot의 기본 리스너 컨테이너 팩토리가 가져가지 않게 한다.
+ * 소비자마다 오류 처리기 빈은 {@link NotificationKafkaConsumerRegistrar}가 {@link #errorHandler}로 등록한다(ND-180). 기본 후보에서
+ * 빼서 Boot의 기본 리스너 컨테이너 팩토리가 가져가지 않게 한다. 아래 이름 상수는 {@link NotificationKafkaConsumer}의 이름 규칙과 같다.
  */
 @Configuration(proxyBeanMethods = false)
 public class NotificationKafkaErrorHandlerConfig {
+
+    public static final String MEMBER_EVENT_ERROR_HANDLER = "notificationMemberEventErrorHandler";
+    public static final String APPEARANCE_EVENT_ERROR_HANDLER = "notificationAppearanceEventErrorHandler";
+    public static final String BILLING_EVENT_ERROR_HANDLER = "notificationBillingEventErrorHandler";
+    public static final String LECTURE_EVENT_ERROR_HANDLER = "notificationLectureEventErrorHandler";
+    public static final String CUSTOMERSUPPORT_EVENT_ERROR_HANDLER = "notificationCustomerSupportEventErrorHandler";
+    public static final String CHAT_EVENT_ERROR_HANDLER = "notificationChatEventErrorHandler";
 
     private final NotificationKafkaMetrics metrics;
 
     public NotificationKafkaErrorHandlerConfig(NotificationKafkaMetrics metrics) {
         this.metrics = metrics;
-    }
-
-    public static final String MEMBER_EVENT_ERROR_HANDLER = "notificationMemberEventErrorHandler";
-
-    @Bean(name = MEMBER_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationMemberEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.MEMBER_EVENT_DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
-    }
-
-    public static final String APPEARANCE_EVENT_ERROR_HANDLER = "notificationAppearanceEventErrorHandler";
-
-    @Bean(name = APPEARANCE_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationAppearanceEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE)
-            KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
-    }
-
-    public static final String BILLING_EVENT_ERROR_HANDLER = "notificationBillingEventErrorHandler";
-
-    @Bean(name = BILLING_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationBillingEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.BILLING_EVENT_DEAD_LETTER_TEMPLATE)
-            KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
-    }
-
-    public static final String LECTURE_EVENT_ERROR_HANDLER = "notificationLectureEventErrorHandler";
-
-    @Bean(name = LECTURE_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationLectureEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.LECTURE_EVENT_DEAD_LETTER_TEMPLATE)
-            KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
-    }
-
-    public static final String CUSTOMERSUPPORT_EVENT_ERROR_HANDLER = "notificationCustomerSupportEventErrorHandler";
-
-    @Bean(name = CUSTOMERSUPPORT_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationCustomerSupportEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.CUSTOMERSUPPORT_EVENT_DEAD_LETTER_TEMPLATE)
-            KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
-    }
-
-    public static final String CHAT_EVENT_ERROR_HANDLER = "notificationChatEventErrorHandler";
-
-    @Bean(name = CHAT_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    DefaultErrorHandler notificationChatEventErrorHandler(
-            @Qualifier(NotificationKafkaConfig.CHAT_EVENT_DEAD_LETTER_TEMPLATE)
-            KafkaTemplate<String, Object> deadLetterTemplate,
-            @Qualifier(NotificationKafkaConfig.CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return errorHandler(deadLetterTemplate, settings);
     }
 
     /** 처리 실패 시도는 재시도·역직렬화 실패를 포함해 {@link NotificationKafkaMetrics#retryListener()}가 센다(ND-159) */

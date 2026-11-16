@@ -303,9 +303,50 @@ setup() {
   log "setup 완료. 앱은 replicas 0이다"
 }
 
+# 회차 중 띄운 백그라운드 작업(앱 로그 따라 받기, port-forward, 자원 표본, 완료 polling, 진단)을 회차가 끝나거나 멈출 때 모두 끝낸다
+cleanup() {
+  local pid
+  for pid in ${logs_pid:-} ${poller_pid:-} ${sampler_pid:-} ${pf_pid:-} ${diag_pids:-}; do
+    kill "$pid" 2>/dev/null
+  done
+  true
+}
+
+# 앱 로그 따라 받기를 멈추고 끊기지 않았는지 확인한다(ND-185). 비교용 컨테이너 로그(app-final.log)를 먼저 받고, 따라 받는 kubectl이 그
+# 줄까지 쓸 시간을 기다린 뒤 멈춘다. 스냅샷의 마지막 줄이 app.log에 없으면(pod 재시작·연결 끊김으로 따라 받기가 먼저 끝남) 회차를 멈춘다.
+# 멈춘 뒤에 스냅샷을 받으면 그사이 앱이 쓴 줄이 app.log에 없어 거짓 실패가 난다(PR 리뷰). 스냅샷을 못 받거나 비어도 통과로 보지 않는다
+LOG_FLUSH_SECONDS=2 # 따라 받는 kubectl이 스냅샷 마지막 줄을 파일에 쓸 시간
+stop_log_follow() {
+  local out=$1 last
+  if [ "$DRY" = 1 ]; then
+    echo "+ kubectl --context $CTX -n $APP_NS logs deploy/auxiliary-app > $out/app-final.log" >&2
+    echo "+ sleep $LOG_FLUSH_SECONDS" >&2
+    echo "+ kill -0 <앱 로그 따라 받기>(이미 끝났으면 실패)" >&2
+    echo "+ kill <앱 로그 따라 받기>" >&2
+    echo "+ 앱 로그 따라 받기 끊김 확인(app-final.log 마지막 줄이 app.log에 있는지)" >&2
+    return
+  fi
+  kubectl --context "$CTX" -n "$APP_NS" logs deploy/auxiliary-app > "$out/app-final.log" \
+    || die "비교용 app-final.log를 받지 못했다(kubectl logs 실패). 따라 받기 끊김을 확인할 수 없다"
+  sleep "$LOG_FLUSH_SECONDS"
+  # 따라 받는 kubectl은 pod 종료·연결 끊김일 때만 스스로 끝난다. 그 뒤 앱이 쓴 줄이 없어 비교가 맞더라도 정상으로 보지 않는다
+  if ! kill -0 "$logs_pid" 2>/dev/null; then
+    logs_pid=
+    die "앱 로그 따라 받기가 kill 전에 이미 끝나 있었다(pod 재시작·연결 끊김, app-log.stderr 확인)"
+  fi
+  kill "$logs_pid" 2>/dev/null || true
+  wait "$logs_pid" 2>/dev/null || true
+  logs_pid=
+  last=$(grep -v '^[[:space:]]*$' "$out/app-final.log" | tail -n 1 || true)
+  [ -n "$last" ] || die "비교용 app-final.log를 받지 못했다(빈 로그). 따라 받기 끊김을 확인할 수 없다"
+  grep -qxF -- "$last" "$out/app.log" \
+    || die "앱 로그 따라 받기가 끊겼다(app-final.log 마지막 줄이 app.log에 없다. 수집 지연이 LOG_FLUSH_SECONDS보다 길었거나 줄이 빠졌다, app-log.stderr 확인)"
+}
+
 run_once() {
   local round=$1
   guard run
+  trap cleanup EXIT
   [ -f "$FIXTURE/manifest.json" ] || die "manifest가 없다: $FIXTURE/manifest.json"
   local out="$RUNS/b0-$(date +%Y%m%d-%H%M%S)-r$round"
   act mkdir -p "$out"
@@ -387,6 +428,14 @@ run_once() {
   log "5. 앱 기동"
   kc -n "$APP_NS" scale deploy/auxiliary-app --replicas=1
   kc -n "$APP_NS" rollout status deploy/auxiliary-app --timeout=10m
+  # 컨테이너 로그는 kubelet이 크기로 회전한다. 수집 때 kubectl logs로 한 번에 받으면 회전된 앞부분이 빠져 V8이 회차 전체를 보지 못한다
+  # (N14 4회차). 기동 직후부터 따라 받아 회차 전체를 남긴다(ND-185). 측정 경로(투입·소비)는 바꾸지 않는다
+  if [ "$DRY" = 1 ]; then
+    show kubectl --context "$CTX" -n "$APP_NS" logs -f deploy/auxiliary-app
+  else
+    kubectl --context "$CTX" -n "$APP_NS" logs -f deploy/auxiliary-app > "$out/app.log" 2> "$out/app-log.stderr" &
+    logs_pid=$!
+  fi
 
   log "6. 단계 장벽: 복제본 수와 회원 group lag"
   local replicas=0 lag=-1 deadline=$((SECONDS + 300))
@@ -406,7 +455,6 @@ run_once() {
   if [ "$DRY" = 0 ]; then
     kubectl --context "$CTX" -n "$APP_NS" port-forward deploy/auxiliary-app "$PF_PORT:8082" >/dev/null 2>&1 &
     pf_pid=$!
-    trap '[ -n "${sampler_pid:-}" ] && kill $sampler_pid 2>/dev/null; [ -n "${pf_pid:-}" ] && kill $pf_pid 2>/dev/null' EXIT
     until metrics >/dev/null; do sleep 1; done
     metrics > "$out/metrics-before.prom"
     sampler "$out/samples.jsonl" &
@@ -435,7 +483,6 @@ run_once() {
     poller_pid=$!
     # 진단 수집은 B0_DIAG=1일 때만 켠다(진단 회차). 공식 회차는 끈다(스레드 덤프 등이 측정을 흔들 수 있다)
     [ "${B0_DIAG:-0}" = 1 ] && start_diagnostics "$out" "$app_ip"
-    trap '[ -n "${poller_pid:-}" ] && kill $poller_pid 2>/dev/null; [ -n "${sampler_pid:-}" ] && kill $sampler_pid 2>/dev/null; [ -n "${pf_pid:-}" ] && kill $pf_pid 2>/dev/null; [ -n "${diag_pids// /}" ] && kill $diag_pids 2>/dev/null; true' EXIT
   fi
 
   log "8. 정상 단계 투입($expected_normal건)"
@@ -485,10 +532,9 @@ run_once() {
   fi
 
   log "12. 수집"
+  [ "$DRY" = 0 ] && { metrics > "$out/metrics-after.prom"; kill "$sampler_pid" 2>/dev/null || true; }
+  stop_log_follow "$out"
   if [ "$DRY" = 0 ]; then
-    metrics > "$out/metrics-after.prom"
-    kill "$sampler_pid" 2>/dev/null || true
-    kubectl --context "$CTX" -n "$APP_NS" logs deploy/auxiliary-app > "$out/app.log"
     : > "$out/topics.tsv"
     for topic in "${ALL_TOPICS[@]}"; do dump_topic "$topic" >> "$out/topics.tsv"; done
     : > "$out/dlt.tsv"

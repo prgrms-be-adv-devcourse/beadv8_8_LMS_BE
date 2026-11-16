@@ -12,13 +12,11 @@ import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -37,19 +35,15 @@ import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
 /**
- * 알림 모듈 Kafka 소비 설정: 소비자 값, ConsumerFactory, DLT 발행용 ProducerFactory·KafkaTemplate, 리스너 ContainerFactory.
+ * 알림 모듈 Kafka 소비 설정: 소비자 값, ConsumerFactory, DLT 발행용 ProducerFactory·KafkaTemplate, 리스너 ContainerFactory를 조립한다.
  * 채팅 설정({@code ChatKafkaConfig})을 복사했다(ND-028). 오류 처리는 {@link NotificationKafkaErrorHandlerConfig}, DLT 토픽 선언은
  * {@link NotificationKafkaTopicConfig}, 이름과 값은 {@link NotificationKafkaConstants}에 있다. 규칙은
  * {@code docs/architecture/infrastructure/kafka.md}다. common/kafka는 연결 설정만 두고, 업무 모듈은 {@code :kafka} 프로젝트를
  * 의존할 수 없어 운영 정책(재시도·DLT·역직렬화)을 이 모듈이 구현한다.
  * <ul>
- *     <li>소비자는 회원 이벤트({@code member.events.v1}, 그룹 {@code auxiliary-app.notification-member-replica}, 가입 환영·승급
- *     승인 포함 ND-080), 출연 이벤트({@code appearance.events.v1}, {@code auxiliary-app.notification-appearance-alert}), 지갑
- *     이벤트({@code billing.events.v1}, {@code auxiliary-app.notification-billing-alert}), 강의 이벤트({@code lecture.events.v1},
- *     {@code auxiliary-app.notification-lecture-alert}, N6 ND-087), 고객센터 이벤트({@code customersupport.events.v1},
- *     {@code auxiliary-app.notification-customersupport-alert}, N7 ND-122), 채팅 이벤트({@code chat.events.v1},
- *     {@code auxiliary-app.notification-chat-alert}, N9 ND-129) 여섯이다(ND-047·ND-069). 출연·지갑·강의·고객센터·채팅
- *     컨테이너는 첫 Backfill 뒤에 시작한다(ND-078).</li>
+ *     <li>소비자는 {@link NotificationKafkaConsumer} 여섯 개(회원 복제본, 출연·지갑·강의·고객센터·채팅 알림)다(ND-047·ND-069·ND-179).
+ *     소비자마다 같은 빈 일곱 개를 {@link NotificationKafkaConsumerRegistrar}가 이 클래스의 조립 메서드로 등록한다(ND-180). 회원 말고는
+ *     컨테이너를 첫 Backfill 뒤에 시작한다(ND-078).</li>
  *     <li>props는 이 클래스에 적고 연결 주소만 {@code spring.kafka.bootstrap-servers}에서 받는다.</li>
  *     <li>value 역직렬화는 신뢰 패키지 하나만 믿는 {@link JacksonJsonDeserializer}를 {@link TrustedEventDeserializer}와
  *     {@link ErrorHandlingDeserializer}로 감싼다. 깨진 메시지는 오류 처리기가 재시도 없이 DLT로 보낸다. 강의 이벤트만 값을 바이트로
@@ -59,8 +53,12 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
  * </ul>
  * Kafka 빈은 기본 후보에서 빼서({@code defaultCandidate = false}) Boot의 기본 Kafka 빈이 물러나지 않게 하고, 이름으로만 쓴다.
  * 직접 만든 factory에도 Boot가 자기 factory에 적용하는 customizer(지표 listener 등)를 적용해 consumer lag·DLT 전송이 지표에 남는다.
+ * <p>
+ * 아래 이름 상수는 리스너({@code containerFactory})·설정 주입({@code @Qualifier})·시험({@code @TestBean})이 쓴다.
+ * {@link NotificationKafkaConsumer}의 이름 규칙과 같다.
  */
 @Configuration(proxyBeanMethods = false)
+@Import(NotificationKafkaConsumerRegistrar.class)
 public class NotificationKafkaConfig {
 
     public static final String MEMBER_EVENT_SETTINGS = "notificationMemberEventSettings";
@@ -99,266 +97,32 @@ public class NotificationKafkaConfig {
         this.metrics = metrics;
     }
 
-    // 회원 이벤트
-
-    @Bean(name = MEMBER_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationMemberEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.MEMBER_EVENTS_TOPIC,
-                NotificationKafkaConstants.MEMBER_REPLICA_GROUP);
+    /** 이벤트 값은 신뢰 패키지 역직렬화기로, 바이트 값은 그대로 받는다 */
+    ConsumerFactory<String, ?> consumerFactory(NotificationKafkaConsumer consumer,
+            NotificationKafkaConsumerSettings settings) {
+        return switch (consumer.valueFormat()) {
+            case EVENT -> consumerFactory(settings, eventDeserializer(consumer.trustedPackage()));
+            case BYTES -> consumerFactory(settings, new ByteArrayDeserializer());
+        };
     }
 
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, Object> notificationMemberEventConsumerFactory(
-            @Qualifier(MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, NotificationKafkaConstants.MEMBER_EVENTS_TRUSTED_PACKAGE);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationMemberEventDeadLetterProducerFactory(
-            @Qualifier(MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    /** 발행 실패 로그에 key·값(회원 정보)을 남기지 않는 DLT 템플릿 */
-    @Bean(name = MEMBER_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationMemberEventDeadLetterTemplate(
-            @Qualifier("notificationMemberEventDeadLetterProducerFactory") ProducerFactory<String, Object> producerFactory,
-            @Qualifier(MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
+    /** 발행 실패 로그에 key·값(회원 정보 등)을 남기지 않는 DLT 템플릿. 전송 결과는 원본 토픽별로 센다 */
+    KafkaTemplate<String, Object> deadLetterTemplate(ProducerFactory<String, Object> producerFactory,
+            NotificationKafkaConsumerSettings settings) {
         return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
     }
 
-    @Bean(name = MEMBER_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, Object> notificationMemberEventListenerContainerFactory(
-            @Qualifier("notificationMemberEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.MEMBER_EVENT_ERROR_HANDLER) DefaultErrorHandler errorHandler) {
-        return containerFactory(consumerFactory, errorHandler);
-    }
-
-    // 출연 이벤트 → 알림(N5). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
-
-    @Bean(name = APPEARANCE_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationAppearanceEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.APPEARANCE_EVENTS_TOPIC,
-                NotificationKafkaConstants.APPEARANCE_ALERT_GROUP);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, Object> notificationAppearanceEventConsumerFactory(
-            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, NotificationKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationAppearanceEventDeadLetterProducerFactory(
-            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    @Bean(name = APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationAppearanceEventDeadLetterTemplate(
-            @Qualifier("notificationAppearanceEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory,
-            @Qualifier(APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
-    }
-
-    @Bean(name = APPEARANCE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, Object> notificationAppearanceEventListenerContainerFactory(
-            @Qualifier("notificationAppearanceEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.APPEARANCE_EVENT_ERROR_HANDLER)
-            DefaultErrorHandler errorHandler) {
-        return alertContainerFactory(consumerFactory, errorHandler);
-    }
-
-    // 지갑 이벤트 → 알림(N5). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
-
-    @Bean(name = BILLING_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationBillingEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.BILLING_EVENTS_TOPIC,
-                NotificationKafkaConstants.BILLING_ALERT_GROUP);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, Object> notificationBillingEventConsumerFactory(
-            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, NotificationKafkaConstants.BILLING_EVENTS_TRUSTED_PACKAGE);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationBillingEventDeadLetterProducerFactory(
-            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    @Bean(name = BILLING_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationBillingEventDeadLetterTemplate(
-            @Qualifier("notificationBillingEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory,
-            @Qualifier(BILLING_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
-    }
-
-    @Bean(name = BILLING_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.BILLING_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, Object> notificationBillingEventListenerContainerFactory(
-            @Qualifier("notificationBillingEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.BILLING_EVENT_ERROR_HANDLER)
-            DefaultErrorHandler errorHandler) {
-        return alertContainerFactory(consumerFactory, errorHandler);
-    }
-
-    // 강의 이벤트 → 알림(N6). 값을 바이트로 받아 리스너가 #818 이전 형식을 판별한 뒤 레코드로 바꾼다(ND-086·ND-096).
-    // 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078·ND-087, autoStartup false)
-
-    @Bean(name = LECTURE_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationLectureEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.LECTURE_EVENTS_TOPIC,
-                NotificationKafkaConstants.LECTURE_ALERT_GROUP);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, byte[]> notificationLectureEventConsumerFactory(
-            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, new ByteArrayDeserializer());
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationLectureEventDeadLetterProducerFactory(
-            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    @Bean(name = LECTURE_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationLectureEventDeadLetterTemplate(
-            @Qualifier("notificationLectureEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory,
-            @Qualifier(LECTURE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
-    }
-
-    @Bean(name = LECTURE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.LECTURE_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, byte[]> notificationLectureEventListenerContainerFactory(
-            @Qualifier("notificationLectureEventConsumerFactory") ConsumerFactory<String, byte[]> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.LECTURE_EVENT_ERROR_HANDLER)
-            DefaultErrorHandler errorHandler) {
-        return alertContainerFactory(consumerFactory, errorHandler);
-    }
-
-    // 고객센터 이벤트 → 알림(N7, ND-122). 컨테이너는 첫 Backfill 뒤에 시작한다(ND-078, autoStartup false)
-
-    @Bean(name = CUSTOMERSUPPORT_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationCustomerSupportEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_TOPIC,
-                NotificationKafkaConstants.CUSTOMERSUPPORT_ALERT_GROUP);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, Object> notificationCustomerSupportEventConsumerFactory(
-            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_TRUSTED_PACKAGE);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationCustomerSupportEventDeadLetterProducerFactory(
-            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    @Bean(name = CUSTOMERSUPPORT_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationCustomerSupportEventDeadLetterTemplate(
-            @Qualifier("notificationCustomerSupportEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory,
-            @Qualifier(CUSTOMERSUPPORT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
-    }
-
-    @Bean(name = CUSTOMERSUPPORT_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CUSTOMERSUPPORT_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, Object> notificationCustomerSupportEventListenerContainerFactory(
-            @Qualifier("notificationCustomerSupportEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.CUSTOMERSUPPORT_EVENT_ERROR_HANDLER)
-            DefaultErrorHandler errorHandler) {
-        return alertContainerFactory(consumerFactory, errorHandler);
-    }
-
-    // 채팅 이벤트 → 알림(N9). 새 토픽 chat.events.v1을 새 그룹으로 읽는다(ND-129). 컨테이너는 첫 Backfill 뒤에 시작한다
-    // (ND-078, autoStartup false)
-
-    @Bean(name = CHAT_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    public NotificationKafkaConsumerSettings notificationChatEventSettings() {
-        return NotificationKafkaConsumerSettings.of(NotificationKafkaConstants.CHAT_EVENTS_TOPIC,
-                NotificationKafkaConstants.CHAT_ALERT_GROUP);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    ConsumerFactory<String, Object> notificationChatEventConsumerFactory(
-            @Qualifier(CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return consumerFactory(settings, NotificationKafkaConstants.CHAT_EVENTS_TRUSTED_PACKAGE);
-    }
-
-    @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    public ProducerFactory<String, Object> notificationChatEventDeadLetterProducerFactory(
-            @Qualifier(CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterProducerFactory(settings);
-    }
-
-    @Bean(name = CHAT_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    KafkaTemplate<String, Object> notificationChatEventDeadLetterTemplate(
-            @Qualifier("notificationChatEventDeadLetterProducerFactory")
-            ProducerFactory<String, Object> producerFactory,
-            @Qualifier(CHAT_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
-        return deadLetterTemplate(producerFactory, metrics.deadLetterListener(settings.topic()));
-    }
-
-    @Bean(name = CHAT_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.CHAT_EVENTS_ENABLED, matchIfMissing = true)
-    ConcurrentKafkaListenerContainerFactory<String, Object> notificationChatEventListenerContainerFactory(
-            @Qualifier("notificationChatEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
-            @Qualifier(NotificationKafkaErrorHandlerConfig.CHAT_EVENT_ERROR_HANDLER)
-            DefaultErrorHandler errorHandler) {
-        return alertContainerFactory(consumerFactory, errorHandler);
-    }
-
-    // 소비자들이 함께 쓰는 조립
-
-    /** 알림을 만드는 출연·지갑·강의·고객센터·채팅 소비자 컨테이너. 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080) */
-    private <V> ConcurrentKafkaListenerContainerFactory<String, V> alertContainerFactory(
+    /**
+     * 리스너 컨테이너 팩토리. 알림을 만드는 소비자 컨테이너는 앱 기동 때 시작하지 않고 첫 Backfill이 끝나면 시작한다(ND-078·ND-080).
+     * 회원 복제본은 기동 때 시작한다.
+     */
+    <V> ConcurrentKafkaListenerContainerFactory<String, V> listenerContainerFactory(NotificationKafkaConsumer consumer,
             ConsumerFactory<String, V> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, V> factory = containerFactory(consumerFactory, errorHandler);
-        factory.setAutoStartup(false);
+        if (consumer.startMode() == NotificationKafkaConsumer.StartMode.AFTER_FIRST_BACKFILL) {
+            factory.setAutoStartup(false);
+        }
         return factory;
-    }
-
-    private ConsumerFactory<String, Object> consumerFactory(NotificationKafkaConsumerSettings settings,
-            String trustedPackage) {
-        return consumerFactory(settings, eventDeserializer(trustedPackage));
     }
 
     private <V> ConsumerFactory<String, V> consumerFactory(NotificationKafkaConsumerSettings settings,
@@ -380,7 +144,7 @@ public class NotificationKafkaConfig {
      * DLT 발행 한 번이 {@link NotificationKafkaConsumerSettings#deadLetterSendTimeout()} 안에 끝나도록 메타데이터 대기
      * ({@code max.block.ms})에 절반, 전송 완료 대기에 나머지를 준다. DLT는 드물어 모아 보내지 않는다.
      */
-    private ProducerFactory<String, Object> deadLetterProducerFactory(NotificationKafkaConsumerSettings settings) {
+    ProducerFactory<String, Object> deadLetterProducerFactory(NotificationKafkaConsumerSettings settings) {
         Map<String, Object> props = Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ProducerConfig.ACKS_CONFIG, "all",

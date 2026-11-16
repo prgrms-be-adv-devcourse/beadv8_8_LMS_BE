@@ -21,12 +21,13 @@ import com.hapbang.auxiliary.notification.app.ScheduleCommand;
 import com.hapbang.auxiliary.notification.app.ScheduleInputs;
 import com.hapbang.auxiliary.notification.app.ScheduleService;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
+import com.hapbang.auxiliary.notification.in.event.kafka.NotificationEventSubscriber;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
-import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
+import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEvents;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
-import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
+import com.hapbang.auxiliary.notification.in.event.kafka.UnsupportedEvents;
 import com.hapbang.shared.appearance.event.AppearanceAbsentEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationNotSelectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSelectedEvent;
@@ -69,7 +70,7 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
 @KafkaListener(id = NotificationAppearanceEventListener.LISTENER_ID, idIsGroup = false, topics = "#{__listener.topic}",
         groupId = "#{__listener.groupId}", containerFactory = NotificationKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY)
-public class NotificationAppearanceEventListener {
+public class NotificationAppearanceEventListener implements NotificationEventSubscriber {
 
     /** 리스너 컨테이너 ID(소비 그룹 이름과 다르다) */
     public static final String LISTENER_ID = "notification-appearance-events";
@@ -77,7 +78,8 @@ public class NotificationAppearanceEventListener {
     private final NotificationAlertService alerts;
     private final ScheduleService schedules;
     private final NotificationKafkaConsumerSettings settings;
-    private final SkippedEventLog skippedLog = new SkippedEventLog(log);
+    private final UnsupportedEvents unsupported =
+            new UnsupportedEvents(log, NotificationKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE);
 
     public NotificationAppearanceEventListener(NotificationAlertService alerts, ScheduleService schedules,
             @Qualifier(NotificationKafkaConfig.APPEARANCE_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
@@ -217,42 +219,26 @@ public class NotificationAppearanceEventListener {
             @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key,
             @Header(name = KafkaHeaders.RECEIVED_PARTITION, required = false) Integer partition,
             @Header(name = KafkaHeaders.OFFSET, required = false) Long offset) {
-        skippedLog.skipped(SkippablePayloads.typeToSkip(payload, NotificationKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE),
-                key, partition, offset);
+        unsupported.skipOrReject(payload, key, partition, offset);
     }
 
     /** 초안으로 바꾼다. 필수 값이 빈 이벤트(검증 실패)는 재시도 없이 DLT로 보낸다(ND-086). 저장 단계의 오류는 바꾸지 않는다 */
     private static NotificationDraft valid(Supplier<NotificationDraft> convert) {
-        try {
-            return convert.get();
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 출연 이벤트입니다.", e);
-        }
+        return RejectedEvents.orReject("알림을 만들 수 없는 출연 이벤트입니다.", convert);
     }
 
     /** 예약 명령으로 바꾼다. 필수 값이 빈 이벤트는 재시도 없이 DLT로 보낸다 */
     private static List<ScheduleCommand> commands(Supplier<List<ScheduleCommand>> convert) {
-        try {
-            return convert.get();
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("예약을 만들 수 없는 출연 이벤트입니다.", e);
-        }
+        return RejectedEvents.orReject("예약을 만들 수 없는 출연 이벤트입니다.", convert);
     }
 
     /** 보내지 않는 경우가 있는 종류(모집 마감, 출연 확인)의 {@link #valid} */
     private static Optional<NotificationDraft> validOptional(Supplier<Optional<NotificationDraft>> convert) {
-        try {
-            return convert.get();
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 출연 이벤트입니다.", e);
-        }
+        return RejectedEvents.orReject("알림을 만들 수 없는 출연 이벤트입니다.", convert);
     }
 
-    public String getTopic() {
-        return settings.topic();
-    }
-
-    public String getGroupId() {
-        return settings.groupId();
+    @Override
+    public NotificationKafkaConsumerSettings settings() {
+        return settings;
     }
 }

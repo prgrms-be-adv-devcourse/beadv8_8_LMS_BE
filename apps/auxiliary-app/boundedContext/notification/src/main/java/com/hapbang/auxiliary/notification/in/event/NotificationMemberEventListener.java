@@ -20,12 +20,14 @@ import com.hapbang.auxiliary.notification.app.NotificationUserSyncResult;
 import com.hapbang.auxiliary.notification.app.exception.NotificationErrorCode;
 import com.hapbang.auxiliary.notification.app.exception.NotificationException;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
+import com.hapbang.auxiliary.notification.in.event.kafka.NotificationEventSubscriber;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
 import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
+import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEvents;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
-import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
+import com.hapbang.auxiliary.notification.in.event.kafka.UnsupportedEvents;
 import com.hapbang.shared.member.event.InfluencerChannelApprovedEvent;
 import com.hapbang.shared.member.event.InfluencerChannelRejectedEvent;
 import com.hapbang.shared.member.event.InfluencerUpgradeRequestRejectedEvent;
@@ -60,7 +62,7 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnBooleanProperty(name = NotificationKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
 @KafkaListener(id = NotificationMemberEventListener.LISTENER_ID, idIsGroup = false, topics = "#{__listener.topic}",
         groupId = "#{__listener.groupId}", containerFactory = NotificationKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY)
-public class NotificationMemberEventListener {
+public class NotificationMemberEventListener implements NotificationEventSubscriber {
 
     /** 리스너 컨테이너 ID(소비 그룹 이름과 다르다) */
     public static final String LISTENER_ID = "notification-member-events";
@@ -69,7 +71,8 @@ public class NotificationMemberEventListener {
     private final NotificationAlertService alerts;
     private final NotificationMaskingService maskingService;
     private final NotificationKafkaConsumerSettings settings;
-    private final SkippedEventLog skippedLog = new SkippedEventLog(log);
+    private final UnsupportedEvents unsupported =
+            new UnsupportedEvents(log, NotificationKafkaConstants.MEMBER_EVENTS_TRUSTED_PACKAGE);
 
     public NotificationMemberEventListener(NotificationMemberAlertService memberService,
             NotificationAlertService alerts, NotificationMaskingService maskingService,
@@ -133,17 +136,12 @@ public class NotificationMemberEventListener {
             @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key,
             @Header(name = KafkaHeaders.RECEIVED_PARTITION, required = false) Integer partition,
             @Header(name = KafkaHeaders.OFFSET, required = false) Long offset) {
-        skippedLog.skipped(SkippablePayloads.typeToSkip(payload, NotificationKafkaConstants.MEMBER_EVENTS_TRUSTED_PACKAGE),
-                key, partition, offset);
+        unsupported.skipOrReject(payload, key, partition, offset);
     }
 
     /** N7 회원 3종을 초안으로 바꾼다. 필수 값이 빈 이벤트(검증 실패)는 재시도 없이 DLT로 보낸다. 저장 단계의 오류는 바꾸지 않는다 */
     private static NotificationDraft valid(Supplier<NotificationDraft> convert) {
-        try {
-            return convert.get();
-        } catch (IllegalArgumentException e) {
-            throw new RejectedEventException("알림을 만들 수 없는 회원 심사 이벤트입니다.", e);
-        }
+        return RejectedEvents.orReject("알림을 만들 수 없는 회원 심사 이벤트입니다.", convert);
     }
 
     private static NotificationUserSyncResult rejectInvalid(Supplier<NotificationUserSyncResult> sync) {
@@ -157,13 +155,8 @@ public class NotificationMemberEventListener {
         }
     }
 
-    /** {@code @KafkaListener}의 토픽(SpEL {@code __listener.topic}) */
-    public String getTopic() {
-        return settings.topic();
-    }
-
-    /** {@code @KafkaListener}의 소비자 그룹(SpEL {@code __listener.groupId}) */
-    public String getGroupId() {
-        return settings.groupId();
+    @Override
+    public NotificationKafkaConsumerSettings settings() {
+        return settings;
     }
 }
