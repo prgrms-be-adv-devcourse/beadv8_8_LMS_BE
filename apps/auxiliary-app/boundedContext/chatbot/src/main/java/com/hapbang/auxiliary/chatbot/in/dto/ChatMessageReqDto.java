@@ -18,9 +18,13 @@ public record ChatMessageReqDto(
         @NotBlank @CodePointSize(max = 500) String message,
         @Schema(description = "이전 대화(오래된 것부터). role은 USER·ASSISTANT만, content는 USER 1~500자·ASSISTANT 1~2,000자, "
                 + "최근 12개만 쓰고(넘으면 앞에서 버림) 쓰는 대화의 글자 수 합은 8,000자까지. 어기면 400", nullable = true)
-        @Nullable List<ChatHistory.Entry> history) {
+        @Nullable List<ChatHistoryEntryReqDto> history) {
 
+    /** app의 대화로 바꾼다. 없으면 빈 목록. null 항목은 null로 둔다(검사에서 400) */
     public List<ChatHistory.Entry> historyOrEmpty() {
-        return history == null ? List.of() : history;
+        if (history == null) {
+            return List.of();
+        }
+        return history.stream().map(ChatHistoryEntryReqDto::toEntry).toList();
     }
 }
