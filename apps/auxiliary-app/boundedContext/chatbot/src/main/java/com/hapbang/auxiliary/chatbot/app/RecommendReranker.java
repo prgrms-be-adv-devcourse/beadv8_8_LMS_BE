@@ -21,6 +21,7 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 import lombok.extern.slf4j.Slf4j;
 

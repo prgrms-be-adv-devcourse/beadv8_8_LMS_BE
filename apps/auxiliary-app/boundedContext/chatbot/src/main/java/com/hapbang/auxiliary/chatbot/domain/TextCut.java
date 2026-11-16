@@ -1,4 +1,4 @@
-package com.hapbang.auxiliary.chatbot.app;
+package com.hapbang.auxiliary.chatbot.domain;
 
 /**
  * 글을 글자 수 상한으로 자른다. 코드포인트로 센다: 요청 검사(정규식의 {@code .})와 같은 기준이고, 이모지 같은 서로게이트 쌍을

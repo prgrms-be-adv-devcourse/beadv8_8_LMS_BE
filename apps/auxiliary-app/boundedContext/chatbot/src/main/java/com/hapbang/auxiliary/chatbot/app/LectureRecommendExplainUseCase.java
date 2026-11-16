@@ -12,6 +12,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 
 import lombok.RequiredArgsConstructor;

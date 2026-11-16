@@ -9,6 +9,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties.Taste;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 
 import lombok.RequiredArgsConstructor;

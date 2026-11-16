@@ -13,6 +13,7 @@ import com.hapbang.auxiliary.chatbot.app.dto.InfluencerItemResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
+import com.hapbang.auxiliary.chatbot.domain.TextCut;
 
 import lombok.RequiredArgsConstructor;
 
