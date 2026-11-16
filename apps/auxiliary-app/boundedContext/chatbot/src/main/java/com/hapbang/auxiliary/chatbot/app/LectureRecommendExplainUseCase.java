@@ -13,7 +13,6 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
 import com.hapbang.auxiliary.chatbot.domain.TextCut;
-import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 
 /**
  * 챗봇 "강의 추천받기" 버튼 경로 (#718, #720). 쿼리 확장(관심사가 있을 때) → 맞춤 후보 풀 → LLM 리랭킹 + 이유 → 인기순 채우기
@@ -32,16 +31,14 @@ import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 public class LectureRecommendExplainUseCase {
 
     private final LectureRecommendUseCase recommendUseCase;
-    private final LectureRecommendStore store;
     private final RecommendExplainFlow flow;
     private final ChatbotLectureRecommendProperties properties;
     private final ChatbotRecommendLlmProperties llmProperties;
 
-    LectureRecommendExplainUseCase(LectureRecommendUseCase recommendUseCase, LectureRecommendStore store,
-            QueryExpander queryExpander, RecommendReranker reranker, RecommendTasteSupport tasteSupport,
-            ChatbotLectureRecommendProperties properties, ChatbotRecommendLlmProperties llmProperties) {
+    LectureRecommendExplainUseCase(LectureRecommendUseCase recommendUseCase, QueryExpander queryExpander,
+            RecommendReranker reranker, RecommendTasteSupport tasteSupport, ChatbotLectureRecommendProperties properties,
+            ChatbotRecommendLlmProperties llmProperties) {
         this.recommendUseCase = recommendUseCase;
-        this.store = store;
         this.flow = new RecommendExplainFlow(queryExpander, reranker, tasteSupport, llmProperties);
         this.properties = properties;
         this.llmProperties = llmProperties;
@@ -64,9 +61,10 @@ public class LectureRecommendExplainUseCase {
         return new Explained(recommendation, explained.fallback());
     }
 
-    // 강의마다 공개 정보 한 줄: 제목·소개(잘라서)·이유 코드 설명. 기준 강의 제목(회원이 산 강의)은 넣지 않는다
+    // 강의마다 공개 정보 한 줄: 제목·소개(잘라서)·이유 코드 설명. 기준 강의 제목(회원이 산 강의)은 넣지 않는다.
+    // 강의는 풀을 만들 때 읽은 사본을 쓴다(다시 읽지 않는다)
     private List<String> candidateLines(LectureRecommendUseCase.Pool pool) {
-        Map<Long, LectureSnapshot> lectures = store.lectures(pool.lectureIds());
+        Map<Long, LectureSnapshot> lectures = pool.lectures();
         int descriptionMax = llmProperties.rerank().descriptionMaxLength();
         List<String> lines = new ArrayList<>();
         for (LectureRanker.Ranked ranked : pool.ranked()) {

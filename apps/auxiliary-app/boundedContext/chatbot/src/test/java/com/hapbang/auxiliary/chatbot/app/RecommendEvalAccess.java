@@ -141,8 +141,8 @@ public final class RecommendEvalAccess {
                     lectureProperties, metrics);
             this.influencerUseCase = new InfluencerRecommendUseCase(influencerStore, visibility, index, embedder,
                     influencerProperties, metrics);
-            this.lectureButton = new LectureRecommendExplainUseCase(lectureUseCase, lectureStore, expander, reranker,
-                    tasteSupport, lectureProperties, llmProperties);
+            this.lectureButton = new LectureRecommendExplainUseCase(lectureUseCase, expander, reranker, tasteSupport,
+                    lectureProperties, llmProperties);
             this.influencerButton = new InfluencerRecommendExplainUseCase(influencerUseCase, expander, reranker, tasteSupport,
                     categoryNames, influencerProperties, llmProperties);
         }
