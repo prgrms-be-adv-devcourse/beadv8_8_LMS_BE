@@ -86,6 +86,52 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-097 · 2026-11-16 · 통과 (N14 #955 S6 리뷰 반영 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-097 |
+| 실행 날짜 | 2026-11-16 00:21~00:26 (KST). 의존 관계 시험 단독 실행 00:1x |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 미커밋 작업 트리(기준 `3f5f8319`) |
+| 작업 트리 변경 | NR-096 변경 + S6 반영: 등록기 DLT 토픽 선언이 `NotificationKafkaTopicConfig` 빈에 의존하게 함(ND-184), `ValueFormat.valueType()`, `UnsupportedEvents.skipOrReject`, 강의 리스너 검증 변환을 `RejectedEvents.orReject`로, `NotificationKafkaConsumerDependencyTest` 추가 |
+| 대상 기능 | N14 리팩토링 전후 동일성, 등록기 빈 의존 관계 |
+| 관련 NT ID | NT-REF-01~04·06, 회귀 전체 |
+| 명령 | `./gradlew :notification:test --tests '*NotificationKafkaConsumerDependencyTest'`(반영 전·뒤); `./gradlew :notification:test`; `./gradlew verifyModuleStructure`; `./gradlew :auxiliary-app:check`; `python -I -m unittest discover -s loadtest/notification/tests` |
+| 실행 환경 | NR-096과 같다 |
+| 결과 | 통과(모두 종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행했다 |
+| 건수 | `:notification` 526(실패 0·오류 0·건너뜀 1), 이 중 구성 시험 A 55·B 1·의존 관계 6. `:auxiliary-app` 16. 스크립트 시험 43 |
+| 실패 원인 분류 | — |
+| 수정 내용 | S6 Spec 리뷰가 "supplier 안 `getBean`은 의존 관계를 남기지 않는다"고 지적했다. 시험을 먼저 써 보니 Spring은 supplier 안의 `getBean`도 만드는 빈의 의존 관계로 기록해, 빠진 것은 static 조립 메서드를 쓰는 DLT 토픽 선언의 `NotificationKafkaTopicConfig` 의존 하나였다. 등록기가 그 빈을 먼저 찾게 고쳤다 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 의존 관계 시험 6건(소비자마다)이 DLT 토픽 → `notificationKafkaTopicConfig` 의존 없음으로 실패했다. 나머지 단정(팩토리·템플릿·오류 처리기·컨테이너 팩토리의 의존)은 반영 전에도 통과했다. 반영 뒤 6건 통과. 구성 시험 A·B 파일의 SHA-256은 NR-096과 같다 |
+| 미검증 항목 | B0 재측정 5회(NT-REF-05, 커밋 뒤), CI 전체 `./gradlew check` |
+| 관련 변경 | #955 |
+
+#### NR-096 · 2026-11-16 · 통과 (N14 #955 구조 리팩토링 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-096 |
+| 실행 날짜 | 2026-11-15 23:53 ~ 2026-11-16 00:01 (KST). 구성 시험 단독 실행은 2026-11-15 23:25~23:45 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-955` |
+| 커밋 | 미커밋 작업 트리(기준 `3f5f8319`) |
+| 작업 트리 변경 | Kafka 설정 공통화(`NotificationKafkaConsumer`·`NotificationKafkaConsumerRegistrar`, 설정 클래스 3개의 토픽별 `@Bean` 제거), 리스너 공통 부품(`NotificationEventSubscriber`·`RejectedEvents`·`UnsupportedEvents`, 리스너 6개), 구성 시험 2개 추가, `NotificationKafkaDeadLetterTest` 호출부 2곳(없앤 `@Bean` 메서드 대신 `NotificationKafkaConsumer.MEMBER.settings()`·`deadLetterProducerFactory`, 단정은 그대로) |
+| 대상 기능 | N14 리팩토링 전후 동일성 |
+| 관련 NT ID | NT-REF-01~04, 회귀 전체 |
+| 명령 | `./gradlew :notification:test --tests '*NotificationKafkaConsumerConfigurationTest' --tests '*NotificationKafkaListenerConfigurationTest'`(리팩토링 전·뮤테이션·리팩토링 뒤); `./gradlew :notification:test`; `./gradlew verifyModuleStructure`; `./gradlew :auxiliary-app:check`; `python -I -m unittest discover -s loadtest/notification/tests`; `bash loadtest/notification/tests/b0_guard_test.sh` |
+| 실행 환경 | Windows 10, Git Bash, JDK 25(Gradle toolchain), Docker Desktop(Testcontainers) |
+| 결과 | 통과(모두 종료 코드 0). `:notification:test`·`:auxiliary-app:test`는 새로 실행했다(`:auxiliary-app:check` 안의 `:notification:test`는 바로 앞 실행의 UP-TO-DATE) |
+| 건수 | `:notification` 520(실패 0·오류 0·건너뜀 1: 환경 변수가 있을 때만 도는 `B0FixtureExportTest`), 이 중 구성 시험 A 55·B 1. `:auxiliary-app` 16. 스크립트 시험 43, guard 시험 통과(cluster 없음 시험 1건은 `k3d-hapbang-b0`가 있어 건너뜀) |
+| 실패 원인 분류 | — |
+| 수정 내용 | 구성 시험 A 첫 작성 때 시험 쪽 결함 2건: ① broker 없는 문맥에서 Boot `KafkaAdmin`이 DLT 토픽 생성을 기다려 10분을 넘김 → 시험 문맥에서만 `spring.kafka.admin.auto-create=false`(NewTopic 빈은 그대로 만든다), ② 재시도 listener가 lambda라 `getEnclosingClass()`가 null → `getNestHost()`로 확인. 시험 B 첫 실행은 Docker Desktop이 꺼져 문맥이 뜨지 않음(환경) → 켠 뒤 통과 |
+| 재실행 결과 | 위 결과 |
+| RED 확인 | 구성 시험은 리팩토링 전 코드를 정답으로 고정하는 시험이라 처음부터 통과한다(ND-182). 뮤테이션으로 실패를 확인했다: 시험 A — backoff 최대값 +1(6건), 강의 ContainerFactory를 바로 시작하는 factory로(1건), 채팅 DLT 템플릿의 `defaultCandidate` 제거(플래그 1건과 Boot 기본 `kafkaTemplate`이 물러나 이름 없는 주입 1건) → 55건 중 9건 실패. 시험 B — 강의 바로 시작 뮤테이션에서 `notification-lecture-events` autoStartup 기대 false·실제 true. 모두 되돌린 뒤 `git diff` 운영 코드 0줄. 리팩토링 뒤 두 시험 파일의 SHA-256(`dab52c8a…`, `d82f50e8…`)이 리팩토링 전과 같다 |
+| 미검증 항목 | B0 재측정 5회(NT-REF-05, 커밋 뒤), CI 전체 `./gradlew check` |
+| 관련 변경 | #955 |
+
 #### NR-095 · 2026-11-15 · 통과 (N13 #946 PR #954 CI 실패 수정)
 
 | 항목 | 값 |

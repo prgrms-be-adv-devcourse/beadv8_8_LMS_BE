@@ -285,6 +285,19 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 | NT-B0-10 | 스크립트 | — | 덤프·지표·표본 | 덤프 정규화(UTF-8·LF), V0~V8 판정, 회차 전체 V2, 선형 보간 분위수, 완료 관측·처리량 오차, 클러스터 시계, 도구 pod polling, 진단 분석, smoke 요약 보호, 운영 context 거절이 각 기준대로다 | Windows 콘솔 인코딩, +Inf 구간, 표본 0 | ND-166~ND-170·ND-173·ND-174 | — | 단위(Python·bash) | 유효 |
 | NT-B0-11 | B0 회차 | B0 cluster, fixture | `b0.sh run <n>` | V0~V8 통과, F가 회차끼리 같다. 처리량 CV ≤ 10% | V0 실패면 회차 무효 | ND-173·ND-175 | — | E2E(k3d) | 유효 |
 
+### 2.17 REF — 구조 리팩토링 동일성
+
+N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF-01~04는 리팩토링 전 코드로 먼저 쓰고 GREEN을 확인한 뒤, 리팩토링 뒤에도 고치지 않고 통과해야 한다(ND-182).
+
+| 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| NT-REF-01 | 소비자 빈 등록 | 알림 Kafka 설정 + Boot Kafka 자동 설정 | 소비자 여섯 개 | 소비자마다 settings·ConsumerFactory·DLT ProducerFactory·DLT KafkaTemplate·오류 처리기·ContainerFactory·DLT 토픽 빈이 지금 이름·타입으로 있다. Kafka 빈 여섯 종은 `defaultCandidate=false`·`autowireCandidate=true`이고 이름으로 주입된다. Boot 기본 Kafka 빈도 함께 만들어진다 | Bean 이름은 시험에 문자열로 적는다 | ND-180·ND-182 | — | 통합(문맥) | 유효 |
+| NT-REF-02 | 소비자 구성 값 | NT-REF-01 | 소비자 여섯 개 | consumer 설정(group·offset·자동 커밋·토픽 자동 생성), 역직렬화 체인(신뢰 패키지·타입 헤더 유지, 강의는 바이트), 동시성·AckMode·autoStartup(회원만 기동 때 시작)·observation·interceptor, backoff(처음·배수·최대·횟수)·재시도 안 하는 예외, DLT 토픽·partition 규칙·producer 설정·직렬화기·결과 대기, DLT 토픽 선언(partition·복제·보존)이 지금과 같다 | — | ND-154·ND-179·ND-182 | kafka.md 재시도와 DLT | 통합(문맥) | 유효 |
+| NT-REF-03 | 활성 속성 | — | 소비자별 활성 속성 미설정·`true`·`false`·대소문자 변형 | 미설정·`true`(대소문자 무관)면 그 소비자의 빈이 모두 있고, `false`면 하나도 없다. 다른 소비자 빈에는 영향이 없다 | `@ConditionalOnBooleanProperty`와 같은 판정 | ND-180·ND-182 | — | 통합(문맥) | 유효 |
+| NT-REF-04 | 리스너 구성 | Kafka 시험 문맥 | 리스너 컨테이너 등록부 | 리스너 여섯 개의 컨테이너 ID·구독 토픽·group·사용 factory·autoStartup이 지금과 같다 | — | ND-181·ND-182 | — | 통합(Kafka) | 유효 |
+| NT-REF-05 | N14 재측정 | B0 cluster, fixture, N14 커밋 이미지 | `b0.sh run <n>` 5회 | V0~V8 통과, F의 SHA-256이 B0와 같고, 처리량 CV ≤ 10%, 정상 단계 처리량 중앙값 ≥ B0 중앙값의 90% | 불합격이면 `3f5f8319` 이미지 대조 5회 | ND-175·ND-183 | — | E2E(k3d) | 유효 |
+| NT-REF-06 | 등록기 빈의 의존 관계 | NT-REF-01 | 소비자 여섯 개 | 빈마다 예전 `@Bean` 메서드처럼 설정 클래스 빈과 받은 빈(소비자 값, 팩토리, 템플릿, 오류 처리기)에 의존한다고 기록돼 있다. DLT 토픽 선언은 `NotificationKafkaTopicConfig`에 의존한다 | — | ND-184 | — | 통합(문맥) | 유효 |
+
 ## 3. 완료 증거 매핑
 
 [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거 6개(원문 그대로)와 이를 판정하는 NT 항목이다. 증거를 시연·실행한 결과는 [regression-log.md](regression-log.md)에 남긴다. 여기 연결은 실행 기록이 아니다.
@@ -320,7 +333,8 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
 | OBS 계측 | 12 | 12 | 0 | 0 | 0 |
 | B0 부하 도구·기준선 | 11 | 11 | 0 | 0 | 0 |
-| **합계** | **145** | **141** | **4** | **0** | **0** |
+| REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
+| **합계** | **151** | **147** | **4** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -399,6 +413,10 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 | NT-B0-08 (N13) | `loadtest.B0ConsoleProducerCompatibilityTest` | 전부 |
 | NT-B0-10 (N13) | `loadtest/notification/tests/`의 `test_b0_scripts.py`·`test_diag_b0.py`·`test_sanitize_summary.py`·`b0_guard_test.sh` | 전부 |
 | NT-B0-11 (N13) | `loadtest/notification/b0.sh run <n>`(E2E, 결과는 regression-log·B0 기준선 결과) | 전부 |
+| NT-REF-01~03 (N14) | `in.event.kafka.NotificationKafkaConsumerConfigurationTest`(ApplicationContextRunner + Boot Kafka 자동 설정, 소비자 여섯 개, 리팩토링 전 GREEN·뮤테이션 RED 확인) | 전부 |
+| NT-REF-04 (N14) | `in.event.NotificationKafkaListenerConfigurationTest`(Kafka 시험 문맥, 리스너 여섯 개) | 전부 |
+| NT-REF-05 (N14) | `loadtest/notification/b0.sh run <n>` 5회(N14 커밋 이미지, 결과는 regression-log·B0 기준선 문서) | 전부 |
+| NT-REF-06 (N14) | `in.event.kafka.NotificationKafkaConsumerDependencyTest`(S6 리뷰 뒤, DLT 토픽 의존 빠짐으로 RED 확인) | 전부 |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
 - 작성 때 발행되지 않던 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. M1~M8은 모두 완료됐다(PROGRESS 3장).
 
@@ -410,6 +428,7 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-15 decisions.md ND-179~ND-183 반영(N14 구조 리팩토링, #955): 2.17 REF(NT-REF-01~05)를 더했다. 집계 145 → 150, 유효 146. 구현 뒤 4장 연결 표에 NT-REF 테스트를 더했다. S6 리뷰 뒤 ND-184로 NT-REF-06을 더했다(집계 151, 유효 147).
 - 2026-11-15 decisions.md ND-177 반영(PR Bot 리뷰, #946): NT-OBS-11에 트랜잭션 밖 경로의 재시도·DLT 기준과 연결 테스트를 더했다. 집계는 그대로.
 - 2026-11-15 decisions.md ND-163~ND-175 반영(N13 부하 도구·B0, #946): NT-OBS-11(사전 판단 건너뜀 집계, ND-164)·NT-OBS-12(성공 레코드마다 정확히 한 번, ND-167)와 2.16 B0(NT-B0-01~11)를 더하고 4장 연결 표에 N13 테스트를 더했다. 집계 132 → 145, 유효 141. 정정: 이전 합계 줄의 유효 127은 영역별 행의 합(128)과 달랐다(유효 + 미결 = 항목 수가 맞지 않음). 행의 합으로 고쳤다.
 - 2026-11-14 decisions.md ND-159~ND-162 반영(N12 계측, #944): 2.15 OBS(NT-OBS-01~10)를 더하고 4장 연결 표에 N12 테스트를 더했다. 집계 122 → 132, 유효 127.

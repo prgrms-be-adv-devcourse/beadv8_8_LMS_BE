@@ -41,6 +41,7 @@
 | 관리자 API(N5): `POST /api/v1/notifications/admin/user-replica/backfill`(202 `BackfillRun`), `GET …/backfill/{runId}`, `NotificationAdminFacade` `@PreAuthorize("hasRole('ADMIN')")` + global `SecurityConfig` `/api/v1/*/admin/**` ADMIN. 비동기(ND-092): 요청 스레드에서 `JobLock` 잡기(409) → `RedisBackfillRunStore`에 RUNNING(실패하면 잠금 풀고 503 `BACKFILL_STATUS_UNAVAILABLE`) → 가상 스레드에서 `runLocked`(페이지마다 갱신 시각) → COMPLETED(결과)·FAILED(`BACKFILL_FAILED`) 저장 → 잠금 해제. 조회는 RUNNING인데 5분 넘게 갱신이 없으면 UNKNOWN, 없으면 404 `BACKFILL_RUN_NOT_FOUND`. Redis 키 `<접두어>:backfill:run:<id>`, TTL 7일 | `.../in/ApiV1NotificationAdminController.java` |
 | 알림 시작 시각(ND-095): `AlertStartPolicy`가 빈을 만들 때(Kafka 소비자 시작 전) 정한다. 설정 `hapbang.notification.alert.start-at`이 있으면 그 값(`OffsetDateTime`으로 직접 읽고, 잘못되면 기동 실패), 없으면 `JdbcAlertStartStore`가 `notification.notification_runtime_setting`(Flyway `V202611111530`)에 키 `alert.start-at`으로 지금 시각을 `ON CONFLICT DO NOTHING` 기록한 뒤 다시 읽은 값. 운영 `application-prod.yaml`에는 값이 없고, `application-local.yaml`·모듈 테스트는 2000-01-01 | `.../app/AlertStartPolicy.java`, `.../out/JdbcAlertStartStore.java` | `apps/auxiliary-app/src/main/resources/application-{prod,local}.yaml` |
 | Kafka 소비·DLT 공통 설정(채팅 복사, ND-028): 블로킹 재시도 3회(1·2·4초, 상한 10초) 뒤 `<토픽>.<그룹>.DLT`, 역직렬화·검증 실패는 재시도 없이 DLT, DLT는 원본과 같은 partition 번호·3개·7일 보존으로 모듈이 선언, AckMode.RECORD, 동시성 1(U13 제안), `auto-offset-reset=earliest` | `.../in/event/kafka/NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}.java` |
+| Kafka 소비 설정 구조(N14 #955, ND-179~ND-181): 소비자 여섯 개를 정의 목록 `NotificationKafkaConsumer`(토픽·group·신뢰 패키지·값 형식 `EVENT`/`BYTES`·시작 방식 `ON_STARTUP`/`AFTER_FIRST_BACKFILL`·활성 속성·Bean 이름 규칙)에 두고, `NotificationKafkaConsumerRegistrar`(`ImportBeanDefinitionRegistrar`, `NotificationKafkaConfig`의 `@Import`)가 소비자마다 settings·ConsumerFactory·DLT ProducerFactory·DLT KafkaTemplate·오류 처리기·ContainerFactory·DLT 토픽을 예전 이름으로 등록한다. Kafka 빈 다섯 개는 `defaultCandidate=false`, 소멸 메서드 추론. 리스너는 `NotificationEventSubscriber`(토픽·group getter), `RejectedEvents.orReject`(검증 실패 → 재시도 없는 실패), `UnsupportedEvents`(처리기 없는 레코드)를 합성한다. 강의 리스너는 바이트 판별·역직렬화와 처리기 없는 종류의 건너뜀(레코드에서 종류를 읽으므로 `SkippedEventLog`를 직접 쓴다)을 그대로 두고, 검증 변환과 getter만 공통 부품을 쓴다. 등록기 빈의 의존 관계는 예전 `@Bean`과 같다(ND-184) | `.../in/event/kafka/{NotificationKafkaConsumer,NotificationKafkaConsumerRegistrar,NotificationEventSubscriber,RejectedEvents,UnsupportedEvents}.java`, 구성 시험 `NotificationKafkaConsumerConfigurationTest`·`NotificationKafkaListenerConfigurationTest` |
 | Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID) | `boundedContext/notification/src/main/resources/db/migration/` |
 | Flyway `V202611120950__create_notification_payout_item.sql`(N8, ND-103): `notification.notification_payout_item`(PK 지급 건 ID, 묶음 알림 ID FK, 받는 사람, 지급 HP CHECK >= 0, 지급 시각)과 `notification`의 묶음 유일 인덱스 `uk_notification_bundle`(종류, 받는 사람, 묶음 키; `bundle_key IS NOT NULL`만 조건이라 삭제된 행 포함) | `boundedContext/notification/src/main/resources/db/migration/` |
 | 하루 묶음(N8 #890, ND-032·ND-097·ND-101~ND-103): 지갑 리스너가 강의 원천 `PayoutCompletedEvent`를 `DailyPayout`(묶음 키 = `paidAt`의 KST 날짜 `yyyy-MM-dd`)으로 바꿔 `NotificationAlertService.dailyPayout`에 넘긴다(시작 시각 전이면 커밋만, ND-076). `NotificationWriter.addDailyPayout`이 한 트랜잭션에서 받는 사람 행 잠금(ND-053) → 받는 사람 확인 → 같은 지급이면 `DUPLICATE`(묶음 불변) → 그 날짜 묶음(삭제된 행 포함)이 없으면 만들고(`Notification.createBundle`, 원본 대상 ID·이동 대상 없음) 있으면 받는 사람의 보이는 알림과 묶음 행을 한 번에 ID 오름차순으로 잠근 뒤(밀려날 행이 이 안에 있어 전체 읽음과 잠금 순서가 같다) 칸만 바꾸는 UPDATE로 합계·건수·문구·발생 시각(늦은 값)·안 읽음·되살림(`UPDATED`) → 지급 기록(`JdbcPayoutItemStore`) → 21번째부터 Soft Delete → commit 뒤 실시간 전달. 문구는 `PayoutDailyTemplate`(값 `v`·`date`·`totalPaidAmountHp`·`count`, ND-100) | `.../app/DailyPayout.java`, `.../app/PayoutDailyTemplate.java`, `.../app/NotificationWriter.java`, `.../app/PayoutItemStore.java`, `.../out/JdbcPayoutItemStore.java`, `.../out/NotificationRepository.java`, `.../in/event/NotificationBillingEventListener.java` |
@@ -207,6 +208,10 @@ ND-027·ND-059를 구현하면서 정한 세부다. 결정(ND)이 아니라 구�
 | 연결 정리 | 핸드셰이크 전에 티켓을 `GETDEL`로 쓴다(업그레이드가 실패해도 그 티켓은 다시 못 쓴다). 연결이 닫히면 결합과 만료 예약을 지운다. 결합하지 못했거나 이미 만료인 연결은 STOMP 처리기에 넘기지 않고 닫는다 | 서버 쪽에 남는 연결·예약이 없다 |
 | 서버가 닫는 경우 | 정책상 종료는 연결 만료(4401)뿐이다(ND-057). 그 밖에 STOMP 규칙 위반(결합 안 된 CONNECT, SEND, 다른 목적지 구독)은 Spring이 ERROR 프레임과 함께 닫고, 전송 상한(10초·512KB, ND-058)을 넘긴 연결도 Spring이 닫는다 | ND-057의 범위는 정책상 종료이고, 규칙 위반·전송 상한 종료는 별개다(ND-061) |
 
+### 3.9 Kafka 소비 설정 구조 (N14, #955)
+
+동작은 바꾸지 않고 구조만 바꾼다(ND-154). 대상·등록 방식·리스너 부품·동일성 검증·등록기 방식의 차이는 ND-179~ND-184, 구현된 구조는 2장 As-Is "Kafka 소비 설정 구조" 행이다.
+
 ## 4. 제안 To-Be (미채택)
 
 > **미채택.** 아래 구조는 이 문서의 제안일 뿐 결정이 아니다. 구현 때 auxiliary README의 "모듈 추가 방법", `chatbot` 모듈 구조, 팀 컨벤션(루트 AGENTS 11장: 패키지 구조는 미정)과 비교해 정한다.
@@ -307,6 +312,8 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | 날짜 | 내용 |
 | --- | --- |
+| 2026-11-16 | ND-184 반영(N14 S6 리뷰): 3.9를 ND 참조로 줄이고 2장 행에 강의 리스너 범위와 의존 관계를 적었다 |
+| 2026-11-15 | ND-179~ND-183 반영(N14 구조 리팩토링 결정, #955): 3.9 Kafka 소비 설정 구조를 더하고, 구현 뒤 2장 As-Is에 "Kafka 소비 설정 구조" 행을 더했다 |
 | 2026-11-14 | ND-159~ND-162 반영(N12 계측, #944): 2장 As-Is에 소비·실시간 지표 행을 더했다 |
 | 2026-11-14 | ND-150~ND-152 반영(N11 사전 결정, #937): 3.2 예약 행에 지표·alert·멈춤 감지 참조를 더했다. 구현 뒤 2장 As-Is에 예약 배치 지표 행을 더했다 |
 | 2026-11-14 | #935: 머리말 정책 원본을 policy.md 9장으로 바꾸고, U6 팀 확인(#935)으로 3.2 운영 시간 참조를 고치고 6장 U6/T5 행을 지웠다 |
