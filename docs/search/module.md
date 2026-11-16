@@ -1,13 +1,13 @@
 # 검색(search) 모듈
 
-auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾고, 비회원을 포함한 누구나 검색어로 판매 중인 강의를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다. 강의 검색(부모 #881)은 index 채우기(#882, 13장), 검색 API(#883, 14장), 보정·처음 적재·재색인(#884, 15장)까지 왔다.
+auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.search`)이다. 로그인한 회원이 검색어·콘텐츠 분야·팔로워·출연 평점으로 인플루언서를 찾고, 비회원을 포함한 누구나 검색어로 판매 중인 강의를 찾는다. 결정의 배경은 부모 이슈 #767, 인프라 방향은 [검색 인프라](../architecture/infrastructure/search.md)에 있다. 강의 검색(부모 #881)은 index 채우기(#882, 13장), 검색 API(#883, 14장), 보정·처음 적재·재색인(#884, 15장)까지 왔다. 검색어 입력 도우미(자동완성·초성, #973)는 16장이다.
 
-- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장), #882(강의 검색 1: 사본과 강의 색인, 13장), #883(강의 검색 2: 검색 API, 14장), #909(강의 검색 4: 가격 표시와 가격 정렬, 13·14장).
+- 기준: #771(검색 1), #772(검색 2: 증분 보정·정합성 지표), #773(검색 3: 처음 적재·무중단 재색인), #868(공통 index 관리 코드 분리, 3장), #882(강의 검색 1: 사본과 강의 색인, 13장), #883(강의 검색 2: 검색 API, 14장), #909(강의 검색 4: 가격 표시와 가격 정렬, 13·14장), #973(검색어 입력 도우미: 자동완성·초성, 16장).
 - 이 문서와 코드가 다르면 코드가 맞다. 확인한 뒤 이 문서를 고친다.
 
 ## 1. 지금 범위
 
-| 한다 (#771, #772, #773, #882, #883, #909, #884) | 아직 안 한다 |
+| 한다 (#771, #772, #773, #882, #883, #909, #884, #973) | 아직 안 한다 |
 | --- | --- |
 | 회원 이벤트로 문서 넣기·숨기기(회원 version 조건부 쓰기, tombstone) | 원본·index 문서 수 차이 alert(지표만 낸다, #772 Q2) |
 | 강의·리뷰·회원 이벤트로 강의 문서 넣기·숨기기·평점·판매자 반영(#882, 13장), 가격 칸·가격 정렬(#909) | 가격 구간 필터(FE 요청 때) |
@@ -19,6 +19,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | 7일 지난 tombstone 정리 | |
 | `GET /api/v1/search/influencers`, 지표 | |
 | `GET /api/v1/search/lectures`(비회원 포함), 회원·client IP 호출 제한(#883, 14장) | |
+| 검색어 자동완성 `GET …/lectures/suggestions`(비회원 포함)·`…/influencers/suggestions`, 초성 검색(#973, 16장) | 한영 자판 변환(`qkdthd` → 방송, 검색 로그에서 근거가 보이면) |
 
 처음 적재(#773)가 끝나면 index가 원본 전체를 담는다. FE는 이 뒤에 연결한다.
 
@@ -63,11 +64,13 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `TombstoneCleanup` | 7일 지난 숨김 문서 정리(대상마다 얇은 하위 클래스) |
 | app | `SearchJob`, `SearchJobRunner` | 한 pod 실행 락 번호와 실행기. alias가 없어(처음 적재 전) 못 한 회차는 실패가 아니라 건너뜀(INFO) |
 | app | `SearchMetrics` | 검색 API 지표. `forTarget(대상)`으로 대상별 묶음을 받는다 |
+| app | `HangulKeys` | 초성·자모 변환과 "초성뿐인 검색어" 판단(#973, 16장). ES에 한국어 초성 기능이 없어 앱이 색인할 때 원문에서 만든다 |
 | app | `ZeroResultKeywords` | 0건 검색어 모으기(9장). 대상마다 얇은 하위 클래스로 따로 센다(#883). 회원은 `record(검색어, 회원 ID)`, 비회원은 `record(검색어, client IP 해시)`(L19). 타입이 달라 둘이 같은 검색자로 섞이지 않는다 |
 | app | `CachedRatingBaseline` | 베이지안 평균의 전체 평균 C를 pod 메모리에 두는 캐시(주기 10분, 실패하면 1분 동안 다시 묻지 않음, 다시 구하는 동안 다른 요청은 기다리지 않고 가진 값을 씀). 대상마다 얇은 하위 클래스(#883) |
 | in | `SynonymsCheckBatch` | 동의어 묶음 확인 시각(기동 1분 뒤, 그 뒤 10분마다, `hapbang.search.synonyms-check-interval`). ES를 부르므로 재색인 실행기로 넘긴다(앱 공용 스케줄러 스레드를 붙잡지 않음). 모든 대상이 함께 쓰는 묶음이라 대상 배치가 아니라 공통에 둔다 |
 | out | `IndexDefinition` | `search/<대상>/index.json` + 공통 사용자 사전으로 index 본문·설정 해시·이름(`search-<대상>-<해시>`)·alias(`search-<대상>`) |
 | out | `IndexSetup` | index 하나의 쓰기 준비(alias 확인, 없으면 `IndexNotReadyException`), 상태(`IndexState`), 새 index 만들기·지우기·refresh, alias 원자 교체. 이 대상 index는 이름이 정확히 `search-<대상>-` + 해시 12자인 것만 본다(`IndexDefinition.ownsIndex`). 이름이 대상 + "-…"인 다른 대상의 index를 남은 index로 지우지 않게 한다 |
+| out | `SearchAsYouType` | `search_as_you_type` 칸을 낱말 앞부분으로 찾는 쿼리와 자동완성 조건(초성 칸, 원문 앞부분 칸 또는 자모 칸, #973). 대상은 칸 이름만 넘긴다 |
 | out | `SynonymsSetup` | 동의어 묶음 하나를 공통 `synonyms.txt`와 맞춘다(모든 대상이 함께 씀) |
 | out | `DocumentWrites` | 문서 쓰기의 대상 무관 부분: alias 없음 404 → 건너뜀, 그 문서 값 때문의 거절 판별(`DocumentRejectedException`), bulk 결과(`WriteOutcome`), 보이는 문서 세기, 숨김 문서 지우기 |
 | out | `ConsistencyCheckStore` | 문서 수 정합성 점검 결과(`search.consistency_check`, 대상별 한 행). JDBC |
@@ -79,17 +82,18 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | in | `SearchBatch` | 통계 동기화(끝난 뒤 10분), 증분 보정(끝난 뒤 10분), 처음 적재·재색인 확인(끝난 뒤 10분), tombstone 정리(매일 04:30), 인플루언서 0건 검색어 로그(10분) |
 | in | `SearchIndexStartup` | 기동 뒤 다른 스레드에서 처음 적재·재색인 확인(동의어 포함) |
 | app | `InfluencerMemberIndexer` | 회원 정보 → 넣기 또는 숨기기 |
-| app | `InfluencerStatsSync` | 통계·분야 이름 동기화와 문서 수 정합성 점검(한 pod만, `JobLock` 771_002) |
+| app | `InfluencerStatsSync` | 통계·분야 이름 동기화와 문서 수 정합성 점검(한 pod만, `JobLock` 771_002). 끝에 닉네임 초성·자모 칸을 닉네임과 맞춘다(#973, 16장) |
 | app | `MemberChangeReconciler` | 회원 변경분 증분 보정(한 pod만, `JobLock` 772_001). 결과 종류는 `ReconcileKind`. 재색인의 따라잡기 부품(`IndexCatchUp`)이기도 하다 |
 | app | `InfluencerReindexer`, `InfluencerIndexLoader` | 공통 `Reindexer`에 인플루언서 부품을 끼운다(락 `JobLock` 773_001). 채우기는 회원 목록 + 통계, 따라잡기는 증분 보정 |
 | app | `InfluencerTombstoneCleanup` | 인플루언서 index의 tombstone 정리(한 pod만, `JobLock` 771_001) |
 | app | `SearchSyncMetrics` | 보정·정합성 지표 |
 | app | `InfluencerSearchFacade` | 검색 조건 검사, 지표, 0건 검색어 |
+| app | `InfluencerSuggestionFacade` | 검색어 자동완성(로그인 회원, 한도 없음, #973) |
 | app | `ContentCategoryNames`, `RatingBaseline` | 분야 코드 → 이름, 평점 전체 평균 C(`CachedRatingBaseline` 하위 클래스). 둘 다 pod마다 10분 캐시 |
 | app | `InfluencerZeroResultKeywords` | 인플루언서 0건 검색어(`target=influencer`) |
 | out | `InfluencerIndexDefinition`, `InfluencerIndexSetup` | 대상 이름(`influencers`)·alias·지표 대상 값(`influencer`)과, 그 정의를 채운 `IndexSetup` |
 | out | `InfluencerDocumentStore` | 회원·통계·분야 이름 쓰기(painless), 처음 적재용 bulk, 증분 보정용 문서 읽기. 나머지는 `DocumentWrites`에 맡긴다 |
-| out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
+| out | `InfluencerSearcher` | 검색 쿼리(초성뿐이면 초성 칸, #973), 자동완성 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource` | 회원 내부 API(통계·분야 목록 #769) |
 
 ### 강의 (`search.lecture`, #882)
@@ -100,21 +104,22 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | in | `LectureSearchBatch` | 강의 보정(끝난 뒤 10분), 판매자 사본 보정(끝난 뒤 10분), 리뷰 보정(끝난 뒤 1시간), 처음 적재·재색인 확인(끝난 뒤 10분), tombstone 정리(매일 04:40), 강의 0건 검색어 로그(10분) |
 | in | `LectureIndexStartup` | 기동 뒤 다른 스레드에서 강의 처음 적재·재색인 확인(15장) |
 | app | `LectureSearchFacade` | 강의 검색 조건 검사, 호출 제한, 지표, 0건 검색어(14장) |
-| app | `LectureSearchRateLimit` | 회원 ID·client IP 키별 호출 제한과 지표(14장) |
+| app | `LectureSuggestionFacade` | 강의 검색어 자동완성(비회원 포함, 본 검색과 따로 센 호출 제한, #973, 16장) |
+| app | `LectureSearchRateLimit` | 회원 ID·client IP 키별 호출 제한과 지표(14장). 본 검색(`target=lecture`)과 자동완성(`target=lecture_suggestion`)에 빈이 하나씩이다(#973) |
 | app | `LectureRatingBaseline`, `LectureZeroResultKeywords` | 강의 평점 전체 평균 C, 강의 0건 검색어(`target=lecture`) |
-| config | `LectureRankingProperties`, `LectureRateLimitProperties`, `LectureSearchConfig` | 순위 계수(`hapbang.search.lecture-ranking.*`), 호출 제한 값(`hapbang.search.lecture-rate-limit.*`)과 limiter 빈 두 개 |
+| config | `LectureRankingProperties`, `LectureRateLimitProperties`, `LectureSuggestionRateLimitProperties`, `LectureSearchConfig` | 순위 계수(`hapbang.search.lecture-ranking.*`), 호출 제한 값(본 검색 `hapbang.search.lecture-rate-limit.*`, 자동완성 `hapbang.search.lecture-suggestion-rate-limit.*`)과 limiter·호출 제한 빈 |
 | app | `LectureIndexer` | 강의 → 문서 넣기·숨기기, 리뷰 → 리뷰 사본·평점 다시 세기 |
 | app | `SellerIndexer` | 회원 → 회원 사본, 닉네임·상태가 바뀌면 그 판매자의 강의 문서 고치기 |
 | app | `LectureTombstoneCleanup` | 강의 index의 tombstone 정리(한 pod만, `JobLock` 882_001) |
 | app | `LectureReconciler` | 강의 보정: 강의 동기화 API 전체와 문서 version 비교, 원본에 없는 문서 숨김(한 pod만, `JobLock` 884_001, 15장) |
-| app | `LectureReviewReconciler`, `LectureCopyAligner` | 리뷰 보정: 리뷰 사본 맞추기 + 모든 문서의 판매자·평점 칸을 사본과 맞추기(`JobLock` 884_002, 15장) |
+| app | `LectureReviewReconciler`, `LectureCopyAligner` | 리뷰 보정: 리뷰 사본 맞추기 + 모든 문서의 판매자·평점 칸을 사본과, 초성·자모 칸을 원문과 맞추기(`JobLock` 884_002, 15장·16장) |
 | app | `SellerChangeReconciler` | 판매자 사본 증분 보정: 회원 변경분을 자기 커서(`seller-changes`)로 읽어 반영(`JobLock` 884_003, 15장) |
 | app | `LectureReindexer`, `LectureIndexLoader`, `LectureIndexCatchUp` | 공통 `Reindexer`에 강의 부품을 끼운다(`JobLock` 884_004). 채우기는 회원 사본 → 리뷰 사본 → 강의, 따라잡기는 강의 보정 + 칸 맞추기(15장) |
 | app | `LectureSyncMetrics`, `LectureReconcileKind` | 강의 보정 지표와 결과 종류(9장) |
 | out | `LectureIndexDefinition`, `LectureIndexSetup` | 대상 이름(`lectures`)·alias·지표 대상 값(`lecture`)과, 그 정의를 채운 `IndexSetup` |
-| out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query`, 처음 적재 bulk, 보정용 문서 읽기(mget·페이지)·원본에 없는 문서 숨기기(#884) |
+| out | `LectureDocumentStore` | 강의 쓰기(painless), 평점·판매자 칸 부분 갱신, 판매자 `update_by_query`, 처음 적재 bulk, 보정용 문서 읽기(mget·페이지)·원본에 없는 문서 숨기기(#884), 초성·자모 칸 compare-and-set(#973, `LectureHangulKeys`) |
 | out | `LectureSyncSource`, `SearchLectureApiSyncSource` | 강의 동기화 내부 API(강의·리뷰 전체, [계약](../api/internal-lecture-sync.md) 4장) |
-| out | `LectureSearcher` | 강의 검색 쿼리·정렬·highlight, 평균 C 집계(14장) |
+| out | `LectureSearcher` | 강의 검색 쿼리·정렬·highlight, 평균 C 집계(14장), 초성뿐인 검색어·자동완성 쿼리(16장) |
 | out | `SearchMemberCopyStore`, `LectureReviewCopyStore` | 회원 사본 `search.member_copy`, 리뷰 사본 `search.lecture_review_copy`. 여러 판매자·강의를 한 번에 읽기, 원본에 없는 리뷰 지우기(#884). JDBC |
 
 ### 새 대상(강의·모집)을 붙이는 법
@@ -132,7 +137,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 이름 `search-influencers-<설정 해시 12자>`, 검색·쓰기는 alias `search-influencers`로만 한다(쓰기는 `require_alias`라 alias가 없으면 실패하고, ES가 같은 이름의 index를 멋대로 만들지 않는다).
 - 원본은 레포 파일 `boundedContext/search/src/main/resources/search/`의 `influencers/index.json`(설정·mapping)과, 모든 대상이 함께 쓰는 `common/user-dictionary.txt`(사용자 사전)·`common/synonyms.txt`(동의어)다(#868, L17).
 - 동의어 묶음 이름은 모든 대상이 함께 쓰는 `search-synonyms`다(#895, #868 R4). 옛 이름 `search-influencers-synonyms`에서 사용자 사전 강의 용어 추가와 함께 바꿔 재색인을 한 번으로 합쳤다. 이름이 index 본문에 들어가 바꾸면 모든 대상의 설정 해시가 바뀐다. 코드는 묶음을 지우지 않으므로 옛 묶음은 재색인이 옛 index를 지운 뒤 손으로 지운다(`DELETE _synonyms/search-influencers-synonyms`, #895 PR 본문).
-- 운영 index는 #972 배포 뒤 `search-influencers-e611774467ba`(그 전 #895의 `df33405ee9ab`, 처음 `d656dfa35eee`)이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping·묶음 이름을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
+- 운영 index는 #973 배포 뒤 `search-influencers-ef09de170083`(그 전 #972의 `e611774467ba`, #895의 `df33405ee9ab`, 처음 `d656dfa35eee`)이고 `InfluencerIndexDefinitionTest`가 이 값을 고정한다(사전·mapping·묶음 이름을 바꾸면 테스트 값도 고치고 PR에 재색인을 적는다).
 - 설정 해시는 mapping·분석기·사용자 사전으로만 만든다. **동의어는 넣지 않는다**(검색할 때만 쓰여 재색인이 필요 없다).
 - 기동하면(다른 스레드): 동의어 묶음(`search-synonyms`)이 파일과 다르면 묶음 전체를 PUT → alias가 없거나 다른 해시의 index를 가리키면 처음 적재·재색인을 한다(7장). 10분마다 다시 확인한다. 묶음 확인은 대상마다의 재색인과 별도로 `SynonymsCheck`도 10분마다 한다(거절 알림은 여기서만, 7장).
 - **alias는 처음 적재가 index를 다 채우고 확인한 뒤에만 붙인다.** 이벤트 소비·보정이 alias가 없다고 빈 index에 alias를 붙이지 않는다(붙이면 "alias 있음, 해시 같음"으로 보여 처음 적재가 돌지 않는다).
@@ -144,6 +149,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | --- | --- | --- |
 | `ko_index` | `nori_tokenizer`(`decompound_mode: discard`, 사용자 사전) + `nori_part_of_speech` + `lowercase` | 색인 |
 | `ko_search` | `ko_index` + `synonym_graph`(Synonyms API 묶음, `updateable`) | 검색 |
+| `hangul_keys` | `whitespace` + `lowercase` | 초성·자모 칸(#973). 앱이 이미 바꾼 값을 띄어쓰기로만 나눈다(nori는 `ㅂㅅㅈㅂ`을 다르게 쪼갠다) |
 
 - 사용자 사전은 한 단어 규칙만 둔다. 사전이 없으면 사라지거나(치지직·옵치, 캡컷 → 컷) 뜻이 깨지는(인플루언서 → 인/플/언서, 배그 → 배, 트위치 → 트/위치, 썸네일 → 썸/일) 단어다. 앞 글자를 감탄사·관형사로 보고 버리는 게임 용어(에임 → 임, 한타 → 타)도 넣는다. 사전이 없으면 "에임"이 "임베딩"(임/베/딩)에 걸린다(#972). 띄어 쓴 이름(리그 오브 레전드)은 동의어가 맡는다.
 - 뜻 있는 두 낱말이 붙은 합성어(컷편집 → 컷/편집, 영상편집, 색보정)는 넣지 않는다. 넣으면 한 토큰이 되어 "편집"이나 띄어 쓴 "컷 편집"으로 찾지 못한다. 프리미어·OBS처럼 이미 쪼개지지 않는 말도 넣지 않는다(#895, `_analyze` 근거는 PR 본문).
@@ -158,6 +164,8 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `memberVersion` | long | 회원 이벤트(`UserDto.version`) |
 | `hidden`, `hiddenAt` | boolean, date | 숨김(tombstone)과 숨긴 시각 |
 | `nickname`, `bio` | text(nori) | 회원 이벤트 |
+| `nickname.suggest` | search_as_you_type(nori) | 자동완성 칸(#973). ES가 `nickname`에서 채운다 |
+| `nicknameChosung`, `nicknameJamo` | search_as_you_type(`hangul_keys`) | 닉네임의 초성·자모(#973, 16장). 앱이 회원 이벤트를 쓸 때 만들고, 숨기면 닉네임과 함께 지운다 |
 | `role`, `verified` | keyword, boolean | 회원 이벤트(VERIFIED_INFLUENCER면 verified) |
 | `contentCategories.code`, `contentCategories.name` | keyword, text(nori) | 코드는 회원 이벤트, 이름은 분야 목록 내부 API. 회원이 고른 순서 |
 | `channelNames` | text(nori) | 통계(인증된 채널 모두) |
@@ -276,7 +284,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 
 | 파라미터 | 뜻 |
 | --- | --- |
-| `keyword` | 최대 100자. 닉네임 ×3, 채널 이름 ×3, 분야 이름 ×2, 자기소개 ×1(`best_fields`, tie_breaker 0.3) |
+| `keyword` | 최대 100자. 닉네임 ×3, 채널 이름 ×3, 분야 이름 ×2, 자기소개 ×1(`best_fields`, tie_breaker 0.3). 초성뿐이면 닉네임 초성 칸으로 찾는다(16장) |
 | `contentCategories` | 분야 코드 최대 10개. 하나라도 가진 사람(filter, OR) + 많이 맞을수록 위(should) |
 | `verified` | true면 인증만, false면 인증 안 된 사람만, 없으면 모두 |
 | `minFollowers`, `minRating` | 0 이상, 0~5. 평점 조건은 원래 평균이라 리뷰 없는 사람은 빠진다 |
@@ -292,7 +300,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 
 | 지표 | 뜻 |
 | --- | --- |
-| `hapbang.search.requests{target, outcome}` | 검색 요청 수. outcome = ok·empty(0건)·error |
+| `hapbang.search.requests{target, outcome}` | 검색 요청 수. outcome = ok·empty(0건)·error. 자동완성은 `target=lecture_suggestion`·`influencer_suggestion`으로 따로 센다(#973) |
 | `hapbang.search.es.latency{target}` | ES 검색 시간(histogram, p95) |
 | `hapbang.search.zero.results{target}` | 필터 없이 검색어만으로 0건인 요청 수 |
 | `hapbang.auxiliary.job.lock.skipped{job}` | 락 때문에 건너뛴 회차(global) |
@@ -301,9 +309,9 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
 | `hapbang.search.reindex.duration{target, reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). `target` 태그는 #868에서 더했다. reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
 | `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수, 강의는 판매 중 강의 수) |
-| `hapbang.search.lecture.reconcile.items{job, kind}` | 강의 보정이 본 항목 수(15장). job = lecture·review·seller. 놓친 이벤트를 바로잡은 kind는 inserted·overwritten·hidden(강의), copied·review_deleted(사본), seller_fixed·rating_fixed(칸 맞추기)이고 already_applied·skipped는 아니다. 인플루언서 `reconcile.members`와 이름을 나눈 것은 같은 이름에 태그 키가 다르면 Prometheus가 받지 않기 때문이다 |
+| `hapbang.search.lecture.reconcile.items{job, kind}` | 강의 보정이 본 항목 수(15장). job = lecture·review·seller. 놓친 이벤트를 바로잡은 kind는 inserted·overwritten·hidden(강의), copied·review_deleted(사본), seller_fixed·rating_fixed·hangul_keys_fixed(칸 맞추기, hangul_keys_fixed는 #973)이고 already_applied·skipped는 아니다. 인플루언서 `reconcile.members`와 이름을 나눈 것은 같은 이름에 태그 키가 다르면 Prometheus가 받지 않기 때문이다 |
 | `hapbang.search.lecture.reconcile.duration{job, outcome}` | 강의 보정 1회 소요 시간. outcome = success·failure |
-| `hapbang.search.rate.limit.rejected{target, requester}` | 호출 제한으로 429를 준 수(강의 검색만, #883). requester = member·guest |
+| `hapbang.search.rate.limit.rejected{target, requester}` | 호출 제한으로 429를 준 수(강의 검색 `target=lecture` #883, 강의 자동완성 `target=lecture_suggestion` #973). requester = member·guest |
 | `hapbang.search.rate.limit.skipped{target}` | client IP가 공인 주소가 아니라 IP 호출 제한을 건너뛴 비회원 요청 수. 0이 아니면 Envoy 앞 경로를 확인한다(14장) |
 | `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(`SynonymsCheck` 10분 확인마다 한 번, 대상 수와 상관없음, #895). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
@@ -315,6 +323,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
   - **필터 없이 검색어만으로 0건**인 요청만 센다. 필터가 좁아 0건인 것은 사전 문제가 아니다(지표 `zero.results`도 같은 기준).
   - **서로 다른 검색자 2명 이상, 그중 회원 1명 이상이 찾은 말만** 로그에 나온다. 한 사람만 입력한 말은 남지 않는다. 검색자는 회원 ID, 강의 검색의 비회원은 client IP의 HMAC(14장)이고, 이 판단에만 메모리에서 쓰고(검색어마다 2명까지) 남기지 않는다. 회원이 꼭 있어야 하는 것은 한 사람이 망을 바꿔(Wi-Fi·LTE) 비회원 IP 둘로 넘기지 못하게 하려는 것이다(#883). 로그인 한 번·로그아웃 한 번(회원 1 + 비회원 1)으로는 넘을 수 있지만, 로그인한 회원 스스로의 기록이라 감수한다. 공인 주소가 아닌 비회원은 세지 않는다.
   - 이메일·URL·전화번호 모양(숫자 8개 이상)과 30자를 넘는 말은 세지 않는다.
+  - 초성뿐인 검색어(`ㅋㅋㅋ`)는 세지 않는다. 사전·동의어로 고칠 말이 아니다(#973). 지표 `zero.results`에는 센다. 자동완성은 치는 도중의 말이라 모으지 않는다.
   - 대상(인플루언서·강의)마다 따로 센다(#883). 요청에서는 세기만 하고 10분마다 배치 스레드가 대상마다 `여러 검색자가 찾았지만 결과가 없던 검색어를 모았다 target=…, keywords={…}` 한 줄(상위 100개)로 남긴다. 그래서 요청의 `userId`·`traceId`가 붙지 않는다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
 - 인플루언서 검색에는 rate limit을 두지 않았다(로그인 전용, #767 Q28). 위 요청 수·p95와 k6 측정을 보고 정한다. 강의 검색은 비회원에게 열려 있어 처음부터 둔다(14장).
 
@@ -364,6 +373,10 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SellerChangeReconcilerTest` | 판매자 사본 보정: 처음은 지금부터, 놓친 정지, 이미 반영·판매자 아닌 회원, 처음 적재 전엔 사본만 |
 | `LectureReindexerTest` | 강의 처음 적재: 일부만 찬 사본도 모두 맞춤, 판매자·평점·숨김, **적재 중 바뀐 강의·리뷰·판매자가 교체 뒤 반영**, 해시가 같으면 안 함, 실패하면 alias 없음·새 index 삭제, 거절된 강의 건너뜀 |
 | `LectureDocumentStoreReconcileTest`, `LectureReindexWiringTest` | 새 index bulk·mget·페이지 읽기·숨기기(강의 version 지움), 기동·10분 확인이 재색인 실행기로 넘김 |
+| `HangulKeysTest` | 초성·자모 변환(된소리·겹받침·겹모음·영문·괄호·NFD), **입력기가 치는 도중 보내는 글자가 모두 완성 낱말 자모의 앞부분**(방ㅅ·방소·플·달·읽ㄱ·읮), 띄어쓰기 뺀 값, 초성뿐 판단(#973) |
+| `LectureSearcherTest`(자동완성·초성), `LectureSuggestionFacadeTest` | 초성뿐인 본 검색(띄어쓰기 달라도), 자동완성 앞부분·낱말 중간·치는 도중·`방송 ㅈ`·초성·보일 강의만·순서·개수, 빈 검색어는 ES를 부르지 않음, 503(#973) |
+| `ApiV1LectureSearchControllerTest`·`ApiV1SearchControllerTest`(자동완성) | 응답 모양·400·비회원 401(인플루언서)·비회원 허용(강의), **자동완성이 429여도 본 검색은 200**, 초성 0건은 0건 검색어로 모으지 않음(#973) |
+| `LectureDocumentStoreTest`·`InfluencerDocumentStoreTest`·`LectureReviewReconcilerTest`·`InfluencerStatsSyncTest`(초성·자모 칸) | 모든 쓰기 경로가 칸을 채움, 숨기면 닉네임 칸 지움, **옛 pod처럼 원문만 바뀐 문서를 칸 맞추기가 고침**, compare-and-set은 읽은 원문이 바뀌었으면 쓰지 않음(#973) |
 
 ## 12. 알려진 한계
 
@@ -397,6 +410,9 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `lectureVersion` | long | 강의 version(조건부 쓰기) |
 | `hidden`, `hiddenAt` | boolean, date | 판매 중이 아닌 강의(`onSale=false`: 판매 중지·검수 전·삭제)의 tombstone |
 | `title`, `description`, `contentTitles` | text(nori) | 강의 이벤트 |
+| `title.suggest`, `sellerNickname.suggest` | search_as_you_type(nori) | 자동완성 칸(#973). ES가 원래 칸에서 채운다 |
+| `titleChosung`, `titleJamo` | search_as_you_type(`hangul_keys`) | 제목의 초성·자모(#973, 16장). 강의 칸과 함께 쓴다 |
+| `sellerNicknameChosung`, `sellerNicknameJamo` | search_as_you_type(`hangul_keys`) | 판매자 닉네임의 초성·자모(#973). 판매자 칸과 함께 쓴다(같은 회원 version 조건) |
 | `sellerUserId` | long | 강의 이벤트 |
 | `priceHp` | long | 강의 이벤트(#909). 가격 필드가 생기기 전(#885)의 옛 메시지로 만든 문서면 없다 |
 | `sellerNickname`, `sellerActive` | text(nori), boolean | 회원 사본(L5·L8). 정지는 숨김이 아니라 `sellerActive=false`다 |
@@ -439,7 +455,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 
 | 파라미터 | 뜻 |
 | --- | --- |
-| `keyword` | 선택, 최대 50자. 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1(`best_fields`, tie_breaker 0.3) |
+| `keyword` | 선택, 최대 50자. 제목 ×3, 콘텐츠 제목 ×2, 판매자 닉네임 ×2, 소개 ×1(`best_fields`, tie_breaker 0.3). 초성뿐이면 초성 칸으로 찾는다(16장) |
 | `page`, `size`, `sort` | size 기본 20·최대 100. sort는 `latest,desc`·`rating,desc`·`price,asc`·`price,desc`만(그 밖 400 `UNSUPPORTED_SORT`, 상세 메시지가 강의 정렬을 알린다). 정렬 이름은 문서 필드가 아니라 짧은 뜻 이름이다(인플루언서 `followers`와 같다, #909). Spring이 방향을 빠뜨린 `sort=price`를 오름차순으로 채워 `price,asc`와 같게 처리된다(구분할 수 없음) |
 
 - 보이는 강의: `hidden=false` 그리고 `sellerActive=true`(13장).
@@ -524,3 +540,66 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 강의·리뷰 보정은 매 회차 전체를 읽는다. 지금 규모(강의 수백~수천, 리뷰 수천)에서는 수 초다. 커지면 `reconcile.duration`을 보고 변경분 API(`lecture.updated_at` 인덱스 + `lecture_review.sync_changed_at`)를 검토한다. 보정은 인플루언서 증분 보정처럼 앱 공용 스케줄러 스레드에서 돈다.
 - 리뷰 보정이 원본을 끝까지 읽는 동안 늦게 커밋된 리뷰(이미 읽은 ID보다 작은 ID)는 이벤트로 사본에 들어왔어도 "원본에 없는 리뷰"로 지워질 수 있다. 다음 회차(1시간)가 다시 넣고 평점 칸도 맞춘다(PR #923 리뷰).
 - 판매자 사본 커서도 처음에는 지금 시각부터 읽는다. 첫 회차 전에 놓친 회원 이벤트는 처음 적재의 회원 사본 맞추기와 다음 재색인이 맞춘다.
+
+## 16. 검색어 입력 도우미: 자동완성·초성 (#973)
+
+검색창에 입력할 때 돕는 기능 두 가지다. 부모는 검색 고도화 #971이다. 한영 자판 변환(`qkdthd` → 방송)은 넣지 않았다. 실제로 얼마나 일어나는지 근거가 없어, 검색 로그(#971 하위)에서 영문 자판으로 친 한글이 자주 보이면 그때 더한다.
+
+| 기능 | 예 |
+| --- | --- |
+| 자동완성 | `프리` → "프리미어 프로 기초", "프리랜서 영상 편집" |
+| 초성 | `ㅂㅅㅈㅂ` → "방송장비 추천" |
+
+### 칸
+
+ES에는 한국어 초성·자모 기능이 없고, 운영 ES에 플러그인을 더하지 않는다. 플러그인은 ECK init container가 pod를 띄울 때마다 받는데(`k8s/platform/base/elasticsearch`), 외부 플러그인은 ES 버전에 정확히 맞는 빌드가 있어야 하고 설치가 실패하면 챗봇과 함께 쓰는 ES 전체가 뜨지 않는다. 그래서 **앱이 색인할 때 원문에서 만들어 넣는다**(`HangulKeys`).
+
+| 칸 | 만드는 곳 | 쓰는 곳 |
+| --- | --- | --- |
+| `title.suggest`, `sellerNickname.suggest`, `nickname.suggest` | ES가 원래 칸에서 채운다(`search_as_you_type`, nori) | 자동완성: 원문 낱말 앞부분(`프리`, 낱말 중간 `장비`) |
+| `titleChosung`, `sellerNicknameChosung`, `nicknameChosung` | 앱: 음절마다 첫소리(`방송장비 추천` → `ㅂㅅㅈㅂ ㅊㅊ`) | 초성뿐인 검색어(본 검색·자동완성) |
+| `titleJamo`, `sellerNicknameJamo`, `nicknameJamo` | 앱: 입력기가 글자를 만드는 순서대로 낱자로(`방송` → `ㅂㅏㅇㅅㅗㅇ`, `닭` → `ㄷㅏㄹㄱ`, `과` → `ㄱㅗㅏ`, 된소리 `ㄲ`·`ㅆ`은 한 낱자) | 자동완성: 치는 도중의 글자(`방ㅅ`, `방소`, `플`) |
+
+- 초성·자모 칸은 원문을 쓰는 script와 같은 자리에서 쓴다. 강의 제목은 `lectureParams`·`LECTURE_SCRIPT`(이벤트·처음 적재 bulk·보정), 판매자 닉네임은 `sellerParams`·`SELLER_SCRIPT`(update_by_query·칸 맞추기, 같은 회원 version 조건), 인플루언서 닉네임은 `profileFields`(이벤트·증분 보정·처음 적재)다. 그래서 모든 경로가 같은 값을 넣는다.
+- 인플루언서 닉네임의 초성·자모는 개인정보라 숨길 때 닉네임과 함께 지운다(`PERSONAL_FIELDS`).
+- **띄어쓰기**: 칸에는 그 값과 띄어쓰기를 뺀 값을 함께 넣고(`[ㅂㅅㅈㅂ ㅊㅊ, ㅂㅅㅈㅂㅊㅊ]`), 검색어에 띄어쓰기가 있으면 뺀 값으로도 찾는다. 한국어는 띄어쓰기가 사람마다 달라 `ㅂㅅㅈㅂㅊㅊ`·`ㅂㅅ ㅈㅂ`·`방송 ㅈ`(제목은 "방송장비")처럼 제목과 다르게 쳐도 맞게 한다. 띄어쓰기를 뺀 값은 원문 맨 앞부터만 맞는다.
+- 비교는 모두 **띄어쓰기 단위 앞부분**이다(`bool_prefix`, 마지막 낱말만 앞부분이고 모든 낱말이 맞아야 한다). 초성 낱말 중간(`ㅈㅂ` → 방송**장비**)은 찾지 않는다. 짧은 초성에 엉뚱한 후보가 너무 많이 걸리기 때문이다. 원문 자동완성 칸은 nori가 나눈 낱말 단위라 `장비`로도 찾는다.
+
+### 초성 검색(본 검색)
+
+- 검색어가 **낱자 자음과 띄어쓰기로만** 되어 있으면(`HangulKeys.isChosungOnly`) 글 칸 대신 초성 칸에서 찾는다. 강의는 제목 ×3·판매자 닉네임 ×2, 인플루언서는 닉네임. 노출 조건·평점/팔로워 가산·정렬은 같다.
+- 그 밖의 검색어(일반 글, `ㅂ송`처럼 섞인 말)는 지금 검색 그대로다. 그래서 golden query 순위가 바뀌지 않는다.
+- 원문에 초성 글자가 없어 강의 highlights는 칸이 모두 null이다(검색어가 있으니 객체는 있다).
+- 초성뿐인 0건 검색어는 0건 검색어 로그에 모으지 않는다(9장).
+
+### 자동완성 API
+
+`GET /api/v1/search/lectures/suggestions?keyword=` (누구나), `GET /api/v1/search/influencers/suggestions?keyword=` (로그인 회원)
+
+- `keyword`는 필수(없으면 400)이고 최대 50자다. 앞뒤·연속 공백을 정리해 비면 ES를 부르지 않고 빈 목록이다(입력창을 지울 때마다 오류가 나지 않게).
+- 찾는 조건(`SearchAsYouType.suggest`): 초성뿐이면 초성 칸, 아니면 **원문 자동완성 칸 또는 자모 칸**(검색어도 자모로 풀어 비교) 중 하나라도 맞으면 후보다. 둘 다 맞으면 점수가 높다. 노출 조건은 본 검색과 같다(강의 `hidden=false`·`sellerActive=true`, 인플루언서 `hidden=false`).
+- 후보는 최대 5개다. 강의는 점수 → 리뷰 수 → 강의 ID 내림차순, 인플루언서는 점수 → 팔로워 → 회원 ID다. 평점 가산은 하지 않는다(입력할 때마다 부르는 가벼운 요청이고 평균 C를 구하지 않게).
+- 응답: 강의 `[{lectureId, title, sellerNickname}]`, 인플루언서 `[{userId, nickname}]`. 누르면 ID로 바로 가거나 글자로 본 검색을 하게 둘 다 준다. 검색어 강조는 없다(초성·자모로 맞은 후보는 강조할 자리가 없다).
+- **호출 제한**: 강의 자동완성은 본 검색과 같은 키 규칙(회원 ID·client IP, 14장)이지만 **한도를 따로 센다**(`hapbang.search.lecture-suggestion-rate-limit.*`, 각 분당 120). 입력할 때마다 불러 본 검색보다 잦으므로, 자동완성이 한도를 넘어도 본 검색은 막히지 않게 한다. 인플루언서 자동완성은 본 검색처럼 한도가 없다(로그인 전용, 9장).
+- ES에 닿지 못하면(처음 적재 전 포함) 503 `SEARCH_UNAVAILABLE`이다. FE는 503·429면 후보를 숨기고, 입력이 잠깐 멈췄을 때(예: 300ms) 부른다.
+- 0건 검색어는 모으지 않는다(치는 도중의 말이다). 지표는 `target=lecture_suggestion`·`influencer_suggestion`이다.
+
+### 롤링 배포 중 틈과 칸 맞추기
+
+칸이 생긴 배포에서 재색인이 alias를 옮긴 뒤에도 잠깐 살아 있던 옛 pod는 초성·자모 칸을 모른다. 그 사이 옛 pod가 제목·닉네임을 바꾸면 원문만 바뀌고 초성·자모는 옛 값으로 남고, 옛 pod가 숨긴 인플루언서 문서에는 닉네임 초성·자모가 남는다. 같은 version이라 보정은 다시 쓰지 않는다.
+
+- 강의: 1시간 리뷰 보정의 칸 맞추기(`LectureCopyAligner`)가 모든 문서를 한 번 더 넘기며 원문으로 다시 만든 값과 다르면 고친다(`kind=hangul_keys_fixed`). 재색인 따라잡기도 같은 코드를 탄다.
+- 인플루언서: 10분 통계 동기화 끝에 보이는 문서를 넘기며 고치고, 숨김 문서에 남은 칸은 그 칸이 있는 숨김 문서만 찾아 지운다. 실패해도 통계 동기화는 실패로 치지 않는다(다음 회차).
+- 쓰기는 **compare-and-set**이다. 문서의 원문이 읽은 값과 같을 때만 초성·자모를 고친다. 읽은 뒤 이벤트가 원문을 바꿨으면 그 이벤트가 맞는 값을 썼으므로 건드리지 않는다. 초성·자모는 같은 문서의 원문만으로 정해지는 값이라 version을 보지 않는다(version 조건부 쓰기 규칙과 상관없다).
+
+### 배포
+
+- 두 index(강의·인플루언서)의 mapping이 바뀌어 배포 때 각각 무중단 재색인이 한 번 돈다(7장). 새 index는 원본 전체로 채워져 기존 문서도 새 칸을 갖는다.
+- 재색인이 alias를 옮기기 전(수 초~수십 초) alias는 새 칸이 없는 옛 index(`dynamic: strict`)를 가리킨다. 그 사이 새 pod의 강의·회원 이벤트 쓰기가 거절되어 재시도 뒤 DLT로 갈 수 있다("Kafka DLT 적재" 경보). 재색인 따라잡기(강의 전체 비교, 회원 T − 1분부터)가 채우므로 잃는 것은 없다(#909 가격 칸 때와 같다).
+
+### 한계
+
+- 초성은 낱말 앞부분만 찾는다(`ㅈㅂ`으로 "방송장비"를 못 찾는다). 띄어쓰기를 뺀 값도 원문 맨 앞부터만 맞는다.
+- 초성과 글자를 섞은 입력(`ㅂ송`)은 초성으로 보지 않는다. 자동완성에서는 자모 칸도 맞지 않아 후보가 없다.
+- 자동완성 순서는 글이 맞은 정도 → 리뷰 수/팔로워다. 인기 검색어·클릭 기록은 쓰지 않는다(검색 로그 #971 하위에서 다시 본다).
+- 초성·자모 칸 맞추기는 강의 최대 1시간, 인플루언서 최대 10분 걸린다. 그 사이 그 문서는 자동완성·초성 검색에서 옛 이름으로 보인다. 본 검색 결과와 노출 조건에는 영향이 없다.
