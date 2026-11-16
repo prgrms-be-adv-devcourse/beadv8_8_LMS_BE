@@ -112,10 +112,8 @@ public class SyncRun {
         this.discarded = tally.discarded();
     }
 
+    // 컬럼 길이(VARCHAR, 글자 수)를 코드포인트로 센다. 이모지를 반으로 자르지 않는다
     private static String truncate(String value) {
-        if (value == null || value.length() <= ERROR_MAX_LENGTH) {
-            return value;
-        }
-        return value.substring(0, ERROR_MAX_LENGTH);
+        return value == null ? null : TextCut.head(value, ERROR_MAX_LENGTH);
     }
 }
