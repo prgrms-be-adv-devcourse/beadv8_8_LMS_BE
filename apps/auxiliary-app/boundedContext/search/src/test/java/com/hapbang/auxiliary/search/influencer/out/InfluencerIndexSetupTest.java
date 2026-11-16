@@ -78,6 +78,17 @@ class InfluencerIndexSetupTest {
     }
 
     @Test
+    @DisplayName("게임 용어는 사전으로 앞 글자를 지킨다: 에임은 임, 한타는 타로 깨지지 않는다(#972)")
+    void gameTerms() throws Exception {
+        SearchElasticsearch.createIndex(client);
+
+        assertThat(analyze("ko_index", "에임 연습")).containsExactly("에임", "연습");
+        assertThat(analyze("ko_index", "한타 설계")).containsExactly("한타", "설계");
+        // 사전에 없던 때 "에임"은 "임"이 되어 "임베딩"(임/베/딩)에 걸렸다
+        assertThat(analyze("ko_index", "임베딩 모델")).doesNotContain("에임");
+    }
+
+    @Test
     @DisplayName("ES의 동의어 묶음이 레포 파일과 다르면 묶음 전체를 바꾼다")
     void replacesDifferentSynonyms() throws Exception {
         client.synonyms().putSynonym(p -> p.id(IndexDefinition.SYNONYMS_SET)
