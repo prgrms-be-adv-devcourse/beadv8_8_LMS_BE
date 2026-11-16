@@ -338,8 +338,8 @@ public class InfluencerDocumentStore {
         Map<String, Object> fields = new HashMap<>();
         fields.put("nickname", profile.nickname());
         // 초성·자모 칸(#973): ES에 한국어 초성 기능이 없어 앱이 닉네임에서 만들어 넣는다. 이벤트·증분 보정·처음 적재가 모두 이 프로필로 쓴다
-        fields.put("nicknameChosung", HangulKeys.chosung(profile.nickname()));
-        fields.put("nicknameJamo", HangulKeys.jamo(profile.nickname()));
+        fields.put("nicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(profile.nickname())));
+        fields.put("nicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(profile.nickname())));
         fields.put("bio", profile.bio());
         fields.put("role", profile.role());
         fields.put("verified", profile.verified());

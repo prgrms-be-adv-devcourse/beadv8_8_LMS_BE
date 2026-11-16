@@ -205,6 +205,8 @@ class LectureSearcherTest {
         assertThat(ids(search("ㅂㅅㅈㅂ ㅊ", LectureSort.DEFAULT))).containsExactly(1L);
         assertThat(ids(search("ㅅㄹㅈㅇ", LectureSort.DEFAULT))).containsExactly(2L);
         assertThat(ids(search("ㅈㅂ", LectureSort.DEFAULT))).as("낱말 중간은 찾지 않는다").isEmpty();
+        assertThat(ids(search("ㅂㅅㅈㅂㅊㅊ", LectureSort.DEFAULT))).as("띄어쓰기 없이 쳐도 찾는다").containsExactly(1L);
+        assertThat(ids(search("ㅂㅅ ㅈㅂ", LectureSort.DEFAULT))).as("제목에 없는 띄어쓰기도 찾는다").containsExactly(1L);
 
         LectureSearchItem.Highlights highlights = search("ㅂㅅㅈㅂ", LectureSort.DEFAULT).getFirst().highlights();
         assertThat(highlights).isNotNull();
@@ -253,6 +255,9 @@ class LectureSearcherTest {
             assertThat(suggestIds(typing)).as(typing).containsExactly(2L);
         }
         assertThat(suggestIds("방송장비 ㅊ")).containsExactly(1L);
+        for (String typing : List.of("방송 ㅈ", "방송 자", "방송 장")) {
+            assertThat(suggestIds(typing)).as("제목에 없는 띄어쓰기 뒤 치는 중 %s", typing).containsExactly(1L);
+        }
     }
 
     @Test

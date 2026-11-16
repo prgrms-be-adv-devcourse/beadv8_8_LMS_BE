@@ -41,6 +41,21 @@ public final class SearchAsYouType {
     }
 
     /**
+     * 초성·자모 칸을 찾는 쿼리. 칸에는 띄어쓰기를 뺀 값도 들어 있으므로({@link HangulKeys#withCompact}), 검색어에 띄어쓰기가 있으면 뺀 값으로도
+     * 찾는다({@code ㅂㅅ ㅈㅂ} → {@code ㅂㅅㅈㅂ}도). 띄어쓰기를 뺀 값은 제목 맨 앞부터만 맞는다.
+     *
+     * @param key 검색어를 칸에 맞게 바꾼 값(초성 또는 자모)
+     */
+    public static Query hangulKeys(String key, List<String> fields) {
+        String compact = key.replace(" ", "");
+        if (compact.equals(key)) {
+            return boolPrefix(key, fields);
+        }
+        return Query.of(q -> q.bool(b -> b.should(boolPrefix(key, fields)).should(boolPrefix(compact, fields))
+                .minimumShouldMatch("1")));
+    }
+
+    /**
      * 검색어 자동완성 조건(#973). 대상(강의·인플루언서)마다 칸만 다르다.
      * <ul>
      *     <li>검색어가 초성뿐이면({@code ㅂㅅ}) 초성 칸</li>
@@ -53,11 +68,11 @@ public final class SearchAsYouType {
     public static Query suggest(String keyword, List<String> chosungFields, List<String> suggestFields,
             List<String> jamoFields) {
         if (HangulKeys.isChosungOnly(keyword)) {
-            return boolPrefix(HangulKeys.chosung(keyword), chosungFields);
+            return hangulKeys(HangulKeys.chosung(keyword), chosungFields);
         }
         return Query.of(q -> q.bool(b -> b
                 .should(boolPrefix(keyword, suggestFields))
-                .should(boolPrefix(HangulKeys.jamo(keyword), jamoFields))
+                .should(hangulKeys(HangulKeys.jamo(keyword), jamoFields))
                 .minimumShouldMatch("1")));
     }
 }

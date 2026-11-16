@@ -90,6 +90,15 @@ class HangulKeysTest {
         assertThat(HangulKeys.jamo("")).isEmpty();
     }
 
+    @Test
+    @DisplayName("색인 값은 그 값과 띄어쓰기를 뺀 값이다. 띄어쓰기가 없으면 하나, null은 null, 빈 값은 빈 목록이다")
+    void withCompact() {
+        assertThat(HangulKeys.withCompact("ㅂㅅㅈㅂ ㅊㅊ")).containsExactly("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ");
+        assertThat(HangulKeys.withCompact("ㅊㅊㅁ")).containsExactly("ㅊㅊㅁ");
+        assertThat(HangulKeys.withCompact(null)).isNull();
+        assertThat(HangulKeys.withCompact("")).isEmpty();
+    }
+
     @ParameterizedTest(name = "\"{0}\" → {1}")
     @CsvSource(delimiter = '|', value = {
             "ㅂㅅㅈㅂ|true",

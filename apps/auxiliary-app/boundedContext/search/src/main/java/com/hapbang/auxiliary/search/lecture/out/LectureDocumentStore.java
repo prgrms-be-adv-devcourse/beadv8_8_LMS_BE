@@ -50,7 +50,7 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * 초성·자모 칸(#973): 제목의 초성·자모({@code titleChosung}·{@code titleJamo})는 강의 칸, 판매자 닉네임의 초성·자모
  * ({@code sellerNicknameChosung}·{@code sellerNicknameJamo})는 판매자 칸과 함께 쓴다. ES에 한국어 초성 기능이 없어 앱이 원문에서
- * {@link HangulKeys}로 만들어 넘긴다. 원문을 쓰는 script가 늘 같이 쓰므로 이벤트·처음 적재 bulk·보정·update_by_query가 모두 같은 값을 넣는다.
+ * {@link HangulKeys}로 만들어 넘긴다(띄어쓰기를 뺀 값도 함께, {@link HangulKeys#withCompact}). 원문을 쓰는 script가 늘 같이 쓰므로 이벤트·처음 적재 bulk·보정·update_by_query가 모두 같은 값을 넣는다.
  * <p>
  * 숨김(tombstone): 판매 중이 아닌 강의({@code onSale=false}: 판매 중지·검수 전·삭제)는 문서를 지우지 않고 {@code hidden=true}·
  * {@code hiddenAt}·version을 남긴다. 지우면 늦게 온 옛 이벤트가 문서를 되살린다. 7일 뒤 정리한다. 이미 숨긴 문서에 더 새 숨김 이벤트가 와도
@@ -442,8 +442,8 @@ public class LectureDocumentStore {
         params.put("version", JsonData.of(lecture.version()));
         params.put("sellerUserId", JsonData.of(lecture.sellerUserId()));
         params.put("title", JsonData.of(lecture.title()));
-        putIfPresent(params, "titleChosung", HangulKeys.chosung(lecture.title()));
-        putIfPresent(params, "titleJamo", HangulKeys.jamo(lecture.title()));
+        putIfPresent(params, "titleChosung", HangulKeys.withCompact(HangulKeys.chosung(lecture.title())));
+        putIfPresent(params, "titleJamo", HangulKeys.withCompact(HangulKeys.jamo(lecture.title())));
         putIfPresent(params, "description", lecture.description());
         params.put("contentTitles", JsonData.of(lecture.contents().stream().map(LectureContentSyncDto::title).toList()));
         putIfPresent(params, "priceHp", lecture.priceHp());
@@ -451,8 +451,8 @@ public class LectureDocumentStore {
         params.put("now", JsonData.of(now.toEpochMilli()));
         String sellerNickname = seller == null ? null : seller.nickname();
         putIfPresent(params, "sellerNickname", sellerNickname);
-        putIfPresent(params, "sellerNicknameChosung", HangulKeys.chosung(sellerNickname));
-        putIfPresent(params, "sellerNicknameJamo", HangulKeys.jamo(sellerNickname));
+        putIfPresent(params, "sellerNicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(sellerNickname)));
+        putIfPresent(params, "sellerNicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(sellerNickname)));
         params.put("sellerActive", JsonData.of(seller == null || seller.active()));
         putIfPresent(params, "sellerVersion", seller == null ? null : seller.version());
         params.putAll(ratingParams(rating));
@@ -462,8 +462,8 @@ public class LectureDocumentStore {
     private static Map<String, JsonData> sellerParams(Seller seller) {
         Map<String, JsonData> params = new HashMap<>();
         putIfPresent(params, "nickname", seller.nickname());
-        putIfPresent(params, "nicknameChosung", HangulKeys.chosung(seller.nickname()));
-        putIfPresent(params, "nicknameJamo", HangulKeys.jamo(seller.nickname()));
+        putIfPresent(params, "nicknameChosung", HangulKeys.withCompact(HangulKeys.chosung(seller.nickname())));
+        putIfPresent(params, "nicknameJamo", HangulKeys.withCompact(HangulKeys.jamo(seller.nickname())));
         params.put("active", JsonData.of(seller.active()));
         putIfPresent(params, "version", seller.version());
         return params;

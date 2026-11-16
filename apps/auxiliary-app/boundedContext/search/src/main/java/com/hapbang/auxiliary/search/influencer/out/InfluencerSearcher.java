@@ -174,7 +174,7 @@ public class InfluencerSearcher {
     /** 검색어 조건. 초성뿐이면 닉네임 초성 칸, 아니면 글 칸(#973) */
     private static Query keywordQuery(String keyword) {
         if (HangulKeys.isChosungOnly(keyword)) {
-            return SearchAsYouType.boolPrefix(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
+            return SearchAsYouType.hangulKeys(HangulKeys.chosung(keyword), CHOSUNG_FIELDS);
         }
         return Query.of(q -> q.multiMatch(mm -> mm.query(keyword).fields(KEYWORD_FIELDS)
                 .type(TextQueryType.BestFields).tieBreaker(0.3)));

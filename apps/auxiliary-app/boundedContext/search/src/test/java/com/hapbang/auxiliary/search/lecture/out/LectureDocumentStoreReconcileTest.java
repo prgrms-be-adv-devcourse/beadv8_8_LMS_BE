@@ -66,8 +66,10 @@ class LectureDocumentStoreReconcileTest {
         store.loadLectures(index, List.of(new LectureLoad(lecture(11L, true, 2L), SELLER, RATING)), NOW);
         setup.refresh(index);
 
-        assertThat(source(index, 11L)).containsEntry("titleChosung", "ㄱㅇ11").containsEntry("titleJamo", "ㄱㅏㅇㅇㅡㅣ11")
-                .containsEntry("sellerNicknameChosung", "ㅍㅈㅈ").containsEntry("sellerNicknameJamo", "ㅍㅕㄴㅈㅣㅂㅈㅏㅇ");
+        assertThat(source(index, 11L)).containsEntry("titleChosung", List.of("ㄱㅇ11"))
+                .containsEntry("titleJamo", List.of("ㄱㅏㅇㅇㅡㅣ11"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅍㅈㅈ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅍㅕㄴㅈㅣㅂㅈㅏㅇ"));
     }
 
     @Test

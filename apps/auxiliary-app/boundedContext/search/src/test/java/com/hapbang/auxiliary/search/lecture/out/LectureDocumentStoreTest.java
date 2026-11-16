@@ -202,19 +202,22 @@ class LectureDocumentStoreTest {
     }
 
     @Test
-    @DisplayName("제목·판매자 닉네임의 초성·자모 칸을 원문과 함께 쓴다: 새 문서, 제목 수정, 판매자 update_by_query·문서 하나 쓰기(#973)")
+    @DisplayName("제목·판매자 닉네임의 초성·자모 칸(띄어쓰기를 뺀 값 포함)을 원문과 함께 쓴다: 새 문서, 제목 수정, 판매자 update_by_query·문서 하나 쓰기(#973)")
     void hangulKeys() throws Exception {
         store.writeLecture(lecture(11L, "방송장비 추천", true, 1L), new Seller(7L, "소리장인", true, 1L), RATING, NOW);
-        assertThat(source(11L)).containsEntry("titleChosung", "ㅂㅅㅈㅂ ㅊㅊ")
-                .containsEntry("titleJamo", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ")
-                .containsEntry("sellerNicknameChosung", "ㅅㄹㅈㅇ").containsEntry("sellerNicknameJamo", "ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ");
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("ㅂㅅㅈㅂ ㅊㅊ", "ㅂㅅㅈㅂㅊㅊ"))
+                .containsEntry("titleJamo", List.of("ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣㅊㅜㅊㅓㄴ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ"));
 
         store.writeLecture(lecture(11L, "OBS 세팅", true, 2L), null, RATING, NOW);
-        assertThat(source(11L)).containsEntry("titleChosung", "obs ㅅㅌ").containsEntry("titleJamo", "obs ㅅㅔㅌㅣㅇ")
-                .containsEntry("sellerNicknameChosung", "ㅅㄹㅈㅇ");
+        assertThat(source(11L)).containsEntry("titleChosung", List.of("obs ㅅㅌ", "obsㅅㅌ"))
+                .containsEntry("titleJamo", List.of("obs ㅅㅔㅌㅣㅇ", "obsㅅㅔㅌㅣㅇ"))
+                .containsEntry("sellerNicknameChosung", List.of("ㅅㄹㅈㅇ"));
 
         assertThat(store.updateSeller(new Seller(7L, "편집왕", true, 2L))).isEqualTo(1);
-        assertThat(source(11L)).containsEntry("sellerNicknameChosung", "ㅍㅈㅇ").containsEntry("sellerNicknameJamo", "ㅍㅕㄴㅈㅣㅂㅇㅗㅏㅇ");
+        assertThat(source(11L)).containsEntry("sellerNicknameChosung", List.of("ㅍㅈㅇ"))
+                .containsEntry("sellerNicknameJamo", List.of("ㅍㅕㄴㅈㅣㅂㅇㅗㅏㅇ"));
 
         assertThat(store.writeSeller(11L, new Seller(7L, null, true, 3L))).isEqualTo(WriteOutcome.UPDATED);
         assertThat(source(11L).get("sellerNicknameChosung")).isNull();

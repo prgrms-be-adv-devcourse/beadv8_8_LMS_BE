@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.search.common.app;
 
 import java.text.Normalizer;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,6 +17,9 @@ import java.util.Map;
  * 두 변환 모두 영문은 소문자로, 숫자는 그대로 두고, 글자·숫자가 아닌 문자(괄호·쉼표 등)는 띄어쓰기로 바꾼 뒤 연속 공백을 하나로 줄인다. 검색은 띄어쓰기
  * 단위 앞부분으로 맞추므로 {@code [입문]}의 괄호가 낱말 앞에 붙어 있으면 {@code ㅇㅁ}으로 찾지 못하기 때문이다. 입력은 먼저 NFC로 맞춘다(풀어 쓴 한글
  * 자모열이 들어와도 같은 음절로 본다).
+ * <p>
+ * <b>띄어쓰기</b>: 검색은 띄어쓰기 단위로 비교하므로, 색인할 때 띄어쓰기를 뺀 값도 함께 넣고({@link #withCompact}) 검색어도 띄어쓰기를 뺀 것으로 한 번
+ * 더 찾는다. 한국어는 띄어쓰기가 사람마다 달라 {@code ㅂㅅㅈㅂㅊㅊ}·{@code ㅂㅅ ㅈㅂ}처럼 제목과 다르게 쳐도 맞게 한다.
  */
 public final class HangulKeys {
 
@@ -92,6 +96,23 @@ public final class HangulKeys {
             }
         }
         return collapse(out);
+    }
+
+    /**
+     * 초성·자모 칸에 넣을 값: 그 값과, 띄어쓰기가 있으면 띄어쓰기를 뺀 값. {@code ㅂㅅㅈㅂ ㅊㅊ} → {@code [ㅂㅅㅈㅂ ㅊㅊ, ㅂㅅㅈㅂㅊㅊ]}.
+     *
+     * @param key {@link #chosung}·{@link #jamo}로 만든 값
+     * @return {@code null}이면 {@code null}, 비었으면 빈 목록
+     */
+    public static List<String> withCompact(String key) {
+        if (key == null) {
+            return null;
+        }
+        if (key.isEmpty()) {
+            return List.of();
+        }
+        String compact = key.replace(" ", "");
+        return compact.equals(key) ? List.of(key) : List.of(key, compact);
     }
 
     /**
