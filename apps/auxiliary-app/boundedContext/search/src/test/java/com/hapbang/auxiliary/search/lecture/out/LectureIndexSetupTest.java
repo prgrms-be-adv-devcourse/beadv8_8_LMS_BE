@@ -76,6 +76,16 @@ class LectureIndexSetupTest {
     }
 
     @Test
+    @DisplayName("자동완성 칸(title.suggest)은 nori 색인 분석기, 초성·자모 칸은 띄어쓰기로만 나눈다(#973)")
+    void hangulKeyAnalyzers() throws Exception {
+        String index = SearchElasticsearch.createLectureIndex(client);
+
+        assertThat(analyze(index, "title.suggest", "방송장비 추천")).contains("방송", "장비", "추천");
+        assertThat(analyze(index, "titleChosung", "ㅂㅅㅈㅂ ㅊㅊ")).containsExactly("ㅂㅅㅈㅂ", "ㅊㅊ");
+        assertThat(analyze(index, "sellerNicknameJamo", "obs ㅅㅔㅌㅣㅇ")).containsExactly("obs", "ㅅㅔㅌㅣㅇ");
+    }
+
+    @Test
     @DisplayName("강의 index를 만들고 지워도 인플루언서 index·alias는 그대로다")
     void independentOfInfluencers() throws Exception {
         String influencer = SearchElasticsearch.createIndex(client);

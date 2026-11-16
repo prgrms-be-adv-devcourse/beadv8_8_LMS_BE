@@ -11,6 +11,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.search.common.app.HangulKeys;
 import com.hapbang.auxiliary.search.common.out.DocumentRejectedException;
 import com.hapbang.auxiliary.search.common.out.DocumentWrites;
 import com.hapbang.auxiliary.search.common.out.WriteOutcome;
@@ -47,6 +48,10 @@ import lombok.extern.slf4j.Slf4j;
  * 강의 쓰기(script)는 문서를 <b>처음 만들 때만</b> 넘긴 판매자·평점 값을 함께 넣는다. 그 뒤로는 판매자·평점 쓰기만 그 칸을 바꿔, 강의 이벤트가
  * 그사이 바뀐 판매자·평점을 옛 값으로 되돌리지 못하게 한다. 판매자 칸은 회원 version({@code sellerVersion})으로도 옛 값을 막는다.
  * <p>
+ * 초성·자모 칸(#973): 제목의 초성·자모({@code titleChosung}·{@code titleJamo})는 강의 칸, 판매자 닉네임의 초성·자모
+ * ({@code sellerNicknameChosung}·{@code sellerNicknameJamo})는 판매자 칸과 함께 쓴다. ES에 한국어 초성 기능이 없어 앱이 원문에서
+ * {@link HangulKeys}로 만들어 넘긴다. 원문을 쓰는 script가 늘 같이 쓰므로 이벤트·처음 적재 bulk·보정·update_by_query가 모두 같은 값을 넣는다.
+ * <p>
  * 숨김(tombstone): 판매 중이 아닌 강의({@code onSale=false}: 판매 중지·검수 전·삭제)는 문서를 지우지 않고 {@code hidden=true}·
  * {@code hiddenAt}·version을 남긴다. 지우면 늦게 온 옛 이벤트가 문서를 되살린다. 7일 뒤 정리한다. 이미 숨긴 문서에 더 새 숨김 이벤트가 와도
  * {@code hiddenAt}을 다시 찍는다(인플루언서와 같음). 정리 기준이 마지막 숨김 이벤트에서 7일이 되어 그 사이 늦게 온 옛 이벤트를 막는다(PR #906 리뷰). 판매자 정지는 숨김이 아니라
@@ -71,6 +76,8 @@ public class LectureDocumentStore {
             ctx._source.lectureVersion = params.version;
             ctx._source.sellerUserId = params.sellerUserId;
             ctx._source.title = params.title;
+            ctx._source.titleChosung = params.titleChosung;
+            ctx._source.titleJamo = params.titleJamo;
             ctx._source.description = params.description;
             ctx._source.contentTitles = params.contentTitles;
             if (params.priceHp != null) {
@@ -85,6 +92,8 @@ public class LectureDocumentStore {
             }
             if (created) {
               ctx._source.sellerNickname = params.sellerNickname;
+              ctx._source.sellerNicknameChosung = params.sellerNicknameChosung;
+              ctx._source.sellerNicknameJamo = params.sellerNicknameJamo;
               ctx._source.sellerActive = params.sellerActive;
               ctx._source.sellerVersion = params.sellerVersion;
               ctx._source.averageRating = params.averageRating;
@@ -115,6 +124,8 @@ public class LectureDocumentStore {
      * <b>회원 version 비교</b>(PR #906 리뷰 Q12): 문서의 {@code sellerVersion}보다 작은 회원 version이면 쓰지 않는다. 강의 소비자가 사본을 읽은 뒤 쓰기
      * 전에 회원 소비자가 더 새 판매자 값(정지 등)을 쓰면, 강의 소비자의 옛 값이 그것을 되돌리지 못하게 한다. 같은 version은 쓴다(재시도). version이 없는
      * 정보는 문서에도 version이 없을 때만 쓴다({@code UserDto} 규칙).
+     * <p>
+     * 닉네임의 초성·자모 칸(#973)도 닉네임과 같은 조건으로 넘긴 값과 다르면 쓴다.
      */
     static final String SELLER_SCRIPT = """
             def current = ctx._source.sellerVersion;
@@ -125,6 +136,8 @@ public class LectureDocumentStore {
             }
             boolean changed = false;
             if (ctx._source.sellerNickname != params.nickname) { ctx._source.sellerNickname = params.nickname; changed = true; }
+            if (ctx._source.sellerNicknameChosung != params.nicknameChosung) { ctx._source.sellerNicknameChosung = params.nicknameChosung; changed = true; }
+            if (ctx._source.sellerNicknameJamo != params.nicknameJamo) { ctx._source.sellerNicknameJamo = params.nicknameJamo; changed = true; }
             if (ctx._source.sellerActive != params.active) { ctx._source.sellerActive = params.active; changed = true; }
             if (params.version != null && ctx._source.sellerVersion != params.version) { ctx._source.sellerVersion = params.version; changed = true; }
             if (!changed) { ctx.op = 'noop'; }
@@ -429,12 +442,17 @@ public class LectureDocumentStore {
         params.put("version", JsonData.of(lecture.version()));
         params.put("sellerUserId", JsonData.of(lecture.sellerUserId()));
         params.put("title", JsonData.of(lecture.title()));
+        putIfPresent(params, "titleChosung", HangulKeys.chosung(lecture.title()));
+        putIfPresent(params, "titleJamo", HangulKeys.jamo(lecture.title()));
         putIfPresent(params, "description", lecture.description());
         params.put("contentTitles", JsonData.of(lecture.contents().stream().map(LectureContentSyncDto::title).toList()));
         putIfPresent(params, "priceHp", lecture.priceHp());
         params.put("visible", JsonData.of(lecture.onSale()));
         params.put("now", JsonData.of(now.toEpochMilli()));
-        putIfPresent(params, "sellerNickname", seller == null ? null : seller.nickname());
+        String sellerNickname = seller == null ? null : seller.nickname();
+        putIfPresent(params, "sellerNickname", sellerNickname);
+        putIfPresent(params, "sellerNicknameChosung", HangulKeys.chosung(sellerNickname));
+        putIfPresent(params, "sellerNicknameJamo", HangulKeys.jamo(sellerNickname));
         params.put("sellerActive", JsonData.of(seller == null || seller.active()));
         putIfPresent(params, "sellerVersion", seller == null ? null : seller.version());
         params.putAll(ratingParams(rating));
@@ -444,6 +462,8 @@ public class LectureDocumentStore {
     private static Map<String, JsonData> sellerParams(Seller seller) {
         Map<String, JsonData> params = new HashMap<>();
         putIfPresent(params, "nickname", seller.nickname());
+        putIfPresent(params, "nicknameChosung", HangulKeys.chosung(seller.nickname()));
+        putIfPresent(params, "nicknameJamo", HangulKeys.jamo(seller.nickname()));
         params.put("active", JsonData.of(seller.active()));
         putIfPresent(params, "version", seller.version());
         return params;

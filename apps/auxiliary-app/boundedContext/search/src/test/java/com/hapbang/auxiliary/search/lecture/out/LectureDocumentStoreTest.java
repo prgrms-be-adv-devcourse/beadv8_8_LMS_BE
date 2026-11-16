@@ -202,6 +202,26 @@ class LectureDocumentStoreTest {
     }
 
     @Test
+    @DisplayName("제목·판매자 닉네임의 초성·자모 칸을 원문과 함께 쓴다: 새 문서, 제목 수정, 판매자 update_by_query·문서 하나 쓰기(#973)")
+    void hangulKeys() throws Exception {
+        store.writeLecture(lecture(11L, "방송장비 추천", true, 1L), new Seller(7L, "소리장인", true, 1L), RATING, NOW);
+        assertThat(source(11L)).containsEntry("titleChosung", "ㅂㅅㅈㅂ ㅊㅊ")
+                .containsEntry("titleJamo", "ㅂㅏㅇㅅㅗㅇㅈㅏㅇㅂㅣ ㅊㅜㅊㅓㄴ")
+                .containsEntry("sellerNicknameChosung", "ㅅㄹㅈㅇ").containsEntry("sellerNicknameJamo", "ㅅㅗㄹㅣㅈㅏㅇㅇㅣㄴ");
+
+        store.writeLecture(lecture(11L, "OBS 세팅", true, 2L), null, RATING, NOW);
+        assertThat(source(11L)).containsEntry("titleChosung", "obs ㅅㅌ").containsEntry("titleJamo", "obs ㅅㅔㅌㅣㅇ")
+                .containsEntry("sellerNicknameChosung", "ㅅㄹㅈㅇ");
+
+        assertThat(store.updateSeller(new Seller(7L, "편집왕", true, 2L))).isEqualTo(1);
+        assertThat(source(11L)).containsEntry("sellerNicknameChosung", "ㅍㅈㅇ").containsEntry("sellerNicknameJamo", "ㅍㅕㄴㅈㅣㅂㅇㅗㅏㅇ");
+
+        assertThat(store.writeSeller(11L, new Seller(7L, null, true, 3L))).isEqualTo(WriteOutcome.UPDATED);
+        assertThat(source(11L).get("sellerNicknameChosung")).isNull();
+        assertThat(source(11L).get("sellerNicknameJamo")).isNull();
+    }
+
+    @Test
     @DisplayName("tombstone 정리는 오래된 숨김 문서만 지운다. 판매자가 정지된 강의는 숨김이 아니라 정지가 길어도 남는다(Q2)")
     void cleanupKeepsSuspendedSellerLectures() throws Exception {
         Instant old = NOW.minus(Duration.ofDays(8));

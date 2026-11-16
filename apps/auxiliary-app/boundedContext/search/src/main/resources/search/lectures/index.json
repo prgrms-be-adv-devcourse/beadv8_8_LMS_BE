@@ -27,6 +27,11 @@
           "type": "custom",
           "tokenizer": "ko_tokenizer",
           "filter": ["nori_part_of_speech", "lowercase", "ko_synonyms"]
+        },
+        "hangul_keys": {
+          "type": "custom",
+          "tokenizer": "whitespace",
+          "filter": ["lowercase"]
         }
       }
     }
@@ -38,12 +43,22 @@
       "lectureVersion": { "type": "long" },
       "hidden": { "type": "boolean" },
       "hiddenAt": { "type": "date" },
-      "title": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "title": {
+        "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search",
+        "fields": { "suggest": { "type": "search_as_you_type", "analyzer": "ko_index" } }
+      },
+      "titleChosung": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
+      "titleJamo": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
       "description": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "contentTitles": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
       "priceHp": { "type": "long" },
       "sellerUserId": { "type": "long" },
-      "sellerNickname": { "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search" },
+      "sellerNickname": {
+        "type": "text", "analyzer": "ko_index", "search_analyzer": "ko_search",
+        "fields": { "suggest": { "type": "search_as_you_type", "analyzer": "ko_index" } }
+      },
+      "sellerNicknameChosung": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
+      "sellerNicknameJamo": { "type": "search_as_you_type", "analyzer": "hangul_keys" },
       "sellerActive": { "type": "boolean" },
       "sellerVersion": { "type": "long" },
       "averageRating": { "type": "double" },
