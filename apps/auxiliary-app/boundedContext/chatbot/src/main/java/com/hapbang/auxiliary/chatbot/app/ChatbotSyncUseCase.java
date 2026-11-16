@@ -209,12 +209,12 @@ public class ChatbotSyncUseCase {
             run.succeed(tally, markedMissing, warning, now());
         } catch (RuntimeException e) {
             run.fail(tally, describe(e), now());
-            logStopped(type, run, tally, e);
+            logStopped(run, tally, e);
         }
-        record(type, run, mismatches);
-        purgeMasked(type, run);
+        record(run, mismatches);
+        purgeMasked(run);
         metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
-        logFinished(type, run);
+        logFinished(run);
         return run;
     }
 
@@ -243,7 +243,8 @@ public class ChatbotSyncUseCase {
     }
 
     // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
-    private void logStopped(SyncType type, SyncRun run, SyncTally tally, RuntimeException e) {
+    private void logStopped(SyncRun run, SyncTally tally, RuntimeException e) {
+        SyncType type = run.getType();
         if (longWithoutSuccess(type)) {
             log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
                     + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
@@ -255,7 +256,8 @@ public class ChatbotSyncUseCase {
     }
 
     // 회차 결과와 어긋남 행을 남기고, 보관 개수·기간이 지난 기록을 지운다. 실패해도 예외를 던지지 않는다
-    private void record(SyncType type, SyncRun run, Mismatches mismatches) {
+    private void record(SyncRun run, Mismatches mismatches) {
+        SyncType type = run.getType();
         try {
             syncRunRepository.save(run);
             syncMismatchRepository.saveAll(mismatches.rows);
@@ -270,7 +272,8 @@ public class ChatbotSyncUseCase {
         }
     }
 
-    private void logFinished(SyncType type, SyncRun run) {
+    private void logFinished(SyncRun run) {
+        SyncType type = run.getType();
         if (run.isWarning()) {
             // 이벤트 반영이 크게 어긋났다(소비 중단 등). 싱크가 고쳤지만 원인은 사람이 봐야 한다
             log.error("[CHATBOT_SYNC_MISMATCH] 싱크가 넣거나 고친 비율이 크다 type={}, runId={}, scanned={}, inserted={}, fixed={}",
@@ -293,14 +296,14 @@ public class ChatbotSyncUseCase {
     }
 
     // 마스킹 회원의 행이 어떤 경로로든 남았으면 지운다(#717 멱등 정리). 실패해도 회차 결과는 그대로 두고 다음 회차가 다시 한다
-    private void purgeMasked(SyncType type, SyncRun run) {
+    private void purgeMasked(SyncRun run) {
         try {
             long purged = maskedMemberStore.purgeAll();
             if (purged > 0) {
-                log.info("마스킹 회원의 남은 사본 행을 지웠다 type={}, runId={}, purged={}", type, run.getId(), purged);
+                log.info("마스킹 회원의 남은 사본 행을 지웠다 type={}, runId={}, purged={}", run.getType(), run.getId(), purged);
             }
         } catch (RuntimeException e) {
-            log.warn("마스킹 회원 정리를 하지 못했다 type={}, runId={}", type, run.getId(), e);
+            log.warn("마스킹 회원 정리를 하지 못했다 type={}, runId={}", run.getType(), run.getId(), e);
         }
     }
 
