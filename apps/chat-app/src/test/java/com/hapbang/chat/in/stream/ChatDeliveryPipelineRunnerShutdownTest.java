@@ -22,6 +22,7 @@ import com.hapbang.chat.app.ChatOutboxRelay;
 import com.hapbang.chat.app.ChatStreamJobProcessor;
 import com.hapbang.chat.app.ChatStreamReconstructor;
 import com.hapbang.chat.app.ChatStreamTrimmer;
+import com.hapbang.chat.app.DefaultChatDeliveryPipelineService;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 
@@ -41,9 +42,10 @@ class ChatDeliveryPipelineRunnerShutdownTest {
     private volatile boolean released;
 
     private final ChatStreamJobProcessor processor = mock(ChatStreamJobProcessor.class);
-    private final ChatDeliveryPipelineRunner runner = new ChatDeliveryPipelineRunner(mock(ChatOutboxRelay.class),
-            processor, mock(ChatStreamReconstructor.class), mock(ChatStreamTrimmer.class),
-            mock(ChatDeliveryQueue.class), properties(), mock(ChatDeliveryAvailability.class));
+    private final ChatDeliveryPipelineRunner runner = new ChatDeliveryPipelineRunner(
+            new DefaultChatDeliveryPipelineService(mock(ChatOutboxRelay.class), processor,
+                    mock(ChatStreamReconstructor.class), mock(ChatStreamTrimmer.class), mock(ChatDeliveryQueue.class),
+                    mock(ChatDeliveryAvailability.class)), properties());
 
     @AfterEach
     void tearDown() {

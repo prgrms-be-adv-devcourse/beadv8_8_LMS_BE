@@ -16,6 +16,8 @@ import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
 import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.out.redis.RedisChatDeliveryQueue;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -80,5 +82,28 @@ class ChatDeliveryServiceBoundaryTest {
         assertThat(ChatDeliveryQueue.class.getPackageName()).isEqualTo("com.hapbang.chat.app.port");
         assertThat(ChatDeliveryQueue.class).isAssignableFrom(RedisChatDeliveryQueue.class);
         assertThat(ChatDeliveryAdminService.class).isAssignableFrom(DefaultChatDeliveryAdminService.class);
+    }
+
+    /**
+     * 진입 어댑터는 Facade·app 서비스 계약(인터페이스)·값 타입으로 app을 쓴다. 전달 파이프라인 실행기({@code in/stream})는
+     * {@link ChatDeliveryPipelineService}로만 일을 맡기고, app 조정 구현 클래스나 {@code app/port} 계약을 직접 쓰지 않는다.
+     */
+    @Test
+    void 전달_파이프라인_실행기는_app_조정_구현_대신_app_서비스_계약에_의존한다() {
+        DescribedPredicate<JavaClass> appConcreteOrPort = JavaClass.Predicates.resideInAPackage("com.hapbang.chat.app")
+                .and(DescribedPredicate.not(JavaClass.Predicates.INTERFACES))
+                .and(DescribedPredicate.not(JavaClass.Predicates.ENUMS))
+                .or(JavaClass.Predicates.resideInAPackage("com.hapbang.chat.app.port.."))
+                .as("app 구현 클래스나 app/port 계약");
+        noClasses().that().resideInAPackage("com.hapbang.chat.in.stream..")
+                .should().dependOnClassesThat(appConcreteOrPort)
+                .check(classes);
+
+        assertThat(ChatDeliveryPipelineService.class.isInterface()).isTrue();
+        assertThat(ChatDeliveryPipelineService.class).isAssignableFrom(DefaultChatDeliveryPipelineService.class);
+        for (Constructor<?> constructor : DefaultChatDeliveryPipelineService.class.getDeclaredConstructors()) {
+            assertThat(constructor.getParameterTypes()).allSatisfy(type -> assertThat(type.getPackageName())
+                    .doesNotStartWith("com.hapbang.chat.out").doesNotStartWith("com.hapbang.chat.in"));
+        }
     }
 }
