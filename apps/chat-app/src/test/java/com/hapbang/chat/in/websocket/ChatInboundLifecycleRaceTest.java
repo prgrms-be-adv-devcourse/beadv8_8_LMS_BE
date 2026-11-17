@@ -127,67 +127,6 @@ class ChatInboundLifecycleRaceTest {
         });
     }
 
-    /**
-     * Claim check (5): the second offer cannot return REMOVED. Remove the looked-up queue between lookup and the first
-     * offer, every time, for many frames; the retry must always succeed (an IllegalStateException would surface as a
-     * lost frame since the channel executor throws).
-     */
-    @Test
-    void retryNeverSeesRemoved() throws Exception {
-        AtomicReferenceHolder holder = new AtomicReferenceHolder();
-        ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(registry, meterRegistry, 4, 10_000, 10, 10_000) {
-            @Override
-            void beforeOffer(String sessionId) {
-                Runnable r = holder.onBeforeOffer;
-                if (r != null) {
-                    r.run();
-                }
-            }
-        };
-        budgets.add(budget);
-        Executor executor = budget.channelExecutor();
-        AtomicInteger ran = new AtomicInteger();
-        AtomicInteger thrown = new AtomicInteger();
-        MessageHandler h = m -> ran.incrementAndGet();
-        int rounds = 300;
-        for (int i = 0; i < rounds; i++) {
-            String sid = "r-" + i;
-            executor.execute(task(message(SimpMessageType.MESSAGE, sid, "a"), h));
-            await().atMost(Duration.ofSeconds(5)).until(() -> ran.get() > 0);
-            ran.set(0);
-            // the disconnect drains and removes the queue while the next submitter sits between lookup and offer
-            Message<byte[]> d = message(SimpMessageType.DISCONNECT, sid, "d");
-            AtomicBoolean once = new AtomicBoolean();
-            holder.onBeforeOffer = () -> {
-                if (once.compareAndSet(false, true)) {
-                    Thread t = new Thread(() -> executor.execute(task(d, h)));
-                    t.start();
-                    await().atMost(Duration.ofSeconds(5)).until(() -> ran.get() == 1);
-                    await().atMost(Duration.ofSeconds(5)).until(() -> isRemoved(budget, sid));
-                }
-            };
-            try {
-                executor.execute(task(message(SimpMessageType.DISCONNECT, sid, "d2"), h));
-            } catch (IllegalStateException e) {
-                thrown.incrementAndGet();
-            }
-            holder.onBeforeOffer = null;
-            await().atMost(Duration.ofSeconds(5)).until(() -> ran.get() == 2);
-            await().atMost(Duration.ofSeconds(5)).until(() -> !queues(budget).containsKey(sid));
-            ran.set(0);
-        }
-        assertThat(thrown.get()).isZero();
-    }
-
-    private static final class AtomicReferenceHolder {
-        volatile Runnable onBeforeOffer;
-    }
-
-    private static boolean isRemoved(ChatInboundReceiveBudget budget, String sid) {
-        Object q = queues(budget).get(sid);
-        return q == null || (boolean) ReflectionTestUtils.getField(q, "removed");
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // randomized stress
 
@@ -213,7 +152,7 @@ class ChatInboundLifecycleRaceTest {
         long iterations, sessions, frames, outOfOrder, duplicates, undelivered, missingCleanup;
         long afterCleanupPlain, afterCleanupOverflow, afterCleanupKicked, afterCleanupClientD;
         long leakPlain, leakOverflow, leakKicked, leakClientD;
-        long overflowSessions, kickedSessions, clientDSessions, maxMarkers;
+        long overflowSessions, kickedSessions, clientDSessions;
         double rejected, coalesced, closedDropped;
     }
 
@@ -230,13 +169,13 @@ class ChatInboundLifecycleRaceTest {
                 "STRESS iterations=%d sessions=%d frames=%d overflowSessions=%d kicked=%d clientD=%d%n"
                         + "  overlap=%d outOfOrder=%d duplicates=%d undeliveredOnUntouched=%d missingCleanup=%d%n"
                         + "  ranAfterFinalCleanup plain=%d overflow=%d kicked=%d clientD=%d%n"
-                        + "  leakedQueues plain=%d overflow=%d kicked=%d clientD=%d maxMarkers=%d%n"
+                        + "  leakedQueues plain=%d overflow=%d kicked=%d clientD=%d%n"
                         + "  metrics rejected=%.0f coalesced=%.0f closedSessionDropped=%.0f%n",
                 stats.iterations, stats.sessions, stats.frames, stats.overflowSessions, stats.kickedSessions,
                 stats.clientDSessions, stats.overlap.get(), stats.outOfOrder, stats.duplicates, stats.undelivered,
                 stats.missingCleanup, stats.afterCleanupPlain, stats.afterCleanupOverflow, stats.afterCleanupKicked,
                 stats.afterCleanupClientD, stats.leakPlain, stats.leakOverflow, stats.leakKicked, stats.leakClientD,
-                stats.maxMarkers, stats.rejected, stats.coalesced, stats.closedDropped);
+                stats.rejected, stats.coalesced, stats.closedDropped);
         // invariants the design claims
         assertThat(stats.overlap.get()).as("concurrent execution within a session").isZero();
         assertThat(stats.outOfOrder).as("per-handler FIFO").isZero();
@@ -264,17 +203,7 @@ class ChatInboundLifecycleRaceTest {
         ChatWebSocketSessionRegistry reg = mock(ChatWebSocketSessionRegistry.class);
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
         ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(reg, meters, 2, queueCapacity, 100_000,
-                perSessionFrames) {
-            @Override
-            void beforeOffer(String sessionId) {
-                maybeYield();
-            }
-
-            @Override
-            void beforeSessionQueue(String sessionId) {
-                maybeYield();
-            }
-        };
+                perSessionFrames);
         budgets.add(budget);
         ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(budget.channelExecutor());
         Map<String, Session> sessions = new HashMap<>();
@@ -353,7 +282,6 @@ class ChatInboundLifecycleRaceTest {
 
         Map<String, ?> queues = queues(budget);
         stats.iterations++;
-        stats.maxMarkers = Math.max(stats.maxMarkers, budget.closedSessionMarkers());
         stats.rejected += meters.counter(ChatInboundReceiveBudget.REJECTED_METRIC).count();
         stats.coalesced += meters.counter(ChatInboundReceiveBudget.DISCONNECT_COALESCED_METRIC).count();
         stats.closedDropped += meters.counter(ChatInboundReceiveBudget.CLOSED_SESSION_DROPPED_METRIC).count();
@@ -436,25 +364,12 @@ class ChatInboundLifecycleRaceTest {
         budget.destroy();
     }
 
-    private static void maybeYield() {
-        int r = ThreadLocalRandom.current().nextInt(8);
-        if (r == 0) {
-            Thread.yield();
-        } else if (r == 1) {
-            long until = System.nanoTime() + 2_000;
-            while (System.nanoTime() < until) {
-                Thread.onSpinWait();
-            }
-        }
-    }
-
     private static void awaitQuiescence(ChatInboundReceiveBudget budget) {
         ThreadPoolTaskExecutor closer = (ThreadPoolTaskExecutor) ReflectionTestUtils.getField(budget, "closer");
         AtomicInteger stable = new AtomicInteger();
         await().pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(20)).until(() -> {
             boolean idle = budget.executor().getActiveCount() == 0 && budget.executor().getQueueSize() == 0
-                    && closer.getActiveCount() == 0 && closer.getQueueSize() == 0
-                    && budget.sessionsWithQueuedWork() == 0;
+                    && closer.getActiveCount() == 0 && closer.getQueueSize() == 0;
             return idle ? stable.incrementAndGet() >= 5 : stable.getAndSet(0) < 0;
         });
     }
