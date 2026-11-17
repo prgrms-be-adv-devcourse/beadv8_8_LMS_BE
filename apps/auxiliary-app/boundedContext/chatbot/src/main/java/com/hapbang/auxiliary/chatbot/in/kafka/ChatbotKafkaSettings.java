@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.in.kafka;
 
 import java.time.Duration;
+import java.util.List;
 
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
@@ -40,6 +41,10 @@ public record ChatbotKafkaSettings(
      */
     public record Retry(int maxRetries, Duration initialInterval, Duration maxInterval) {
     }
+
+    /** 다시 읽어도 같은 실패(필수 필드가 빈 이벤트). 어느 토픽이든 다시 시도하지 않고, 회원 실패 기록에서는 다시 처리할 수 없는 것으로 본다 */
+    public static final List<Class<? extends Exception>> NOT_RETRYABLE =
+            List.of(NullPointerException.class, IllegalArgumentException.class);
 
     /** 출연 이벤트를 받아 출연·리뷰 사본에 반영하는 그룹 */
     public static final String APPEARANCE_COPY_GROUP = "auxiliary-app.chatbot-appearance-copy";

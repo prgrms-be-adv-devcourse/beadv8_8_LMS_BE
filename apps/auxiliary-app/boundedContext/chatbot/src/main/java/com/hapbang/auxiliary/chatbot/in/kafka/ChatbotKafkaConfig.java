@@ -208,8 +208,9 @@ public class ChatbotKafkaConfig {
             deadLetter.accept(record, ex);
         };
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff(settings.retry()));
-        // 필수 필드가 빈 이벤트는 다시 읽어도 같다
-        handler.addNotRetryableExceptions(NullPointerException.class, IllegalArgumentException.class);
+        for (Class<? extends Exception> notRetryable : ChatbotKafkaSettings.NOT_RETRYABLE) {
+            handler.addNotRetryableExceptions(notRetryable);
+        }
         return handler;
     }
 

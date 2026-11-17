@@ -80,7 +80,7 @@ public class MemberEventFailureRetryUseCase {
             MemberEventRetryResult result = transaction.execute(status -> replayLocked(id, adminId));
             return MemberEventRetryResDto.of(id, result);
         } catch (RuntimeException failure) {
-            MemberEventFailure.Cause cause = MemberEventFailureCause.of(failure);
+            MemberEventFailure.Cause cause = FailureCauseExtractor.extract(failure);
             recordRetryFailure(id, cause);
             return new MemberEventRetryResDto(id, MemberEventRetryResult.FAILED, cause.exceptionClass(), cause.message());
         }
@@ -120,8 +120,12 @@ public class MemberEventFailureRetryUseCase {
     // 반영 실패와 기록 실패를 나눈다. 기록이 실패해도 응답은 반영 실패(FAILED)다
     private void recordRetryFailure(long id, MemberEventFailure.Cause cause) {
         try {
-            transaction.executeWithoutResult(status -> repository.findById(id)
-                    .ifPresent(failure -> failure.retryFailed(cause, CopyTimes.now(clock))));
+            transaction.executeWithoutResult(status -> {
+                Optional<MemberEventFailure> failure = repository.findById(id);
+                if (failure.isPresent()) {
+                    failure.get().retryFailed(cause, CopyTimes.now(clock));
+                }
+            });
         } catch (RuntimeException recordFailure) {
             log.warn("회원 이벤트 다시 처리 실패를 기록하지 못했다 failureId={}, exceptionClass={}", id,
                     recordFailure.getClass().getName());

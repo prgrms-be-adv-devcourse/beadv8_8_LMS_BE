@@ -46,7 +46,7 @@ public class MemberEventFailureRecordUseCase {
 
     public void record(MemberEventDeadLetter deadLetter) {
         MemberEventFailure.Source source = deadLetter.source();
-        MemberEventFailure.Cause cause = MemberEventFailureCause.of(deadLetter.cause());
+        MemberEventFailure.Cause cause = FailureCauseExtractor.extract(deadLetter.cause());
         MemberEventFailure saved = transaction.execute(status -> {
             if (repository.existsBySourceTopicAndSourcePartitionAndSourceOffset(source.topic(), source.partition(),
                     source.offset())) {

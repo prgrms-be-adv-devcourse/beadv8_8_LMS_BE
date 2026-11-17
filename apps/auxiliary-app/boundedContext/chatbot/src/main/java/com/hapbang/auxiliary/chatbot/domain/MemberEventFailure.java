@@ -29,6 +29,9 @@ public class MemberEventFailure {
     /** 메시지 컬럼 길이(코드포인트) */
     public static final int MESSAGE_MAX_LENGTH = 200;
 
+    /** 관리자가 한 번에 다시 처리할 수 있는 최대 건수. 고른 ID 수와 "전체" 설정 상한이 함께 쓴다 */
+    public static final int RETRY_MAX_COUNT = 100;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

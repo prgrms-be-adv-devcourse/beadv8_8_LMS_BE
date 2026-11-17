@@ -18,12 +18,12 @@ import tools.jackson.core.JacksonException;
  *     <li>그 밖: 가장 안쪽 원인의 메시지(없으면 바깥 메시지)에서 이메일·전화를 지운다. 길이는 기록이 자른다.</li>
  * </ul>
  */
-final class MemberEventFailureCause {
+final class FailureCauseExtractor {
 
-    private MemberEventFailureCause() {
+    private FailureCauseExtractor() {
     }
 
-    static MemberEventFailure.Cause of(Throwable failure) {
+    static MemberEventFailure.Cause extract(Throwable failure) {
         Throwable root = failure;
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();

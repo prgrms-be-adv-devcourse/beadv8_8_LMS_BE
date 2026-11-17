@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.hapbang.auxiliary.chatbot.app.dto.MemberEventFailureResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.MemberEventRetryResDto;
+import com.hapbang.auxiliary.chatbot.domain.MemberEventFailure;
 import com.hapbang.auxiliary.chatbot.domain.MemberEventFailureStatus;
 import com.hapbang.auxiliary.chatbot.in.dto.MemberEventRetryReqDto;
 import com.hapbang.auxiliary.global.response.RsData;
@@ -28,7 +29,8 @@ public interface ApiV1ChatbotMemberEventFailureAdminSpec {
             Pageable pageable);
 
     @Operation(summary = "다시 처리",
-            description = "고른 기록(최대 100개)을, 고르지 않으면 처리 대기 기록을 오래된 순으로 한 번에 최대 100건(서버 설정 기본값) 다시 처리하고 "
+            description = "고른 기록(최대 " + MemberEventFailure.RETRY_MAX_COUNT + "개)을, 고르지 않으면 처리 대기 기록을 "
+                    + "오래된 순으로 한 번에 최대 " + MemberEventFailure.RETRY_MAX_COUNT + "건(서버 설정 기본값) 다시 처리하고 "
                     + "건별 결과를 요청 순서로 준다. 성공하면 RESOLVED로 바뀌어 기본 목록에서 빠진다. 같은 기록을 두 번 처리해도 결과가 같다"
                     + "(마스킹은 멱등, 가입·변경은 version이 더 새로운 사본을 덮지 않는다). 다른 관리자가 같은 기록을 처리 중이면 그 건은 IN_PROGRESS.")
     RsData<List<MemberEventRetryResDto>> retry(@Parameter(hidden = true) Long adminId, MemberEventRetryReqDto request);
