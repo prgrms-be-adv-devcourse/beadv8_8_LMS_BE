@@ -94,7 +94,7 @@ public class ChatStreamReconstructor {
      * @param enqueuedThreshold 적재한 지 이 시간이 지난 작업만 대상이다
      * @return 다시 적재한 작업 수
      */
-    public int reconstruct(ChatJobStream stream, Duration enqueuedThreshold) {
+    int reconstruct(ChatJobStream stream, Duration enqueuedThreshold) {
         assertNoTransaction();
         if (!availability.redisAvailable()) {
             return 0;

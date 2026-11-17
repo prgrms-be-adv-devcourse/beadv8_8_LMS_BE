@@ -190,8 +190,9 @@ class HttpChatRecruitSourceTest {
 
     private static HttpChatRecruitSource source(String baseUrl) {
         StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("chatAppearanceInternalApi", ChatAppearanceApiConfig.create(RestClient.builder(),
-                new ChatAppearanceApiProperties(baseUrl, Duration.ofMillis(500), Duration.ofMillis(300)), API_KEY));
+        beanFactory.addBean("chatAppearanceInternalApi", new ChatAppearanceApiConfig().chatAppearanceInternalApi(
+                RestClient.builder(), new ChatAppearanceApiProperties(baseUrl, Duration.ofMillis(500),
+                        Duration.ofMillis(300)), API_KEY));
         return new HttpChatRecruitSource(beanFactory.getBeanProvider(ChatAppearanceInternalApi.class));
     }
 

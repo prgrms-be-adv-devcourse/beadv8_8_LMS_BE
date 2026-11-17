@@ -59,7 +59,7 @@ public class ChatStreamTrimmer {
     }
 
     /** 이 위치보다 앞선 항목은 지워도 된다. 지울 수 없으면 빈 값 */
-    public Optional<String> safeBoundary(ChatJobStream stream, Instant now) {
+    Optional<String> safeBoundary(ChatJobStream stream, Instant now) {
         Optional<QueueGroupState> state = chatDeliveryQueue.groupState(stream);
         if (state.isEmpty()) {
             return Optional.empty();

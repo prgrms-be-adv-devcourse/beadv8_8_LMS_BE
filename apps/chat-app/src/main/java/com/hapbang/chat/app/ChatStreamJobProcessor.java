@@ -191,7 +191,7 @@ public class ChatStreamJobProcessor {
     /**
      * 항목 하나를 처리한다. DB 트랜잭션 밖에서 부른다.
      */
-    public Outcome handle(ChatJobStream stream, QueuedJob job) {
+    Outcome handle(ChatJobStream stream, QueuedJob job) {
         Assert.state(!TransactionSynchronizationManager.isActualTransactionActive(),
                 "Stream 항목은 DB 트랜잭션 밖에서 처리해야 합니다.");
         String group = stream.consumerGroup();
