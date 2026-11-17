@@ -11,7 +11,6 @@ public enum MemberEventRetryResult {
     SUCCEEDED("반영함. 목록에서 처리됨(RESOLVED)으로 바뀐다"),
     FAILED("또 실패함. 처리 대기(PENDING)로 남고 이유가 바뀐다"),
     ALREADY_RESOLVED("이미 처리된 기록"),
-    IN_PROGRESS("다른 요청이 처리 중"),
     NOT_FOUND("없는 기록"),
     NOT_REPLAYABLE("읽지 못했거나 필수 값이 없어 다시 처리할 수 없음");
 

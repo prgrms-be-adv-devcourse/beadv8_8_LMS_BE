@@ -18,6 +18,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotMemberEventFailureProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.MemberEventFailure;
 import com.hapbang.auxiliary.chatbot.domain.MemberEventFailureStatus;
+import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
 import com.hapbang.auxiliary.chatbot.out.MemberEventFailureRepository;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserMaskedEvent;
@@ -28,8 +29,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * DLT로 보낸 회원 이벤트를 관리자가 다시 처리한다 (#976). Kafka 소비와 같은 적용기·마스킹을 부른다.
  * <ul>
- *     <li>건마다 트랜잭션 하나: 실패 행을 {@code FOR UPDATE SKIP LOCKED}로 잡고 반영한 뒤 처리됨으로 바꾼다. 다른 관리자가 같은 건을 처리 중이면
- *     기다리지 않고 {@code IN_PROGRESS}. Kafka 소비와 겹치면 적용기·마스킹의 회원 락이 직렬화한다.</li>
+ *     <li>건마다 트랜잭션 하나: 그 기록의 회원 락을 잡고, 실패 행을 잠근 뒤 반영하고 처리됨으로 바꾼다.
+ *     락 순서는 마스킹({@link MemberMasking})과 같은 "회원 → 실패 행"이다(반대면 마스킹이 같은 회원의 실패 원문을 비울 때 교착된다).
+ *     같은 회원을 다루는 Kafka 소비·마스킹·다른 관리자 요청은 회원 락에서 기다린다. 뒤에 온 같은 건은 {@code ALREADY_RESOLVED}다.</li>
  *     <li>두 번 처리해도 결과가 같다: 마스킹은 멱등, 가입·변경은 version 비교로 옛 값이 새 값을 덮지 않는다.</li>
  *     <li>반영이 실패하면 그 트랜잭션은 롤백하고, 새 트랜잭션에서 횟수와 이유만 바꾼다.</li>
  *     <li>고르지 않으면 다시 처리할 수 있는 처리 대기 기록을 오래된 순으로 상한({@code retry-all-limit})만큼 처리한다.
@@ -41,16 +43,18 @@ import lombok.extern.slf4j.Slf4j;
 public class MemberEventFailureRetryUseCase {
 
     private final MemberEventFailureRepository repository;
+    private final MaskedMemberStore maskedMemberStore;
     private final CopyApplier copyApplier;
     private final MemberMasking memberMasking;
     private final ChatbotMemberEventFailureProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public MemberEventFailureRetryUseCase(MemberEventFailureRepository repository, CopyApplier copyApplier,
-            MemberMasking memberMasking, ChatbotMemberEventFailureProperties properties,
+    public MemberEventFailureRetryUseCase(MemberEventFailureRepository repository, MaskedMemberStore maskedMemberStore,
+            CopyApplier copyApplier, MemberMasking memberMasking, ChatbotMemberEventFailureProperties properties,
             PlatformTransactionManager transactionManager, @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.repository = repository;
+        this.maskedMemberStore = maskedMemberStore;
         this.copyApplier = copyApplier;
         this.memberMasking = memberMasking;
         this.properties = properties;
@@ -88,14 +92,17 @@ public class MemberEventFailureRetryUseCase {
     }
 
     private MemberEventRetryResult replayLocked(long id, Long adminId) {
+        List<Long> owner = repository.findUserIdById(id);
+        if (owner.isEmpty()) {
+            return MemberEventRetryResult.NOT_FOUND;
+        }
+        Long userId = owner.getFirst();
+        if (userId != null) {
+            maskedMemberStore.lock(userId);
+        }
         Optional<MemberEventFailure> locked = repository.lockById(id);
         if (locked.isEmpty()) {
-            Optional<MemberEventFailureStatus> status = repository.findStatusById(id);
-            if (status.isEmpty()) {
-                return MemberEventRetryResult.NOT_FOUND;
-            }
-            return status.get() == MemberEventFailureStatus.RESOLVED
-                    ? MemberEventRetryResult.ALREADY_RESOLVED : MemberEventRetryResult.IN_PROGRESS;
+            return MemberEventRetryResult.NOT_FOUND;
         }
         MemberEventFailure failure = locked.get();
         if (failure.getStatus() == MemberEventFailureStatus.RESOLVED) {
