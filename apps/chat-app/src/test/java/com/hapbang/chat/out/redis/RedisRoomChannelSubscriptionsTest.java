@@ -166,14 +166,17 @@ class RedisRoomChannelSubscriptionsTest {
         for (long roomId = 1; roomId <= max; roomId++) {
             channels.acquire(roomId);
         }
+        // 구독은 IO 스레드에서 비동기로 맞춘다. 실제로 구독된 뒤에 놓아야 정리가 구독 해제로 보인다
+        verify(container, timeout(10_000).times(max)).addMessageListener(any(MessageListener.class),
+                any(ChannelTopic.class));
         channels.release(1L);
         channels.release(2L);
         channels.release(3L);
 
         assertThat(channels.acquire(max + 1)).isTrue();
-        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(1L));
-        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(2L));
-        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(3L));
+        verify(container, timeout(10_000)).removeMessageListener(listener, topic(1L));
+        verify(container, timeout(10_000)).removeMessageListener(listener, topic(2L));
+        verify(container, timeout(10_000)).removeMessageListener(listener, topic(3L));
 
         assertThat(channels.acquire(max + 2)).isTrue();
         assertThat(channels.acquire(max + 3)).isTrue();
