@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
 import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.app.KeywordCorrection;
+import com.hapbang.auxiliary.search.common.app.SearchPage;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
 import com.hapbang.auxiliary.search.lecture.out.LectureIndexDefinition;
@@ -35,6 +37,7 @@ import com.hapbang.auxiliary.search.lecture.out.LectureSearcher.SearchResult;
  *     ({@code GET /api/v1/lectures})은 그대로 쓸 수 있다.</li>
  *     <li>검색어로 0건이면 검색어를 모은다({@link LectureZeroResultKeywords}, L19). 회원은 회원 ID, 비회원은 client IP 해시로 서로 다른 검색자를
  *     센다. 강의 검색에는 필터가 없어 검색어가 있는 0건은 모두 센다.</li>
+ *     <li>검색어가 있으면 결과 수와 상관없이 검색어 제안을 붙인다({@link KeywordCorrection}, #977). 제안이 실패해도 결과는 그대로 준다.</li>
  * </ul>
  */
 @Service
@@ -63,7 +66,7 @@ public class LectureSearchFacade {
     /**
      * @param requester 검색한 사람. 호출 제한과, 0건 검색어를 "서로 다른 검색자 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
      */
-    public Page<LectureSearchItem> search(Requester requester, String keyword, Pageable pageable) {
+    public SearchPage<LectureSearchItem> search(Requester requester, String keyword, Pageable pageable) {
         rateLimit.acquire(requester);
         LectureSort sort = sort(pageable.getSort());
         if (pageable.getOffset() + pageable.getPageSize() > MAX_RESULT_WINDOW) {
@@ -88,7 +91,9 @@ public class LectureSearchFacade {
             metrics.zeroResult();
             recordZeroResult(condition.keyword(), requester);
         }
-        return new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()), result.total());
+        Page<LectureSearchItem> page = new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()),
+                result.total());
+        return SearchPage.of(page, KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics));
     }
 
     private void recordZeroResult(String keyword, Requester requester) {

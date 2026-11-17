@@ -3,10 +3,10 @@ package com.hapbang.auxiliary.search.in;
 import java.security.Principal;
 import java.util.List;
 
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import com.hapbang.auxiliary.global.response.RsData;
+import com.hapbang.auxiliary.search.common.app.SearchPage;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSuggestion;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
@@ -32,7 +32,7 @@ public interface ApiV1SearchSpec {
             그 밖은 400 UNSUPPORTED_SORT. 앞에서 1,000건까지만 볼 수 있고(totalElements도 1,000까지) 넘으면 400 PAGE_TOO_DEEP. \
             검색할 수 없으면 503 SEARCH_UNAVAILABLE(회원 앱의 인플루언서 목록은 그대로 쓸 수 있다). \
             팔로워·채널·평점은 대개 10분 안에 회원 앱 값을 따라간다. 프로필 사진은 없다(회원 사진 일괄 API로 채운다).""")
-    RsData<Page<InfluencerSearchItem>> searchInfluencers(
+    RsData<SearchPage<InfluencerSearchItem>> searchInfluencers(
             Long userId,
             @Parameter(description = "검색어(최대 100자). 없으면 조건만으로 찾는다", example = "메이플") @Size(max = 100) String keyword,
             @Parameter(description = "콘텐츠 분야 코드(최대 10개). 하나라도 가진 사람(OR), 많이 맞을수록 위",
@@ -52,7 +52,7 @@ public interface ApiV1SearchSpec {
             회원은 회원마다, 비회원은 접속 IP마다 1분에 60번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS(Retry-After 초). \
             highlights는 검색어가 걸린 곳이다. HTML 특수 문자는 escape되어 있고 걸린 말만 <em>으로 감쌌다(그 밖의 태그 없음). \
             priceHp는 가격(HP)이고 아직 모르면 null이다. 썸네일은 없다(강의 앱 일괄 API로 채운다). 처음 화면(검색어 없음)은 강의 목록 API를 쓴다.""")
-    RsData<Page<LectureSearchItem>> searchLectures(
+    RsData<SearchPage<LectureSearchItem>> searchLectures(
             @Parameter(hidden = true) Principal principal,
             @Parameter(hidden = true) HttpServletRequest request,
             @Parameter(description = "검색어(최대 50자). 없으면 판매 중인 강의 전체", example = "프리미어") @Size(max = 50) String keyword,

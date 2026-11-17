@@ -13,6 +13,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.app.KeywordCorrection;
+import com.hapbang.auxiliary.search.common.app.SearchPage;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
@@ -57,7 +59,7 @@ public class InfluencerSearchFacade {
      * @param userId 검색한 회원 ID. 0건 검색어를 "서로 다른 회원 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
      */
     @PreAuthorize(SearchRoles.MEMBER)
-    public Page<InfluencerSearchItem> search(Long userId, String keyword, List<String> contentCategories, Boolean verified,
+    public SearchPage<InfluencerSearchItem> search(Long userId, String keyword, List<String> contentCategories, Boolean verified,
             Long minFollowers, Double minRating, Pageable pageable) {
         InfluencerSort sort = sort(pageable.getSort());
         if (pageable.getOffset() + pageable.getPageSize() > MAX_RESULT_WINDOW) {
@@ -85,7 +87,10 @@ public class InfluencerSearchFacade {
                 zeroResultKeywords.record(condition.keyword(), userId);
             }
         }
-        return new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()), result.total());
+        Page<InfluencerSearchItem> page = new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()),
+                result.total());
+        // 검색어 제안(#977)은 분야·팔로워 같은 조건과 상관없이 검색어만 본다
+        return SearchPage.of(page, KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics));
     }
 
     /** 검색어 밖의 조건(분야·인증·팔로워·평점)이 있는지 */

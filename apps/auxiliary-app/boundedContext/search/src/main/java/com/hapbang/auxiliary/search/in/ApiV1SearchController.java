@@ -3,7 +3,6 @@ package com.hapbang.auxiliary.search.in;
 import java.security.Principal;
 import java.util.List;
 
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
+import com.hapbang.auxiliary.search.common.app.SearchPage;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchFacade;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSuggestionFacade;
 import com.hapbang.auxiliary.search.influencer.app.dto.InfluencerSearchItem;
@@ -45,7 +45,7 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
 
     @Override
     @GetMapping("/influencers")
-    public RsData<Page<InfluencerSearchItem>> searchInfluencers(
+    public RsData<SearchPage<InfluencerSearchItem>> searchInfluencers(
             @LoginUserId Long userId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) List<String> contentCategories,
@@ -59,7 +59,7 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
 
     @Override
     @GetMapping("/lectures")
-    public RsData<Page<LectureSearchItem>> searchLectures(
+    public RsData<SearchPage<LectureSearchItem>> searchLectures(
             Principal principal,
             HttpServletRequest request,
             @RequestParam(required = false) String keyword,

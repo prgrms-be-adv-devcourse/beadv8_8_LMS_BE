@@ -108,6 +108,19 @@ class ApiV1LectureSearchControllerTest {
     }
 
     @Test
+    @DisplayName("검색어 제안: 오타가 있으면 data.correctedKeyword에 고친 검색어, 없으면 null이다(결과는 그대로, #977)")
+    void correctedKeyword() throws Exception {
+        mockMvc.perform(guest(get(URL).param("keyword", "프리미여"), "203.0.113.30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.correctedKeyword").value("프리미어"))
+                .andExpect(jsonPath("$.data.page.totalElements").exists());
+        mockMvc.perform(guest(get(URL).param("keyword", "프리미어"), "203.0.113.30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.correctedKeyword").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[*].lectureId", contains(1, 2)));
+    }
+
+    @Test
     @DisplayName("회원도 검색한다. 검색어가 없으면 최신순이고 highlights가 없다. latest·rating·price 정렬")
     void memberSearchAndSorts() throws Exception {
         mockMvc.perform(member(get(URL), 201L)).andExpect(status().isOk())

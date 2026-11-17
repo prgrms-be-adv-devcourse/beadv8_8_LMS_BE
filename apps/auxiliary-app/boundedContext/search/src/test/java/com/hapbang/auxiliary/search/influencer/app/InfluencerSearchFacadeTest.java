@@ -10,19 +10,23 @@ import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-/** 검색 Facade: 검색어·분야 다듬기, ES 장애(#771). 정렬·페이지 제한은 API 테스트가 본다 */
+/** 검색 Facade: 검색어·분야 다듬기, ES 장애(#771), 검색어 제안(#977). 정렬·페이지 제한은 API 테스트가 본다 */
 class InfluencerSearchFacadeTest {
 
     private final InfluencerSearcher searcher = mock(InfluencerSearcher.class);
@@ -33,6 +37,14 @@ class InfluencerSearchFacadeTest {
 
     private final InfluencerSearchFacade facade = new InfluencerSearchFacade(searcher, mock(RatingBaseline.class),
             new SearchMetrics(registry), zeroResultKeywords);
+
+    /** 검색어 제안이 묻는 index. 기본(mock)은 모든 낱말을 조사·어미뿐인 말로 보아 고칠 것이 없다 */
+    private final KeywordIndex keywordIndex = mock(KeywordIndex.class);
+
+    @BeforeEach
+    void keywordIndex() {
+        when(searcher.keywordIndex()).thenReturn(keywordIndex);
+    }
 
     @Test
     @DisplayName("검색어는 앞뒤·연속 공백을 정리하고, 비면 검색어 없음이다. 분야는 빈 값·중복을 뺀다")
@@ -74,6 +86,20 @@ class InfluencerSearchFacadeTest {
                 .isInstanceOfSatisfying(SearchException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.SEARCH_UNAVAILABLE));
         assertThat(registry.counter("hapbang.search.requests", "target", "influencer", "outcome", "error").count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("검색어 제안은 분야·팔로워 조건과 상관없이 검색어만 보고 붙인다(#977)")
+    void correctionIgnoresFilters() {
+        when(searcher.search(any(), anyDouble(), anyInt())).thenReturn(new InfluencerSearcher.SearchResult(0, List.of()));
+        when(keywordIndex.analyze("메이플장임")).thenReturn(List.of("메이플", "장임"));
+        when(keywordIndex.candidates(any())).thenReturn(Map.of("메이플장임", Set.of("메이플장인")));
+        when(keywordIndex.hasResults("메이플장인")).thenReturn(true);
+
+        assertThat(facade.search(1L, "메이플장임", List.of("GAME"), null, 10_000L, null, PageRequest.of(0, 20)).correctedKeyword())
+                .isEqualTo("메이플장인");
+        assertThat(registry.counter("hapbang.search.correction", "target", "influencer", "outcome", "suggested").count())
                 .isEqualTo(1);
     }
 }

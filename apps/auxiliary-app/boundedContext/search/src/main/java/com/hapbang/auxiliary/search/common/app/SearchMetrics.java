@@ -15,6 +15,9 @@ import io.micrometer.core.instrument.Timer;
  *     <li>{@code hapbang.search.requests{target, outcome}}: 요청 수. outcome = ok(결과 있음)·empty(0건)·error(ES 장애)</li>
  *     <li>{@code hapbang.search.es.latency{target}}: ES 검색 시간. p95를 볼 수 있게 histogram을 낸다</li>
  *     <li>{@code hapbang.search.zero.results{target}}: 검색어가 있는데 결과가 0건인 요청 수(검색어는 {@link ZeroResultKeywords}가 따로 모은다)</li>
+ *     <li>{@code hapbang.search.correction{target, outcome}}: 검색어 제안(#977) 결과 수. outcome = suggested·known·none·sentence
+ *     ({@link KeywordCorrection.Outcome})·error(제안 없이 응답)</li>
+ *     <li>{@code hapbang.search.correction.latency{target}}: 검색어 제안을 만드는 데 든 시간(검색 응답이 그만큼 늦어진다)</li>
  * </ul>
  * 태그에 검색어를 넣지 않는다(값 종류가 끝없이 늘고 닉네임일 수 있다).
  */
@@ -42,6 +45,7 @@ public class SearchMetrics {
         private final String target;
         private final Timer latency;
         private final Counter zeroResults;
+        private final Timer correctionLatency;
 
         private Target(String target) {
             this.target = target;
@@ -49,6 +53,12 @@ public class SearchMetrics {
                     .description("검색 ES 요청 시간").publishPercentileHistogram().register(registry);
             this.zeroResults = Counter.builder("hapbang.search.zero.results").tag("target", target)
                     .description("검색어가 있는데 결과가 0건인 검색 수").register(registry);
+            this.correctionLatency = Timer.builder("hapbang.search.correction.latency").tag("target", target)
+                    .description("검색어 제안을 만드는 시간").publishPercentileHistogram().register(registry);
+        }
+
+        public String target() {
+            return target;
         }
 
         /**
@@ -62,6 +72,14 @@ public class SearchMetrics {
         /** 필터 없이 검색어만으로 0건이었다 */
         public void zeroResult() {
             zeroResults.increment();
+        }
+
+        /**
+         * @param outcome {@link KeywordCorrection.Outcome#tag()} 또는 error
+         */
+        public void suggested(String outcome, Duration took) {
+            registry.counter("hapbang.search.correction", "target", target, "outcome", outcome).increment();
+            correctionLatency.record(took);
         }
     }
 }

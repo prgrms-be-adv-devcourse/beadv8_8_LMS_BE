@@ -12,7 +12,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
@@ -20,12 +23,15 @@ import org.springframework.data.domain.Sort;
 
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
+import com.hapbang.auxiliary.search.common.app.SearchPage;
+import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
 import com.hapbang.auxiliary.search.lecture.out.LectureSearcher;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-/** 강의 검색 Facade(#883): 정렬 허용 목록, 1,000건 제한, ES 장애 503, 평균 C를 쓰는 경우, 0건 검색어(회원·비회원) */
+/** 강의 검색 Facade(#883): 정렬 허용 목록, 1,000건 제한, ES 장애 503, 평균 C를 쓰는 경우, 0건 검색어(회원·비회원), 검색어 제안(#977) */
 class LectureSearchFacadeTest {
 
     private final LectureSearcher searcher = mock(LectureSearcher.class);
@@ -34,6 +40,13 @@ class LectureSearchFacadeTest {
     private final LectureZeroResultKeywords zeroResultKeywords = new LectureZeroResultKeywords();
     private final LectureSearchFacade facade = new LectureSearchFacade(mock(LectureSearchRateLimit.class), searcher,
             baseline, new SearchMetrics(registry), zeroResultKeywords);
+    /** 검색어 제안이 묻는 index. 기본(mock)은 모든 낱말을 조사·어미뿐인 말로 보아 고칠 것이 없다 */
+    private final KeywordIndex keywordIndex = mock(KeywordIndex.class);
+
+    @BeforeEach
+    void keywordIndex() {
+        when(searcher.keywordIndex()).thenReturn(keywordIndex);
+    }
 
     @Test
     @DisplayName("정렬은 없음·latest,desc·rating,desc·price,asc·price,desc만 받고, 그 밖은 강의 정렬을 알리는 400 UNSUPPORTED_SORT다")
@@ -148,5 +161,51 @@ class LectureSearchFacadeTest {
         assertThat(LectureSearchFacade.keyword("  프리미어   컷편집 ")).isEqualTo("프리미어 컷편집");
         assertThat(LectureSearchFacade.keyword("   ")).isNull();
         assertThat(LectureSearchFacade.keyword(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("검색어 제안: 결과에 제안 검색어를 붙이고, 결과 종류와 시간을 지표로 남긴다(#977)")
+    void correctedKeyword() {
+        LectureSearchItem item = new LectureSearchItem(1L, "프리미어 컷편집", 10_000L, 7L, "편집장", null, 0, null);
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of(item)));
+        when(keywordIndex.analyze("프리미여")).thenReturn(List.of("프리", "미여"));
+        when(keywordIndex.candidates(any())).thenReturn(Map.of("프리미여", Set.of("프리미어")));
+        when(keywordIndex.hasResults("프리미어")).thenReturn(true);
+
+        SearchPage<LectureSearchItem> page = facade.search(Requester.member(1L), "프리미여", PageRequest.of(0, 20));
+
+        assertThat(page.correctedKeyword()).isEqualTo("프리미어");
+        assertThat(page.content()).containsExactly(item);
+        assertThat(page.page()).isEqualTo(new SearchPage.PageInfo(20, 0, 1, 1));
+        assertThat(registry.counter("hapbang.search.correction", "target", "lecture", "outcome", "suggested").count())
+                .isEqualTo(1);
+        assertThat(registry.timer("hapbang.search.correction.latency", "target", "lecture").count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("검색어 제안이 실패해도 결과는 그대로 주고 제안만 null이다. 지표 outcome=error")
+    void correctionFailureKeepsResults() {
+        LectureSearchItem item = new LectureSearchItem(1L, "프리미어 컷편집", 10_000L, 7L, "편집장", null, 0, null);
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of(item)));
+        when(keywordIndex.indexedWords(any())).thenThrow(new IllegalStateException("ES 장애"));
+
+        SearchPage<LectureSearchItem> page = facade.search(Requester.member(1L), "프리미여", PageRequest.of(0, 20));
+
+        assertThat(page.content()).containsExactly(item);
+        assertThat(page.correctedKeyword()).isNull();
+        assertThat(registry.counter("hapbang.search.correction", "target", "lecture", "outcome", "error").count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("검색어가 없거나 초성뿐이면 제안하지 않고 지표도 남기지 않는다")
+    void noCorrectionWithoutKeywordOrChosungOnly() {
+        when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(0, List.of()));
+
+        assertThat(facade.search(Requester.member(1L), null, PageRequest.of(0, 20)).correctedKeyword()).isNull();
+        assertThat(facade.search(Requester.member(1L), "ㅍㄹㅁㅇ", PageRequest.of(0, 20)).correctedKeyword()).isNull();
+
+        verify(keywordIndex, never()).indexedWords(any());
+        assertThat(registry.find("hapbang.search.correction").counters()).isEmpty();
     }
 }

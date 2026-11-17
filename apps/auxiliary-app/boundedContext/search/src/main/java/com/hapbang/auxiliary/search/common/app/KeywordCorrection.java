@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.search.common.app;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -11,6 +12,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 검색어 제안("이 검색어를 찾으셨나요?", #977). 결과 수와 상관없이, 검색어에 index에 없는 낱말이 있으면 가장 가까운 낱말로 바꾼 검색어를 하나 만든다.
@@ -25,6 +29,8 @@ import java.util.function.Supplier;
  * 초성뿐인 검색어는 부르는 쪽이 거른다(초성 검색·자동완성이 맡는다). 영문도 같은 규칙이다(편집 거리가 알파벳 단위다).
  */
 public final class KeywordCorrection {
+
+    private static final Logger log = LoggerFactory.getLogger(KeywordCorrection.class);
 
     /** 결과 종류. 지표 태그 값이다 */
     public enum Outcome {
@@ -59,6 +65,29 @@ public final class KeywordCorrection {
     }
 
     private KeywordCorrection() {
+    }
+
+    /**
+     * 검색 API가 결과를 찾은 뒤 부른다. 제안은 덤이라 무엇이 실패해도 검색 응답을 막지 않는다: 제안 없이(null) 응답하고 WARN을 남긴다. 결과 종류와 시간을
+     * 지표로 남긴다. 검색어는 로그·지표에 남기지 않는다(남의 이름일 수 있다).
+     *
+     * @param keyword 정리한 검색어. 없거나 초성뿐이면 제안하지 않고 지표도 남기지 않는다(초성 검색·자동완성이 맡는다)
+     * @return 제안 검색어. 없으면 null
+     */
+    public static String suggestOrNull(String keyword, KeywordIndex index, SearchMetrics.Target metrics) {
+        if (keyword == null || HangulKeys.isChosungOnly(keyword)) {
+            return null;
+        }
+        long started = System.nanoTime();
+        try {
+            Result result = suggest(keyword, index);
+            metrics.suggested(result.outcome().tag(), Duration.ofNanos(System.nanoTime() - started));
+            return result.keyword();
+        } catch (RuntimeException e) {
+            metrics.suggested("error", Duration.ofNanos(System.nanoTime() - started));
+            log.warn("검색어 제안을 만들지 못해 제안 없이 응답한다 target={}", metrics.target(), e);
+            return null;
+        }
     }
 
     /**
