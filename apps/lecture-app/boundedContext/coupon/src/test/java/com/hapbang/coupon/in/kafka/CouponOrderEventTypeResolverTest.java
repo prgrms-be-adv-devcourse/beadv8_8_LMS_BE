@@ -2,13 +2,19 @@ package com.hapbang.coupon.in.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
+import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.annotation.KafkaHandler;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
@@ -54,6 +60,43 @@ class CouponOrderEventTypeResolverTest {
         assertThat(handled).hasSize(2).allSatisfy(type -> assertThat(CouponOrderEventTypeResolver
                 .resolve(LectureEventTopic.NAME, BODY, eventType(type.getSimpleName())).getRawClass())
                 .isEqualTo(type));
+    }
+
+    /**
+     * 리스너 설정의 {@code spring.json.value.type.method}가 가리키는 메서드가 있고, spring-kafka 역직렬화기가 먼저 찾는 모양
+     * ({@code public static JavaType 이름(String topic, byte[] data, Headers headers)})인지 본다. 이름이 틀리면 리스너 기동이나 첫 메시지에서야
+     * 실패한다. 값은 운영 리스너의 애노테이션에서 읽는다
+     */
+    @Test
+    void 리스너_설정의_타입_결정_메서드는_역직렬화기가_찾는_public_static_메서드다() throws Exception {
+        String methodProperty = listenerProperties().get(JacksonJsonDeserializer.VALUE_TYPE_METHOD);
+        int lastDot = methodProperty.lastIndexOf('.');
+        Class<?> owner = Class.forName(methodProperty.substring(0, lastDot));
+        Method method = owner.getDeclaredMethod(methodProperty.substring(lastDot + 1), String.class, byte[].class,
+                Headers.class);
+
+        assertThat(Modifier.isPublic(owner.getModifiers())).isTrue();
+        assertThat(Modifier.isPublic(method.getModifiers())).isTrue();
+        assertThat(Modifier.isStatic(method.getModifiers())).isTrue();
+        assertThat(method.getReturnType()).isEqualTo(JavaType.class);
+    }
+
+    /** 같은 설정으로 만든 역직렬화기가 그 메서드로 타입을 정한다 */
+    @Test
+    void 리스너_설정으로_만든_역직렬화기는_eventType_헤더로_타입을_정한다() {
+        try (JacksonJsonDeserializer<Object> deserializer = new JacksonJsonDeserializer<>()) {
+            deserializer.configure(listenerProperties(), false);
+
+            assertThat(deserializer.deserialize(LectureEventTopic.NAME, eventType("LectureObjectionResolvedEvent"), BODY))
+                    .isInstanceOf(IgnoredLectureEvent.class);
+        }
+    }
+
+    /** 운영 리스너 애노테이션의 Kafka 소비 설정({@code key=value}) */
+    private static Map<String, String> listenerProperties() {
+        return Arrays.stream(CouponOrderEventListener.class.getAnnotation(KafkaListener.class).properties())
+                .map(property -> property.split("=", 2))
+                .collect(java.util.stream.Collectors.toMap(pair -> pair[0].trim(), pair -> pair[1].trim()));
     }
 
     private static RecordHeaders eventType(String value) {
