@@ -6,6 +6,8 @@ import static org.mockito.Mockito.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,7 +22,8 @@ import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 
 /**
  * 메서드 사이 격리: 파이프라인을 멈춘 뒤 worker·주기 작업이 모두 끝났음을 확인한 다음에만 Stream·DB를 정리한다. 끝나지 않으면
- * 정리하지 않고(DB 정리 리스너도 건너뛴다) 컨텍스트를 닫으며 테스트를 실패시킨다.
+ * 정리하지 않고(DB 정리 리스너도 건너뛴다) 컨텍스트를 닫으며 테스트를 실패시킨다. 끝나지 않은 작업은 운영 이름 규칙을 따른 스레드를
+ * 멈춰 두어 만든다.
  */
 class ChatPipelineIsolationListenerTest {
 
@@ -44,12 +47,13 @@ class ChatPipelineIsolationListenerTest {
     }
 
     @Test
-    void 파이프라인_작업이_끝나지_않으면_Stream과_DB를_정리하지_않고_컨텍스트를_닫으며_실패한다() {
-        when(runner.isFullyStopped()).thenReturn(false);
+    void 파이프라인_작업이_끝나지_않으면_Stream과_DB를_정리하지_않고_컨텍스트를_닫으며_실패한다() throws Exception {
         ChatPipelineIsolationListener listener = new ChatPipelineIsolationListener(Duration.ofMillis(200));
 
-        assertThatThrownBy(() -> listener.afterTestMethod(testContext)).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("정리하지 않습니다");
+        whileThreadRuns(ChatPipelineIsolationListener.PIPELINE_WORKER_PREFIX + "isolation-test:delivery:1",
+                () -> assertThatThrownBy(() -> listener.afterTestMethod(testContext))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("정리하지 않습니다"));
 
         verify(runner).stop();
         verify(redis, never()).delete(anyCollection());
@@ -59,7 +63,6 @@ class ChatPipelineIsolationListenerTest {
 
     @Test
     void 파이프라인_작업이_모두_끝났으면_이_namespace의_Stream만_지운다() {
-        when(runner.isFullyStopped()).thenReturn(false, true);
         ChatPipelineIsolationListener listener = new ChatPipelineIsolationListener(Duration.ofSeconds(5));
 
         listener.afterTestMethod(testContext);
@@ -70,23 +73,41 @@ class ChatPipelineIsolationListenerTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void 구독자_처리_작업이_끝나지_않으면_Stream과_DB를_정리하지_않고_컨텍스트를_닫으며_실패한다() {
-        when(runner.isFullyStopped()).thenReturn(true);
+    void 구독자_처리_작업이_끝나지_않으면_Stream과_DB를_정리하지_않고_컨텍스트를_닫으며_실패한다() throws Exception {
         ChatRealtimeRedisListener realtimeListener = mock(ChatRealtimeRedisListener.class);
-        when(realtimeListener.awaitIdle(any())).thenReturn(false);
         ObjectProvider<ChatRealtimeRedisListener> listenerProvider = mock(ObjectProvider.class);
         when(listenerProvider.getIfAvailable()).thenReturn(realtimeListener);
         when(applicationContext.getBeanProvider(ChatRealtimeRedisListener.class)).thenReturn(listenerProvider);
         ChatPipelineIsolationListener listener = new ChatPipelineIsolationListener(Duration.ofSeconds(1),
                 Duration.ofMillis(100));
 
-        assertThatThrownBy(() -> listener.afterTestMethod(testContext)).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("정리하지 않습니다");
+        whileThreadRuns(ChatPipelineIsolationListener.REALTIME_WORKER_PREFIX + "message-0-isolation-test",
+                () -> assertThatThrownBy(() -> listener.afterTestMethod(testContext))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("정리하지 않습니다"));
 
-        verify(realtimeListener).pause();
         verify(redis, never()).delete(anyCollection());
         verify(testContext).setAttribute(ChatPipelineIsolationListener.PIPELINE_STILL_RUNNING, true);
         verify(testContext).markApplicationContextDirty(null);
+    }
+
+    /** 이 이름의 스레드가 작업 하나를 붙잡은 채 도는 동안 {@code check}를 실행한다 */
+    private static void whileThreadRuns(String name, Runnable check) throws InterruptedException {
+        CountDownLatch release = new CountDownLatch(1);
+        Thread busy = new Thread(() -> {
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        }, name);
+        busy.start();
+        try {
+            check.run();
+        } finally {
+            release.countDown();
+            busy.join(5_000);
+        }
     }
 
     @Test

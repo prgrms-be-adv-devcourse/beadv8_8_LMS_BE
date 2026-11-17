@@ -2,6 +2,9 @@ package com.hapbang.chat.in.support;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -9,6 +12,7 @@ import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
+import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatRoomActivityNotifier;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.in.redis.ChatRealtimeRedisListener;
@@ -23,15 +27,18 @@ import lombok.extern.slf4j.Slf4j;
  * 남아, 다음 메서드가 그 작업을 읽고 원본이 없다며 새 DB에 DEAD 체크포인트를 남긴다. 이미 발행된 작업도 구독자의 처리 실행기에
  * 남아 있다가 늦게 전달되면, 다음 메서드가 같은 회원으로 연 연결에 들어갈 수 있다. 그래서
  * <ol>
- *     <li>메서드가 끝나면 DB 정리 전에(이 리스너의 순서가 더 커서 afterTestMethod가 먼저 돈다) 파이프라인을 멈추고, 구독자의
- *     새 payload 처리를 멈춘 뒤 처리 중인 작업이 끝나기를 기다린다(운영 종료와 같은 {@code pause}·{@code awaitIdle}).</li>
+ *     <li>메서드가 끝나면 DB 정리 전에(이 리스너의 순서가 더 커서 afterTestMethod가 먼저 돈다) 파이프라인을 운영 lifecycle의
+ *     {@code stop}으로 멈추고, worker·주기 작업 스레드가 모두 끝나기를 기다린다. 스레드는 운영의 이름 규칙
+ *     ({@code chat-stream-<consumer>}, {@code chat-<큐>-periodic-})으로 찾는다.</li>
+ *     <li>파이프라인이 멈춰 새 발행이 없으므로, 구독자의 처리 실행기 스레드({@code chat-realtime-})가 모두 다음 작업을 기다리는
+ *     상태로 잠시 이어지면 이미 발행된 payload까지 처리가 끝난 것으로 본다.</li>
  *     <li>새 메시지 알림 묶음을 비운다. 묶음은 메모리에 방별로 모였다가 주기(1초)마다 나가므로, 메서드가 주기 전에 끝나면 남은 묶음이
- *     다음 메서드의 주기에 그 메서드가 같은 회원으로 연 연결로 나간다(앞 메서드 방의 {@code ROOM_ACTIVITY}). 구독자 처리가 멈춘 뒤라
+ *     다음 메서드의 주기에 그 메서드가 같은 회원으로 연 연결로 나간다(앞 메서드 방의 {@code ROOM_ACTIVITY}). 구독자 처리가 끝난 뒤라
  *     새 재료가 들어오지 않고, {@code flush}는 보낼 곳이 없어도 묶음을 떼어 내므로 다음 메서드는 빈 묶음에서 시작한다.</li>
  *     <li>이 컨텍스트의 namespace에 있는 전달·제어 Stream 키만 지운다(그룹·PEL도 함께 지워진다). FLUSHALL 등 전역 정리는 하지 않는다.</li>
- *     <li>다음 메서드 시작 전에 전달 가용성 상태(Redis 멈춤·자기 구독 단절·메모리 상한 재확인)를 초기화하고, 구독자 처리와
- *     파이프라인을 다시 시작한다. 시작할 때 그룹을 다시 만든다. 앞 실행의 worker가 아직 끝나지 않아 시작을 거절하면 끝날 때까지
- *     제한 시간 안에서 다시 시도한다.</li>
+ *     <li>다음 메서드 시작 전에 전달 가용성 상태(Redis 멈춤·자기 구독 단절·메모리 상한 재확인)를 초기화하고 파이프라인을 다시
+ *     시작한다. 시작할 때 그룹을 다시 만든다. 앞 실행의 worker가 아직 끝나지 않아 시작을 거절하면 끝날 때까지 제한 시간 안에서 다시
+ *     시도한다.</li>
  * </ol>
  * 파이프라인·실시간 구독을 켜지 않은 컨텍스트에서는 해당 단계를 건너뛴다.
  */
@@ -49,6 +56,12 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
 
     /** 앞 실행의 worker가 끝나 파이프라인을 다시 시작할 수 있을 때까지 기다리는 상한 */
     private static final Duration RESTART_TIMEOUT = Duration.ofSeconds(30);
+    /** 전달 파이프라인 worker 스레드 이름의 앞부분(운영 이름 규칙 {@code chat-stream-<consumer>}) */
+    static final String PIPELINE_WORKER_PREFIX = "chat-stream-";
+    /** 구독자 처리 실행기 스레드 이름의 앞부분(운영 이름 규칙 {@code chat-realtime-message-<번호>-}, {@code chat-realtime-control-}) */
+    static final String REALTIME_WORKER_PREFIX = "chat-realtime-";
+    /** 구독자 처리 스레드가 모두 작업을 기다리는 상태로 이어져야 하는 시간 */
+    private static final Duration REALTIME_QUIET = Duration.ofMillis(200);
 
     @Override
     public void beforeTestMethod(TestContext testContext) throws InterruptedException {
@@ -57,10 +70,6 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
                 .getIfAvailable();
         if (availability != null) {
             availability.reset();
-        }
-        ChatRealtimeRedisListener realtimeListener = realtimeListener(context);
-        if (realtimeListener != null) {
-            realtimeListener.resume();
         }
         ChatDeliveryPipelineRunner runner = runner(context);
         if (runner != null && !runner.isRunning()) {
@@ -91,17 +100,15 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
             runner.stop();
             // stop()은 shutdown-await 안에 끝나지 않은 worker·주기 작업을 남기고 돌아올 수 있다. 정리 전에 모두 끝났는지 확인하고,
             // 끝나지 않으면 Stream·DB를 정리하지 않고(DB 정리 리스너에 알림) 컨텍스트를 닫으며 테스트를 실패시킨다
-            if (!awaitFullyStopped(runner)) {
+            if (!awaitPipelineThreadsEnded()) {
                 testContext.setAttribute(PIPELINE_STILL_RUNNING, true);
                 testContext.markApplicationContextDirty(null);
                 throw new IllegalStateException("전달 파이프라인의 worker·주기 작업이 " + fullStopTimeout
                         + " 안에 끝나지 않아 Stream·DB를 정리하지 않습니다. 다음 테스트로 작업이 샐 수 있습니다.");
             }
         }
-        ChatRealtimeRedisListener realtimeListener = realtimeListener(context);
-        if (realtimeListener != null) {
-            realtimeListener.pause();
-            if (!realtimeListener.awaitIdle(drainTimeout)) {
+        if (realtimeListener(context) != null) {
+            if (!awaitRealtimeQuiet()) {
                 // 파이프라인이 끝나지 않은 경우와 같이 다룬다: Stream·DB를 정리하지 않고 컨텍스트를 닫으며 실패시킨다
                 testContext.setAttribute(PIPELINE_STILL_RUNNING, true);
                 testContext.markApplicationContextDirty(null);
@@ -124,7 +131,7 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
 
     /** 파이프라인의 모든 worker·주기 작업이 끝나기를 기다리는 상한 */
     private final Duration fullStopTimeout;
-    /** 구독자 처리 작업을 기다리는 상한. 넘으면 정리하지 않고 실패시켜 다음 메서드로 새는 것을 숨기지 않는다 */
+    /** 구독자 처리 작업이 끝나 조용해지기를 기다리는 상한. 넘으면 정리하지 않고 실패시켜 다음 메서드로 새는 것을 숨기지 않는다 */
     private final Duration drainTimeout;
 
     public ChatPipelineIsolationListener() {
@@ -142,21 +149,85 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
         this.drainTimeout = drainTimeout;
     }
 
-    /** @return 제한 시간 안에 모든 worker·주기 작업이 끝났으면 true */
-    private boolean awaitFullyStopped(ChatDeliveryPipelineRunner runner) {
+    /** @return 제한 시간 안에 모든 worker·주기 작업 스레드가 끝났으면 true */
+    private boolean awaitPipelineThreadsEnded() {
         long deadline = System.nanoTime() + fullStopTimeout.toNanos();
-        while (!runner.isFullyStopped()) {
-            if (System.nanoTime() >= deadline) {
-                return false;
-            }
-            try {
-                Thread.sleep(20);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+        while (Thread.getAllStackTraces().keySet().stream()
+                .anyMatch(thread -> thread.isAlive() && isPipelineThread(thread.getName()))) {
+            if (System.nanoTime() >= deadline || !pause()) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static boolean isPipelineThread(String name) {
+        if (name.startsWith(PIPELINE_WORKER_PREFIX)) {
+            return true;
+        }
+        for (ChatJobStream stream : ChatJobStream.values()) {
+            if (name.startsWith("chat-" + stream.name().toLowerCase(Locale.ROOT) + "-periodic-")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 구독자의 처리 실행기 스레드가 모두 다음 작업을 기다리는 상태({@code ThreadPoolExecutor.getTask})로 {@link #REALTIME_QUIET} 동안
+     * 이어지기를 기다린다. 실행기마다 스레드 하나(제어는 설정한 수)라, 그 스레드가 작업을 기다리면 그 실행기의 대기열도 비어 있다.
+     * 이어지는 시간은 Redis가 이미 보낸 payload가 구독 연결에 닿아 실행기에 들어가기까지의 여유다.
+     *
+     * @return 제한 시간 안에 조용해졌으면 true
+     */
+    private boolean awaitRealtimeQuiet() {
+        long deadline = System.nanoTime() + drainTimeout.toNanos();
+        long quietSince = 0;
+        while (true) {
+            long now = System.nanoTime();
+            if (realtimeThreadsWaitingForWork()) {
+                if (quietSince == 0) {
+                    quietSince = now;
+                } else if (now - quietSince >= REALTIME_QUIET.toNanos()) {
+                    return true;
+                }
+            } else {
+                quietSince = 0;
+            }
+            if (now >= deadline || !pause()) {
+                return false;
+            }
+        }
+    }
+
+    private static boolean realtimeThreadsWaitingForWork() {
+        for (Map.Entry<Thread, StackTraceElement[]> entry : Thread.getAllStackTraces().entrySet()) {
+            if (entry.getKey().getName().startsWith(REALTIME_WORKER_PREFIX) && !waitingForTask(entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean waitingForTask(StackTraceElement[] stack) {
+        for (StackTraceElement frame : stack) {
+            if (frame.getClassName().equals(ThreadPoolExecutor.class.getName())
+                    && frame.getMethodName().equals("getTask")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return 인터럽트되면 false */
+    private static boolean pause() {
+        try {
+            Thread.sleep(20);
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /** 남은 새 메시지 알림 묶음을 떼어 낸다. 아직 열린 앞 메서드의 연결로 나가도 그 메서드는 끝났으므로 영향이 없다 */

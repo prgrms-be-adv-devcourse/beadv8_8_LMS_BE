@@ -1,6 +1,7 @@
 package com.hapbang.chat.in.redis;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -9,6 +10,7 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -74,33 +76,45 @@ class ChatRealtimeRedisListenerOverflowTest {
                 .isZero();
     }
 
+    /**
+     * 종료(destroy)는 새 payload 받기를 멈추고 처리 중인 작업이 끝날 때까지 기다린다. 멈춘 뒤 받은 payload는 처리하지 않고 버린다
+     * (대기열이 넘친 것이 아니므로 재동기화로 넘기지 않는다).
+     */
     @Test
-    void 멈추면_새_payload는_버리고_처리_중인_작업이_끝날_때까지_기다릴_수_있고_다시_시작하면_받는다() throws Exception {
+    void 종료하면_새_payload는_버리고_처리_중인_작업이_끝날_때까지_기다린다() throws Exception {
         CountDownLatch running = new CountDownLatch(1);
+        AtomicLong finishedAt = new AtomicLong();
         doAnswer(invocation -> {
             running.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            finishedAt.set(System.nanoTime());
             return null;
         }).when(facade).deliverMessage(any());
         MessageFanout inFlight = fanout();
         publish(inFlight);
         assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
 
-        listener.pause();
-        MessageFanout whilePaused = fanout();
-        publish(whilePaused);
-        assertThat(listener.awaitIdle(Duration.ofMillis(200))).as("처리 중이면 비지 않았다").isFalse();
+        AtomicLong destroyedAt = new AtomicLong();
+        Thread destroyer = new Thread(() -> {
+            listener.destroy();
+            destroyedAt.set(System.nanoTime());
+        });
+        destroyer.start();
+        // 받기를 멈춘 뒤 처리 중인 작업을 기다리며 잠깐씩 잔다
+        await().atMost(Duration.ofSeconds(2)).until(() -> destroyer.getState() == Thread.State.TIMED_WAITING);
+        MessageFanout afterPause = fanout();
+        publish(afterPause);
+        assertThat(destroyer.isAlive()).as("처리 중인 작업을 기다린다").isTrue();
+
         release.countDown();
-        assertThat(listener.awaitIdle(Duration.ofSeconds(2))).isTrue();
+        destroyer.join(5_000);
 
+        assertThat(destroyedAt.get()).as("작업이 끝난 뒤 종료").isGreaterThan(finishedAt.get());
         verify(facade).deliverMessage(inFlight);
-        verify(facade, never()).deliverMessage(whilePaused);
+        verify(facade, after(300).never()).deliverMessage(afterPause);
         verify(facade, never()).onMessageDropped(anyLong());
-
-        listener.resume();
-        MessageFanout afterResume = fanout();
-        publish(afterResume);
-        verify(facade, timeout(2_000)).deliverMessage(afterResume);
+        assertThat(meterRegistry.counter(ChatRealtimeRedisListener.DROPPED_METRIC, "queue", "message").count())
+                .isZero();
     }
 
     private void publish(MessageFanout fanout) {

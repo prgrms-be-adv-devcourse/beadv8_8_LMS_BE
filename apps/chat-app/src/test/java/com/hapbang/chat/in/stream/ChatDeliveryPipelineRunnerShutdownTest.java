@@ -31,7 +31,9 @@ import com.hapbang.chat.config.ChatDeliveryProperties;
  */
 class ChatDeliveryPipelineRunnerShutdownTest {
 
-    private static final String STUCK = "test:delivery:1";
+    /** 다른 시험의 파이프라인과 worker 스레드 이름이 겹치지 않는 인스턴스 ID */
+    private static final String INSTANCE_ID = "runner-shutdown-test";
+    private static final String STUCK = INSTANCE_ID + ":delivery:1";
 
     private final CountDownLatch release = new CountDownLatch(1);
     private final CountDownLatch stuckEntered = new CountDownLatch(1);
@@ -78,7 +80,7 @@ class ChatDeliveryPipelineRunnerShutdownTest {
         });
         runner.start();
         assertThat(stuckEntered.await(5, TimeUnit.SECONDS)).isTrue();
-        assertThat(runner.aliveWorkerCount()).isEqualTo(3);
+        assertThat(aliveWorkers()).isEqualTo(3);
 
         long started = System.nanoTime();
         runner.stop();
@@ -86,21 +88,21 @@ class ChatDeliveryPipelineRunnerShutdownTest {
 
         // 멈춘 worker 하나가 남았다. 끝날 때까지 다시 시작하지 않는다
         assertThat(runner.isRunning()).isFalse();
-        assertThat(runner.aliveWorkerCount()).isEqualTo(1);
+        assertThat(aliveWorkers()).isEqualTo(1);
         assertThatThrownBy(runner::start).isInstanceOf(IllegalStateException.class).hasMessageContaining(STUCK);
-        assertThat(runner.aliveWorkerCount()).isEqualTo(1);
+        assertThat(aliveWorkers()).isEqualTo(1);
 
         // 느린 호출이 끝나면 옛 worker는 자기 세대가 꺼졌으므로 다시 읽지 않고 끝난다
         released = true;
         release.countDown();
-        await().atMost(Duration.ofSeconds(5)).until(() -> runner.aliveWorkerCount() == 0);
+        await().atMost(Duration.ofSeconds(5)).until(() -> aliveWorkers() == 0);
         assertThat(stuckPollsAfterRelease).hasValue(0);
 
         runner.start();
         assertThat(runner.isRunning()).isTrue();
-        assertThat(runner.aliveWorkerCount()).isEqualTo(3);
+        assertThat(aliveWorkers()).isEqualTo(3);
         runner.stop();
-        assertThat(runner.aliveWorkerCount()).isZero();
+        assertThat(aliveWorkers()).isZero();
     }
 
     @Test
@@ -111,18 +113,25 @@ class ChatDeliveryPipelineRunnerShutdownTest {
             return 0;
         });
         runner.start();
-        await().atMost(Duration.ofSeconds(5)).until(() -> runner.aliveWorkerCount() == 3);
+        await().atMost(Duration.ofSeconds(5)).until(() -> aliveWorkers() == 3);
 
         runner.stop();
 
-        assertThat(runner.aliveWorkerCount()).isZero();
+        assertThat(aliveWorkers()).isZero();
         runner.start();
-        assertThat(runner.aliveWorkerCount()).isEqualTo(3);
+        assertThat(aliveWorkers()).isEqualTo(3);
+    }
+
+    /** 살아 있는 이 실행기의 worker 스레드 수(이전 세대 포함). worker 스레드 이름은 {@code chat-stream-<consumer>}다 */
+    private static long aliveWorkers() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(thread -> thread.isAlive() && thread.getName().startsWith("chat-stream-" + INSTANCE_ID + ":"))
+                .count();
     }
 
     private static ChatDeliveryProperties properties() {
         Map<String, String> values = Map.of(
-                "hapbang.chat.delivery.instance-id", "test",
+                "hapbang.chat.delivery.instance-id", INSTANCE_ID,
                 "hapbang.chat.delivery.consumer.delivery-workers", "2",
                 "hapbang.chat.delivery.consumer.control-workers", "1",
                 "hapbang.chat.delivery.shutdown-await", "500ms",

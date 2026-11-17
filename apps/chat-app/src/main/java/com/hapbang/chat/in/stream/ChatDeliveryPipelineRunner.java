@@ -162,23 +162,6 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
         return generation != null;
     }
 
-    /**
-     * 멈췄고, 이전 실행의 worker 스레드와 주기 작업 스케줄러가 모두 끝났는지. 실행 중이면 false.
-     * {@link #stop()}이 {@code shutdown-await} 안에 끝나지 않은 작업을 남기고 돌아온 경우를 확인할 때 쓴다.
-     */
-    public synchronized boolean isFullyStopped() {
-        if (generation != null) {
-            return false;
-        }
-        reapFinished();
-        return workers.isEmpty() && lingeringSchedulers.isEmpty();
-    }
-
-    /** 살아 있는 worker 스레드 수(이전 세대 포함) */
-    synchronized int aliveWorkerCount() {
-        return (int) workers.stream().filter(worker -> worker.thread().isAlive()).count();
-    }
-
     /** 큐 하나의 주기 작업을 그 큐 전용 스케줄러에 하나씩 등록한다 */
     private void schedulePeriodicTasks(ChatJobStream stream, String instanceId) {
         String name = stream.name().toLowerCase(Locale.ROOT);

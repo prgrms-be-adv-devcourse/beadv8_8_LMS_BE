@@ -78,13 +78,8 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
      * 새 작업이 등록되지 않는다(확인 직후 선점된 콜백이 비우기가 끝난 뒤 작업을 넣는 경쟁을 막는다)
      */
     private final Object intakeGate = new Object();
-    /** 새 payload를 받아 처리할지. {@link #pause()} 중이면 받은 payload를 버린다. {@link #intakeGate} 안에서만 쓴다 */
+    /** 새 payload를 받아 처리할지. {@link #pause()} 뒤에는 받은 payload를 버린다. {@link #intakeGate} 안에서만 쓴다 */
     private boolean accepting = true;
-    /**
-     * 받기 세대. {@link #pause()}·{@link #resume()}마다 올린다. 콜백은 들어올 때 세대를 잡아 두고, 작업을 등록할 때 세대가 바뀌었으면
-     * 버린다. 그래서 멈추기 전에 들어와 선점됐던 콜백이 멈춤·비우기·재개가 모두 끝난 뒤 옛 payload를 처리하지 않는다
-     */
-    private volatile long intakeGeneration;
     /** 실행기에 넣었지만 아직 끝나지 않은 작업 수(대기 + 실행 중) */
     private final AtomicInteger inFlight = new AtomicInteger();
     private final Duration shutdownAwait;
@@ -120,13 +115,11 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
 
     @Override
     public void onMessage(Message message, byte @Nullable [] pattern) {
-        long generation = intakeGeneration;
-        afterIntakeEntry();
         String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
         byte[] body = message.getBody();
         Long roomId = chatRedisKeys.roomIdOf(channel);
         if (roomId != null) {
-            Submitted submitted = submit(generation, messageExecutorOf(roomId), channel, () -> {
+            Submitted submitted = submit(messageExecutorOf(roomId), channel, () -> {
                 MessageFanout fanout = read(body, MessageFanout.class, channel);
                 if (fanout != null) {
                     chatRealtimeFacade.deliverMessage(fanout);
@@ -134,7 +127,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
             });
             if (submitted == Submitted.REJECTED) {
                 messageDropped.increment();
-                submitControl(generation, channel, () -> chatRealtimeFacade.onMessageDropped(roomId));
+                submitControl(channel, () -> chatRealtimeFacade.onMessageDropped(roomId));
             }
         } else if (activityChannel.equals(channel)) {
             RoomActivityFanout activity = read(body, RoomActivityFanout.class, channel);
@@ -142,7 +135,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
                 return;
             }
             // 알림은 최선 노력이다. 대기열이 넘쳐 버리면 FE 주기 대조가 메운다
-            if (submit(generation, messageExecutorOf(activity.roomId()), channel,
+            if (submit(messageExecutorOf(activity.roomId()), channel,
                     () -> chatRealtimeFacade.onRoomActivity(activity)) == Submitted.REJECTED) {
                 messageDropped.increment();
             }
@@ -152,12 +145,12 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
                 return;
             }
             // 최선 노력이다. 대기열이 넘쳐 버리면 FE가 REST 이력으로 보정한다
-            if (submit(generation, messageExecutorOf(readChanged.roomId()), channel,
+            if (submit(messageExecutorOf(readChanged.roomId()), channel,
                     () -> chatRealtimeFacade.onReadChanged(readChanged)) == Submitted.REJECTED) {
                 messageDropped.increment();
             }
         } else if (controlChannel.equals(channel)) {
-            submitControl(generation, channel, () -> {
+            submitControl(channel, () -> {
                 ControlFanout control = read(body, ControlFanout.class, channel);
                 if (control != null) {
                     chatRealtimeFacade.applyControl(control);
@@ -168,7 +161,6 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
 
     @Override
     public void onChannelSubscribed(byte[] channel, long count) {
-        long generation = intakeGeneration;
         String name = new String(channel, StandardCharsets.UTF_8);
         if (readChannel.equals(name)) {
             log.info("안 읽은 사람 수 변경 채널 구독 확인 channel={}", name);
@@ -186,9 +178,9 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         // 방 채널은 서버 채널과 같은 구독 연결이라 서버 채널의 재구독이 곧 방 채널의 재구독이다
         log.warn("실시간 채널 재구독 감지 channel={}", name);
         if (activityChannel.equals(name)) {
-            submitControl(generation, name, chatRealtimeFacade::onMessageSubscriptionRecovered);
+            submitControl(name, chatRealtimeFacade::onMessageSubscriptionRecovered);
         } else {
-            submitControl(generation, name, chatRealtimeFacade::onControlSubscriptionRecovered);
+            submitControl(name, chatRealtimeFacade::onControlSubscriptionRecovered);
         }
     }
 
@@ -198,22 +190,12 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
     }
 
     /**
-     * 새 payload 처리를 멈춘다. 멈춘 동안 받은 전달·제어 payload는 버린다(Pub/Sub은 원래 다시 보내지 않는다. 메시지는 FE 이력 대조,
-     * 제어는 주기 재검사가 회복한다). 앱 종료·점검 때 {@link #awaitIdle}와 함께 처리 중인 작업을 비우는 데 쓴다.
+     * 새 payload 처리를 멈춘다. 멈춘 뒤 받은 전달·제어 payload는 버린다(Pub/Sub은 원래 다시 보내지 않는다. 메시지는 FE 이력 대조,
+     * 제어는 주기 재검사가 회복한다). 앱 종료 때 {@link #awaitIdle}와 함께 처리 중인 작업을 비우는 데 쓴다.
      */
-    public void pause() {
+    private void pause() {
         synchronized (intakeGate) {
             accepting = false;
-            intakeGeneration++;
-        }
-    }
-
-    /** {@link #pause()} 뒤 새 payload 처리를 다시 시작한다 */
-    public void resume() {
-        synchronized (intakeGate) {
-            // 멈춘 동안 들어와 아직 등록하지 않은 콜백도 재개 뒤에 처리하지 않는다
-            intakeGeneration++;
-            accepting = true;
         }
     }
 
@@ -222,7 +204,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
      *
      * @return 제한 시간 안에 비었으면 true
      */
-    public boolean awaitIdle(Duration timeout) {
+    private boolean awaitIdle(Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (inFlight.get() > 0) {
             if (System.nanoTime() >= deadline) {
@@ -263,8 +245,8 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         return messageExecutors[Math.floorMod(Long.hashCode(roomId), messageExecutors.length)];
     }
 
-    private void submitControl(long generation, String channel, Runnable task) {
-        if (submit(generation, controlExecutor, channel, task) == Submitted.REJECTED) {
+    private void submitControl(String channel, Runnable task) {
+        if (submit(controlExecutor, channel, task) == Submitted.REJECTED) {
             controlDropped.increment();
         }
     }
@@ -279,32 +261,19 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         REJECTED
     }
 
-    /**
-     * 받기 여부와 세대를 확인하고 처리 중 작업 수를 올린다. 셋을 한 잠금 안에서 해 {@link #pause()}와 겹치지 않게 한다.
-     *
-     * @param generation 콜백이 들어올 때 잡은 받기 세대
-     */
-    private boolean tryEnter(long generation) {
+    /** 받기 여부를 확인하고 처리 중 작업 수를 올린다. 둘을 한 잠금 안에서 해 {@link #pause()}와 겹치지 않게 한다 */
+    private boolean tryEnter() {
         synchronized (intakeGate) {
-            if (!accepting || generation != intakeGeneration) {
+            if (!accepting) {
                 return false;
             }
-            afterAcceptCheck();
             inFlight.incrementAndGet();
             return true;
         }
     }
 
-    /** 받기 확인을 통과한 직후(아직 처리 중 작업 수를 올리기 전). 테스트가 이 순간의 선점을 재현할 때만 덮어쓴다 */
-    void afterAcceptCheck() {
-    }
-
-    /** 콜백이 받기 세대를 잡은 직후(아직 받기 확인 전). 테스트가 이 순간의 선점을 재현할 때만 덮어쓴다 */
-    void afterIntakeEntry() {
-    }
-
-    private Submitted submit(long generation, ThreadPoolTaskExecutor executor, String channel, Runnable task) {
-        if (!tryEnter(generation)) {
+    private Submitted submit(ThreadPoolTaskExecutor executor, String channel, Runnable task) {
+        if (!tryEnter()) {
             log.debug("실시간 처리를 멈춘 동안 받은 작업을 버림 channel={}", channel);
             return Submitted.PAUSED;
         }

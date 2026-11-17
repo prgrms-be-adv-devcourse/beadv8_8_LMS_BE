@@ -41,7 +41,7 @@ import com.hapbang.chat.in.websocket.StompLocalChatSender;
 
 /**
  * 이미 발행돼 구독자 처리 실행기에 남은 전달이 메서드가 끝난 뒤 늦게 처리돼도, 다음 메서드가 같은 회원으로 연 연결에 들어가지 않는지
- * 검증한다({@link ChatPipelineIsolationListener}의 구독자 처리 멈춤·비우기).
+ * 검증한다({@link ChatPipelineIsolationListener}의 구독자 처리 비우기).
  * <p>
  * 첫 메서드의 전달(보낸 사람의 전송 결과 확인)은 수신 자격 검사를 통과한 뒤 STOMP로 보내기 직전에 몇 초 붙잡혀 있다가 메서드가
  * 끝난다. 전송 결과 확인은 회원 단위(convertAndSendToUser)라, 비우기가 없으면 늦게 보낸 프레임이 다음 메서드가 같은 회원으로 연 새
