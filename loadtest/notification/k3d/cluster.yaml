@@ -1,6 +1,6 @@
 # B0 전용 로컬 k3d cluster(N13). 운영 node 구성을 흉내 낸다: server = core-data(PostgreSQL·Kafka·Redis·auxiliary-app),
 # agent = app-observe(이번에는 비어 있음). context 이름은 k3d-hapbang-b0이고 b0.sh가 이 이름만 허용한다.
-# 운영 limit(앱 704Mi)은 manifest가 정하고, node 메모리는 노트북 여유에 맞춰 k8s/local/k3d.yaml보다 작게 둔다.
+# 운영 limit(앱 832Mi, #996. N13·N15 측정 때는 704Mi)은 manifest가 정하고, node 메모리는 노트북 여유에 맞춰 k8s/local/k3d.yaml보다 작게 둔다.
 apiVersion: k3d.io/v1alpha5
 kind: Simple
 metadata:
