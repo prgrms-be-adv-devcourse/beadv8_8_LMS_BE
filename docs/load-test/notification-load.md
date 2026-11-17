@@ -1,6 +1,6 @@
 # 알림 본 부하 시험 (N15)
 
-알림(auxiliary-app notification)의 본 부하 시험 L1~L6 결과다(N15, #970). 정책의 원본은 [알림 결정 기록](../notification/decisions.md) ND-155·ND-157·ND-187~ND-199, 시나리오와 합격 기준의 원본은 [알림 테스트 명세](../notification/test-spec.md) 2.18(NT-LOAD)이다. 이 문서는 측정 수치와 회차의 원본이다.
+알림(auxiliary-app notification)의 본 부하 시험 L1~L6 결과다(N15, #970). 정책의 원본은 [알림 결정 기록](../notification/decisions.md) ND-155·ND-157·ND-187~ND-201, 시나리오와 합격 기준의 원본은 [알림 테스트 명세](../notification/test-spec.md) 2.18(NT-LOAD)이다. 이 문서는 측정 수치와 회차의 원본이다.
 
 격리 시험(L3·L4·L5)은 B0 cluster(`k3d-hapbang-b0`)의 값이다. 운영 처리 용량이나 운영 지연을 보증하지 않는다(ND-155·ND-188).
 
@@ -66,6 +66,7 @@ fixture: L4 전용 seed 20261116, 내용 해시 `d2e1fd93…`. 회원 1,000 + �
 | B 101 | `n15-l5B-20261116-165911-r1` | 1회차 100, 2회차 1 | 95.0초(180) | 0.58초 | 합격 |
 | M 1,000 | `n15-l5M-20261116-171007-r1` | 1~10회차 각 100 | 575.3초(660) | 0.47초 | 합격 |
 
+- L5 유효 회차(S·B·M·F)는 fixture를 만든 Gradle 데몬이 호스트에 떠 있는 채로 쟀다(L3는 내림). 회차 실행이 1초 미만이라 판정에는 영향이 없다고 보고, 이후 회차는 L3와 같이 내린다.
 - 세 시나리오 모두 회차 누락 0, 중복·누락 0, 예상 밖 오류 0. L5-M 동안 CPU 최대 1,826m, 메모리 최대 572MiB, Hikari active 최대 1·pending 0.
 - 예약 배치는 회차마다 100건만 고르므로, 같은 시각에 몰린 예약 N건의 마지막 지연은 약 ⌈N/100⌉분이다. 회차 실행은 1초 미만이라 처리 시간이 아니라 배치 크기와 주기가 지연을 정한다.
 
@@ -105,7 +106,7 @@ fixture: L4 전용 seed 20261116, 내용 해시 `d2e1fd93…`. 회원 1,000 + �
 
 ## 운영 실행 방법(L1·L2·L6)
 
-운영 시험은 알림 담당이 실행한다(ND-174·ND-187). 운영 쓰기는 하지 않는다(L1·L2는 GET·연결만). 일반 규칙(k6 버전 고정 컨테이너, 시각 기록, Prometheus 구간 값, CPU credit, Grafana 캡처)은 [부하 테스트 README](README.md)를 따르고, 아래는 알림에만 해당하는 것이다.
+운영 시험은 알림 담당이 실행한다(ND-174·ND-187). L1·L2는 운영 쓰기를 하지 않는다(GET·연결만). L6의 챗봇 FAQ 대화는 LLM을 불러 챗봇 쪽 기록과 외부 LLM 호출을 남길 수 있으므로 챗봇 담당 확인 뒤에만 실행한다. 일반 규칙(k6 버전 고정 컨테이너, 시각 기록, Prometheus 구간 값, CPU credit, Grafana 캡처)은 [부하 테스트 README](README.md)를 따르고, 아래는 알림에만 해당하는 것이다.
 
 ### 실행 전 확인
 
@@ -135,7 +136,7 @@ fixture: L4 전용 seed 20261116, 내용 해시 `d2e1fd93…`. 회원 1,000 + �
 ```bash
 set -a; . ~/.hapbang/load-tests/notification.env; set +a
 export MSYS_NO_PATHCONV=1
-OUT="$HOME/.hapbang/load-tests/runs"; SECRETS="$(cd ~/.hapbang/load-tests && pwd -W)"
+OUT="$HOME/.hapbang/load-tests/runs"; mkdir -p "$OUT" && chmod 700 "$OUT"; SECRETS="$(cd ~/.hapbang/load-tests && pwd -W)"
 k6run() { docker run --rm -v "$(pwd -W)/loadtest/k6:/scripts:ro" -v "$SECRETS:/secrets:ro" -v "$(cd "$OUT" && pwd -W):/out" \
   -e BASE_URL -e LT_EMAIL -e LT_PASSWORD -e WS_ORIGIN grafana/k6:1.0.0 run "$@"; }
 
@@ -168,7 +169,7 @@ python -I loadtest/k6/notification/sanitize_summary.py "$OUT/k6-notification-l1.
 | 시험 | k6가 판정하는 것(종료 코드 0이면 통과) | 지표로 따로 보는 것(README "Prometheus 구간 값", 앱 이름 `auxiliary-app`) |
 | --- | --- | --- |
 | L1 | p95 500ms 이하(목록·안 읽은 수 각각), 5xx 1% 미만, 보내지 못한 요청 60건 미만 | Hikari 연결 대기 시간 초과 0(`hikaricp_connections_timeout_total` 증가 0), 메모리·CPU·GC |
-| L2 | 연결 200 이상, 비정상 끊김 0, 연결 만료 0, 티켓 실패 0, 연결 p95 2초 이하 | OOMKilled 0, 메모리 최대가 limit의 85% 이하(`container_memory_working_set_bytes` / `container_spec_memory_limit_bytes`) |
+| L2 | 계획 전에 닫힌 연결 0(비정상 끊김·연결 만료, 서버가 1000으로 먼저 닫아도 셈). 시험 성립 조건: 연결 200개, 티켓 실패 0, 계정 수가 티켓 한도에 충분(모자라면 시작하지 않음). 연결 시간은 기록만 | OOMKilled 0, 메모리 최대가 limit의 85% 이하(`container_memory_working_set_bytes` / `container_spec_memory_limit_bytes`) |
 | L6 | 알림 쪽 L1·L2 기준 | 챗봇 p95의 단독 대비 악화율(기록), 메모리 |
 
 - 결과는 이 문서 "결과"에 시험별 절을 더해 적는다(README "결과 문서 양식"). CPU credit 전후 값도 적는다.
@@ -176,7 +177,7 @@ python -I loadtest/k6/notification/sanitize_summary.py "$OUT/k6-notification-l1.
 
 ## U13·NT-RES 전달문 초안
 
-알림 담당이 인프라·챗봇 담당에게 보낼 글의 초안이다. 수치의 원본은 이 문서 "결과"이고, 확정은 받는 담당이 한다(ND-157·ND-187). 운영 L1·L2·L6을 실행한 뒤 그 값을 더해 보낸다.
+알림 담당이 인프라·챗봇 담당에게 보낼 글의 초안이다. 수치의 원본은 이 문서 "결과"이고, 확정은 받는 담당이 한다(ND-157·ND-187). 운영 L1·L2를 실행한 뒤 그 값을 더해, L6 실행 전에 보낸다(L6 경로·비율 확인 요청이 들어 있다). L6 결과는 실행한 뒤 따로 전한다.
 
 > **알림 N15 부하 시험 결과 공유(U13 자원 예산 확인 요청)**
 >
@@ -185,7 +186,7 @@ python -I loadtest/k6/notification/sanitize_summary.py "$OUT/k6-notification-l1.
 > - (L4) 밀린 이벤트 10,000건 회복: 46.7초. 이때 메모리 최대 617MiB(limit의 약 88%), CPU 최대 약 4.5코어(CPU limit 없음), Hikari active 최대 4·대기 0. 실시간 전달 13%를 버렸습니다(저장은 정상, FE가 REST로 맞춤).
 > - (L5, NT-RES-02) 예약 알림 1,000건이 한 시각에 몰림: 10회차(약 10분)에 모두 보냄. 회차 실행 최대 0.5초, 건너뛴 회차 0. 챗봇 배치와 겹친 측정은 아닙니다.
 > - (L3, NT-RES-03) STOMP 100연결 + 초당 20건 저장·전달: p95 9.8ms, 유실 0. 메모리 최대 625MiB(약 89%), CPU 최대 약 1.3코어, Hikari 대기 0.
-> - 운영 L1(REST 초당 100)·L2(STOMP 200연결): (운영 실행 뒤 채움)
+> - 운영 L1(REST 초당 100)·L2(STOMP 200연결): (운영 L1·L2 실행 뒤 채움. L6 값은 넣지 않는다)
 >
 > 확인 요청:
 > 1. (인프라) 메모리 최대가 limit의 85~89%였습니다. OOMKilled는 없었지만 여유가 작습니다. limit을 지금대로 둘지, 늘릴지 의견 부탁드립니다.

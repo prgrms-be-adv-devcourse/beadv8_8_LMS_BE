@@ -11,6 +11,11 @@ import verify_n15  # noqa: E402
 KST = "+09:00"
 
 
+def datetime_iso(epoch):
+    import datetime
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).isoformat()
+
+
 def log(ts, message, level="INFO", logger="org.springframework.kafka.listener.KafkaMessageListenerContainer"):
     return json.dumps({"@timestamp": ts, "message": message, "logger_name": logger, "level": level},
                       ensure_ascii=False)
@@ -79,6 +84,15 @@ class L5ExpectationTest(unittest.TestCase):
         self.assertEqual(verify_n15.row_run(360.4, logs), 7)
         self.assertEqual(verify_n15.row_run(300.0, logs), 7)
         self.assertIsNone(verify_n15.row_run(421.0, logs))
+
+    def test_다음_회차_경계_1초_안에_끝난_긴_회차는_그_회차로_세고_실행_시간을_바르게_낸다(self):
+        first = 1_000.0
+        lines = [json.dumps({"@timestamp": datetime_iso(first + 0.3), "message": "예약 배치를 실행했다 due=1"}),
+                 # 2회차가 59.5초 걸려 3회차 발화 0.5초 전에 끝났다
+                 json.dumps({"@timestamp": datetime_iso(first + 60 + 59.5), "message": "예약 배치를 실행했다 due=1"})]
+        logs = verify_n15.run_logs(lines, first)
+        self.assertEqual([l["run"] for l in logs], [1, 2])
+        self.assertAlmostEqual(logs[1]["duration"], 59.5, places=3)
 
     def test_첫_회차는_보낼_시각_뒤_첫_35초다(self):
         # 2026-11-16T18:00:00+09:00
@@ -183,6 +197,24 @@ class L5JudgeTest(unittest.TestCase):
         result = verify_n15.judge_l5(self.base(rows, runLogs=[self.run_log(1)], replicaChecks=[0, 0, 1]))
         self.assertFalse(result["L5F failing replicas absent"]["ok"])
 
+    def test_F_실패_대상이_있는데_복제본_확인_기록이_없으면_실패(self):
+        rows = [self.row(i, "SENT", 35.5) for i in range(1, 101)]
+        failing = [self.row(2_000, "SKIPPED", 155.5, failures=3, receiver=9, schedule_id=5_000)]
+        data = self.base(rows + failing, normalTargets=list(range(1, 101)), failingTargets=[2_000],
+                         runLogs=[self.run_log(r) for r in range(1, 4)], failureLogs={5_000: self.T + 35.5},
+                         errorLines=1, abandoned=1, replicaChecks=[])
+        result = verify_n15.judge_l5(data)
+        self.assertFalse(result["L5F failing replicas absent"]["ok"])
+        self.assertEqual(result["L5F failing replicas absent"]["detail"]["checks"], 0)
+
+    def test_F_실패_예약의_첫_시도나_끝난_시각을_모르면_실패(self):
+        rows = [self.row(i, "SENT", 35.5) for i in range(1, 101)]
+        failing = [self.row(2_000, "SKIPPED", None, failures=3, receiver=9, schedule_id=5_000)]
+        data = self.base(rows + failing, normalTargets=list(range(1, 101)), failingTargets=[2_000],
+                         runLogs=[self.run_log(r) for r in range(1, 4)], failureLogs={},
+                         errorLines=1, abandoned=1)
+        self.assertFalse(verify_n15.judge_l5(data)["L5F failing schedules"]["ok"])
+
     def test_F_기한_지남_예약은_기한_뒤_건너뜀이고_알림이_없어야_한다(self):
         rows = [self.row(i, "SENT", 35.5) for i in range(1, 101)]
         deadline = self.T - 600
@@ -208,6 +240,7 @@ class GroupLagPollerTest(unittest.TestCase):
         (work / "describe.txt").write_text(describe_text, encoding="utf-8")
         fake = work / "kafka-consumer-groups.sh"
         fake.write_text(f"#!/usr/bin/env bash\ncat '{(work / 'describe.txt').as_posix()}'\n", encoding="utf-8")
+        fake.chmod(0o755)
         env = dict(os.environ)
         env.update({"KAFKA_BIN": work.as_posix(), "N15_EXTRA_POLLS": str(extra),
                     "N15_DEADLINE_SECONDS": str(deadline)})

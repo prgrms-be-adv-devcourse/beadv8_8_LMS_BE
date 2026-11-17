@@ -6,7 +6,7 @@ import http from 'k6/http';
 import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 import { BASE_URL, checkRsData, headers, requiredEnv } from '../lib/http.js';
-import { holdConnection, loadAccounts, loginAll, staggerSleep } from './stomp-common.js';
+import { assertTicketBudget, holdConnection, loadAccounts, loginAll, staggerSleep } from './stomp-common.js';
 
 if (__ENV.CHATBOT_CONFIRMED !== 'yes') {
     throw new Error('L6은 챗봇 담당 확인 뒤에만 실행한다(ND-187). 확인했으면 CHATBOT_CONFIRMED=yes를 준다');
@@ -25,6 +25,9 @@ const DURATION_SECONDS = 600;
 const STOMP_VUS = 100;
 // 계정 10개 × 회원마다 60초에 티켓 10번이라 100연결은 90초에 나눠 연다
 const STOMP_RAMP = 90;
+if (!CHATBOT_ONLY) {
+    assertTicketBudget(ACCOUNTS, [{ vus: STOMP_VUS, ramp: STOMP_RAMP }]);
+}
 
 const chatbotRateLimited = new Counter('chatbot_rate_limited');
 

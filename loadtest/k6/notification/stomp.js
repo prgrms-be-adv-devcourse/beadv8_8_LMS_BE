@@ -6,7 +6,7 @@
 import exec from 'k6/execution';
 import { requiredEnv } from '../lib/http.js';
 import { login } from '../lib/auth.js';
-import { holdConnection, loadAccounts, loginAll, staggerSleep } from './stomp-common.js';
+import { assertTicketBudget, holdConnection, loadAccounts, loginAll, staggerSleep } from './stomp-common.js';
 
 const PROFILE = __ENV.PROFILE || 'smoke';
 // 운영 알림 WebSocket이 허용한 출처(FE 주소). 레포에 적지 않고 환경 변수로 받는다
@@ -46,6 +46,9 @@ if (!PROFILES[PROFILE]) {
 }
 
 const ACCOUNTS = PROFILE === 'load' ? loadAccounts(requiredEnv('LT_ACCOUNTS_FILE')) : null;
+if (ACCOUNTS) {
+    assertTicketBudget(ACCOUNTS, Object.values(LOAD_STAGES));
+}
 
 const THRESHOLDS = {
     smoke: {
@@ -53,14 +56,14 @@ const THRESHOLDS = {
         stomp_abnormal_close: ['count<1'],
         stomp_connect_ms: ['p(95)<2000'],
     },
-    // 비정상 끊김(1006) 0이 판정 기준이다. 메모리·OOMKilled는 Grafana로 본다(절차서)
+    // 판정 기준(NT-LOAD-L2·ND-198): 계획 전에 닫힌 연결 0(비정상 끊김·연결 만료). 메모리·OOMKilled는 Grafana로 본다(절차서).
+    // 연결 200개·티켓 실패 0·checks는 시험이 성립했는지 보는 조건이다. 연결 시간(stomp_connect_ms)은 기록만 한다
     load: {
         checks: ['rate>0.99'],
         stomp_abnormal_close: ['count<1'],
         stomp_expired_close: ['count<1'],
         stomp_ticket_failed: ['count<1'],
         stomp_connected: ['count>=200'],
-        stomp_connect_ms: ['p(95)<2000'],
     },
 };
 

@@ -33,6 +33,29 @@ class L4FixtureGeneratorTest {
     }
 
     @Test
+    void 결과_문서에_적은_분류별_건수와_같다() {
+        // docs/load-test/notification-load.md L4 fixture: 지갑 4,147·출연 2,853·강의 2,001·고객센터 501·채팅 498, 실패 지갑 150
+        assertThat(FIXTURE.manifest().phaseRecordsByTopic().get("normal")).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "billing.events.v1", 4_147, "appearance.events.v1", 2_853, "lecture.events.v1", 2_001,
+                "customersupport.events.v1", 501, "chat.events.v1", 498));
+        assertThat(FIXTURE.manifest().phaseRecordsByTopic().get("failure")).containsExactlyEntriesOf(
+                Map.of("billing.events.v1", 150));
+        assertThat(FIXTURE.manifest().deadLetters()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("NotificationException", 100, "DeserializationException", 50));
+    }
+
+    @Test
+    void 재전송이_없는_크기에서도_만든다() {
+        B0FixtureGenerator.Sizes s = L4Fixtures.SIZES;
+        B0FixtureGenerator.Sizes noResend = new B0FixtureGenerator.Sizes(s.charges(), s.appearancePayouts(),
+                s.lecturePayouts(), s.requestsSent(), s.requestsCanceled(), s.requestsExpired(), s.applications(),
+                s.reviews(), s.ordersPaid(), s.itemsConfirmed(), s.lecturesApproved(), s.inquiries(), s.invitations(), 0,
+                s.legacy(), s.unknownReceivers(), s.broken());
+        B0Fixture fixture = B0FixtureGenerator.generate(L4Fixtures.SEED, noResend);
+        assertThat(fixture.alerts()).noneMatch(r -> r.category() == B0Category.RESEND);
+    }
+
+    @Test
     void 실패_단계_레코드는_모두_정상_백로그_뒤에_있고_DLT_기대_건수와_같다() {
         List<B0Record> alerts = FIXTURE.alerts();
         int firstFailure = alerts.indexOf(failure().getFirst());

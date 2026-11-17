@@ -58,7 +58,8 @@ guard() {
   [ "$CTX" = "k3d-hapbang-b0" ] || die "context는 k3d-hapbang-b0만 허용한다: $CTX"
   kubectl config get-contexts "$CTX" >/dev/null 2>&1 || die "context $CTX가 없다. 먼저 b0.sh setup을 실행한다"
   local server
-  server=$(kubectl config view -o jsonpath="{.clusters[?(@.name=='$CTX')].cluster.server}")
+  # context가 실제로 가리키는 cluster의 API 서버를 본다(이름이 같은 cluster 항목만으로 통과시키지 않는다)
+  server=$(kubectl config view --minify --context "$CTX" -o jsonpath='{.clusters[0].cluster.server}')
   [[ "$server" =~ ^https://(0\.0\.0\.0|127\.0\.0\.1|localhost|host\.docker\.internal): ]] \
     || die "context $CTX의 API 서버가 로컬이 아니다: $server"
   log "context=$CTX server=$server"
@@ -160,7 +161,8 @@ sampler() {
 
 cleanup() {
   local pid
-  for pid in ${logs_pid:-} ${lag_pid:-} ${poller_pid:-} ${sampler_pid:-} ${pf_pid:-}; do kill "$pid" 2>/dev/null; done
+  # 이미 끝난 프로세스의 kill 실패가 나머지 정리를 멈추지 않게 한다
+  for pid in ${logs_pid:-} ${lag_pid:-} ${poller_pid:-} ${sampler_pid:-} ${pf_pid:-}; do kill "$pid" 2>/dev/null || true; done
   true
 }
 
@@ -190,7 +192,12 @@ port_forward() {
   [ "$DRY" = 1 ] && { show kubectl port-forward deploy/auxiliary-app "$PF_PORT:8082"; return; }
   kubectl --context "$CTX" -n "$APP_NS" port-forward deploy/auxiliary-app "$PF_PORT:8082" >/dev/null 2>&1 &
   pf_pid=$!
-  until metrics >/dev/null; do sleep 1; done
+  local deadline=$((SECONDS + 60))
+  until metrics >/dev/null; do
+    kill -0 "$pf_pid" 2>/dev/null || die "port-forward가 끝났다(앱 pod 상태 확인)"
+    [ "$SECONDS" -lt "$deadline" ] || die "60초 안에 앱 지표가 열리지 않았다(port-forward $PF_PORT)"
+    sleep 1
+  done
 }
 stop_port_forward() { [ -n "${pf_pid:-}" ] && { kill "$pf_pid" 2>/dev/null || true; wait "$pf_pid" 2>/dev/null || true; pf_pid=; }; true; }
 
@@ -492,6 +499,8 @@ run_l5() {
       HAPBANG_L5_EXPIRED_DEADLINE="$(kst $((expired_deadline > 0 ? expired_deadline : send_at - 1800)))" \
       "$ROOT/gradlew" -p "$ROOT" -q :notification:test --tests '*N15FixtureExportTest' --rerun > "$out/export.log" 2>&1 \
       || die "fixture를 만들지 못했다($out/export.log)"
+    # 측정 중 호스트 자원을 쓰지 않게 Gradle 데몬을 내린다(L3와 같음. L5-S·B·M·F 유효 회차는 데몬이 떠 있었다)
+    "$ROOT/gradlew" -p "$ROOT" --stop -q >/dev/null 2>&1 || true
   fi
   local fdir="$fixture/l5-$scenario"
   record_conditions "$out" "l5-$scenario sendAt=$(kst "$send_at")"

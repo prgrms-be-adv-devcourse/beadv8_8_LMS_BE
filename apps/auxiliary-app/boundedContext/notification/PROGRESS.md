@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1~N14 완료, N15 진행 중(#970) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-108 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-109 |
 | Flyway | 작성 | `src/main/resources/db/migration/`의 6개 파일(`notification_user`, `notification`, 파기 표시, `notification_runtime_setting`, `notification_payout_item`, `notification_schedule`) |
 
 ## 2. 문서 구축 상태
@@ -70,7 +70,7 @@
 | N12 | P1 | 계측 보강: Kafka 소비 실패·DLT 결과·저장 결과·소비 지연, 실시간 전달 구간·연결 수 | 알림 | 없음 | 완료 | #944(PR #945, dev `52208c28`). 정책 ND-153~ND-162. 테스트 NT-OBS-01~10 |
 | N13 | P1 | 부하 도구와 리팩토링 전 대표 기준선 B0, 허용 회귀율 승인 | 알림 | N12 | 완료 | #946(PR #954, dev `3f5f8319`). 정책 ND-163~ND-178. 테스트 NT-OBS-11·12, NT-B0-01~11. B0 공식 5회와 허용 회귀율 −10%(ND-175, [B0 기준선](../../../../docs/load-test/notification-baseline.md)). 운영 smoke L1·L2 미실행(알림 담당) |
 | N14 | P1 | 구조 리팩토링: Kafka 설정 공통화, 리스너 공통 뼈대, 동일성 테스트, B0 재측정 | 알림 | N13 | 완료 | #955(PR #968, dev `0322495f`). 정책 ND-154·ND-156·ND-179~ND-186. 테스트 NT-REF-01~06. B0 재측정 성능 판정 불합격(ND-175), 예외 병합(ND-186) |
-| N15 | P1 | 본 부하 시험 L1~L6, U13 측정값 전달 | 알림(L6 챗봇 담당 확인, U13 확정은 인프라·챗봇 담당) | N14 | 진행 중 | #970. 정책 ND-155·ND-157·ND-187~ND-199. 테스트 NT-LOAD-L1~L6(L5S·L5B·L5M·L5F). 격리 L3·L4·L5 합격, 운영 L1·L2 도구·절차 준비(실행은 알림 담당), L6 스크립트 준비(챗봇 담당 확인 전 실행 안 함). 결과·절차 [notification-load.md](../../../../docs/load-test/notification-load.md) |
+| N15 | P1 | 본 부하 시험 L1~L6, U13 측정값 전달 | 알림(L6 챗봇 담당 확인, U13 확정은 인프라·챗봇 담당) | N14 | 진행 중 | #970. 정책 ND-155·ND-157·ND-187~ND-201. 테스트 NT-LOAD-L1~L6(L5S·L5B·L5M·L5F). 격리 L3·L4·L5 합격, 운영 L1·L2 도구·절차 준비(실행은 알림 담당), L6 스크립트 준비(챗봇 담당 확인 전 실행 안 함). 결과·절차 [notification-load.md](../../../../docs/load-test/notification-load.md) |
 | N16 | P1 | 운영 E2E: N10 예약 알림 확인과 기록 | 알림(실행은 사용자) | N15 | 대기 | ND-158 |
 | N17 | P2 | 성능 개선(N15 근거 항목별 Issue) | 알림 | N15 | 대기 | ND-153 |
 

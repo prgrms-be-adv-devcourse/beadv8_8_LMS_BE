@@ -11,6 +11,8 @@ export const HEARTBEAT_MS = 25000;
 
 // 비밀번호 로그인은 IP당 분당 10회다(#506). 한 번에 로그인하는 계정 수를 이 값 이하로 둔다
 export const MAX_ACCOUNTS = 10;
+// 연결 티켓은 회원마다 60초에 10번이다(NT-RT-05). 시각 흔들림을 생각해 계정마다 60초에 8번까지만 쓴다
+const TICKETS_PER_ACCOUNT_PER_MINUTE = 8;
 
 const connected = new Counter('stomp_connected');
 const abnormalClose = new Counter('stomp_abnormal_close');
@@ -36,6 +38,20 @@ export function loadAccounts(path) {
     return accounts;
 }
 
+// 단계마다 연결을 ramp초에 나눠 열 때 계정이 충분한지 본다. 60초 창에 드는 연결 수 = min(연결 수, 연결 수 × 60 / ramp)이고,
+// 계정에 고르게 나누므로 계정마다 그 수를 계정 수로 나눈 값(올림)이다. 모자라면 시험을 시작하지 않는다
+export function requiredAccounts(stages) {
+    const perMinute = Math.max(...stages.map((s) => Math.min(s.vus, (s.vus * 60) / s.ramp)));
+    return Math.ceil(perMinute / TICKETS_PER_ACCOUNT_PER_MINUTE);
+}
+
+export function assertTicketBudget(accounts, stages) {
+    const need = requiredAccounts(stages);
+    if (accounts.length < need) {
+        throw new Error(`계정이 ${accounts.length}개라 티켓 발급 한도(회원마다 60초에 10번)를 넘는다. ${need}개 이상 필요하다`);
+    }
+}
+
 // setup()에서 부른다. 모든 계정의 access token 남은 시간이 needSeconds + 60초 이상인지 확인한다
 export function loginAll(accounts, needSeconds) {
     const started = Date.now();
@@ -48,7 +64,8 @@ export function loginAll(accounts, needSeconds) {
     return tokens.map((t) => t.token);
 }
 
-// 연결 하나를 열어 holdMs 동안 유지한다. 4401(연결 만료)·1000(정상 종료) 밖의 종료는 비정상 끊김으로 센다
+// 연결 하나를 열어 holdMs 동안 유지한다. 클라이언트가 계획대로 닫기 전에 닫히면 종료 코드가 1000이어도 유지 실패다:
+// 4401(연결 만료)은 stomp_expired_close, 그 밖은 stomp_abnormal_close(1006 포함)로 센다
 export function holdConnection(token, origin, holdMs, tags) {
     const ticketRes = http.post(`${BASE_URL}/api/v1/notifications/ws-tickets`, null,
         { headers: headers(token), tags: Object.assign({ name: 'notification_ws_ticket' }, tags) });
@@ -61,6 +78,7 @@ export function holdConnection(token, origin, holdMs, tags) {
     const start = Date.now();
     let gotConnected = false;
     let subscribed = false;
+    let plannedClose = false;
 
     const res = ws.connect(url, { headers: { Origin: origin, 'User-Agent': 'hapbang-loadtest-k6' },
         tags: Object.assign({ name: 'notification_ws' }, tags) }, (socket) => {
@@ -78,14 +96,19 @@ export function holdConnection(token, origin, holdMs, tags) {
         });
         socket.setInterval(() => socket.send('\n'), HEARTBEAT_MS);
         socket.on('close', (code) => {
+            if (plannedClose) {
+                return;
+            }
             if (code === 4401) {
                 expiredClose.add(1);
-            } else if (code !== 1000 && code !== undefined) {
-                // 1006은 비정상 끊김이다
+            } else {
                 abnormalClose.add(1, { code: String(code) });
             }
         });
-        socket.setTimeout(() => socket.close(1000), Math.max(holdMs, 1000));
+        socket.setTimeout(() => {
+            plannedClose = true;
+            socket.close(1000);
+        }, Math.max(holdMs, 1000));
     });
 
     check(res, { 'ws 101': (r) => r && r.status === 101 });

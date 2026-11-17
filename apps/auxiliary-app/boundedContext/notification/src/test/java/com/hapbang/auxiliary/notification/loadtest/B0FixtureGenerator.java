@@ -381,6 +381,10 @@ public final class B0FixtureGenerator {
         // 고객센터·지갑 재전송은 반드시 들어가게 한다(범위표). 고른 것과 겹치지 않게 앞에서부터 바꾼다
         Collections.shuffle(candidates, random);
         int count = sizes.resends();
+        if (count == 0) {
+            // 재전송이 없는 크기에서는 필수 유형을 고르지 않는다(바꿀 자리가 없다). 0보다 크면 지금 규칙 그대로다(B0 불변)
+            return;
+        }
         List<B0Record> chosen = new ArrayList<>(candidates.subList(0, count));
         int replace = 0;
         for (B0EventType required : List.of(B0EventType.INQUIRY_ANSWERED, B0EventType.CHARGE)) {

@@ -246,7 +246,9 @@ def judge_l5(data):
         first_run = None if first_failure is None else row_run(first_failure, data["runLogs"])
         expected_run = None if first_run is None else first_run + MAX_FAILURES - 1
         actual_run = None if r["processedAt"] is None else row_run(r["processedAt"], data["runLogs"])
-        if r["status"] != "SKIPPED" or r["failureCount"] != MAX_FAILURES or expected_run != actual_run:
+        # 첫 시도 회차와 끝난 회차를 모두 알아야 비교한다. 하나라도 모르면 실패다
+        if (r["status"] != "SKIPPED" or r["failureCount"] != MAX_FAILURES or expected_run is None or actual_run is None
+                or expected_run != actual_run):
             failing_problems.append({"id": r["id"], "status": r["status"], "failureCount": r["failureCount"],
                                      "firstAttemptRun": None if expected_run is None else expected_run - 2,
                                      "skippedRun": actual_run})
@@ -256,7 +258,9 @@ def judge_l5(data):
         # retry 수는 판정 기준이 아니다(NT-LOAD-L5F는 ERROR·abandoned). 기록만 한다
         "detail": {"failing": n, "problems": failing_problems, "errorLines": data["errorLines"],
                    "abandoned": data["abandoned"], "retry": data["retry"], "retryNote": "기록, 판정 아님"}}
-    results["L5F failing replicas absent"] = {"ok": all(c == 0 for c in data["replicaChecks"]),
+    # 실패 대상이 있으면 복제본 확인 기록이 하나 이상 있어야 한다(확인 안 함과 0건 확인을 구분)
+    results["L5F failing replicas absent"] = {"ok": (n == 0 or bool(data["replicaChecks"]))
+                                                    and all(c == 0 for c in data["replicaChecks"]),
                                               "detail": {"checks": len(data["replicaChecks"]),
                                                          "max": max(data["replicaChecks"] or [0])}}
     deadline = data["expiredDeadline"]
@@ -356,7 +360,12 @@ def run_logs(lines, first):
             t = parse_time(record["@timestamp"])
             # 회차 끝 로그. 발화가 몇 ms 일찍이어도 번호가 밀리지 않게 1초 여유를 둔다(회차 실행은 60초 미만, ND-192)
             index = run_index(t + 1, first)
-            logs.append({"run": index, "duration": round(t - (first + 60 * (index - 1)), 3), "end": t,
+            duration = t - (first + 60 * (index - 1))
+            if duration < 0:
+                # 다음 발화 1초 전 안에 끝난 긴 회차다(회차 실행이 1ms보다 짧을 수는 없다). 앞 회차로 센다
+                index -= 1
+                duration += 60
+            logs.append({"run": index, "duration": round(duration, 3), "end": t,
                          "message": record["message"]})
     return logs
 

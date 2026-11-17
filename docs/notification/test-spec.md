@@ -311,7 +311,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-LOAD-L1 | 운영 REST 조회 혼합 | 운영 시험 계정, N14 이상 배포, 운영 E2E 기간 아님(ND-158), 공지 | `loadtest/k6/notification/rest.js` `PROFILE=load` 100 RPS 10분, GET만(목록 50%·안 읽은 수 50%) | 앱 p95 500ms 이하, 5xx 1% 미만, 보내지 못한 요청 0.1% 미만, Hikari 연결 대기 시간 초과 0 | 요약은 허용 목록만(ND-174). CPU credit 전후 값 기록 | ND-155·ND-157·ND-174 | `GET /api/v1/notifications`, `GET /api/v1/notifications/unread-count` | 부하(운영) | 유효 |
-| NT-LOAD-L2 | 운영 STOMP 연결 유지 | NT-LOAD-L1과 같음 | `stomp.js` `PROFILE=load` 연결 50 → 100 → 200, 단계마다 4분 20초, 모두 13분(access token 15분 안), 시험 계정 최대 10개, 서버 heart-beat 25초 | OOMKilled 0, 컨테이너 메모리 limit의 85% 이하, 비정상 끊김(1006) 0 | 모든 연결이 setup에서 받은 access token이 끝나기 전에 끝나므로 연결 만료(4401, ND-056)도 0이어야 한다(나오면 기록하고 원인 확인). 티켓 발급 한도(NT-RT-05) 안에서 계정에 고르게 나눠 연결한다. 알림 쓰기 없음(ND-188) | ND-155·ND-157·ND-188·ND-198, U13 | 연결 티켓, WebSocket | 부하(운영) | 유효 |
+| NT-LOAD-L2 | 운영 STOMP 연결 유지 | NT-LOAD-L1과 같음 | `stomp.js` `PROFILE=load` 연결 50 → 100 → 200, 단계마다 4분 20초, 모두 13분(access token 15분 안), 시험 계정 최대 10개, 서버 heart-beat 25초 | OOMKilled 0, 컨테이너 메모리 limit의 85% 이하, 비정상 끊김(1006) 0 | 클라이언트가 계획대로 닫기 전에 닫힌 연결은 종료 코드와 관계없이 비정상 끊김으로 센다(ND-200). 연결 200개·티켓 실패 0은 시험 성립 조건이고 연결 시간은 기록만 한다. 모든 연결이 setup에서 받은 access token이 끝나기 전에 끝나므로 연결 만료(4401, ND-056)도 0이어야 한다(나오면 기록하고 원인 확인). 티켓 발급 한도(NT-RT-05) 안에서 계정에 고르게 나눠 연결한다. 알림 쓰기 없음(ND-188) | ND-155·ND-157·ND-188·ND-198·ND-200, U13 | 연결 티켓, WebSocket | 부하(운영) | 유효 |
 | NT-LOAD-L3 | 저장→실시간 전달(격리) | 격리 cluster, 시험 회원 복제본, 회원마다 기존 계약대로 연결 티켓 발급·STOMP 연결 100개 | 연결된 받는 사람에게 가는 단건 알림 이벤트를 소비 처리량보다 낮은 고정 속도로 투입 | 저장→전달 지연 p95 1초 이하, 유실률(저장된 시험 대상 알림 중 받지 못한 고유 알림) 0.1% 미만. 중복 수신·수신 누락·측정 제외(하루 묶음 갱신 등)를 따로 센다. 앱·클라이언트 시계 차와 시간대를 기록한다 | `realtime.publish.latency`·`send.latency`는 보조이며 합산하지 않는다. 앱의 티켓 발급·검증·연결 만료를 우회하지 않는다. Gateway가 없어 사용자 헤더를 직접 주고 JWT 서명 검증은 거치지 않는다(ND-195, 결과 조건에 적음). 계약대로 연결할 수 없으면 실행하지 않고 보고한다 | ND-188·ND-193·ND-195·ND-027·ND-162 | 연결 티켓, WebSocket 프레임 | 부하(격리) | 유효 |
 | NT-LOAD-L4 | 밀린 이벤트 회복(격리) | 격리 cluster, L4 fixture·manifest(B0와 독립, ND-189), 앱 replicas 0 | 정상 백로그 10,000건 투입 → replicas 1. 회복 뒤 의도한 실패 레코드를 별도 단계로 투입 | 다섯 group partition 할당 완료 시각부터 5분 안에 다섯 group lag 0, manifest대로 저장(종류·결과별), 같은 원본 키 중복 0, 예상 밖 DLT 0. 입력 완료·replicas 1 전환·할당 완료·lag 0 시각을 모두 기록한다. 실패 단계는 재시도 횟수·DLT 건수와 대상·복구 시간을 따로 기록한다 | 정상 백로그에 재시도·DLT 대상 없음. LEGACY·재전송·받을 수 없는 회원(정지·탈퇴)은 포함하고, 받는 사람 복제본 없음(DLT)은 실패 단계다(ND-190). B0 기본 fixture SHA-256 불변. 실시간 전달 버림(`realtime.dropped`)과 메모리 사용은 판정하지 않고 기록한다(ND-196) | ND-189·ND-190·ND-196·ND-166 | 알림 소비 토픽 5개 + 회원 토픽 | 부하(격리) | 유효 |
 | NT-LOAD-L5S | 예약 배치 한 회차(격리) | 격리 cluster, 활성 회원 복제본 | 보낼 시각이 같은 예약 100건(Kafka 이벤트로 생성, ND-191) | 1회차 안에 100건 보냄, 알림 100건, 중복·누락 0, 최대 지연 2분 이하(⌈N/100⌉+1), 회차 실행 60초 미만, 회차 누락 0 | — | ND-191·ND-192 | 출연 이벤트(`APPEARANCE_REQUEST_EXPIRING` 예약) | 부하(격리) | 유효 |
@@ -440,7 +440,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-REF-04 (N14) | `in.event.NotificationKafkaListenerConfigurationTest`(Kafka 시험 문맥, 리스너 여섯 개) | 전부 |
 | NT-REF-05 (N14) | `loadtest/notification/b0.sh run <n>` 5회(N14 커밋 이미지, 결과는 regression-log·B0 기준선 문서) | 전부 |
 | NT-REF-06 (N14) | `in.event.kafka.NotificationKafkaConsumerDependencyTest`(S6 리뷰 뒤, DLT 토픽 의존 빠짐으로 RED 확인) | 전부 |
-| NT-LOAD-L4 (N15) | `loadtest.L4FixtureGeneratorTest`(L4 fixture), `loadtest.B0FixtureInvarianceTest`(B0 기본 출력 불변, ND-189), `loadtest/notification/tests/test_n15_scripts.py`(회복 판정·lag 관측), 실행은 `loadtest/notification/n15.sh l4`(결과는 regression-log·본 부하 결과) | 일부(판정 부품). 전부는 실행 |
+| NT-LOAD-L4 (N15) | `loadtest.L4FixtureGeneratorTest`(L4 fixture), `loadtest.B0FixtureInvarianceTest`(B0 기본 출력 구조 불변, ND-189·ND-201), `loadtest/notification/tests/test_n15_scripts.py`(회복 판정·lag 관측), 실행은 `loadtest/notification/n15.sh l4`(결과는 regression-log·본 부하 결과) | 일부(판정 부품). 전부는 실행 |
 | NT-LOAD-L5S·L5B·L5M (N15) | `loadtest.L5FixturesTest`, `test_n15_scripts.py`(회차·L5B 회차별 분포·지연·회차 누락·중복 판정), 실행은 `n15.sh l5 <S·B·M>` | 일부(판정 부품). 전부는 실행 |
 | NT-LOAD-L5F (N15) | `app.ScheduleDispatcherFailureSlotTest`(계산식 전제: 실패 예약 자리 차지와 3번째 시도 건너뜀, ND-194), `loadtest.L5FixturesTest`, `test_n15_scripts.py`, 실행은 `n15.sh l5 F` | 일부(전제·판정 부품). 전부는 실행 |
 | NT-LOAD-L3 (N15) | `loadtest.L3FixturesTest`(fixture), `test_n15_scripts.py`(지연·유실 판정, 중복 수신·측정 제외 집계, 투입 속도, k6 pod), 실행은 `n15.sh l3`(k6 `loadtest/k6/notification/l3.js`) | 일부(판정 부품). 전부는 실행 |
@@ -456,6 +456,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-17 decisions.md ND-200·ND-201 반영(N15 PR Bot 리뷰, #970): NT-LOAD-L2 예외 칸에 계획 전 종료·성립 조건·연결 시간 기록을 적고, 4장 연결 표의 B0 불변 시험을 구조 불변으로 고쳤다. 집계는 그대로.
 - 2026-11-17 decisions.md ND-199 반영(N15 S6 리뷰, #970): 4장 연결 표 NT-LOAD-L3·L5 행의 판정·집계 범위를 검증기와 맞췄다. 집계는 그대로.
 - 2026-11-16 decisions.md ND-198 반영(N15 운영 준비, #970): NT-LOAD-L2를 access token 수명 안 13분(단계마다 4분 20초)·시험 계정 최대 10개로 고치고, NT-LOAD-L6에 스크립트와 길이(10분)를 적었다. 집계는 그대로.
 - 2026-11-16 decisions.md ND-187~ND-194 반영(N15 본 부하 시험, #970): 2.18 LOAD(NT-LOAD-L1~L4·L5S·L5B·L5M·L5F·L6)와 시각 정의를 더했다. 집계 151 → 160, 유효 156.

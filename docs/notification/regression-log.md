@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-109 · 2026-11-17 · 통과 (N15 #970 PR Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-109 |
+| 실행 날짜 | 2026-11-17 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-970` |
+| 커밋 | `caaedd0a` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `B0FixtureGenerator` 재전송 0건 처리, `L4FixtureGeneratorTest` 2건, `stomp-common.js`(계획 전 종료·계정 수 검사), `stomp.js`·`l6.js`(ND-200), `pace.sh`(늦으면 기준 시각 이동), `n15.sh`(context 서버 확인·정리·port-forward 제한 시간·L5 Gradle 데몬 내림), `verify_n15.py`(복제본 확인 기록 없음·실패 예약 시각 모름은 실패, 다음 경계 1초 안에 끝난 긴 회차), 시험, 문서 |
+| 대상 기능 | N15 부하 도구·판정기, L4 fixture |
+| 관련 NT ID | NT-LOAD-L2·L3·L4·L5·L6 |
+| 명령 | `python -I -m unittest discover -s loadtest/notification/tests`, `verify_n15.py l5 …`(S·B·M·F 유효 회차 재판정), k6 `inspect`(rest load, stomp smoke·load, l6, 계정 8개), `bash -n`, `n15.sh --dry-run`, `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Docker Desktop |
+| 결과 | 통과 |
+| 건수 | 새 시험 3건 RED(복제본 확인 기록 없음, 실패 예약 시각 모름, 긴 회차 배정) → GREEN, 스크립트 시험 80 OK. L5 재판정 rc 0, 회차 배정·판정이 앞 판정과 같음(앞 판정 `result.before-botreview.json`). k6: 계정 10개 통과, 8개는 시작 전 거절(9개 필요). `:notification:test` 549 / 실패 0 / 오류 0 / 건너뜀 2, ND-201 반영 뒤 다시 548 / 0 / 0 / 2(B0 불변 시험 3 → 2건), `verifyModuleStructure` 성공, `:auxiliary-app:check` 성공(`:auxiliary-app:test` UP-TO-DATE) |
+| 실패 원인 분류 | 환경(첫 Gradle 실행 때 Docker Desktop이 꺼져 Testcontainers 시험 259건 실패. 켠 뒤 다시 실행) |
+| 수정 내용 | ND-200, ND-201(B0 불변 시험을 구조 해시로: 내용 해시가 공식 B0와 같은 코드에서 구조 해시 2개를 뽑아 고정, 뮤테이션 LEGACY 50→51로 2건 RED 확인 뒤 되돌림, B0 불변 2·B0 생성기 12·L4 7 GREEN). 리뷰 반영 목록은 PR 답변 |
+| 재실행 결과 | 위 건수 |
+| 미검증 항목 | 운영 실행(L1·L2·L6) |
+| 관련 변경 | #970 |
+
 #### NR-108 · 2026-11-17 · 통과 (N15 #970 S6 리뷰 반영, 검증기 판정 조건 정렬·재판정)
 
 | 항목 | 값 |
