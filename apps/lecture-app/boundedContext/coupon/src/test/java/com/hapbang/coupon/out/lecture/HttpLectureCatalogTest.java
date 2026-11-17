@@ -15,7 +15,6 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
@@ -172,20 +171,21 @@ class HttpLectureCatalogTest {
     }
 
     private static HttpLectureCatalog catalog(String baseUrl) {
-        return catalog(baseUrl, new CouponLectureClientProperties(null, null, null, null, null, null, null, null, null));
+        return catalog(baseUrl,
+                new CouponLectureClientProperties(READ_TIMEOUT, READ_TIMEOUT, null, null, null, null, null, null, null));
     }
 
     // 최근 2번 중 2번 모두 실패하면 열리고, 테스트 동안 다시 HALF_OPEN이 되지 않는 회로
     private static CouponLectureClientProperties smallWindow() {
-        return new CouponLectureClientProperties(null, null, 2, 2, null, null, null, Duration.ofMinutes(5), null);
+        return new CouponLectureClientProperties(READ_TIMEOUT, READ_TIMEOUT, 2, 2, null, null, null,
+                Duration.ofMinutes(5), null);
     }
 
+    /** 운영 빈과 같은 방법(설정의 제한 시간·내부 API 키)으로 만든 프록시에 어댑터를 붙인다 */
     private static HttpLectureCatalog catalog(String baseUrl, CouponLectureClientProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(READ_TIMEOUT);
-        requestFactory.setReadTimeout(READ_TIMEOUT);
-        return new HttpLectureCatalog(CouponLectureApiConfig.create(
-                RestClient.builder().requestFactory(requestFactory), baseUrl, API_KEY), properties);
+        CouponLectureInternalApi api = new CouponLectureApiConfig().couponLectureInternalApi(RestClient.builder(),
+                baseUrl, API_KEY, properties);
+        return new HttpLectureCatalog(api, properties);
     }
 
     private static void sleep(long millis) {

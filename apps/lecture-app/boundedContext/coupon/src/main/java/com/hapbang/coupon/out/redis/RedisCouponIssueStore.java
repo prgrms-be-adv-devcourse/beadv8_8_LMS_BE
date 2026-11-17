@@ -33,8 +33,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     static final String STATUS_SUSPENDED = "SUSPENDED";
     static final String STATUS_CLOSED = "CLOSED";
 
-    /** 테스트가 key를 바꿔 직접 실행할 수 있게 패키지 안에 연다(쓰기 실패 되돌리기 확인) */
-    static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
+    private static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
     private static final RedisScript<Long> PREPARE = CouponRedisLuaSupport.longLuaScript("lua/prepare.lua");
     private static final RedisScript<Long> ALLOW_ISSUE = CouponRedisLuaSupport.longLuaScript("lua/allow-issue.lua");
     private static final RedisScript<Long> BLOCK = CouponRedisLuaSupport.longLuaScript("lua/block.lua");
@@ -170,7 +169,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     }
 
     /** issue.lua·extend-keys.lua의 KEYS 순서 */
-    static List<String> issueKeys(long couponId) {
+    private static List<String> issueKeys(long couponId) {
         return List.of(
                 CouponRedisKeys.issueControl(couponId),
                 CouponRedisKeys.stock(couponId),

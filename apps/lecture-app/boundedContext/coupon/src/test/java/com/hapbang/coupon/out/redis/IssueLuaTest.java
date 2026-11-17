@@ -10,12 +10,16 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.data.redis.core.script.RedisScript;
+
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueOutcome;
 
 /** issue.lua 반환값과 기록(쓰기 실패 되돌리기 포함): 실제 Redis로 확인한다 */
 class IssueLuaTest extends CouponRedisTestSupport {
 
+    /** 스토어를 거치지 않고 key를 바꿔 실행하려고 운영 스크립트 파일을 직접 읽는다 */
+    private static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
     private static final long EPOCH = 3;
     private static final long MEMBER_ID = 7;
 
@@ -307,7 +311,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
         List<String> keys = List.of(CouponRedisKeys.issueControl(couponId), CouponRedisKeys.stock(couponId), sharedKey,
                 sharedKey, CouponRedisKeys.soldOut(couponId));
 
-        List<Long> result = CouponRedisLuaSupport.runForLongs(redisTemplate, RedisCouponIssueStore.ISSUE, keys,
+        List<Long> result = CouponRedisLuaSupport.runForLongs(redisTemplate, ISSUE, keys,
                 couponId, MEMBER_ID, "req-1", NOW.toEpochMilli());
 
         assertThat(result).containsExactly(-9L, 0L, 0L);
@@ -320,7 +324,10 @@ class IssueLuaTest extends CouponRedisTestSupport {
 
     /** 스토어를 거치지 않고 issue.lua 반환을 그대로 본다(스토어는 재응답의 epoch를 쓰지 않는다) */
     private List<Long> runIssue(long couponId, long memberId, String requestId, Instant issuedAt) {
-        return CouponRedisLuaSupport.runForLongs(redisTemplate, RedisCouponIssueStore.ISSUE,
-                RedisCouponIssueStore.issueKeys(couponId), couponId, memberId, requestId, issuedAt.toEpochMilli());
+        // KEYS 순서는 issue.lua가 정한다(issue-control, stock, users, requests, sold_out)
+        List<String> keys = List.of(CouponRedisKeys.issueControl(couponId), CouponRedisKeys.stock(couponId),
+                CouponRedisKeys.users(couponId), CouponRedisKeys.requests(couponId), CouponRedisKeys.soldOut(couponId));
+        return CouponRedisLuaSupport.runForLongs(redisTemplate, ISSUE, keys, couponId, memberId, requestId,
+                issuedAt.toEpochMilli());
     }
 }

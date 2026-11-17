@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
@@ -286,12 +285,13 @@ class HttpPromotionBudgetTest {
         return adapter(baseUrl(), defaults());
     }
 
+    /** 운영 빈과 같은 방법(설정의 주소·제한 시간·내부 API 키)으로 만든 프록시에 어댑터를 붙인다. 회로 설정은 받은 설정을 쓴다 */
     private static HttpPromotionBudget adapter(String baseUrl, BillingClientProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(TIMEOUT);
-        requestFactory.setReadTimeout(TIMEOUT);
-        return new HttpPromotionBudget(CouponBillingApiConfig.create(RestClient.builder().requestFactory(requestFactory),
-                baseUrl, API_KEY), properties);
+        BillingClientProperties withServer = new BillingClientProperties(baseUrl, TIMEOUT, TIMEOUT,
+                properties.resilience());
+        CouponBillingApiConfig config = new CouponBillingApiConfig();
+        return config.httpPromotionBudget(config.couponBillingInternalApi(RestClient.builder(), withServer, API_KEY),
+                withServer);
     }
 
     private static BillingClientProperties defaults() {
