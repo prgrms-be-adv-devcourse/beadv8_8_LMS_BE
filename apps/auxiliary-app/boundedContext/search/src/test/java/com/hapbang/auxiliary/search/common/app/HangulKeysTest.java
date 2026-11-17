@@ -141,4 +141,36 @@ class HangulKeysTest {
         assertThat(HangulKeys.jamoKeys("방송")).containsExactly("ㅂㅏㅇㅅㅗㅇ");
         assertThat(HangulKeys.chosungKeys(null)).isNull();
     }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({"방송", "닭을", "읽기", "과자", "의자", "값", "꿀", "있다", "없다", "앉아", "프리미어", "웨딩", "뷁", "obs 세팅", "롤 2026 시즌"})
+    @DisplayName("자모를 다시 음절로 묶으면 원래 말이 된다(겹받침·겹모음·된소리, 받침 자음 뒤에 모음이 오면 다음 음절의 첫소리)")
+    void composeRoundTrip(String text) {
+        assertThat(HangulKeys.compose(HangulKeys.jamo(text))).isEqualTo(text);
+    }
+
+    @Test
+    @DisplayName("음절이 되지 못하는 낱자는 그대로 두고, null은 null이다")
+    void composeLeavesIncompleteJamo() {
+        assertThat(HangulKeys.compose("ㅂㅏㅇㅅ")).isEqualTo("방ㅅ");
+        assertThat(HangulKeys.compose("ㅇㅣㄹㄱㅣ")).isEqualTo("일기");
+        assertThat(HangulKeys.compose("ㅏㅂ")).isEqualTo("ㅏㅂ");
+        assertThat(HangulKeys.compose(null)).isNull();
+    }
+
+    @ParameterizedTest(name = "{0} ↔ {1} = {2}")
+    @CsvSource({
+            "프리미여, 프리미어, 1",
+            "가팡, 가방, 1",
+            "가팡, 가수, 3",
+            "캡커, 캡컷, 1",
+            "chatgtp, chatgpt, 2",
+            "Premire, premiere, 1",
+            "방송, 방송, 0"
+    })
+    @DisplayName("자모 편집 거리: 자모로 풀어 낱자 단위로 센다(글자 단위로는 같은 1인 가방·가수를 가른다), 영문은 소문자 알파벳 단위")
+    void jamoDistance(String a, String b, int expected) {
+        assertThat(HangulKeys.jamoDistance(a, b)).isEqualTo(expected);
+        assertThat(HangulKeys.jamoDistance(b, a)).isEqualTo(expected);
+    }
 }
