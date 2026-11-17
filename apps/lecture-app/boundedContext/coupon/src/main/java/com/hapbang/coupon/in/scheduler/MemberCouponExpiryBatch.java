@@ -1,8 +1,9 @@
-package com.hapbang.coupon.app;
+package com.hapbang.coupon.in.scheduler;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.coupon.app.MemberCouponExpiryUseCase;
 import com.hapbang.coupon.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;
