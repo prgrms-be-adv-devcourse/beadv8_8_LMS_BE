@@ -12,14 +12,21 @@ const PROFILES = {
     smoke: {
         main: { executor: 'constant-vus', vus: 1, duration: '30s' },
     },
-    // 본 부하(N15 L1)의 프로필은 N15에서 더한다(N13 범위는 운영 smoke, ND-171)
+    // 본 부하 L1(N15, NT-LOAD-L1): 초당 100 요청 10분. 응답이 느려져도 보내는 속도를 유지하고(constant-arrival-rate),
+    // 보내지 못한 요청은 dropped_iterations로 센다(기준 0.1% 미만 = 60,000 중 60 미만)
+    load: {
+        main: {
+            executor: 'constant-arrival-rate', rate: 100, timeUnit: '1s', duration: '10m',
+            preAllocatedVUs: 50, maxVUs: 200,
+        },
+    },
 };
 
 // access token(15분) 안에 끝나는지 setup()에서 확인한다. gracefulStop 기본 30초를 더한 값
-const PLANNED_SECONDS = { smoke: 30 + 30 };
+const PLANNED_SECONDS = { smoke: 30 + 30, load: 600 + 30 };
 
 if (!PROFILES[PROFILE]) {
-    throw new Error(`알 수 없는 PROFILE=${PROFILE}. smoke만 있다`);
+    throw new Error(`알 수 없는 PROFILE=${PROFILE}. smoke, load`);
 }
 
 const MAIN_P95 = ['p(95)<500'];
