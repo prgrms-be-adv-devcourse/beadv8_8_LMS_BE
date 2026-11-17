@@ -12,8 +12,11 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotConfig;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
+import com.hapbang.auxiliary.chatbot.domain.MemberEventFailure;
+import com.hapbang.auxiliary.chatbot.domain.MemberEventFailureStatus;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
+import com.hapbang.auxiliary.chatbot.out.MemberEventFailureRepository;
 import com.hapbang.shared.member.event.UserMaskedEvent;
 
 /**
@@ -24,6 +27,7 @@ import com.hapbang.shared.member.event.UserMaskedEvent;
  *     <li>{@code masked_member}에 넣는다. 마스킹이 다른 이벤트보다 먼저 와도 이것만 넣고 끝난다(사본이 없어도 된다).</li>
  *     <li>그 회원의 구매·장바구니·쓴 강의 리뷰·받은 출연 리뷰({@link MaskedMemberStore.OwnedCopy})를 지우고, 회원 사본의 분야·자기소개를 비운다.</li>
  *     <li>처음 마스킹할 때 인플루언서 추천 index의 그 회원 문서 삭제를 {@code index_task}에 적는다(실행기는 #719).</li>
+ *     <li>그 회원의 처리 대기 실패 기록(#976)에 남은 가입·변경 원문의 닉네임·분야·자기소개를 비운다.</li>
  * </ul>
  * 남기는 것: 출연 행(상대방 인기순의 건수, ID만). 그 회원은 보임 판단({@link MemberVisibility})에서 빠진다.
  * 이후 그 회원의 데이터는 적용기가 버린다({@link CopyApplier}).
@@ -36,13 +40,16 @@ public class MemberMasking {
 
     private final MaskedMemberStore store;
     private final IndexTaskStore indexTaskStore;
+    private final MemberEventFailureRepository memberEventFailureRepository;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public MemberMasking(MaskedMemberStore store, IndexTaskStore indexTaskStore,
-            PlatformTransactionManager transactionManager, @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
+            MemberEventFailureRepository memberEventFailureRepository, PlatformTransactionManager transactionManager,
+            @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.store = store;
         this.indexTaskStore = indexTaskStore;
+        this.memberEventFailureRepository = memberEventFailureRepository;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -55,11 +62,19 @@ public class MemberMasking {
             store.lock(userId);
             boolean first = store.mask(userId, maskedAt);
             MaskedMemberStore.Purged purged = store.purge(userId);
+            clearFailurePayloads(userId);
             if (first) {
                 indexTaskStore.add(IndexType.INFLUENCER, InfluencerIndexPlan.docIdOf(userId), IndexAction.DELETE, CopyTimes.now(clock));
             }
             return new Result(first, purged);
         });
+    }
+
+    private void clearFailurePayloads(long userId) {
+        for (MemberEventFailure failure : memberEventFailureRepository.findByUserIdAndStatusAndPayloadIsNotNull(userId,
+                MemberEventFailureStatus.PENDING)) {
+            failure.replacePayload(MemberEventPayload.withoutPersonal(failure.getEventType(), failure.getPayload()));
+        }
     }
 
     /**

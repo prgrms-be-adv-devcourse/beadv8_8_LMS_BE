@@ -18,7 +18,7 @@ import com.hapbang.auxiliary.chatbot.domain.SyncType;
  * 시계는 같은 앱의 다른 모듈과 겹치지 않게 이름({@value #CLOCK})으로만 주입한다(기본 후보가 아님). 테스트가 이 이름으로 바꿔 끼운다.
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(ChatbotSyncProperties.class)
+@EnableConfigurationProperties({ChatbotSyncProperties.class, ChatbotMemberEventFailureProperties.class})
 public class ChatbotConfig {
 
     public static final String CLOCK = "chatbotClock";
