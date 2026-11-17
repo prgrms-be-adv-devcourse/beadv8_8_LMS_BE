@@ -39,21 +39,21 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
-import com.hapbang.chat.app.ChatConnectionTicketStore;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.ChatConnectionTicketStore;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.ChatErrorMessage;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 

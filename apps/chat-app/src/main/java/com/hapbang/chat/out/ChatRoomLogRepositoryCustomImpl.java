@@ -7,7 +7,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
-import com.hapbang.chat.app.ChatRoomLogRepositoryCustom;
+import com.hapbang.chat.app.port.ChatRoomLogRepositoryCustom;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.QChatRoomLog;
 import com.querydsl.jpa.impl.JPAQueryFactory;

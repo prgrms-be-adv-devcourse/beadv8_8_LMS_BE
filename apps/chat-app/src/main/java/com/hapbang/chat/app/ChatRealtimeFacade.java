@@ -7,6 +7,7 @@ import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.LocalChatConnections;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

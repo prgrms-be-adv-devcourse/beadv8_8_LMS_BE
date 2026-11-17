@@ -47,7 +47,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.kafka.KafkaContainer;
 
 import com.hapbang.chat.app.ChatUserFacade;
-import com.hapbang.chat.app.ChatUserRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;

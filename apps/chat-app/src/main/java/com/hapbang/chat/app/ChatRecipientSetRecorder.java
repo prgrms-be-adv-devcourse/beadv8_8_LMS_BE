@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.port.ChatRecipientSetMemberRepository;
+import com.hapbang.chat.app.port.ChatRecipientSetRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.domain.ChatRecipientSet;
 import com.hapbang.chat.domain.ChatRoom;
 

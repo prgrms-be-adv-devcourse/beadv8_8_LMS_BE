@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatRoomEventType;

@@ -26,17 +26,17 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
-import com.hapbang.chat.app.RealtimeChatFanout;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.RealtimeChatFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
-import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
+import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.websocket.StompLocalChatSender;
 
 /**

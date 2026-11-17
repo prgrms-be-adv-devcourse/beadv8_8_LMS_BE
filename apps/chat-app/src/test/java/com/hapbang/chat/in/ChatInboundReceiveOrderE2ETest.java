@@ -38,8 +38,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;

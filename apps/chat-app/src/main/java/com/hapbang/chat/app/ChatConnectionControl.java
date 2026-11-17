@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
+import com.hapbang.chat.app.port.ChatControlOutboxRepository;
+import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;

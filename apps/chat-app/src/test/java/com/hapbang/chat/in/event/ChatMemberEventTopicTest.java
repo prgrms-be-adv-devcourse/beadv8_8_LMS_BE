@@ -32,7 +32,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
-import com.hapbang.chat.app.ChatUserRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.in.event.ChatMemberEventTopicVerifier.Result;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;

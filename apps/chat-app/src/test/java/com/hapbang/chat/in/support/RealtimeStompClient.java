@@ -21,8 +21,8 @@ import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.shared.member.domain.Role;
 
 /**

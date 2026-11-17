@@ -13,8 +13,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatGroupRoomService.InvitePreparation;
-import com.hapbang.chat.app.ChatRecruitSource.ChatApplicantPage;
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
 import com.hapbang.chat.app.dto.ChatGroupInviteResponse;
 import com.hapbang.chat.app.dto.ChatGroupRoomsResponse;
@@ -24,6 +22,10 @@ import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatApplicantPage;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
+import com.hapbang.chat.app.port.ChatRecruitSource;
+import com.hapbang.chat.app.port.ChatRecruitSourceException;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 
 import lombok.RequiredArgsConstructor;

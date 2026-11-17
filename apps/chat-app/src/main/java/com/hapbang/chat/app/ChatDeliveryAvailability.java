@@ -8,6 +8,9 @@ import java.util.function.IntToLongFunction;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import io.micrometer.core.instrument.Gauge;

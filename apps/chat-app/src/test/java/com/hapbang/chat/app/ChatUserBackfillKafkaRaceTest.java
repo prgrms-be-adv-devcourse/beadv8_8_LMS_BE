@@ -57,6 +57,7 @@ import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatUserBackfillResult;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;

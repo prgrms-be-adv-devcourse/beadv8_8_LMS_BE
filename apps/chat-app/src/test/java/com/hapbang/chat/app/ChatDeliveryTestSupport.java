@@ -14,8 +14,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.fixture.ChatNativeSql;

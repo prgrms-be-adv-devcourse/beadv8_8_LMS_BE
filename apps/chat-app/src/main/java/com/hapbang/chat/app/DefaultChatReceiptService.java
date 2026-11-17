@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomMember;
 

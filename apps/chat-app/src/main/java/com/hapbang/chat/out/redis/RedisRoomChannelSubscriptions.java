@@ -26,7 +26,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.RoomChannelSubscriptions;
+import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
 import com.hapbang.chat.global.redis.ChatRedisKeys;

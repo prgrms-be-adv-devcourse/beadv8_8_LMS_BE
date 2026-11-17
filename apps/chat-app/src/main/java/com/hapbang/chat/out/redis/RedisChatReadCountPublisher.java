@@ -3,8 +3,8 @@ package com.hapbang.chat.out.redis;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.app.ChatReadCountPublisher;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 

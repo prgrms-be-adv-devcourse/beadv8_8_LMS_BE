@@ -14,7 +14,6 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 
 import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 
-
 @Configuration
 // 관리자 API 외의 역할 검사는 각 모듈 서비스 레이어(Facade)의 @PreAuthorize로 한다 (2026-10-12 회의)
 @EnableMethodSecurity

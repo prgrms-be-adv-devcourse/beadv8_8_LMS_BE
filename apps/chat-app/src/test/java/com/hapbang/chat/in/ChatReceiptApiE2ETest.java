@@ -16,12 +16,12 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 import com.hapbang.chat.app.ChatMessageUseCase;
-import com.hapbang.chat.app.ChatRoomMemberRepository;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;

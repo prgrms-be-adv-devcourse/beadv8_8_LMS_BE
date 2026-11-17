@@ -48,8 +48,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatGroupRoomService;
 import com.hapbang.chat.app.ChatMessageTestRepository;
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;

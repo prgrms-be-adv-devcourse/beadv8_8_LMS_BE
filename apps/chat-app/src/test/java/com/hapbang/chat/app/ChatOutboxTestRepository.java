@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.data.repository.Repository;
 
+import com.hapbang.chat.app.port.ChatOutboxRepository;
 import com.hapbang.chat.domain.ChatOutbox;
 
 /**

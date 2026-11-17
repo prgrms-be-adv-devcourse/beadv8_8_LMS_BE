@@ -21,13 +21,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.chat.ChatApplication;
-import com.hapbang.chat.app.ChatMemberSourceException;
-import com.hapbang.chat.app.ChatMemberSourceException.Reason;
 import com.hapbang.chat.app.ChatUserBackfillProperties;
 import com.hapbang.chat.app.ChatUserSyncService;
 import com.hapbang.chat.app.DefaultChatUserBackfillService;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
+import com.hapbang.chat.app.port.ChatMemberSourceException.Reason;
+import com.hapbang.chat.app.port.ChatMemberSourceException;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

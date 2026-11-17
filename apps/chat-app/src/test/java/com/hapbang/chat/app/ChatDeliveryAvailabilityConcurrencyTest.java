@@ -26,6 +26,9 @@ import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
 import com.hapbang.chat.app.ChatOutboxStore.ClaimedJob;
 import com.hapbang.chat.app.ChatOutboxStore.DeliveryJob;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.domain.ChatDeliveryType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 

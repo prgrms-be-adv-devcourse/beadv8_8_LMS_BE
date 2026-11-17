@@ -19,6 +19,8 @@ import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;

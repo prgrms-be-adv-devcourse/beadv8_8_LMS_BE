@@ -14,7 +14,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
-import com.hapbang.chat.app.ChatMemberSourceException;
+import com.hapbang.chat.app.port.ChatMemberSourceException;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import tools.jackson.databind.JsonNode;

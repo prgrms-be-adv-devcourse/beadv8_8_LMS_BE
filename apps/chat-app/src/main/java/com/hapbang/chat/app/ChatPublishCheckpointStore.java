@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
 

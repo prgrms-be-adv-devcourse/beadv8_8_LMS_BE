@@ -22,6 +22,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 import com.hapbang.chat.domain.ChatGroupInviteRequest;
 import com.hapbang.chat.domain.ChatRoom;

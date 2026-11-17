@@ -10,8 +10,6 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
-import com.hapbang.chat.app.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
@@ -19,6 +17,10 @@ import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
+import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatMessageType;
 
 import lombok.RequiredArgsConstructor;

@@ -30,9 +30,9 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import com.hapbang.chat.app.ChatConnectionTicketStore;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
+import com.hapbang.chat.app.port.ChatConnectionTicketStore;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.chat.in.support.ChatE2ETest;

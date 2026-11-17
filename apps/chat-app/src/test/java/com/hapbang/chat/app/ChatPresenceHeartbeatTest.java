@@ -10,6 +10,10 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.port.ChatLogoutMarkers;
+import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.LocalChatConnections;
+
 /**
  * 하트비트의 두 번째 확인(설계 문서 6장·Q8): 연결 만료가 지난 연결과 로그아웃 표식보다 먼저 인증한 연결을 닫고, 표식을 읽지 못하면
  * 그 확인만 건너뛴다.

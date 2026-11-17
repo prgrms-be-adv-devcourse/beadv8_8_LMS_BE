@@ -47,12 +47,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import com.hapbang.chat.app.ChatLogoutMarkers;
-import com.hapbang.chat.app.ChatUserRepository;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.ChatLogoutMarkers;
+import com.hapbang.chat.app.port.ChatUserRepository;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;

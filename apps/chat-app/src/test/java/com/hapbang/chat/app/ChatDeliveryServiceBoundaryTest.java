@@ -9,14 +9,19 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
+import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.out.redis.RedisChatDeliveryQueue;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 
 /**
- * 서비스 경계 규칙(decisions.md, 2026-10-29)과 데이터 접근 구조(2026-11-17): 전달 파이프라인의 app 조정 서비스는 DB를 app의
- * repository port로, 큐를 app 계약으로 쓰고, Redis 구현(out)과 진입 어댑터(in), 기술 타입에 의존하지 않는다.
+ * 서비스 경계 규칙(decisions.md, 2026-10-29)과 데이터 접근 구조(2026-11-17): 전달 파이프라인의 app 조정 서비스는 DB를
+ * {@code app/port}의 repository port로, 큐를 {@code app/port} 계약으로 쓰고, Redis 구현(out)과 진입 어댑터(in), 기술 타입에 의존하지 않는다.
  */
 class ChatDeliveryServiceBoundaryTest {
 
@@ -64,13 +69,14 @@ class ChatDeliveryServiceBoundaryTest {
 
     @Test
     void DB_조정은_app_클래스가_repository_port로_하고_Redis_큐만_out_구현이다() {
-        // DB는 app의 repository port를 직접 쓰므로 DB 위에 계약 인터페이스와 out 구현을 따로 두지 않는다
+        // DB는 app/port의 repository port를 직접 쓰므로 DB 위에 계약 인터페이스와 out 구현을 따로 두지 않는다
         assertThat(List.of(ChatOutboxStore.class, ChatPublishCheckpointStore.class, ChatDeliverySourceReader.class))
                 .allSatisfy(type -> {
                     assertThat(type.isInterface()).isFalse();
                     assertThat(type.getPackageName()).isEqualTo("com.hapbang.chat.app");
                 });
         assertThat(ChatDeliveryQueue.class.isInterface()).isTrue();
+        assertThat(ChatDeliveryQueue.class.getPackageName()).isEqualTo("com.hapbang.chat.app.port");
         assertThat(ChatDeliveryQueue.class).isAssignableFrom(RedisChatDeliveryQueue.class);
         assertThat(ChatDeliveryAdminService.class).isAssignableFrom(DefaultChatDeliveryAdminService.class);
     }

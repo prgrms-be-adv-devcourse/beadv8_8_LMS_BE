@@ -13,9 +13,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
-import com.hapbang.chat.app.ChatRecruitSource;
-import com.hapbang.chat.app.ChatRecruitSourceException;
-import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSource;
+import com.hapbang.chat.app.port.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSourceException;
 
 import lombok.RequiredArgsConstructor;
 

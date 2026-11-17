@@ -7,6 +7,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
+import com.hapbang.chat.app.port.RealtimeChatFanout;
+
 /**
  * 전달 파이프라인(outbox relay → Stream 소비·회수·재구성·정리) 설정 ({@code hapbang.chat.delivery.*}).
  * <p>

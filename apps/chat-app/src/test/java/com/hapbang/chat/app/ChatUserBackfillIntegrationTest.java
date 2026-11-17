@@ -40,6 +40,7 @@ import com.hapbang.chat.app.dto.ChatUserBackfillResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.shared.member.domain.Role;

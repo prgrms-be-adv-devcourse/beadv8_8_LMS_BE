@@ -12,6 +12,8 @@ import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
+import com.hapbang.chat.app.port.ChatMemberSnapshotSource;
+import com.hapbang.chat.app.port.ChatMemberSourceException;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 

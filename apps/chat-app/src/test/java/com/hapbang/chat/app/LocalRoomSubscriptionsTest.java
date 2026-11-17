@@ -8,6 +8,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.LocalRoomSubscriptions.Registered;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
+import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 
 /**
  * 방 topic 구독 목록: 연결별 상한, 같은 구독 ID, 방 채널 참조 수, 연결 종료 정리, 모르는 구독 ID 무시.

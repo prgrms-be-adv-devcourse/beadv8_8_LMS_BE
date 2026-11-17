@@ -8,7 +8,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
-import com.hapbang.chat.app.ChatRoomRepositoryCustom;
+import com.hapbang.chat.app.port.ChatRoomRepositoryCustom;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomType;

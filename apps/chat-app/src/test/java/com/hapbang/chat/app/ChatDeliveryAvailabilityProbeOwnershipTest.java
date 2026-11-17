@@ -12,6 +12,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

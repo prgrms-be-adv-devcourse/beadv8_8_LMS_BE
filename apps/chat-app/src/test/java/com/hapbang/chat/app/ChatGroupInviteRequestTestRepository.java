@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.data.repository.Repository;
 
+import com.hapbang.chat.app.port.ChatGroupInviteRequestRepository;
 import com.hapbang.chat.domain.ChatGroupInviteRequest;
 
 /**

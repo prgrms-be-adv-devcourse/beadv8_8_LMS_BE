@@ -25,7 +25,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
 import com.hapbang.chat.app.dto.MessageFanout;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;

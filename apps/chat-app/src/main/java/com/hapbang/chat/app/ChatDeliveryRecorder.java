@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.port.ChatOutboxRepository;
+import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatOutbox;

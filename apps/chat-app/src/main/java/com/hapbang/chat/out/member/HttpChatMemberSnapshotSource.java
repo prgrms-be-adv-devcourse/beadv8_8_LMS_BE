@@ -6,9 +6,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
-import com.hapbang.chat.app.ChatMemberSnapshotSource;
-import com.hapbang.chat.app.ChatMemberSourceException;
-import com.hapbang.chat.app.ChatMemberSourceException.Reason;
+import com.hapbang.chat.app.port.ChatMemberSnapshotSource;
+import com.hapbang.chat.app.port.ChatMemberSourceException.Reason;
+import com.hapbang.chat.app.port.ChatMemberSourceException;
 import com.hapbang.shared.member.dto.MemberPageDto;
 
 import lombok.RequiredArgsConstructor;

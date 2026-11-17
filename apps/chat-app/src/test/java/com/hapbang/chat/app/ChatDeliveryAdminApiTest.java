@@ -18,7 +18,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;

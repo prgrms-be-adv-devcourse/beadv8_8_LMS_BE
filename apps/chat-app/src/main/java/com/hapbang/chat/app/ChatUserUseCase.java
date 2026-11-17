@@ -9,6 +9,7 @@ import com.hapbang.chat.app.dto.ChatUserSyncResult.Outcome;
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.shared.member.dto.UserDto;
 

@@ -9,9 +9,9 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
-import com.hapbang.chat.app.ChatMessageRepositoryCustom;
-import com.hapbang.chat.app.ChatMessageRows.MessageWithSender;
-import com.hapbang.chat.app.ChatRoomUnreadCount;
+import com.hapbang.chat.app.port.ChatMessageRepositoryCustom;
+import com.hapbang.chat.app.port.ChatMessageRows.MessageWithSender;
+import com.hapbang.chat.app.port.ChatRoomUnreadCount;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.QChatMessage;
 import com.hapbang.chat.domain.QChatRoomMember;

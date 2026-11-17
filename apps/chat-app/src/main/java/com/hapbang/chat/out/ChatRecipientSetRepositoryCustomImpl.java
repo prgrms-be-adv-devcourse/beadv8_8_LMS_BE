@@ -1,6 +1,6 @@
 package com.hapbang.chat.out;
 
-import com.hapbang.chat.app.ChatRecipientSetRepositoryCustom;
+import com.hapbang.chat.app.port.ChatRecipientSetRepositoryCustom;
 import com.hapbang.chat.domain.QChatRecipientSet;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;

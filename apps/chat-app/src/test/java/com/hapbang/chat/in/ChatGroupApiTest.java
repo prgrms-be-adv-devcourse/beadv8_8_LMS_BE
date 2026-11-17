@@ -21,9 +21,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.chat.app.ChatGroupTestConfig;
-import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.InMemoryChatRecruitSource;
+import com.hapbang.chat.app.port.ChatRecruitSourceException.Reason;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.auth.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;

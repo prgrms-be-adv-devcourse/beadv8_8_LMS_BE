@@ -7,9 +7,11 @@ import java.util.OptionalInt;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.ChatReadCountRows.MessageUnreadRow;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatMessageSender;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatReadCountRows.MessageUnreadRow;
+import com.hapbang.chat.app.port.ChatRecipientSetRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 

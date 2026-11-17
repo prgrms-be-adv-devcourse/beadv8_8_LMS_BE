@@ -25,10 +25,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
 
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomStatusReason;

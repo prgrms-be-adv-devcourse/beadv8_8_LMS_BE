@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatLogoutMarkers;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.shared.member.dto.UserDto;
 

@@ -16,6 +16,8 @@ import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.chat.app.port.ChatRoomLogRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;

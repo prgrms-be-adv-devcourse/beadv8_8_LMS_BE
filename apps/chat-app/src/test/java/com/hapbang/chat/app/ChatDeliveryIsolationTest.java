@@ -24,7 +24,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatDeliveryReprocessAudit;
 import com.hapbang.chat.domain.ChatOutbox;

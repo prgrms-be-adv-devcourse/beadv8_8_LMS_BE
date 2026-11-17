@@ -29,6 +29,8 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;

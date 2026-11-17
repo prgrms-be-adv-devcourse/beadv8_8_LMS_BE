@@ -13,12 +13,12 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
 import com.hapbang.chat.app.ChatDeliveryProperties;
-import com.hapbang.chat.app.ChatDeliveryQueue;
 import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatOutboxRelay;
 import com.hapbang.chat.app.ChatStreamJobProcessor;
 import com.hapbang.chat.app.ChatStreamReconstructor;
 import com.hapbang.chat.app.ChatStreamTrimmer;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 

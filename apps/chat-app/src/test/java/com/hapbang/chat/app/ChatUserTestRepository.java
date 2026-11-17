@@ -2,6 +2,7 @@ package com.hapbang.chat.app;
 
 import org.springframework.data.repository.Repository;
 
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 
 /**

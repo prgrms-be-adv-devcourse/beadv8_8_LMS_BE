@@ -12,11 +12,12 @@ import java.util.Arrays;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 
-// 서비스 경계 규칙(decisions.md, 2026-10-29): 실시간 경로의 Facade는 app 인터페이스만 주입받고 Redis·STOMP 구현에 직접 의존하지 않는다.
+// 서비스 경계 규칙(decisions.md, 2026-10-29): 실시간 경로의 Facade는 app 서비스·app/port 계약 인터페이스만 주입받고 Redis·STOMP 구현에 직접 의존하지 않는다.
 class ChatRealtimeServiceBoundaryTest {
 
     private final JavaClasses classes = new ClassFileImporter()
@@ -24,7 +25,7 @@ class ChatRealtimeServiceBoundaryTest {
             .importPackages("com.hapbang.chat");
 
     @Test
-    @DisplayName("ChatRealtimeFacade의 생성자·필드는 app 패키지의 인터페이스 타입만 쓴다")
+    @DisplayName("ChatRealtimeFacade의 생성자·필드는 app 서비스·app/port 계약의 인터페이스 타입만 쓴다")
     void facadeInjectsOnlyAppInterfaces() {
         for (Constructor<?> constructor : ChatRealtimeFacade.class.getDeclaredConstructors()) {
             assertThat(constructor.getParameterTypes()).allSatisfy(this::assertAppInterface);
@@ -61,8 +62,10 @@ class ChatRealtimeServiceBoundaryTest {
                 .check(classes);
     }
 
+    /** 업무 서비스 계약은 app, 이 JVM의 연결 목록 같은 바깥 계약(port)은 app/port의 인터페이스다 */
     private void assertAppInterface(Class<?> type) {
         assertThat(type.isInterface()).as("%s는 인터페이스", type.getName()).isTrue();
-        assertThat(type.getPackageName()).isEqualTo("com.hapbang.chat.app");
+        assertThat(type.getPackageName()).as(type.getName())
+                .isEqualTo(type == LocalChatConnections.class ? "com.hapbang.chat.app.port" : "com.hapbang.chat.app");
     }
 }

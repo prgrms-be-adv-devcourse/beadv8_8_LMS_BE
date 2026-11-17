@@ -11,9 +11,12 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.ChatRoomMemberRows.MemberWithUser;
-import com.hapbang.chat.app.ChatRoomMemberRows.UserWithMembership;
 import com.hapbang.chat.app.dto.ChatRecipientState;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRows.MemberWithUser;
+import com.hapbang.chat.app.port.ChatRoomMemberRows.UserWithMembership;
+import com.hapbang.chat.app.port.ChatRoomRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatUser;
 

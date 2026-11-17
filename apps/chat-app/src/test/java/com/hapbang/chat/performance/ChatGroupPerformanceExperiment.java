@@ -47,7 +47,7 @@ import com.hapbang.chat.app.ChatGroupRoomFacade;
 import com.hapbang.chat.app.ChatGroupTestConfig;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.InMemoryChatRecruitSource;
-import com.hapbang.chat.app.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.domain.ChatGroupInviteResult;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;

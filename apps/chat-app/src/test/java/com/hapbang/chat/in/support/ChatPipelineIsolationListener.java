@@ -47,7 +47,6 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
         return 3_500;
     }
 
-
     /** 앞 실행의 worker가 끝나 파이프라인을 다시 시작할 수 있을 때까지 기다리는 상한 */
     private static final Duration RESTART_TIMEOUT = Duration.ofSeconds(30);
 

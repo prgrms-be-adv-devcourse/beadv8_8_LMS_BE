@@ -7,8 +7,9 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
-import com.hapbang.chat.app.dto.ChatReauthResult;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
+import com.hapbang.chat.app.dto.ChatReauthResult;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;

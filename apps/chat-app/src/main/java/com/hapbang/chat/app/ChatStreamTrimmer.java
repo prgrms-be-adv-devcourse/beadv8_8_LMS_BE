@@ -5,7 +5,10 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
-import com.hapbang.chat.app.dto.QueueGroupState;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueueGroupState;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;

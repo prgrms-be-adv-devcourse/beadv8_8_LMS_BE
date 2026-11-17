@@ -18,10 +18,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.web.client.RestClient;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatApplicantPage;
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
-import com.hapbang.chat.app.ChatRecruitSourceException;
-import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatApplicantPage;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
+import com.hapbang.chat.app.port.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSourceException;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 

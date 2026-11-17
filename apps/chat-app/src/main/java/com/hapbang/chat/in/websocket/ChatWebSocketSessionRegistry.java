@@ -31,12 +31,12 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
 import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
 
-import com.hapbang.chat.app.ChatPresence;
 import com.hapbang.chat.app.ChatRoomTopicFacade;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
-import com.hapbang.chat.app.dto.ChatReauthResult;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
+import com.hapbang.chat.app.dto.ChatReauthResult;
+import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.LocalChatConnections;
 
 import lombok.extern.slf4j.Slf4j;
 

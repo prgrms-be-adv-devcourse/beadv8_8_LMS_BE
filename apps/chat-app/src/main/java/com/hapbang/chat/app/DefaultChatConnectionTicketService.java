@@ -19,6 +19,7 @@ import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatConnectionTicketStore;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.extern.slf4j.Slf4j;

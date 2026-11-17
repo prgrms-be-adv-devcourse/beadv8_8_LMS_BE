@@ -50,7 +50,7 @@ import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatConnectionControl;
-import com.hapbang.chat.app.ChatUserRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;

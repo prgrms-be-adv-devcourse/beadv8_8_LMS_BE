@@ -24,6 +24,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;

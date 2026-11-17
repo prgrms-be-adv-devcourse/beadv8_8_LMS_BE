@@ -2,8 +2,8 @@ package com.hapbang.chat.out;
 
 import java.util.Optional;
 
-import com.hapbang.chat.app.ChatRoomMemberRows.UserWithMembership;
-import com.hapbang.chat.app.ChatUserRepositoryCustom;
+import com.hapbang.chat.app.port.ChatRoomMemberRows.UserWithMembership;
+import com.hapbang.chat.app.port.ChatUserRepositoryCustom;
 import com.hapbang.chat.domain.QChatRoomMember;
 import com.hapbang.chat.domain.QChatUser;
 import com.querydsl.jpa.impl.JPAQueryFactory;

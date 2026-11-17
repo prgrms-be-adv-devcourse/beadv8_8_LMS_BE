@@ -18,6 +18,9 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatNotifyRule;
 
 import lombok.extern.slf4j.Slf4j;

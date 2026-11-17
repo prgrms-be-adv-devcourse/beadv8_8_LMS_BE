@@ -26,6 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;

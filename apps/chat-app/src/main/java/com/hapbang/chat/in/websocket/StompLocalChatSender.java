@@ -17,12 +17,12 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MimeType;
 
-import com.hapbang.chat.app.LocalChatSender;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.ChatReadCountsFrame;
 import com.hapbang.chat.in.dto.ChatSubscriptionFrame;

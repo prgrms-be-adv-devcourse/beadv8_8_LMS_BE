@@ -31,16 +31,16 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
-import com.hapbang.chat.app.ChatPresence;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
-import com.hapbang.chat.app.dto.ChatReauthResult;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
-import com.hapbang.shared.member.domain.Role;
+import com.hapbang.chat.app.dto.ChatReauthResult;
+import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.chat.in.websocket.ChatWebSocketSessionRegistry.BindResult;
+import com.hapbang.shared.member.domain.Role;
 
 /**
  * 연결 목록과 연결별 인증 회원 결합(설계 문서 6장)을 검증한다. 실시간 전달·재검사·연결 제어가 쓰는 회원별 로컬 연결 목록
- * ({@link com.hapbang.chat.app.LocalChatConnections})은 회원을 결합한 연결만 가리킨다.
+ * ({@link com.hapbang.chat.app.port.LocalChatConnections})은 회원을 결합한 연결만 가리킨다.
  */
 class ChatWebSocketSessionRegistryTest {
 

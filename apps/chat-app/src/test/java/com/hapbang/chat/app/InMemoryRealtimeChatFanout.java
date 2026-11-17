@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.RealtimeChatFanout;
 
 /**
  * 테스트용 실시간 전파. Redis 없이 발행 결과를 메모리에 남기고, 실패·구독자 0명(자기 구독 단절)을 주입한다.

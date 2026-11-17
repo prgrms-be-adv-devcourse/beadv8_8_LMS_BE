@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
 
+import com.hapbang.chat.app.port.ChatMessageRepository;
 import com.hapbang.chat.domain.ChatMessage;
 
 /**

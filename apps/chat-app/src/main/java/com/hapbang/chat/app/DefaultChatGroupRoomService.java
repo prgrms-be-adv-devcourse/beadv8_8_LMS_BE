@@ -19,10 +19,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
 import com.hapbang.chat.app.dto.ChatGroupRoomsResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidatePageResponse;
@@ -31,6 +30,13 @@ import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatGroupInviteRequestRepository;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
+import com.hapbang.chat.app.port.ChatRoomLogRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatGroupInviteFailure;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 import com.hapbang.chat.domain.ChatGroupInviteRequest;

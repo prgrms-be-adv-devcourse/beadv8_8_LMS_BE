@@ -17,8 +17,9 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishStatus;

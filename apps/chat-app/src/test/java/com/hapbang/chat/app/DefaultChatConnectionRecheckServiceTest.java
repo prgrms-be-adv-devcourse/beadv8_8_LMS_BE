@@ -20,6 +20,8 @@ import org.springframework.dao.QueryTimeoutException;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import com.hapbang.chat.app.port.LocalChatConnections;
+
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 

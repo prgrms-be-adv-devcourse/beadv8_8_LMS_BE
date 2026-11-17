@@ -23,13 +23,13 @@ import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.support.NativeMessageHeaderAccessor;
 
-import com.hapbang.chat.app.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.ChatSyncSignal;
