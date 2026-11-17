@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.data.domain.Limit;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -15,7 +15,14 @@ import com.hapbang.chat.domain.ChatRoom;
 
 import jakarta.persistence.LockModeType;
 
-public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
+/**
+ * 채팅방 저장소. 잠그지 않는 JPQL 조회는 {@link ChatRoomRepositoryCustom}(QueryDSL)에 있고, 잠그는 조회({@code @Lock})는 여기 있다.
+ * <p>
+ * 조회 구현 조각({@code ...CustomImpl})도 같은 app 조회 인터페이스의 빈이다. app이 그 인터페이스로 주입받을 때 이 repository
+ * 프록시(예외 변환 포함)가 뽑히도록 {@code @Primary}로 둔다.
+ */
+@Primary
+public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long>, ChatRoomRepositoryCustom {
 
     /**
      * 그 회원이 호스트인 현재 단체방(사용 중·일시 중지)을 잠그고 ID 순으로 조회한다. 호스트 자격 상실 반영이 쓴다.
@@ -46,31 +53,6 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ChatRoom r where r.directKey = :directKey and r.deletedAt is null")
     Optional<ChatRoom> findActiveDirectForUpdate(@Param("directKey") String directKey);
-
-    /**
-     * 모집글의 현재 단체방(사용 중·일시 중지). 부분 유일 인덱스로 하나뿐이다. 읽기 전용으로 남은 이전 방은 나오지 않는다.
-     */
-    @Query("""
-            select r from ChatRoom r
-            where r.recruitId = :recruitId and r.roomType = com.hapbang.chat.domain.ChatRoomType.GROUP
-              and r.status in (com.hapbang.chat.domain.ChatRoomStatus.ACTIVE,
-                               com.hapbang.chat.domain.ChatRoomStatus.SUSPENDED)
-              and r.deletedAt is null
-            """)
-    Optional<ChatRoom> findCurrentGroup(@Param("recruitId") Long recruitId);
-
-    /**
-     * 조회 만료 시각에 도달한(같은 시각 포함) 읽기 전용 단체방 ID 한 묶음. 방 ID 순서의 키셋이며 잠그지 않는다. 상태는 방마다 잠근
-     * 트랜잭션에서 다시 확인하고 바꾼다. 부분 인덱스 {@code idx_chat_room_group_history_expiry}를 쓴다.
-     */
-    @Query("""
-            select r.id from ChatRoom r
-            where r.roomType = com.hapbang.chat.domain.ChatRoomType.GROUP
-              and r.status = com.hapbang.chat.domain.ChatRoomStatus.READ_ONLY
-              and r.historyExpiresAt <= :now and r.id > :afterId and r.deletedAt is null
-            order by r.id asc
-            """)
-    List<Long> findHistoryExpiryDueIds(@Param("now") LocalDateTime now, @Param("afterId") long afterId, Limit limit);
 
     /**
      * 단체방 제목을 모집글 제목으로 맞춘다. 방을 잠그지 않고 제목 컬럼만 바꾼다(엔티티 전체를 저장하면 그 사이 잠금 아래 바뀐 순번·인원을

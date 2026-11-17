@@ -1,14 +1,17 @@
 package com.hapbang.chat.out;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 import com.hapbang.chat.domain.ChatRecipientSet;
 
-public interface ChatRecipientSetRepository extends JpaRepository<ChatRecipientSet, Long> {
-
-    /** 방의 마지막 수신자 집합 버전. 없으면 0. 방을 잠근 트랜잭션에서 다음 버전을 정할 때 쓴다 */
-    @Query("select coalesce(max(s.setVersion), 0) from ChatRecipientSet s where s.chatRoomId = :chatRoomId")
-    int findLastVersion(@Param("chatRoomId") Long chatRoomId);
+/**
+ * 불변 수신자 집합 헤더 저장소. JPQL 조회는 {@link ChatRecipientSetRepositoryCustom}(QueryDSL)에 있다.
+ * <p>
+ * 조회 구현 조각({@code ...CustomImpl})도 같은 app 조회 인터페이스의 빈이다. app이 그 인터페이스로 주입받을 때 이 repository
+ * 프록시(예외 변환 포함)가 뽑히도록 {@code @Primary}로 둔다.
+ */
+@Primary
+public interface ChatRecipientSetRepository
+        extends JpaRepository<ChatRecipientSet, Long>, ChatRecipientSetRepositoryCustom {
 }
