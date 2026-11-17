@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.app.port.BudgetWorkRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
@@ -287,6 +288,28 @@ class CouponRepositoryTest {
         List<CouponStatus> statuses = List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED);
         assertThat(couponRepository.findRedisReadyIds(statuses, NOW)).containsExactly(open.getId());
         assertThat(couponRepository.findRedisReadyIds(statuses, ISSUE_END)).isEmpty();
+    }
+
+    @Test
+    void 재발행_대상은_Redis_준비를_마친_쿠폰_중_고른_상태만_ID_순으로_상태와_epoch를_읽는다() {
+        Long suspended = saveRedisReady(CouponStatus.SUSPENDED, 3L);
+        Long open = saveRedisReady(CouponStatus.OPEN, 1L);
+        saveRedisReady(CouponStatus.CLOSED, 2L);
+        save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.OPEN);
+        entityManager.flush();
+        entityManager.clear();
+
+        // 고르지 않은 상태(CLOSED)와 Redis 준비 전 쿠폰은 빠지고, 상태 순이 아닌 쿠폰 ID 순이다
+        assertThat(couponRepository.findRepublishTargets(List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED)))
+                .containsExactly(new RepublishTargetCoupon(suspended, CouponStatus.SUSPENDED, 3L),
+                        new RepublishTargetCoupon(open, CouponStatus.OPEN, 1L));
+    }
+
+    private Long saveRedisReady(CouponStatus status, long epoch) {
+        Coupon coupon = Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW);
+        ReflectionTestUtils.setField(coupon, "redisReady", true);
+        ReflectionTestUtils.setField(coupon, "epoch", epoch);
+        return save(coupon, status);
     }
 
     private Long save(Coupon coupon, CouponStatus status) {

@@ -90,6 +90,9 @@ class CouponIssueRequestRepositoryTest {
                 CouponIssueRequest.rejected("req-b", OTHER_MEMBER_ID, couponId, 2L, NOW, "매진", NOW));
         couponIssueRequestRepository.save(
                 CouponIssueRequest.rejected("req-x", OTHER_MEMBER_ID, otherCouponId, 1L, NOW, "매진", NOW));
+        // 요청 ID는 쿠폰 안에서만 유일하다: 다른 쿠폰의 같은 요청 ID는 이 쿠폰의 결과에 섞이지 않는다
+        couponIssueRequestRepository.save(
+                CouponIssueRequest.rejected("req-a", OTHER_MEMBER_ID, otherCouponId, 3L, NOW, "기간 종료", NOW));
         flushAndClear();
 
         assertThat(couponIssueRequestRepository.findResults(couponId)).containsExactly(
@@ -100,6 +103,11 @@ class CouponIssueRequestRepositoryTest {
                 new IssueResultRow("req-b", OTHER_MEMBER_ID, CouponIssueResult.REJECTED, 2L));
         assertThat(couponIssueRequestRepository.findExistingRequestIds(couponId,
                 List.of("req-a", "req-x", "req-none"))).containsExactly("req-a");
+        assertThat(couponIssueRequestRepository.findResultRows(otherCouponId)).containsExactlyInAnyOrder(
+                new IssueResultRow("req-x", OTHER_MEMBER_ID, CouponIssueResult.REJECTED, 1L),
+                new IssueResultRow("req-a", OTHER_MEMBER_ID, CouponIssueResult.REJECTED, 3L));
+        assertThat(couponIssueRequestRepository.findExistingRequestIds(otherCouponId, List.of("req-a", "req-b")))
+                .containsExactly("req-a");
     }
 
     private Long saveCoupon() {
