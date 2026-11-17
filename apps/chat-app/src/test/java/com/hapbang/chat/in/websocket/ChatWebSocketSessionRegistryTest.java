@@ -466,16 +466,17 @@ class ChatWebSocketSessionRegistryTest {
         reauthHandler.afterConnectionEstablished(host);
         Instant start = Instant.now();
         Instant expiresAt = start.plusMillis(300);
-        Instant renewed = start.plusMillis(1_000);
+        // 옛 만료 확인(0.5초 무렵)과 새 만료 사이에 2.5초 여유를 둔다
+        Instant renewed = start.plusSeconds(3);
         reauth.bind("s-1", HOST_ID, start, expiresAt);
         assertThat(reauth.reauthenticate("s-1", HOST_ID, renewed).succeeded()).isTrue();
 
         // 옛 만료가 지나도 예약·프레임 검사가 닫지 않는다
-        await().atMost(Duration.ofSeconds(2)).until(() -> Instant.now().isAfter(expiresAt.plusMillis(100)));
+        await().atMost(Duration.ofSeconds(2)).until(() -> Instant.now().isAfter(expiresAt.plusMillis(200)));
         assertThat(reauth.closeIfExpired("s-1")).isFalse();
         verify(host, never()).close(any());
         // 새 만료에 다시 건 예약이 닫는다
-        verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        verify(host, timeout(6_000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
         assertThat(Instant.now()).isAfterOrEqualTo(renewed);
     }
 

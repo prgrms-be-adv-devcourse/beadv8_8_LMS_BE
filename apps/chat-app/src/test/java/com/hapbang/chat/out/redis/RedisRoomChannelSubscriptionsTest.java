@@ -187,27 +187,31 @@ class RedisRoomChannelSubscriptionsTest {
 
     /**
      * 유예 중 다시 쓰다 놓은 방은 유예를 새로 세고 정리 순서의 뒤로 간다. 그래서 먼저 놓은 방의 유예가 지나면, 아직 유예가 남은 그 방에
-     * 막히지 않고 먼저 놓은 방만 뺀다. 유예(2초)·다시 놓기 간격(1.5초)은 주기 정리(1초 간격)가 둘 사이에 한 번 돌게 고른 값이다.
+     * 막히지 않고 먼저 놓은 방만 뺀다.
+     * <p>
+     * 시각: 둘을 놓은 때를 0으로 유예 4초, 1번을 2초에 다시 쓰다 놓는다. 2번은 4초, 1번은 6초에 유예가 지나므로 주기 정리(1초 간격)가
+     * 4~5초 사이에 2번만 뺀다. 그때 1번은 1초 이상 유예가 남는다. 다시 놓기가 늦어져도(2초 미만) 여유는 늘기만 한다.
      */
     @Test
     void 유예_중_다시_쓰다_놓은_채널은_유예를_새로_세어_주기_정리가_늦게_뺀다() throws Exception {
-        RedisRoomChannelSubscriptions channels = channels(Duration.ofSeconds(2), 100);
+        RedisRoomChannelSubscriptions channels = channels(Duration.ofSeconds(4), 100);
         channels.acquire(1L);
         channels.acquire(2L);
         verify(container, timeout(IO_TIMEOUT_MILLIS)).addMessageListener(listener, topic(2L));
         channels.release(1L);
         channels.release(2L);
-        Thread.sleep(1_500);
+        Thread.sleep(2_000);
         // 1번은 유예 중 다시 쓰다 놓아 지금부터 유예를 센다
+        verify(container, never()).removeMessageListener(any(MessageListener.class), any(ChannelTopic.class));
         channels.acquire(1L);
         channels.release(1L);
 
-        // 2번의 유예가 지난 뒤 첫 주기 정리(1번은 유예가 0.5초 이상 남았다)
-        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(2L));
+        // 2번의 유예가 지난 뒤 첫 주기 정리
+        verify(container, timeout(5_000)).removeMessageListener(listener, topic(2L));
         assertThat(subscribed(channels)).as("유예가 지난 2번만 뺀다").isEqualTo(1);
         verify(container, never()).removeMessageListener(listener, topic(1L));
 
-        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(1L));
+        verify(container, timeout(5_000)).removeMessageListener(listener, topic(1L));
         assertThat(subscribed(channels)).isZero();
     }
 
