@@ -24,10 +24,6 @@ public interface ChatPublishCheckpointRepository extends Repository<ChatPublishC
     // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     <S extends ChatPublishCheckpoint> S save(S entity);
 
-    // 테스트 검증에서만 쓰는 기본 메서드
-    List<ChatPublishCheckpoint> findAll();
-    long count();
-
     /** 체크포인트 상태(native projection). 엔티티로 읽지 않아 늘 문장이 읽은 값을 쓴다 */
     interface StateRow {
 
@@ -49,9 +45,6 @@ public interface ChatPublishCheckpointRepository extends Repository<ChatPublishC
 
         ChatPublishStatus getStatus();
     }
-
-    /** 테스트 검증에서만 쓴다 */
-    Optional<ChatPublishCheckpoint> findByConsumerGroupAndJobId(String consumerGroup, UUID jobId);
 
     @Query(nativeQuery = true, value = """
             select id, status, generation, attempt_count, next_attempt_at

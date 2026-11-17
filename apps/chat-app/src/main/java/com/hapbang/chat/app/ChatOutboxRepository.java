@@ -32,11 +32,6 @@ public interface ChatOutboxRepository extends Repository<ChatOutbox, Long> {
     // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     <S extends ChatOutbox> S save(S entity);
 
-    // 테스트 검증에서만 쓰는 조회
-    Optional<ChatOutbox> findByDeliveryId(UUID deliveryId);
-    List<ChatOutbox> findByChatRoomIdOrderByIdAsc(Long chatRoomId);
-    Optional<ChatOutbox> findByMessageId(Long messageId);
-
     @Transactional
     @Modifying
     @Query(nativeQuery = true, value = """

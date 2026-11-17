@@ -95,6 +95,9 @@ class ChatUserBackfillIntegrationTest {
     @MockitoSpyBean
     private ChatUserRepository chatUserRepository;
 
+    @MockitoSpyBean
+    private ChatUserTestRepository chatUserTestRepository;
+
     private ChatNativeSql sql;
 
     @Autowired
@@ -223,7 +226,7 @@ class ChatUserBackfillIntegrationTest {
         assertThat(retried).extracting(ChatUserBackfillResult::created, ChatUserBackfillResult::skippedStale,
                         ChatUserBackfillResult::failed, ChatUserBackfillResult::completed)
                 .containsExactly(1L, 1L, 0L, true);
-        assertThat(chatUserRepository.count()).isEqualTo(3L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(3L);
     }
 
     @Test
@@ -242,14 +245,14 @@ class ChatUserBackfillIntegrationTest {
                             .containsExactly(2L, 2L, false);
                     assertThat(e.getProperties()).containsEntry("resumeAfterId", 2L);
                 });
-        assertThat(chatUserRepository.count()).isEqualTo(2L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(2L);
 
         failOnRequest = 0;
         ChatUserBackfillResult resumed = backfillService.backfill(2, MAX_LIMIT);
 
         assertThat(resumed).extracting(ChatUserBackfillResult::created, ChatUserBackfillResult::completed)
                 .containsExactly(2L, true);
-        assertThat(chatUserRepository.count()).isEqualTo(4L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(4L);
     }
 
     @Test
@@ -264,7 +267,7 @@ class ChatUserBackfillIntegrationTest {
                         ChatUserBackfillResult::reachedEnd, ChatUserBackfillResult::completed)
                 .containsExactly(2L, 2L, false, false);
         assertThat(backfillService.backfill(first.nextAfterId(), 2).completed()).isTrue();
-        assertThat(chatUserRepository.count()).isEqualTo(3L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(3L);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -333,7 +336,7 @@ class ChatUserBackfillIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_SOURCE_REJECTED"))
                 .andExpect(jsonPath("$.resumeAfterId").value(0))
                 .andExpect(jsonPath("$.scanned").value(0));
-        assertThat(chatUserRepository.count()).isZero();
+        assertThat(chatUserTestRepository.count()).isZero();
     }
 
     @Test

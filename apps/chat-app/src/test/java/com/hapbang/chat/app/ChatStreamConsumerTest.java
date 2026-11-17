@@ -127,7 +127,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
             assertThat(control.memberVersion()).isNull();
             assertThat(control.reason()).isEqualTo(ChatControlReason.MEMBER_BACKFILL);
         });
-        assertThat(checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.CONTROL.consumerGroup(),
+        assertThat(checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.CONTROL.consumerGroup(),
                 fanout.controls().getFirst().controlId()).orElseThrow().getStatus())
                 .isEqualTo(ChatPublishStatus.PUBLISHED);
         assertThat(pendingCount(ChatJobStream.CONTROL)).isZero();
@@ -363,10 +363,10 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
         assertThat(fanout.publishCalls()).isZero();
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
-        assertThat(checkpointRepository.findAll())
+        assertThat(checkpointTestRepository.findAll())
                 .extracting(ChatPublishCheckpoint::getDeadReason)
                 .contains(ChatDeadReason.MALFORMED_ENTRY, ChatDeadReason.SOURCE_MISSING);
-        assertThat(checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), unknown)
+        assertThat(checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), unknown)
                 .orElseThrow().getStatus()).isEqualTo(ChatPublishStatus.DEAD);
     }
 

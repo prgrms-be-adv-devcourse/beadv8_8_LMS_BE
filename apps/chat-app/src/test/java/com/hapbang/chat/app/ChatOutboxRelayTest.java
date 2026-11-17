@@ -50,7 +50,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     private ChatConnectionControl chatConnectionControl;
 
     @Autowired
-    private ChatControlOutboxRepository controlOutboxRepository;
+    private ChatControlOutboxTestRepository controlOutboxTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -198,7 +198,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
 
         relayAll(ChatJobStream.CONTROL);
 
-        ChatControlOutbox control = controlOutboxRepository.findAll().getFirst();
+        ChatControlOutbox control = controlOutboxTestRepository.findAll().getFirst();
         assertThat(control.getStatus()).isEqualTo(ChatOutboxStatus.ENQUEUED);
         List<MapRecord<String, Object, Object>> entries = redis.opsForStream().range(keys.controlStream(),
                 Range.unbounded());

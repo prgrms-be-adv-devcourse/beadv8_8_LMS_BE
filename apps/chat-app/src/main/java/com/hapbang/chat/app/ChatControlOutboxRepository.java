@@ -26,9 +26,6 @@ import com.hapbang.chat.domain.ChatControlOutbox;
  */
 public interface ChatControlOutboxRepository extends Repository<ChatControlOutbox, Long> {
 
-    // 테스트 검증에서만 쓰는 기본 메서드. 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
-    List<ChatControlOutbox> findAll();
-
     /**
      * 재검사 작업(RECHECK_USER)을 같은 (회원, 원본 버전, 종류)가 없을 때만 넣는다. 유일 인덱스는 재검사 작업에만 있다. 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해
      * 예외 없이 0을 돌려준다. 호출한 트랜잭션을 rollback-only로 만들지 않는다. 트랜잭션을 열지 않으므로 회원 반영

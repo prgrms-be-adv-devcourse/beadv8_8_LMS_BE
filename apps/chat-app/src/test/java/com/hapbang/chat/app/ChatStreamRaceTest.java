@@ -172,13 +172,13 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.NOT_ACKED);
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isEqualTo(1);
-        assertThat(checkpointRepository.findAll()).isEmpty();
+        assertThat(checkpointTestRepository.findAll()).isEmpty();
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.ISOLATED);
 
         UUID syntheticId = UUID.nameUUIDFromBytes((ChatJobStream.DELIVERY.consumerGroup() + ":" + job.entryId())
                 .getBytes(StandardCharsets.UTF_8));
-        ChatPublishCheckpoint dead = checkpointRepository
+        ChatPublishCheckpoint dead = checkpointTestRepository
                 .findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), syntheticId).orElseThrow();
         assertThat(dead.getStatus()).isEqualTo(ChatPublishStatus.DEAD);
         assertThat(dead.getDeadReason()).isEqualTo(ChatDeadReason.MALFORMED_ENTRY);

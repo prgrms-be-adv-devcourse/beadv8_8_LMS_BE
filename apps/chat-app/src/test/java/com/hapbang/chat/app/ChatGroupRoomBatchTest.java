@@ -71,7 +71,7 @@ class ChatGroupRoomBatchTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
-    private ChatGroupInviteRequestRepository chatGroupInviteRequestRepository;
+    private ChatGroupInviteRequestTestRepository chatGroupInviteRequestTestRepository;
 
     @Autowired
     private ChatGroupProperties properties;
@@ -183,17 +183,17 @@ class ChatGroupRoomBatchTest {
         Long retainedAtEdge = inviteRequest(roomId, cutoff.plusNanos(1000));
         Long retainedRecent = inviteRequest(roomId, BASE);
         // 지우는 기준은 초대가 보존 기간 안으로 보는지와 같다
-        for (ChatGroupInviteRequest request : chatGroupInviteRequestRepository.findAll()) {
+        for (ChatGroupInviteRequest request : chatGroupInviteRequestTestRepository.findAll()) {
             assertThat(request.isRetained(BASE, properties.inviteRequestRetention()))
                     .isEqualTo(!expired.contains(request.getId()));
         }
 
         assertThat(chatGroupInviteRequestCleaner.deleteExpired(BASE)).isEqualTo(5);
 
-        assertThat(chatGroupInviteRequestRepository.findAll()).extracting(ChatGroupInviteRequest::getId)
+        assertThat(chatGroupInviteRequestTestRepository.findAll()).extracting(ChatGroupInviteRequest::getId)
                 .containsExactlyInAnyOrder(retainedAtEdge, retainedRecent);
         assertThat(chatGroupInviteRequestCleaner.deleteExpired(BASE)).isZero();
-        assertThat(chatGroupInviteRequestRepository.count()).isEqualTo(2);
+        assertThat(chatGroupInviteRequestTestRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -211,7 +211,7 @@ class ChatGroupRoomBatchTest {
                 List.of(GUEST_ID)).results();
 
         assertThat(results).containsExactly(ChatGroupInviteOutcome.joined(GUEST_ID));
-        assertThat(chatGroupInviteRequestRepository.count()).isEqualTo(1);
+        assertThat(chatGroupInviteRequestTestRepository.count()).isEqualTo(1);
     }
 
     private Long closedRoomExpiringAt(LocalDateTime historyExpiresAt) {

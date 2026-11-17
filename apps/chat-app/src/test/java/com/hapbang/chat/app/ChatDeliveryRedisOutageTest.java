@@ -128,10 +128,10 @@ class ChatDeliveryRedisOutageTest {
     private InMemoryRealtimeChatFanout fanout;
 
     @Autowired
-    private ChatOutboxRepository chatOutboxRepository;
+    private ChatOutboxTestRepository chatOutboxTestRepository;
 
     @Autowired
-    private ChatPublishCheckpointRepository checkpointRepository;
+    private ChatPublishCheckpointTestRepository checkpointTestRepository;
 
     @Autowired
     private ChatRedisKeys keys;
@@ -199,15 +199,15 @@ class ChatDeliveryRedisOutageTest {
 
     private UUID send(Long chatRoomId, String content) {
         Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
-        return chatOutboxRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
+        return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 
     private ChatOutbox outbox(UUID deliveryId) {
-        return chatOutboxRepository.findByDeliveryId(deliveryId).orElseThrow();
+        return chatOutboxTestRepository.findByDeliveryId(deliveryId).orElseThrow();
     }
 
     private ChatPublishStatus checkpointStatus(UUID deliveryId) {
-        return checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
+        return checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
                 .orElseThrow().getStatus();
     }
 

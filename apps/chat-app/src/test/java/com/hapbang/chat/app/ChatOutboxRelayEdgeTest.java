@@ -60,13 +60,13 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     private ChatOutboxStore outboxStore;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
 
     @Autowired
-    private ChatControlOutboxRepository controlOutboxRepository;
+    private ChatControlOutboxTestRepository controlOutboxTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -175,8 +175,8 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(IllegalStateException.class);
 
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
-        assertThat(chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).isEmpty();
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
+        assertThat(chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).isEmpty();
         assertThat(relay.relayBatch(ChatJobStream.DELIVERY)).isZero();
     }
 
@@ -190,10 +190,10 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
             assertThat(status.isRollbackOnly()).isFalse();
         });
 
-        assertThat(controlOutboxRepository.findAll())
+        assertThat(controlOutboxTestRepository.findAll())
                 .extracting(control -> String.valueOf(control.getMemberVersion()))
                 .containsExactlyInAnyOrder("5", "null");
-        assertThat(checkpointRepository.findAll())
+        assertThat(checkpointTestRepository.findAll())
                 .filteredOn(checkpoint -> checkpoint.getConsumerGroup().equals(ChatJobStream.CONTROL.consumerGroup()))
                 .hasSize(2);
         assertThatThrownBy(() -> chatConnectionControl.requestRecheck(GUEST_ID, 6L,
@@ -208,8 +208,8 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
             throw new IllegalStateException("회원 반영 실패");
         })).isInstanceOf(IllegalStateException.class);
 
-        assertThat(controlOutboxRepository.findAll()).isEmpty();
-        assertThat(checkpointRepository.findAll()).isEmpty();
+        assertThat(controlOutboxTestRepository.findAll()).isEmpty();
+        assertThat(checkpointTestRepository.findAll()).isEmpty();
         assertThat(relay.relayBatch(ChatJobStream.CONTROL)).isZero();
     }
 

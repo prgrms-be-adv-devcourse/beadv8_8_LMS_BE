@@ -48,10 +48,13 @@ class ChatRoomConcurrencyTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     /** Facade의 @PreAuthorize를 통과할 로그인 상태. 스레드마다 따로라 작업 스레드에도 넣는다 */
     private static final Authentication INFLUENCER = new TestingAuthenticationToken("test", null, "ROLE_INFLUENCER");
@@ -74,7 +77,7 @@ class ChatRoomConcurrencyTest {
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
 
         assertThat(roomIds).hasSize(THREADS).containsOnly(roomIds.getFirst());
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -87,7 +90,7 @@ class ChatRoomConcurrencyTest {
         assertThat(ended).containsExactlyInAnyOrder(true, false);
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getStatus())
                 .isEqualTo(ChatRoomStatus.ENDED);
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType)
                 .filteredOn(type -> type == ChatRoomEventType.ROOM_ENDED)
                 .hasSize(1);
@@ -103,7 +106,7 @@ class ChatRoomConcurrencyTest {
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
         Long startedRoomId = results.stream().filter(id -> id > 0).findFirst().orElseThrow();
 
-        List<ChatRoom> activeRooms = chatRoomRepository.findAll().stream()
+        List<ChatRoom> activeRooms = chatRoomTestRepository.findAll().stream()
                 .filter(room -> room.getStatus() == ChatRoomStatus.ACTIVE)
                 .toList();
         assertThat(activeRooms).extracting(ChatRoom::getId).containsExactly(startedRoomId);

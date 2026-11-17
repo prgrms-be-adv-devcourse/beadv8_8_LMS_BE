@@ -32,8 +32,11 @@ class ChatRoomLeaveRollbackTest {
     @MockitoSpyBean
     private ChatMessageRepository chatMessageRepository;
 
+    @MockitoSpyBean
+    private ChatMessageTestRepository chatMessageTestRepository;
+
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -57,9 +60,9 @@ class ChatRoomLeaveRollbackTest {
 
         assertThat(chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, GUEST_ID))
                 .hasValueSatisfying(member -> assertThat(member.isActive()).isTrue());
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType)
                 .doesNotContain(ChatRoomEventType.MEMBER_LEFT);
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
     }
 }

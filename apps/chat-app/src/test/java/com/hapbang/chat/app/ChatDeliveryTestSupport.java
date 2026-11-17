@@ -88,10 +88,10 @@ abstract class ChatDeliveryTestSupport {
     ChatDeliveryAvailability availability;
 
     @Autowired
-    ChatOutboxRepository chatOutboxRepository;
+    ChatOutboxTestRepository chatOutboxTestRepository;
 
     @Autowired
-    ChatPublishCheckpointRepository checkpointRepository;
+    ChatPublishCheckpointTestRepository checkpointTestRepository;
 
     @Autowired
     ChatRedisKeys keys;
@@ -132,15 +132,15 @@ abstract class ChatDeliveryTestSupport {
     }
 
     UUID deliveryIdOf(Long messageId) {
-        return chatOutboxRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
+        return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 
     ChatOutbox outbox(UUID deliveryId) {
-        return chatOutboxRepository.findByDeliveryId(deliveryId).orElseThrow();
+        return chatOutboxTestRepository.findByDeliveryId(deliveryId).orElseThrow();
     }
 
     ChatPublishCheckpoint checkpoint(UUID deliveryId) {
-        return checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
+        return checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
                 .orElseThrow();
     }
 

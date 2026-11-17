@@ -125,6 +125,9 @@ class ChatGroupRoomFacadeTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
@@ -184,7 +187,7 @@ class ChatGroupRoomFacadeTest {
     @Test
     void 모집글의_호스트가_아니면_만들_수_없다() {
         assertError(() -> chatGroupRoomFacade.createRoom(GUEST_ID, RECRUIT_ID), ChatErrorCode.NOT_RECRUIT_HOST);
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
     }
 
     @ParameterizedTest
@@ -193,7 +196,7 @@ class ChatGroupRoomFacadeTest {
         recruits.putRecruit(RECRUIT_ID, HOST_ID, "주말 합방 모집", status);
 
         assertError(() -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID), ChatErrorCode.RECRUIT_NOT_OPEN);
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
     }
 
     @Test
@@ -211,7 +214,7 @@ class ChatGroupRoomFacadeTest {
         assertThat(again.room().chatRoomId()).isEqualTo(roomId);
         assertThat(recruits.recruitCalls()).isEqualTo(1);
         assertError(() -> chatGroupRoomFacade.createRoom(GUEST_ID, RECRUIT_ID), ChatErrorCode.NOT_RECRUIT_HOST);
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -241,7 +244,7 @@ class ChatGroupRoomFacadeTest {
                 index -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID).room().chatRoomId());
 
         assertThat(roomIds).hasSize(8).containsOnly(roomIds.getFirst());
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -262,7 +265,7 @@ class ChatGroupRoomFacadeTest {
         recruits.failWith(Reason.REJECTED);
         assertError(() -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID), ChatErrorCode.APPEARANCE_UNAVAILABLE);
 
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
         assertThat(sql.single("select count(*) from chats.chat_room_log", Long.class)).isZero();
     }
 

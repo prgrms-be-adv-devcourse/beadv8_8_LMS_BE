@@ -52,7 +52,10 @@ class ChatRoomUseCaseTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -85,7 +88,7 @@ class ChatRoomUseCaseTest {
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -141,7 +144,7 @@ class ChatRoomUseCaseTest {
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).containsSubsequence(hostBefore);
         assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType, ChatRoomLog::getActorUserId)
                 .endsWith(tuple(ChatRoomEventType.MEMBER_LEFT, GUEST_ID),
                         tuple(ChatRoomEventType.MEMBER_REJOINED, GUEST_ID));
@@ -220,12 +223,12 @@ class ChatRoomUseCaseTest {
     void 이미_나간_뒤_같은_퇴장_요청은_아무것도_바꾸지_않는다() {
         Long chatRoomId = createRoom();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        long logCount = chatRoomLogRepository.count();
+        long logCount = chatRoomLogTestRepository.count();
 
         ChatRoomLeaveResult retried = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         assertThat(retried.left()).isFalse();
-        assertThat(chatRoomLogRepository.count()).isEqualTo(logCount);
+        assertThat(chatRoomLogTestRepository.count()).isEqualTo(logCount);
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).containsExactly("게스트님이 나갔습니다.");
     }
 
@@ -376,7 +379,7 @@ class ChatRoomUseCaseTest {
     }
 
     private List<ChatRoomEventType> eventsOf(Long chatRoomId) {
-        return chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId).stream()
+        return chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId).stream()
                 .map(ChatRoomLog::getEventType)
                 .toList();
     }

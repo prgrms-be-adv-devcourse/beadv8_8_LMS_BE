@@ -21,9 +21,6 @@ public interface ChatUserRepository extends Repository<ChatUser, Long>, ChatUser
     List<ChatUser> findAllById(Iterable<Long> ids);
     void flush();
 
-    // 테스트 검증에서만 쓰는 기본 메서드
-    long count();
-
     /**
      * 회원 복제본을 잠그고 읽는다. 단체방 생성이 호스트 자격을 확인할 때 쓴다. 회원 변경 반영도 같은 행을 갱신하며 잠그므로, 생성과
      * 호스트 자격 상실 반영이 서로 엇갈리지 않는다(먼저 잠근 쪽이 커밋한 뒤 다른 쪽이 그 결과를 본다).

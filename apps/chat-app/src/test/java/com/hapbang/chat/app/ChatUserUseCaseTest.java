@@ -25,6 +25,9 @@ class ChatUserUseCaseTest {
     @Autowired
     private ChatUserRepository chatUserRepository;
 
+    @Autowired
+    private ChatUserTestRepository chatUserTestRepository;
+
     @Test
     void 가입_정보로_채팅_회원을_생성한다() {
         chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
@@ -46,7 +49,7 @@ class ChatUserUseCaseTest {
         ChatUser chatUser = chatUserRepository.findById(HOST_ID).orElseThrow();
         assertThat(chatUser.getNickname()).isEqualTo("바뀐닉네임");
         assertThat(chatUser.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
-        assertThat(chatUserRepository.count()).isEqualTo(1);
+        assertThat(chatUserTestRepository.count()).isEqualTo(1);
     }
 
     @Test

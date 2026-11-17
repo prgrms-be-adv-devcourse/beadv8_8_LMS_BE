@@ -56,7 +56,7 @@ class ChatNotificationUseCaseTest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     private ChatNativeSql sql;
 
@@ -98,7 +98,7 @@ class ChatNotificationUseCaseTest {
         Long messageId = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID)).orElseThrow()
                 .message().messageId();
 
-        ChatMessage stored = chatMessageRepository.findById(messageId).orElseThrow();
+        ChatMessage stored = chatMessageTestRepository.findById(messageId).orElseThrow();
         assertThat(stored.getContent()).isEmpty();
         assertThat(stored.readAppearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
         assertThat(sql.row("""
@@ -120,7 +120,7 @@ class ChatNotificationUseCaseTest {
         Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        assertThat(chatMessageRepository.findAll()).singleElement()
+        assertThat(chatMessageTestRepository.findAll()).singleElement()
                 .extracting(ChatMessage::getNotificationDataJson).isNull();
     }
 
@@ -190,7 +190,7 @@ class ChatNotificationUseCaseTest {
         chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
 
         assertThat(chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))).isEmpty();
-        assertThat(chatMessageRepository.count()).isEqualTo(1);
+        assertThat(chatMessageTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -213,7 +213,7 @@ class ChatNotificationUseCaseTest {
     @Test
     void 받는_사람이_채팅할_수_없는_회원이면_알림을_남기지_않는다() {
         assertThat(chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, USER_ID))).isEmpty();
-        assertThat(chatMessageRepository.count()).isZero();
+        assertThat(chatMessageTestRepository.count()).isZero();
         assertThat(chatRoomSupporter.getMyRooms(HOST_ID)).isEmpty();
     }
 

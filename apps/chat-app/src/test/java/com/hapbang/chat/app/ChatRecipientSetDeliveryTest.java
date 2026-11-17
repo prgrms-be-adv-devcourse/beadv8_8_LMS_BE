@@ -64,10 +64,10 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
-    private ChatRecipientSetMemberRepository recipientSetMemberRepository;
+    private ChatRecipientSetMemberTestRepository recipientSetMemberTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -150,7 +150,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
-        List<ChatOutbox> outboxes = chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
+        List<ChatOutbox> outboxes = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
         ChatOutbox rejoinNotice = outboxes.get(outboxes.size() - 2);
         ChatOutbox notification = outboxes.getLast();
         assertThat(notification.getMessageId()).isEqualTo(result.message().messageId());
@@ -180,13 +180,13 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         });
         assertThat(results).doesNotContainNull();
 
-        List<ChatMessage> messages = chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
+        List<ChatMessage> messages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
         long leftNoticeSequence = messages.stream()
                 .filter(message -> message.getMessageType() == ChatMessageType.SYSTEM)
                 .mapToLong(ChatMessage::getRoomSequence)
                 .min().orElseThrow();
         for (ChatMessage message : messages) {
-            ChatOutbox outbox = chatOutboxRepository.findByMessageId(message.getId()).orElseThrow();
+            ChatOutbox outbox = chatOutboxTestRepository.findByMessageId(message.getId()).orElseThrow();
             List<Long> recipients = recipientUserIds(outbox.getRecipientSetId());
             if (message.getMessageType() == ChatMessageType.SYSTEM) {
                 assertThat(recipients).containsExactly(HOST_ID);
@@ -208,15 +208,15 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
                 ? chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID)
                 : chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID));
 
-        List<ChatMessage> systemMessages = chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)
+        List<ChatMessage> systemMessages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)
                 .stream().filter(message -> message.getMessageType() == ChatMessageType.SYSTEM).toList();
         // 퇴장 안내 1개, 재입장 안내 1개
         assertThat(systemMessages).hasSize(2);
-        ChatOutbox rejoinNotice = chatOutboxRepository.findByMessageId(systemMessages.getLast().getId())
+        ChatOutbox rejoinNotice = chatOutboxTestRepository.findByMessageId(systemMessages.getLast().getId())
                 .orElseThrow();
         assertThat(recipientUserIds(rejoinNotice.getRecipientSetId()))
                 .containsExactly(HOST_ID);
-        assertThat(recipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(
+        assertThat(recipientSetMemberTestRepository.findByRecipientSetIdOrderByUserIdAsc(
                 chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId()))
                 .extracting(member -> member.getUserId() + ":" + member.getParticipationVersion())
                 .containsExactly(HOST_ID + ":1", GUEST_ID + ":2");
@@ -303,7 +303,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
 
     /** 수신자 집합에 든 회원 ID(회원 ID 순) */
     private List<Long> recipientUserIds(Long recipientSetId) {
-        return recipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(recipientSetId).stream()
+        return recipientSetMemberTestRepository.findByRecipientSetIdOrderByUserIdAsc(recipientSetId).stream()
                 .map(ChatRecipientSetMember::getUserId)
                 .toList();
     }

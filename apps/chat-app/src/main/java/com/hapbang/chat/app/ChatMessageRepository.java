@@ -24,11 +24,6 @@ public interface ChatMessageRepository extends Repository<ChatMessage, Long>, Ch
     // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     <S extends ChatMessage> S save(S entity);
 
-    // 테스트 검증에서만 쓰는 기본 메서드
-    Optional<ChatMessage> findById(Long id);
-    List<ChatMessage> findAll();
-    long count();
-
     /**
      * 주어진 일반 메시지({@code TEXT})마다 안 읽은 현재 참여자 수를 한 문장으로 센다. 메시지마다 참여자를 따로 읽지 않는다.
      * <p>
@@ -114,9 +109,6 @@ public interface ChatMessageRepository extends Repository<ChatMessage, Long>, Ch
 
     /** 같은 출연 이벤트로 이미 알림을 남겼는지 */
     boolean existsByNotificationKindAndReferenceId(NotificationKind notificationKind, Long referenceId);
-
-    /** 방의 모든 메시지 (Soft Delete 포함, 순번 순서). 테스트 검증에서만 쓴다 */
-    List<ChatMessage> findByChatRoom_IdOrderByRoomSequenceAsc(Long chatRoomId);
 
     /**
      * 관리자 기록 조회 첫 페이지. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 (보낸 시각, ID) 순서로 조회한다.

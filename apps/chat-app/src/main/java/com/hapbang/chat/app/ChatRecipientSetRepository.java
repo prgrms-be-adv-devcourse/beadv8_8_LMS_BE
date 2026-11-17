@@ -15,7 +15,4 @@ public interface ChatRecipientSetRepository
     // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     <S extends ChatRecipientSet> S save(S entity);
     Optional<ChatRecipientSet> findById(Long id);
-
-    // 테스트 검증에서만 쓰는 기본 메서드
-    long count();
 }

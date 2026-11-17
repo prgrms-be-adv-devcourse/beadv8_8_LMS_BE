@@ -42,7 +42,7 @@ class ChatReceiptFailureTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @MockitoSpyBean
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -69,7 +69,7 @@ class ChatReceiptFailureTest {
         ChatRoomMember afterFailure = member(GUEST_ID);
         assertThat(afterFailure.getLastReceivedSequence()).isNull();
         assertThat(afterFailure.getLastReadSequence()).isZero();
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).hasSize(3);
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).hasSize(3);
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getLastSequence()).isEqualTo(3);
 
         assertThat(chatReceiptService.markReceived(chatRoomId, GUEST_ID, 1, 3))
@@ -88,7 +88,7 @@ class ChatReceiptFailureTest {
         // 재시도는 조건부 갱신에서 바뀐 행이 없다
         verify(chatRoomMemberRepository).advanceLastReceivedSequence(chatRoomId, GUEST_ID, 1, 2L);
         assertThat(member(GUEST_ID).getLastReceivedSequence()).isEqualTo(2L);
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).hasSize(3);
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).hasSize(3);
     }
 
     /** 처음 호출된 수신 확인 갱신을 실제로 실행한 뒤 DB 실패를 던진다. 그 뒤의 호출은 그대로 실행한다 */

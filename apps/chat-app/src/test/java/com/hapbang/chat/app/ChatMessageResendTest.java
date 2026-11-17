@@ -45,7 +45,7 @@ class ChatMessageResendTest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     private Long chatRoomId;
 
@@ -66,7 +66,7 @@ class ChatMessageResendTest {
         // 재전송은 전달 작업을 만들지 않고, 호출한 쪽이 보낸 사람에게만 다시 보낸다
         assertThat(resent.resent()).isTrue();
         assertThat(first.resent()).isFalse();
-        assertThat(chatMessageRepository.count()).isEqualTo(1);
+        assertThat(chatMessageTestRepository.count()).isEqualTo(1);
         assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
 
@@ -78,7 +78,7 @@ class ChatMessageResendTest {
 
         assertThat(resent.message().messageId()).isEqualTo(first.message().messageId());
         assertThat(resent.message().content()).isEqualTo("안녕하세요");
-        assertThat(chatMessageRepository.count()).isEqualTo(1);
+        assertThat(chatMessageTestRepository.count()).isEqualTo(1);
     }
 
     // 재전송 방지는 같은 참여 안에서만 적용한다
@@ -98,7 +98,7 @@ class ChatMessageResendTest {
                 .extracting(ChatMessageResponse::content, ChatMessageResponse::clientMessageId)
                 .containsExactly(tuple("다시 왔어요", "client-1"));
         // 재입장 이전 메시지의 전송 ID는 비워져 유일 인덱스와 겹치지 않는다
-        assertThat(chatMessageRepository.findById(beforeLeave.message().messageId()))
+        assertThat(chatMessageTestRepository.findById(beforeLeave.message().messageId()))
                 .hasValueSatisfying(message -> assertThat(message.getClientMessageId()).isNull());
     }
 
@@ -120,7 +120,7 @@ class ChatMessageResendTest {
         chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
         chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
 
-        assertThat(chatMessageRepository.findById(guestMessage.message().messageId()))
+        assertThat(chatMessageTestRepository.findById(guestMessage.message().messageId()))
                 .hasValueSatisfying(message -> assertThat(message.getClientMessageId()).isEqualTo("guest-1"));
     }
 
@@ -131,7 +131,7 @@ class ChatMessageResendTest {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);
         chatMessageUseCase.send(chatRoomId, HOST_ID, "네 번째", null);
 
-        assertThat(chatMessageRepository.count()).isEqualTo(4);
+        assertThat(chatMessageTestRepository.count()).isEqualTo(4);
     }
 
     @Test
@@ -139,7 +139,7 @@ class ChatMessageResendTest {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "호스트", "client-1");
         chatMessageUseCase.send(chatRoomId, GUEST_ID, "게스트", "client-1");
 
-        assertThat(chatMessageRepository.count()).isEqualTo(2);
+        assertThat(chatMessageTestRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -168,8 +168,8 @@ class ChatMessageResendTest {
                 result.get();
             }
 
-            assertThat(chatMessageRepository.count()).isEqualTo(1);
-            Long messageId = chatMessageRepository.findAll().getFirst().getId();
+            assertThat(chatMessageTestRepository.count()).isEqualTo(1);
+            Long messageId = chatMessageTestRepository.findAll().getFirst().getId();
             for (Future<SentChatMessage> result : results) {
                 assertThat(result.get().message().messageId()).isEqualTo(messageId);
             }

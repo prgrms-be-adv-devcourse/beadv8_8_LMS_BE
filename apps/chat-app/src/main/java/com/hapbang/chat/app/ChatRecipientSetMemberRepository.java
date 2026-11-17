@@ -1,7 +1,5 @@
 package com.hapbang.chat.app;
 
-import java.util.List;
-
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
@@ -29,7 +27,4 @@ public interface ChatRecipientSetMemberRepository
             where m.chat_room_id = :chatRoomId and m.left_at is null and m.deleted_at is null
             """)
     int copyActiveMembers(@Param("recipientSetId") Long recipientSetId, @Param("chatRoomId") Long chatRoomId);
-
-    /** 집합의 항목 전체(회원 ID 순). 테스트 검증에서만 쓴다 */
-    List<ChatRecipientSetMember> findByRecipientSetIdOrderByUserIdAsc(Long recipientSetId);
 }

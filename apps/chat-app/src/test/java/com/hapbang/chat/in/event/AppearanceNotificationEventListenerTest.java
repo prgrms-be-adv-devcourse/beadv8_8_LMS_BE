@@ -47,7 +47,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatGroupRoomService;
-import com.hapbang.chat.app.ChatMessageRepository;
+import com.hapbang.chat.app.ChatMessageTestRepository;
 import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
@@ -116,7 +116,7 @@ class AppearanceNotificationEventListenerTest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
     private ChatGroupRoomService chatGroupRoomService;
@@ -191,7 +191,7 @@ class AppearanceNotificationEventListenerTest {
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(notification(NotificationKind.APPEARANCE_REQUEST_SENT,
                 next)).isPresent());
-        assertThat(chatMessageRepository.findAll()).filteredOn(message -> Long.valueOf(requestId)
+        assertThat(chatMessageTestRepository.findAll()).filteredOn(message -> Long.valueOf(requestId)
                 .equals(message.getReferenceId())).hasSize(1);
         assertThat(deadLetterKeys()).doesNotContain("appearance-request:" + requestId);
     }
@@ -378,7 +378,7 @@ class AppearanceNotificationEventListenerTest {
     }
 
     private java.util.Optional<ChatMessage> notification(NotificationKind kind, long referenceId) {
-        return chatMessageRepository.findAll().stream()
+        return chatMessageTestRepository.findAll().stream()
                 .filter(message -> message.getNotificationKind() == kind
                         && Long.valueOf(referenceId).equals(message.getReferenceId()))
                 .findFirst();
