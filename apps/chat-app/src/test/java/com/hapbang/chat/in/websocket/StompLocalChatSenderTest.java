@@ -34,11 +34,11 @@ import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.ChatSyncSignal;
 
-class ChatMessageSenderTest {
+class StompLocalChatSenderTest {
 
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final MessageChannel clientOutboundChannel = mock(MessageChannel.class);
-    private final ChatMessageSender chatMessageSender = new ChatMessageSender(messagingTemplate, clientOutboundChannel);
+    private final StompLocalChatSender stompLocalChatSender = new StompLocalChatSender(messagingTemplate, clientOutboundChannel);
 
     private final ChatMessageResponse message = new ChatMessageResponse(10L, 1L, 1L, HOST_ID, ChatMessageType.TEXT,
             "안녕하세요", NOW, null, null, null, null, null, null, null, null, null, null, null, null,
@@ -52,14 +52,14 @@ class ChatMessageSenderTest {
 
     @Test
     void 방_topic_프레임은_구독마다_세션_ID와_구독_ID로_쓰고_구독의_세대_헤더를_싣는다() {
-        chatMessageSender.sendRoomMessage(12L, message,
+        stompLocalChatSender.sendRoomMessage(12L, message,
                 List.of(new RoomTarget("s-1", "sub-a", 1), new RoomTarget("s-2", "sub-b", 3)));
 
         List<Message<?>> sent = captureOutbound(2);
         assertFrame(sent.get(0), "s-1", "sub-a");
-        assertThat(nativeHeader(sent.get(0), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("1");
-        assertThat(nativeHeader(sent.get(1), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("3");
-        assertThat(nativeHeader(sent.get(0), ChatMessageSender.FRAME_TYPE_HEADER)).isNull();
+        assertThat(nativeHeader(sent.get(0), StompLocalChatSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("1");
+        assertThat(nativeHeader(sent.get(1), StompLocalChatSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("3");
+        assertThat(nativeHeader(sent.get(0), StompLocalChatSender.FRAME_TYPE_HEADER)).isNull();
         // payload는 한 번 직렬화한 같은 바이트다
         assertThat(sent.get(0).getPayload()).isSameAs(sent.get(1).getPayload());
         assertThat(new String((byte[]) sent.get(0).getPayload(), StandardCharsets.UTF_8))
@@ -68,13 +68,13 @@ class ChatMessageSenderTest {
 
     @Test
     void 거절_회수_프레임은_그_구독에만_종류_헤더와_함께_쓴다() {
-        chatMessageSender.sendSubscriptionSignal(12L, new RoomTarget("s-1", "sub-a", 1),
+        stompLocalChatSender.sendSubscriptionSignal(12L, new RoomTarget("s-1", "sub-a", 1),
                 SubscriptionSignal.SUBSCRIPTION_REJECTED, ChatSubscriptionReason.STALE_PARTICIPATION, 2);
 
         Message<?> sent = captureOutbound(1).getFirst();
         assertFrame(sent, "s-1", "sub-a");
-        assertThat(nativeHeader(sent, ChatMessageSender.FRAME_TYPE_HEADER)).isEqualTo("SUBSCRIPTION_REJECTED");
-        assertThat(nativeHeader(sent, ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isNull();
+        assertThat(nativeHeader(sent, StompLocalChatSender.FRAME_TYPE_HEADER)).isEqualTo("SUBSCRIPTION_REJECTED");
+        assertThat(nativeHeader(sent, StompLocalChatSender.PARTICIPATION_VERSION_HEADER)).isNull();
         assertThat(new String((byte[]) sent.getPayload(), StandardCharsets.UTF_8))
                 .isEqualTo("{\"type\":\"SUBSCRIPTION_REJECTED\",\"roomId\":12,\"reason\":\"STALE_PARTICIPATION\","
                         + "\"currentParticipationVersion\":2}");
@@ -85,14 +85,14 @@ class ChatMessageSenderTest {
         ChatReadCounts readCounts = new ChatReadCounts(12L, 1_700_000_000_000_000L, 3L, 9L,
                 List.of(new ChatReadCounts.Count(5L, 2)));
 
-        chatMessageSender.sendReadCounts(12L, readCounts,
+        stompLocalChatSender.sendReadCounts(12L, readCounts,
                 List.of(new RoomTarget("s-1", "sub-a", 1), new RoomTarget("s-2", "sub-b", 2)));
 
         List<Message<?>> sent = captureOutbound(2);
         assertFrame(sent.get(0), "s-1", "sub-a");
-        assertThat(nativeHeader(sent.get(0), ChatMessageSender.FRAME_TYPE_HEADER)).isEqualTo("READ_COUNTS");
-        assertThat(nativeHeader(sent.get(0), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("1");
-        assertThat(nativeHeader(sent.get(1), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("2");
+        assertThat(nativeHeader(sent.get(0), StompLocalChatSender.FRAME_TYPE_HEADER)).isEqualTo("READ_COUNTS");
+        assertThat(nativeHeader(sent.get(0), StompLocalChatSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("1");
+        assertThat(nativeHeader(sent.get(1), StompLocalChatSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("2");
         assertThat(sent.get(0).getPayload()).isSameAs(sent.get(1).getPayload());
         assertThat(new String((byte[]) sent.get(0).getPayload(), StandardCharsets.UTF_8))
                 .isEqualTo("{\"type\":\"READ_COUNTS\",\"roomId\":12,\"readCountVersion\":1700000000000000,"
@@ -104,7 +104,7 @@ class ChatMessageSenderTest {
     void 새_메시지_알림은_세션_ID_헤더로_그_연결에만_보낸다() {
         ChatRoomActivity activity = new ChatRoomActivity(12L, 2, 5L, 3, message);
 
-        chatMessageSender.sendRoomActivity(GUEST_ID, "s-9", activity);
+        stompLocalChatSender.sendRoomActivity(GUEST_ID, "s-9", activity);
 
         ArgumentCaptor<MessageHeaders> headers = ArgumentCaptor.forClass(MessageHeaders.class);
         verify(messagingTemplate).convertAndSendToUser(eq(String.valueOf(GUEST_ID)),
@@ -115,18 +115,18 @@ class ChatMessageSenderTest {
 
     @Test
     void 전송_결과_확인에는_보낸_사람의_세대_헤더를_싣고_payload는_그대로_보낸다() {
-        chatMessageSender.sendMessage(GUEST_ID, message, 3);
+        stompLocalChatSender.sendMessage(GUEST_ID, message, 3);
 
         verify(messagingTemplate).convertAndSendToUser(String.valueOf(GUEST_ID), ChatWebSocketConfig.MESSAGE_QUEUE,
-                message, Map.of(ChatMessageSender.PARTICIPATION_VERSION_HEADER, "3"));
-        assertThat(ChatMessageSender.PARTICIPATION_VERSION_HEADER).isEqualTo("participation-version");
+                message, Map.of(StompLocalChatSender.PARTICIPATION_VERSION_HEADER, "3"));
+        assertThat(StompLocalChatSender.PARTICIPATION_VERSION_HEADER).isEqualTo("participation-version");
     }
 
     @Test
     void 재동기화_신호는_회원별_sync_큐로_보낸다() {
         LocalDateTime occurredAt = LocalDateTime.of(2026, 10, 29, 10, 0);
 
-        chatMessageSender.sendResync(GUEST_ID, ChatResyncReason.REALTIME_RESUBSCRIBED, occurredAt);
+        stompLocalChatSender.sendResync(GUEST_ID, ChatResyncReason.REALTIME_RESUBSCRIBED, occurredAt);
 
         assertThat(ChatWebSocketConfig.SYNC_QUEUE).isEqualTo("/queue/chats/sync");
         verify(messagingTemplate).convertAndSendToUser(String.valueOf(GUEST_ID), ChatWebSocketConfig.SYNC_QUEUE,
@@ -145,10 +145,10 @@ class ChatMessageSenderTest {
         doThrow(new MessageDeliveryException("전달 실패")).when(clientOutboundChannel).send(any());
 
         assertThatCode(() -> {
-            chatMessageSender.sendMessage(GUEST_ID, message, 1);
-            chatMessageSender.sendRoomMessage(12L, message, List.of(new RoomTarget("s-1", "sub-a", 1)));
-            chatMessageSender.sendRoomActivity(GUEST_ID, "s-1", new ChatRoomActivity(12L, 1, 1L, 1, message));
-            chatMessageSender.sendResync(GUEST_ID, ChatResyncReason.REALTIME_RESUBSCRIBED, NOW);
+            stompLocalChatSender.sendMessage(GUEST_ID, message, 1);
+            stompLocalChatSender.sendRoomMessage(12L, message, List.of(new RoomTarget("s-1", "sub-a", 1)));
+            stompLocalChatSender.sendRoomActivity(GUEST_ID, "s-1", new ChatRoomActivity(12L, 1, 1L, 1, message));
+            stompLocalChatSender.sendResync(GUEST_ID, ChatResyncReason.REALTIME_RESUBSCRIBED, NOW);
         }).doesNotThrowAnyException();
     }
 

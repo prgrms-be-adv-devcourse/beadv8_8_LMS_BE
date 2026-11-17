@@ -1,6 +1,6 @@
 package com.hapbang.chat.app;
 
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 /**
  * 전달 작업 큐의 종류. 메시지 전달과 연결 제어는 Stream·필수 consumer group·worker 예산을 따로 쓴다.

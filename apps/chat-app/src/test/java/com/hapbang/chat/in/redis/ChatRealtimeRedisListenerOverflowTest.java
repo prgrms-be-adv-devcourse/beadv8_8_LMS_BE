@@ -19,7 +19,7 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import tools.jackson.databind.json.JsonMapper;

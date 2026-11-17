@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.chat.global.auth.GatewayLogin;
-import com.hapbang.chat.in.websocket.ChatWebSocketConfig;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.testsupport.TestLogin;
@@ -113,11 +112,11 @@ class SecurityConfigTest {
     // 핸드셰이크 인터셉터가 연결 티켓으로 정한다
     @Test
     void 웹소켓_핸드셰이크_경로는_비회원도_GET으로_열린다() throws Exception {
-        mockMvc.perform(get(ChatWebSocketConfig.ENDPOINT))
+        mockMvc.perform(get(ChatWebSocketPaths.ENDPOINT))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(ChatWebSocketConfig.ENDPOINT))
+        mockMvc.perform(post(ChatWebSocketPaths.ENDPOINT))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(get(ChatWebSocketConfig.ENDPOINT + "/other"))
+        mockMvc.perform(get(ChatWebSocketPaths.ENDPOINT + "/other"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -176,7 +175,7 @@ class SecurityConfigTest {
         }
 
         // 실제 웹소켓 엔드포인트 대신 같은 경로를 두고 보안 규칙만 확인한다
-        @GetMapping(ChatWebSocketConfig.ENDPOINT)
+        @GetMapping(ChatWebSocketPaths.ENDPOINT)
         String handshake() {
             return "ok";
         }

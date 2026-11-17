@@ -44,7 +44,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-public class ChatMessageSender implements LocalChatSender {
+public class StompLocalChatSender implements LocalChatSender {
 
     /** 메시지 프레임의 받는 구독(또는 회원)의 참여 세대 헤더 */
     public static final String PARTICIPATION_VERSION_HEADER = "participation-version";
@@ -54,7 +54,7 @@ public class ChatMessageSender implements LocalChatSender {
     private final SimpMessagingTemplate messagingTemplate;
     private final MessageChannel clientOutboundChannel;
 
-    public ChatMessageSender(SimpMessagingTemplate messagingTemplate,
+    public StompLocalChatSender(SimpMessagingTemplate messagingTemplate,
             @Lazy @Qualifier("clientOutboundChannel") MessageChannel clientOutboundChannel) {
         this.messagingTemplate = messagingTemplate;
         this.clientOutboundChannel = clientOutboundChannel;

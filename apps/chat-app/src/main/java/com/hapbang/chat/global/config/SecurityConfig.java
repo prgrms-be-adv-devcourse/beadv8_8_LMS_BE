@@ -13,7 +13,6 @@ import org.springframework.security.web.authentication.preauth.AbstractPreAuthen
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 
 import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
-import com.hapbang.chat.in.websocket.ChatWebSocketConfig;
 
 
 @Configuration
@@ -45,7 +44,7 @@ public class SecurityConfig {
                         // 웹소켓 핸드셰이크. 브라우저는 업그레이드 요청에 Authorization 헤더를 싣지 못하므로 익명으로 열고,
                         // REST로 받은 일회용 연결 티켓(ticket 쿼리)으로 인증한다(설계 문서 6장, ChatConnectionTicketHandshakeInterceptor).
                         // 허용 출처 검사는 핸드셰이크에서 그대로 한다(ChatWebSocketConfig)
-                        .requestMatchers(HttpMethod.GET, ChatWebSocketConfig.ENDPOINT).permitAll()
+                        .requestMatchers(HttpMethod.GET, ChatWebSocketPaths.ENDPOINT).permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()

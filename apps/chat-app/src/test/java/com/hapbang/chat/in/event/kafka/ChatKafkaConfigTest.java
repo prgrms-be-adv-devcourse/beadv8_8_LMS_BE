@@ -36,7 +36,7 @@ import com.hapbang.chat.app.ChatUserFacade;
 import com.hapbang.chat.in.event.AppearanceNotificationEventListener;
 import com.hapbang.chat.in.event.ChatMemberEventTopicVerifier;
 import com.hapbang.chat.in.event.ChatUserEventListener;
-import com.hapbang.chat.in.websocket.ChatMessageSender;
+import com.hapbang.chat.in.websocket.StompLocalChatSender;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -174,7 +174,7 @@ class ChatKafkaConfigTest {
                 .withBean("noListenerAutoStartup", BeanPostProcessor.class, ChatKafkaConfigTest::noListenerAutoStartup)
                 .withBean(ChatUserFacade.class, () -> mock(ChatUserFacade.class))
                 .withBean(ChatNotificationFacade.class, () -> mock(ChatNotificationFacade.class))
-                .withBean(ChatMessageSender.class, () -> mock(ChatMessageSender.class))
+                .withBean(StompLocalChatSender.class, () -> mock(StompLocalChatSender.class))
                 .withUserConfiguration(ChatUserEventListener.class, AppearanceNotificationEventListener.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();

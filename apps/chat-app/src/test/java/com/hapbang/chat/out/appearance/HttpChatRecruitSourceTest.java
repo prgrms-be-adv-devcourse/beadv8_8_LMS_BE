@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.out.appearance;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -22,9 +22,6 @@ import com.hapbang.chat.app.ChatRecruitSource.ChatApplicantPage;
 import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.ChatRecruitSourceException;
 import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
-import com.hapbang.chat.out.appearance.ChatAppearanceApiConfig;
-import com.hapbang.chat.out.appearance.ChatAppearanceApiProperties;
-import com.hapbang.chat.out.appearance.ChatAppearanceInternalApi;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 

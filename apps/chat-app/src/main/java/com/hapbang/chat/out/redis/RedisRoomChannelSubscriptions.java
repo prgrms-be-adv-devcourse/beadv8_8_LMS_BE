@@ -28,6 +28,8 @@ import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.RoomChannelSubscriptions;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;

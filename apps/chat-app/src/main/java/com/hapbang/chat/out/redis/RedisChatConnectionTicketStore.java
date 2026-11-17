@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.ChatConnectionTicketStore;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;

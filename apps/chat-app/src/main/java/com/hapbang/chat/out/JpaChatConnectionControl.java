@@ -6,7 +6,7 @@ import com.hapbang.chat.app.ChatPublishCheckpointRepository;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;

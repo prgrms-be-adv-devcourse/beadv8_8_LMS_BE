@@ -22,8 +22,8 @@ import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
-import com.hapbang.chat.out.redis.ChatRealtimeRedisConfig;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;

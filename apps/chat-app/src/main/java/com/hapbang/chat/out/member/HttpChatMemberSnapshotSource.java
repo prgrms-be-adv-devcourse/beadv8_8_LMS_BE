@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.out.member;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
@@ -9,7 +9,6 @@ import org.springframework.web.client.RestClientException;
 import com.hapbang.chat.app.ChatMemberSnapshotSource;
 import com.hapbang.chat.app.ChatMemberSourceException;
 import com.hapbang.chat.app.ChatMemberSourceException.Reason;
-import com.hapbang.chat.out.member.ChatMemberInternalApi;
 import com.hapbang.shared.member.dto.MemberPageDto;
 
 import lombok.RequiredArgsConstructor;

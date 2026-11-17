@@ -31,6 +31,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.shared.member.domain.Role;
 
 import tools.jackson.databind.json.JsonMapper;

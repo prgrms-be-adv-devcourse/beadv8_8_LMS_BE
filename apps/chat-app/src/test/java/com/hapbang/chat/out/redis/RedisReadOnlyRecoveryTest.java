@@ -29,6 +29,7 @@ import com.hapbang.chat.app.ChatDeliveryAvailability;
 import com.hapbang.chat.app.ChatDeliveryProperties;
 import com.hapbang.chat.app.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.MeterRegistry;
 

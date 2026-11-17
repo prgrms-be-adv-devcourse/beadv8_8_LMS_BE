@@ -30,7 +30,7 @@ import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;

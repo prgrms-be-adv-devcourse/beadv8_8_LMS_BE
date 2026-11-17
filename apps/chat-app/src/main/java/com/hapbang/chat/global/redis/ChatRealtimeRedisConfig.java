@@ -1,4 +1,4 @@
-package com.hapbang.chat.out.redis;
+package com.hapbang.chat.global.redis;
 
 import java.time.Duration;
 import java.util.List;
@@ -53,7 +53,7 @@ public class ChatRealtimeRedisConfig {
     }
 
     /** 늘 구독하는 서버 채널(알림 재료·제어·안 읽은 사람 수 변경). 방 채널 구독을 재설정할 때도 이 목록으로 다시 등록한다 */
-    static List<ChannelTopic> serverTopics(ChatRedisKeys chatRedisKeys) {
+    public static List<ChannelTopic> serverTopics(ChatRedisKeys chatRedisKeys) {
         return List.of(new ChannelTopic(chatRedisKeys.activityChannel()),
                 new ChannelTopic(chatRedisKeys.controlChannel()),
                 new ChannelTopic(chatRedisKeys.readChannel()));

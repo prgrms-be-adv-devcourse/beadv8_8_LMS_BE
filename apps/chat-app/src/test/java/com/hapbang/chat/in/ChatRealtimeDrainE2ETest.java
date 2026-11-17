@@ -37,7 +37,7 @@ import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
-import com.hapbang.chat.in.websocket.ChatMessageSender;
+import com.hapbang.chat.in.websocket.StompLocalChatSender;
 
 /**
  * 이미 발행돼 구독자 처리 실행기에 남은 전달이 메서드가 끝난 뒤 늦게 처리돼도, 다음 메서드가 같은 회원으로 연 연결에 들어가지 않는지
@@ -70,7 +70,7 @@ class ChatRealtimeDrainE2ETest {
     private LocalChatConnections localChatConnections;
 
     @MockitoSpyBean
-    private ChatMessageSender chatMessageSender;
+    private StompLocalChatSender stompLocalChatSender;
 
     private RealtimeStompClient stomp;
 
@@ -101,7 +101,7 @@ class ChatRealtimeDrainE2ETest {
                 Thread.sleep(HELD.toMillis());
             }
             return invocation.callRealMethod();
-        }).when(chatMessageSender).sendMessage(anyLong(), any(), anyInt());
+        }).when(stompLocalChatSender).sendMessage(anyLong(), any(), anyInt());
 
         realtimeChatFanout.publishMessage(fanout(chatRoomId));
 

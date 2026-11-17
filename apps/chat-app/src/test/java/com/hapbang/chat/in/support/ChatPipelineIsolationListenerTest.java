@@ -14,9 +14,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestContext;
 
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.in.redis.ChatRealtimeRedisListener;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
 
 /**
  * 메서드 사이 격리: 파이프라인을 멈춘 뒤 worker·주기 작업이 모두 끝났음을 확인한 다음에만 Stream·DB를 정리한다. 끝나지 않으면

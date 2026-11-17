@@ -23,10 +23,10 @@ import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
 
 import jakarta.persistence.EntityManager;
 

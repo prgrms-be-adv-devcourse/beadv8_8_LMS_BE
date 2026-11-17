@@ -26,6 +26,7 @@ import com.hapbang.chat.app.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatQueueGroupMissingException;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 /**
  * 실제 Redis·Lettuce·Spring Data Redis가 만든 예외 사슬로 연결 불가와 명령 오류의 분류를 확인한다 (재검증).

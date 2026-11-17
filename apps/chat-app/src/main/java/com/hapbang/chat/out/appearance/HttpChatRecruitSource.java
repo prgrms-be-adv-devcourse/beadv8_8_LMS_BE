@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.out.appearance;
 
 import java.util.Collection;
 import java.util.List;
@@ -16,7 +16,6 @@ import org.springframework.web.client.RestClientException;
 import com.hapbang.chat.app.ChatRecruitSource;
 import com.hapbang.chat.app.ChatRecruitSourceException;
 import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
-import com.hapbang.chat.out.appearance.ChatAppearanceInternalApi;
 
 import lombok.RequiredArgsConstructor;
 

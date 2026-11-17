@@ -1,4 +1,4 @@
-package com.hapbang.chat.out.redis;
+package com.hapbang.chat.global.redis;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.ChatReadCountPublisher;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.json.JsonMapper;

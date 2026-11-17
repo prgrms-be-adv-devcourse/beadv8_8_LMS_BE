@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.out.member;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -28,9 +28,6 @@ import com.hapbang.chat.app.ChatUserSyncService;
 import com.hapbang.chat.app.DefaultChatUserBackfillService;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
-import com.hapbang.chat.out.member.ChatMemberApiConfig;
-import com.hapbang.chat.out.member.ChatMemberApiProperties;
-import com.hapbang.chat.out.member.ChatMemberInternalApi;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

@@ -43,6 +43,7 @@ import com.hapbang.chat.app.dto.QueueGroupState;
 import com.hapbang.chat.app.dto.QueuedJob;
 import com.hapbang.chat.app.dto.ReclaimedJobs;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.output.NestedMultiOutput;
