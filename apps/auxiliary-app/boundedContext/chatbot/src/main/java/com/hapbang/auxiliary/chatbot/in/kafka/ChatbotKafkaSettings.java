@@ -1,12 +1,13 @@
 package com.hapbang.auxiliary.chatbot.in.kafka;
 
 import java.time.Duration;
+import java.util.List;
 
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 
 /**
- * 챗봇 Kafka 소비 설정 한 토픽 (#716, #717). 테스트가 토픽·그룹·재시도를 바꿔 끼운다.
+ * 챗봇 Kafka 소비 설정 한 토픽 (#716, #717, #976). 테스트가 토픽·그룹·재시도를 바꿔 끼운다.
  * 이름 규칙은 docs/architecture/infrastructure/kafka.md: 그룹 {@code <앱>.<목적>}, DLT {@code <topic>.<group>.DLT}.
  *
  * @param topic                받는 토픽
@@ -25,28 +26,25 @@ public record ChatbotKafkaSettings(
         int deadLetterPartitions
 ) {
 
-    /** 처리에 실패했을 때 다시 시도하는 방법. 다시 해도 같은 메시지(읽을 수 없음, 필수 값 없음)는 어느 쪽이든 바로 DLT로 보낸다 */
-    public sealed interface Retry {
-
-        /**
-         * 정해진 횟수만 다시 시도한 뒤 DLT로 보낸다. 출연·강의 토픽: 놓친 이벤트는 매시 싱크가 바로잡는다.
-         *
-         * @param maxRetries      DLT로 보내기 전 다시 시도하는 횟수
-         * @param initialInterval 첫 재시도 간격(두 배씩 늘린다)
-         * @param maxInterval     재시도 간격 상한
-         */
-        record ThenDeadLetter(int maxRetries, Duration initialInterval, Duration maxInterval) implements Retry {
-        }
-
-        /**
-         * 성공할 때까지 같은 간격으로 다시 시도하고 DLT로 보내지 않는다(#835). 회원 토픽: 마스킹은 이벤트로만 알 수 있어
-         * DLT로 보내면 지워야 할 개인 활동 데이터가 사본에 영구히 남는다. 그동안 이 그룹의 뒤 메시지는 기다린다(순서 유지).
-         *
-         * @param interval 재시도 간격
-         */
-        record UntilSuccess(Duration interval) implements Retry {
-        }
+    /**
+     * 처리에 실패했을 때 정해진 횟수만 다시 시도한 뒤 DLT로 보낸다. 다시 해도 같은 메시지(읽을 수 없음, 필수 값 없음)는 바로 DLT로 보낸다.
+     * <ul>
+     *     <li>출연·강의: 1초부터 두 배씩(최대 10초) 3번. 놓친 이벤트는 매시 싱크가 바로잡는다.</li>
+     *     <li>회원: 1분 간격 3번(#976). 마스킹은 이벤트로만 알 수 있어 DLT로 보내기 전에 실패 기록을 남기고, 관리자가 다시 처리한다.
+     *     기다리는 동안 이 그룹의 뒤 메시지도 기다리므로(순서 유지) 무한히 시도하지 않는다. 한 번 기다리는 1분은 소비자의
+     *     {@code max.poll.interval.ms}(기본 5분)보다 짧다.</li>
+     * </ul>
+     *
+     * @param maxRetries      DLT로 보내기 전 다시 시도하는 횟수
+     * @param initialInterval 첫 재시도 간격(두 배씩 늘린다)
+     * @param maxInterval     재시도 간격 상한
+     */
+    public record Retry(int maxRetries, Duration initialInterval, Duration maxInterval) {
     }
+
+    /** 다시 읽어도 같은 실패(필수 필드가 빈 이벤트). 어느 토픽이든 다시 시도하지 않고, 회원 실패 기록에서는 다시 처리할 수 없는 것으로 본다 */
+    public static final List<Class<? extends Exception>> NOT_RETRYABLE =
+            List.of(NullPointerException.class, IllegalArgumentException.class);
 
     /** 출연 이벤트를 받아 출연·리뷰 사본에 반영하는 그룹 */
     public static final String APPEARANCE_COPY_GROUP = "auxiliary-app.chatbot-appearance-copy";
@@ -62,19 +60,19 @@ public record ChatbotKafkaSettings(
     /** 회원 이벤트 토픽. shared에 토픽 상수가 없어 회원 이벤트의 {@code @Externalized} 값과 같게 둔다 */
     public static final String MEMBER_TOPIC = "member.events.v1";
 
-    private static final Retry THEN_DEAD_LETTER = new Retry.ThenDeadLetter(3, Duration.ofSeconds(1), Duration.ofSeconds(10));
-    private static final Retry UNTIL_SUCCESS = new Retry.UntilSuccess(Duration.ofSeconds(10));
+    private static final Retry COPY_RETRY = new Retry(3, Duration.ofSeconds(1), Duration.ofSeconds(10));
+    private static final Retry MEMBER_RETRY = new Retry(3, Duration.ofMinutes(1), Duration.ofMinutes(1));
 
     public static ChatbotKafkaSettings appearanceDefaults() {
-        return of(AppearanceEventTopic.NAME, APPEARANCE_COPY_GROUP, APPEARANCE_TRUSTED_PACKAGE, THEN_DEAD_LETTER);
+        return of(AppearanceEventTopic.NAME, APPEARANCE_COPY_GROUP, APPEARANCE_TRUSTED_PACKAGE, COPY_RETRY);
     }
 
     public static ChatbotKafkaSettings memberDefaults() {
-        return of(MEMBER_TOPIC, MEMBER_COPY_GROUP, MEMBER_TRUSTED_PACKAGE, UNTIL_SUCCESS);
+        return of(MEMBER_TOPIC, MEMBER_COPY_GROUP, MEMBER_TRUSTED_PACKAGE, MEMBER_RETRY);
     }
 
     public static ChatbotKafkaSettings lectureDefaults() {
-        return of(LectureEventTopic.NAME, LECTURE_COPY_GROUP, LECTURE_TRUSTED_PACKAGE, THEN_DEAD_LETTER);
+        return of(LectureEventTopic.NAME, LECTURE_COPY_GROUP, LECTURE_TRUSTED_PACKAGE, COPY_RETRY);
     }
 
     public static ChatbotKafkaSettings of(String topic, String groupId, String trustedPackage, Retry retry) {

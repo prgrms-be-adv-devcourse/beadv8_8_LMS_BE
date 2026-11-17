@@ -22,7 +22,7 @@ public record CopyRows(JdbcTemplate jdbc) {
     public void clear() {
         jdbc.execute("TRUNCATE chatbot.appearance_copy, chatbot.appearance_review_copy, chatbot.member_copy, "
                 + "chatbot.lecture_copy, chatbot.lecture_purchase_copy, chatbot.cart_item_copy, chatbot.lecture_review_copy, "
-                + "chatbot.masked_member, chatbot.index_task");
+                + "chatbot.masked_member, chatbot.index_task, chatbot.member_event_failure");
     }
 
     public Map<String, Object> appearance(long id) {

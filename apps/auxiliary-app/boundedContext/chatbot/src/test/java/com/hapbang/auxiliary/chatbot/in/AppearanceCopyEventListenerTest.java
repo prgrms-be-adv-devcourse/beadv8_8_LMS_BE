@@ -63,7 +63,7 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
 
     static ChatbotKafkaSettings settings() {
         return ChatbotKafkaSettings.of(TOPIC, GROUP, ChatbotKafkaSettings.APPEARANCE_TRUSTED_PACKAGE,
-                new ChatbotKafkaSettings.Retry.ThenDeadLetter(1, Duration.ofMillis(100), Duration.ofMillis(100)));
+                new ChatbotKafkaSettings.Retry(1, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     @DynamicPropertySource

@@ -12,12 +12,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -29,8 +27,11 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -41,6 +42,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.auxiliary.chatbot.app.MemberEventFailureRecordUseCase;
 import com.hapbang.auxiliary.chatbot.app.MemberMasking;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaConfig;
 import com.hapbang.auxiliary.chatbot.in.kafka.ChatbotKafkaSettings;
@@ -52,6 +54,7 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
  * 토픽·그룹은 이 클래스 전용이다.
  */
 @DirtiesContext
+@ExtendWith(OutputCaptureExtension.class)
 @Import({KafkaTestcontainersConfig.class, MemberLectureCopyEventListenerTest.Topics.class})
 class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
 
@@ -77,15 +80,18 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
     @MockitoSpyBean
     private MemberMasking memberMasking;
 
-    // 운영과 같은 방식(회원은 성공할 때까지, 강의는 정해진 횟수 뒤 DLT)에 간격만 줄인다
+    @MockitoSpyBean
+    private MemberEventFailureRecordUseCase memberEventFailureRecordUseCase;
+
+    // 운영과 같은 횟수(회원 3번, 강의는 줄여 1번)에 간격만 줄인다
     static ChatbotKafkaSettings memberSettings() {
         return ChatbotKafkaSettings.of(MEMBER_TOPIC, MEMBER_GROUP, ChatbotKafkaSettings.MEMBER_TRUSTED_PACKAGE,
-                new ChatbotKafkaSettings.Retry.UntilSuccess(Duration.ofMillis(100)));
+                new ChatbotKafkaSettings.Retry(3, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     static ChatbotKafkaSettings lectureSettings() {
         return ChatbotKafkaSettings.of(LECTURE_TOPIC, LECTURE_GROUP, ChatbotKafkaSettings.LECTURE_TRUSTED_PACKAGE,
-                new ChatbotKafkaSettings.Retry.ThenDeadLetter(1, Duration.ofMillis(100), Duration.ofMillis(100)));
+                new ChatbotKafkaSettings.Retry(1, Duration.ofMillis(100), Duration.ofMillis(100)));
     }
 
     @DynamicPropertySource
@@ -161,39 +167,79 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("마스킹 반영이 여러 번 실패해도 DLT로 보내지 않고 성공할 때까지 다시 시도한다. 그동안 뒤 회원 이벤트는 앞지르지 않는다")
-    void maskingRetriesUntilSuccess() {
+    @DisplayName("마스킹 반영이 3번 재시도까지 실패하면 실패 기록을 남기고 DLT로 보낸다. 뒤 회원 이벤트는 기다리지 않고 반영된다. "
+            + "ERROR 표식에는 회원 ID·종류·예외 클래스만 남고 예외 메시지는 남지 않는다 (#976)")
+    void maskingGoesToDeadLetterAfterRetries(CapturedOutput output) {
         AtomicInteger calls = new AtomicInteger();
-        AtomicBoolean laterEventAppliedFirst = new AtomicBoolean();
         doAnswer(invocation -> {
-            // 운영 기본값(3번 재시도 뒤 DLT)이면 4번째 실패에서 DLT로 간다. 그보다 많이 실패시킨다
-            if (calls.incrementAndGet() <= 5) {
-                throw new DataAccessResourceFailureException("DB가 잠시 응답하지 않음");
-            }
-            laterEventAppliedFirst.set(jdbcTemplate.queryForObject(
-                    "SELECT count(*) FROM chatbot.member_copy WHERE id = 8", Integer.class) > 0);
-            return invocation.callRealMethod();
+            calls.incrementAndGet();
+            throw new DataAccessResourceFailureException("연결 실패 leak@example.com");
         }).when(memberMasking).mask(argThat(event -> event.userId() == 6L));
 
         send(MEMBER_TOPIC, "6", MEMBER_EVENT + "UserMaskedEvent", """
                 {"userId":6,"maskedAt":"2026-11-09T01:00:00Z"}""");
-        // 같은 파티션의 다른 회원 이벤트. 앞 마스킹이 끝나기 전에 반영되면 순서가 깨진 것이다
+        // 같은 파티션의 다른 회원 이벤트. 앞 이벤트가 DLT로 빠지면 반영된다
         send(MEMBER_TOPIC, "8", MEMBER_EVENT + "UserModifiedEvent", """
                 {"user":{"id":8,"nickname":"회원","role":"USER","status":"ACTIVE","version":1,
                 "contentCategories":[],"bio":null}}""");
 
-        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
-            assertThat(rows.maskedMembers()).contains(6L);
-            assertThat(rows.row("member_copy", "id", 8)).isNotEmpty();
-        });
-        assertThat(calls).hasValue(6);
-        assertThat(laterEventAppliedFirst).isFalse();
-        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
-            consumer.subscribe(List.of(memberSettings().deadLetterTopic()));
-            List<String> keys = new ArrayList<>();
-            consumer.poll(Duration.ofSeconds(2)).forEach(record -> keys.add(record.key()));
-            assertThat(keys).doesNotContain("6");
-        }
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.row("member_copy", "id", 8)).isNotEmpty());
+        assertThat(calls).hasValue(4);
+        assertThat(rows.maskedMembers()).doesNotContain(6L);
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(deadLetterKeys()).contains("6"));
+        Map<String, Object> failure = failureOf(6);
+        assertThat(failure)
+                .containsEntry("event_type", "MASKED")
+                .containsEntry("status", "PENDING")
+                .containsEntry("replayable", true)
+                .containsEntry("exception_class", DataAccessResourceFailureException.class.getName())
+                .containsEntry("source_topic", MEMBER_TOPIC);
+        // DB 예외는 메시지를 남기지 않는다(SQLState만, 여기서는 SQLException이 없어 비어 있다)
+        assertThat(failure.get("message")).isNull();
+        assertThat(output).contains("[CHATBOT_MEMBER_EVENT_DEAD_LETTER]").contains("userId=6").contains("eventType=MASKED")
+                .contains(DataAccessResourceFailureException.class.getName());
+        String alertLine = output.getAll().lines()
+                .filter(line -> line.contains("[CHATBOT_MEMBER_EVENT_DEAD_LETTER]"))
+                .findFirst().orElseThrow();
+        assertThat(alertLine).doesNotContain("leak@example.com");
+    }
+
+    @Test
+    @DisplayName("실패 기록을 남기지 못하면(DB 장애) DLT로 넘기지 않고 다시 시도해, 기록이 되면 한 번만 남기고 DLT로 보낸다 (#976)")
+    void recordFailureIsRetried() {
+        doAnswer(invocation -> {
+            throw new DataAccessResourceFailureException("마스킹 실패");
+        }).when(memberMasking).mask(argThat(event -> event.userId() == 12L));
+        AtomicInteger recordCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (recordCalls.incrementAndGet() == 1) {
+                throw new DataAccessResourceFailureException("기록 실패");
+            }
+            return invocation.callRealMethod();
+        }).when(memberEventFailureRecordUseCase).record(argThat(failure -> Long.valueOf(12L).equals(failure.userId())));
+
+        send(MEMBER_TOPIC, "12", MEMBER_EVENT + "UserMaskedEvent", """
+                {"userId":12,"maskedAt":"2026-11-09T01:00:00Z"}""");
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(deadLetterKeys()).contains("12"));
+        assertThat(recordCalls).hasValue(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM chatbot.member_event_failure WHERE user_id = 12", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("읽을 수 없는 회원 이벤트는 다시 시도하지 않고 DLT로 보내며, key의 회원 ID로 다시 처리할 수 없는 기록을 남긴다 (#976)")
+    void unreadableToDeadLetter() {
+        send(MEMBER_TOPIC, "11", MEMBER_EVENT + "UserMaskedEvent", "{not json");
+
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(deadLetterKeys()).contains("11"));
+        assertThat(failureOf(11))
+                .containsEntry("event_type", "UNREADABLE")
+                .containsEntry("replayable", false)
+                .containsEntry("payload", null);
     }
 
     @Test
@@ -208,19 +254,31 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("필수 값이 빠진 회원 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
+    @DisplayName("필수 값이 빠진 회원 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보내며, 다시 처리할 수 없는 기록을 남긴다")
     void invalidToDeadLetter() {
         send(MEMBER_TOPIC, "4", MEMBER_EVENT + "UserJoinedEvent", "{\"user\":{\"id\":4}}");
 
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(deadLetterKeys()).contains("4"));
+        assertThat(rows.count("member_copy")).isZero();
+        assertThat(failureOf(4))
+                .containsEntry("event_type", "JOINED")
+                .containsEntry("replayable", false)
+                .containsEntry("payload", null)
+                .containsEntry("exception_class", NullPointerException.class.getName());
+    }
+
+    private List<String> deadLetterKeys() {
         try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
             consumer.subscribe(List.of(memberSettings().deadLetterTopic()));
-            await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
-                List<ConsumerRecord<String, byte[]>> records = new ArrayList<>();
-                consumer.poll(Duration.ofMillis(500)).forEach(records::add);
-                assertThat(records).extracting(ConsumerRecord::key).contains("4");
-            });
+            List<String> keys = new ArrayList<>();
+            consumer.poll(Duration.ofSeconds(2)).forEach(record -> keys.add(record.key()));
+            return keys;
         }
-        assertThat(rows.count("member_copy")).isZero();
+    }
+
+    private Map<String, Object> failureOf(long userId) {
+        return jdbcTemplate.queryForMap("SELECT * FROM chatbot.member_event_failure WHERE user_id = ?", userId);
     }
 
     private void send(String topic, String key, String type, String json) {
@@ -239,7 +297,8 @@ class MemberLectureCopyEventListenerTest extends ChatbotIntegrationTestBase {
     private KafkaConsumer<String, byte[]> deadLetterConsumer() {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + SUFFIX);
+        // 읽을 때마다 처음부터 본다
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + UUID.randomUUID());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);

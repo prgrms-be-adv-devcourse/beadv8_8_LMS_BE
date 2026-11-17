@@ -6,7 +6,6 @@ import java.util.Map;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.TopicConfig;
@@ -28,11 +27,11 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.RecordInterceptor;
-import org.springframework.kafka.listener.RetryListener;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import org.springframework.kafka.support.LoggingProducerListener;
 import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
@@ -40,10 +39,6 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.util.backoff.BackOff;
-import org.springframework.util.backoff.FixedBackOff;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * 챗봇 모듈의 Kafka 소비 설정 (#716, #717). 출연·회원·강의 토픽을 그룹마다 따로 받는다. chat-app 소비 설정({@code ChatKafkaConfig})을 따른다.
@@ -52,9 +47,11 @@ import lombok.extern.slf4j.Slf4j;
  *     (기본 후보가 아님).</li>
  *     <li>값은 {@code __TypeId__} 헤더의 타입으로 읽고, 신뢰 패키지는 토픽마다 정확히 그 이벤트 패키지다.
  *     읽을 수 없는 메시지(클래스 없음·형식 오류)는 다시 시도하지 않고 DLT로 보낸다.</li>
- *     <li>출연·강의 토픽의 처리 실패는 1초부터 두 배씩(최대 10초) 3번 다시 시도한 뒤 {@code <topic>.<group>.DLT}의 같은 파티션으로
- *     보낸다. 회원 토픽은 DLT로 보내지 않고 10초마다 성공할 때까지 다시 시도한다(#835, {@link ChatbotKafkaSettings.Retry}).
+ *     <li>처리 실패는 정해진 횟수만 다시 시도한 뒤 {@code <topic>.<group>.DLT}의 같은 파티션으로 보낸다
+ *     (출연·강의 1초부터 두 배씩 최대 10초 3번, 회원 1분 간격 3번. {@link ChatbotKafkaSettings.Retry}).
  *     값이 비어 있는 이벤트(필수 필드 없음)는 어느 토픽이든 다시 시도하지 않고 DLT로 보낸다.</li>
+ *     <li>회원 토픽만 DLT로 보내기 직전에 실패 기록을 남긴다(#976, {@link MemberEventDeadLetterRecorder}). 관리자가 다시 처리한다.
+ *     기록이 실패하면 DLT로 보내지 않고 처음부터 다시 시도한다(메시지를 잃지 않는다).</li>
  *     <li>토픽 자동 생성은 끈다. 원본 토픽은 보내는 앱이, DLT는 여기서 만든다. DLT 전송 template은 셋이 함께 쓴다.</li>
  * </ul>
  * {@value #ENABLED}로 셋 다 끈다(모듈 테스트는 Kafka 테스트 밖에서 끈다).
@@ -111,21 +108,22 @@ public class ChatbotKafkaConfig {
     ConcurrentKafkaListenerContainerFactory<String, Object> chatbotAppearanceEventListenerContainerFactory(
             @Qualifier(APPEARANCE_EVENT_SETTINGS) ChatbotKafkaSettings settings,
             @Qualifier(DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate) {
-        return containerFactory(settings, deadLetterTemplate);
+        return containerFactory(settings, deadLetterTemplate, null);
     }
 
     @Bean(name = MEMBER_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
     ConcurrentKafkaListenerContainerFactory<String, Object> chatbotMemberEventListenerContainerFactory(
             @Qualifier(MEMBER_EVENT_SETTINGS) ChatbotKafkaSettings settings,
-            @Qualifier(DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate) {
-        return containerFactory(settings, deadLetterTemplate);
+            @Qualifier(DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate,
+            MemberEventDeadLetterRecorder memberEventDeadLetterRecorder) {
+        return containerFactory(settings, deadLetterTemplate, memberEventDeadLetterRecorder::record);
     }
 
     @Bean(name = LECTURE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
     ConcurrentKafkaListenerContainerFactory<String, Object> chatbotLectureEventListenerContainerFactory(
             @Qualifier(LECTURE_EVENT_SETTINGS) ChatbotKafkaSettings settings,
             @Qualifier(DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate) {
-        return containerFactory(settings, deadLetterTemplate);
+        return containerFactory(settings, deadLetterTemplate, null);
     }
 
     @Bean
@@ -168,10 +166,10 @@ public class ChatbotKafkaConfig {
     }
 
     private ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(ChatbotKafkaSettings settings,
-            KafkaTemplate<String, Object> deadLetterTemplate) {
+            KafkaTemplate<String, Object> deadLetterTemplate, @Nullable ConsumerRecordRecoverer beforeDeadLetter) {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory(settings));
-        factory.setCommonErrorHandler(errorHandler(settings, deadLetterTemplate));
+        factory.setCommonErrorHandler(errorHandler(settings, deadLetterTemplate, beforeDeadLetter));
         factory.setConcurrency(1);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
         factory.getContainerProperties().setObservationEnabled(true);
@@ -199,59 +197,29 @@ public class ChatbotKafkaConfig {
     }
 
     private static DefaultErrorHandler errorHandler(ChatbotKafkaSettings settings,
-            KafkaTemplate<String, Object> deadLetterTemplate) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(deadLetterTemplate,
+            KafkaTemplate<String, Object> deadLetterTemplate, @Nullable ConsumerRecordRecoverer beforeDeadLetter) {
+        DeadLetterPublishingRecoverer deadLetter = new DeadLetterPublishingRecoverer(deadLetterTemplate,
                 (record, ex) -> new TopicPartition(settings.deadLetterTopic(), record.partition()));
-        recoverer.setFailIfSendResultIsError(true);
-        recoverer.setWaitForSendResultTimeout(DEAD_LETTER_SEND_TIMEOUT.plusSeconds(1));
+        deadLetter.setFailIfSendResultIsError(true);
+        deadLetter.setWaitForSendResultTimeout(DEAD_LETTER_SEND_TIMEOUT.plusSeconds(1));
+        // 기록을 먼저 남긴다. 기록 뒤 DLT 전송이 실패해 다시 오면 기록은 같은 위치라 겹치지 않는다
+        ConsumerRecordRecoverer recoverer = beforeDeadLetter == null ? deadLetter : (record, ex) -> {
+            beforeDeadLetter.accept(record, ex);
+            deadLetter.accept(record, ex);
+        };
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff(settings.retry()));
-        // 필수 필드가 빈 이벤트는 다시 읽어도 같다
-        handler.addNotRetryableExceptions(NullPointerException.class, IllegalArgumentException.class);
-        if (settings.retry() instanceof ChatbotKafkaSettings.Retry.UntilSuccess) {
-            handler.setRetryListeners(new StuckRecordAlert(settings.groupId()));
+        for (Class<? extends Exception> notRetryable : ChatbotKafkaSettings.NOT_RETRYABLE) {
+            handler.addNotRetryableExceptions(notRetryable);
         }
         return handler;
     }
 
     private static BackOff backOff(ChatbotKafkaSettings.Retry retry) {
-        return switch (retry) {
-            case ChatbotKafkaSettings.Retry.ThenDeadLetter limited -> {
-                ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(limited.maxRetries());
-                backOff.setInitialInterval(limited.initialInterval().toMillis());
-                backOff.setMultiplier(2.0);
-                backOff.setMaxInterval(limited.maxInterval().toMillis());
-                yield backOff;
-            }
-            case ChatbotKafkaSettings.Retry.UntilSuccess untilSuccess ->
-                    new FixedBackOff(untilSuccess.interval().toMillis(), FixedBackOff.UNLIMITED_ATTEMPTS);
-        };
-    }
-
-    /**
-     * 성공할 때까지 다시 시도하는 그룹이 막혔는지 알린다(#835). 실패마다 WARN, 같은 메시지가 {@value #ALERT_AT_ATTEMPT}번째 실패하면
-     * ERROR를 한 번 남긴다. 실패 횟수 지표는 리스너 observation(`spring.kafka.listener`, error 태그)이 이미 센다.
-     * 메시지 본문은 남기지 않는다.
-     */
-    @Slf4j
-    @RequiredArgsConstructor
-    static final class StuckRecordAlert implements RetryListener {
-
-        static final int ALERT_AT_ATTEMPT = 6;
-
-        private final String groupId;
-
-        @Override
-        public void failedDelivery(ConsumerRecord<?, ?> record, @Nullable Exception ex, int deliveryAttempt) {
-            String cause = ex == null ? "unknown" : ex.getClass().getName();
-            if (deliveryAttempt == ALERT_AT_ATTEMPT) {
-                log.error("[CHATBOT_MEMBER_EVENT_STUCK] 이벤트 처리가 계속 실패해 이 그룹의 소비가 멈춰 있다. 원인이 풀릴 때까지 다시 시도한다 "
-                                + "group={}, partition={}, offset={}, attempts={}", groupId, record.partition(), record.offset(),
-                        deliveryAttempt, ex);
-                return;
-            }
-            log.warn("이벤트 처리가 실패해 다시 시도한다 group={}, partition={}, offset={}, attempts={}, cause={}", groupId,
-                    record.partition(), record.offset(), deliveryAttempt, cause);
-        }
+        ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(retry.maxRetries());
+        backOff.setInitialInterval(retry.initialInterval().toMillis());
+        backOff.setMultiplier(2.0);
+        backOff.setMaxInterval(retry.maxInterval().toMillis());
+        return backOff;
     }
 
     private static NewTopic deadLetterTopic(ChatbotKafkaSettings settings) {

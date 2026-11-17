@@ -130,7 +130,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | broker 중단(발행 쪽) | 전송이 실패하고 publication이 미완료로 남는다 | 앱의 재발행 배치가 매분 다시 보낸다("발행" 절). 재기동해도 보낸다 | `BillingEventKafkaTest.republish()`, `MemberEventKafkaRecoveryIntegrationTest`, 앱별 `*EventRepublishUseCaseTest` |
 | broker 중단(소비 쪽) | 소비자가 재연결을 기다린다. offset은 커밋된 곳에 그대로 있다 | broker가 돌아오면 이어서 읽는다 | `LectureMemberEventListenerTest.broker가_멈췄다_살아나면_그_뒤에_발행한_회원_이벤트를_반영한다` |
 | consumer 중단(앱 장애·배포) | 그 그룹의 backlog가 쌓인다. Grafana lag series는 consumer가 없는 동안 사라진다 | 앱이 다시 뜨면 마지막 커밋 offset부터 읽고 lag가 줄어든다 | `LectureMemberEventListenerTest.소비를_멈춘_사이_쌓인_회원_이벤트를_재개하면_모두_반영한다`, 로컬 k3d 기록(#339) |
-| 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다. **예외: `auxiliary-app.chatbot-member-copy`** 는 DLT로 보내지 않고 10초마다 성공할 때까지 다시 시도한다(그동안 이 그룹의 뒤 메시지는 기다린다, #835). 마스킹을 이벤트로만 알 수 있어 DLT로 보내면 지울 개인 활동 데이터가 남기 때문이다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |
+| 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다. **예외: `auxiliary-app.chatbot-member-copy`** 는 1분 간격으로 3번 재시도하고, DLT로 보내기 직전에 앱 DB에 실패 기록을 남긴다(#976). 마스킹을 이벤트로만 알 수 있어 다시 처리할 길이 있어야 하기 때문이다. 기록이 실패하면 DLT로 넘기지 않고 처음부터 다시 시도한다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다. 챗봇 회원 그룹은 runbook 대신 관리자 API(`/api/v1/chatbot/admin/member-event-failures`)로 다시 처리한다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |
 | 읽을 수 없는 메시지 | 재시도 없이 바로 DLT로 보낸다 | 값을 고쳐 runbook으로 넣거나 그대로 둔다 | 앱별 "깨진 메시지" 테스트 |
 | broker 디스크 유실 | 이미 완료 처리된 publication은 다시 보내지 않으므로 그 이벤트는 사라진다 | 회원 복제본은 관리자 Backfill로 회원 앱의 현재 정보에 다시 맞춘다(출연·지갑·채팅) | billing 절차는 [`docs/deploy/k8s.md`](../../deploy/k8s.md) "billing-app 회원 이벤트 DLT 복구" |
 
@@ -138,7 +138,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 
 ## DLT 재처리 runbook
 
-DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 토픽의 다른 그룹도 그 메시지를 한 번 더 받지만 소비 멱등이 흡수한다. 실행할 때마다 대상 메시지(DLT 이름·partition·offset), 원인, 결과를 해당 이슈 코멘트로 남긴다. 아래 명령은 로컬 k3d(`apache/kafka` 이미지)에서 확인했다.
+DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 토픽의 다른 그룹도 그 메시지를 한 번 더 받지만 소비 멱등이 흡수한다. **예외: `member.events.v1.auxiliary-app.chatbot-member-copy.DLT`** 는 원본 토픽에 다시 넣지 않고 챗봇 관리자 API(`POST /api/v1/chatbot/admin/member-event-failures/retry`)로 다시 처리한다. 실패 이유와 처리 여부가 앱 DB에 남고, 회원 토픽의 다른 그룹이 다시 받지 않는다(auxiliary-app README). 실행할 때마다 대상 메시지(DLT 이름·partition·offset), 원인, 결과를 해당 이슈 코멘트로 남긴다. 아래 명령은 로컬 k3d(`apache/kafka` 이미지)에서 확인했다.
 
 **broker pod(`kafka-0`)에 `exec`로 들어가 콘솔 도구를 실행하지 않는다.** 콘솔 도구도 JVM이라 broker 컨테이너의 메모리 limit(768Mi)을 함께 쓴다. broker는 오래 돌면 RSS가 약 656Mi까지 오르므로(2026-11-14 운영, 고정 heap 512Mi가 모두 메모리에 올라온 것으로 본다, #941) 도구를 띄우면 broker가 OOMKilled된다(로컬 k3d에서 소비자·프로듀서를 함께 띄워 재현, #429). 같은 이미지로 임시 client pod를 띄워 쓰고 끝나면 지운다. 이미지가 node에 있어 새로 내려받지 않는다.
 
