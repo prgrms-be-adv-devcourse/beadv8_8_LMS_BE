@@ -242,10 +242,9 @@ class ChatUserBackfillIntegrationTest {
         assertThatThrownBy(() -> backfillService.backfill(0, MAX_LIMIT))
                 .isInstanceOfSatisfying(ChatUserBackfillException.class, e -> {
                     assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.MEMBER_SOURCE_UNAVAILABLE);
-                    assertThat(e.getProgress()).extracting(ChatUserBackfillResult::created,
-                                    ChatUserBackfillResult::nextAfterId, ChatUserBackfillResult::completed)
-                            .containsExactly(2L, 2L, false);
-                    assertThat(e.getProperties()).containsEntry("resumeAfterId", 2L);
+                    assertThat(e.getProperties()).containsEntry("created", 2L)
+                            .containsEntry("lastProcessedId", 2L)
+                            .containsEntry("resumeAfterId", 2L);
                 });
         assertThat(chatUserTestRepository.count()).isEqualTo(2L);
 

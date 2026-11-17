@@ -258,8 +258,4 @@ public class ChatMessage {
         message.notificationDataJson = NotificationData.write(data);
         return message;
     }
-
-    public boolean isDeleted() {
-        return deletedAt != null;
-    }
 }

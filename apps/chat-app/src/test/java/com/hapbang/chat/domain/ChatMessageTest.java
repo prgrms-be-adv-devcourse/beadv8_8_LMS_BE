@@ -20,7 +20,7 @@ class ChatMessageTest {
         assertThat(first.getMessageType()).isEqualTo(ChatMessageType.TEXT);
         assertThat(first.getRoomSequence()).isEqualTo(1);
         assertThat(second.getRoomSequence()).isEqualTo(2);
-        assertThat(first.isDeleted()).isFalse();
+        assertThat(first.getDeletedAt()).isNull();
     }
 
     @Test
