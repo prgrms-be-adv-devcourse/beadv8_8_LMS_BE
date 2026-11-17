@@ -8,10 +8,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.DisposableBean;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskRejectedException;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
@@ -48,7 +46,8 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
 
     private final LocalChatConnections localChatConnections;
     private final ChatRecipientStateReader chatRecipientStateReader;
-    private final TaskScheduler taskScheduler;
+    /** 재시도 전용 스케줄러. 이 서비스가 만들고 {@link #destroy()}에서 닫는다 */
+    private final ThreadPoolTaskScheduler retryScheduler;
     private final int batchSize;
     private final int maxRetries;
     private final Duration initialRetryDelay;
@@ -60,8 +59,6 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
     /** 재시도가 예약돼 기다리는 회원. 회원마다 하나만 둔다(같은 회원의 재검사가 몰려도 예약이 늘지 않는다) */
     private final Set<Long> pendingRetryUsers = ConcurrentHashMap.newKeySet();
     private int maxPendingRetryUsers = 10_000;
-    /** 이 서비스가 만들어 직접 닫아야 하는 재시도 스케줄러인지 */
-    private final boolean ownsScheduler;
 
     /**
      * 재시도는 이 서비스 전용 스레드 하나로 예약한다. 배치가 쓰는 공용 {@code taskScheduler}와 나눠, 배치·전송 폭주가 재시도를
@@ -70,7 +67,6 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
      * 재검사 묶음 크기(500)·재시도 횟수(3)·간격(1s~10s)은 미확정 초기값(Q12)이다. 기본값은 이 코드가 원본이고 application.yaml에
      * 두지 않는다. 같은 키의 yaml·환경 변수가 덮는다.
      */
-    @Autowired
     public DefaultChatConnectionRecheckService(LocalChatConnections localChatConnections,
             ChatRecipientStateReader chatRecipientStateReader,
             MeterRegistry meterRegistry,
@@ -78,31 +74,13 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
             @Value("${hapbang.chat.realtime.recheck.retry.max-retries:3}") int maxRetries,
             @Value("${hapbang.chat.realtime.recheck.retry.initial-delay:1s}") Duration initialRetryDelay,
             @Value("${hapbang.chat.realtime.recheck.retry.max-delay:10s}") Duration maxRetryDelay) {
-        this(localChatConnections, chatRecipientStateReader, retryScheduler(), true, meterRegistry, batchSize,
-                maxRetries, initialRetryDelay, maxRetryDelay);
-    }
-
-    /** 재시도 스케줄러를 직접 넘긴다(테스트). 넘긴 스케줄러는 닫지 않는다 */
-    DefaultChatConnectionRecheckService(LocalChatConnections localChatConnections,
-            ChatRecipientStateReader chatRecipientStateReader, TaskScheduler taskScheduler,
-            MeterRegistry meterRegistry, int batchSize, int maxRetries, Duration initialRetryDelay,
-            Duration maxRetryDelay) {
-        this(localChatConnections, chatRecipientStateReader, taskScheduler, false, meterRegistry, batchSize,
-                maxRetries, initialRetryDelay, maxRetryDelay);
-    }
-
-    private DefaultChatConnectionRecheckService(LocalChatConnections localChatConnections,
-            ChatRecipientStateReader chatRecipientStateReader, TaskScheduler taskScheduler, boolean ownsScheduler,
-            MeterRegistry meterRegistry, int batchSize, int maxRetries, Duration initialRetryDelay,
-            Duration maxRetryDelay) {
         Assert.isTrue(batchSize > 0, "hapbang.chat.realtime.recheck.batch-size는 1 이상이어야 합니다.");
         Assert.isTrue(maxRetries >= 0, "hapbang.chat.realtime.recheck.retry.max-retries는 0 이상이어야 합니다.");
         Assert.isTrue(initialRetryDelay.isPositive() && !maxRetryDelay.minus(initialRetryDelay).isNegative(),
                 "hapbang.chat.realtime.recheck.retry 지연은 0보다 크고 initial-delay <= max-delay여야 합니다.");
         this.localChatConnections = localChatConnections;
         this.chatRecipientStateReader = chatRecipientStateReader;
-        this.taskScheduler = taskScheduler;
-        this.ownsScheduler = ownsScheduler;
+        this.retryScheduler = retryScheduler();
         this.batchSize = batchSize;
         this.maxRetries = maxRetries;
         this.initialRetryDelay = initialRetryDelay;
@@ -123,9 +101,7 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
 
     @Override
     public void destroy() {
-        if (ownsScheduler && taskScheduler instanceof ThreadPoolTaskScheduler scheduler) {
-            scheduler.shutdown();
-        }
+        retryScheduler.shutdown();
     }
 
     @Override
@@ -181,11 +157,6 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
         this.maxPendingRetryUsers = maxPendingRetryUsers;
     }
 
-    /** 재시도를 기다리는 회원 수(관측·테스트용) */
-    public int pendingRetryUsers() {
-        return pendingRetryUsers.size();
-    }
-
     /**
      * 실패한 회원의 재시도를 예약한다. 이미 재시도를 기다리는 회원은 그 재시도에 합치고, 기다리는 회원 수가 상한이면 예약하지 않고
      * 세어 주기 재검사에 맡긴다(설계 4.6: 대기열·재시도에 상한을 둔다).
@@ -217,7 +188,7 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
         }
         Duration delay = retryDelay(retry);
         try {
-            taskScheduler.schedule(() -> retry(scheduled, retry + 1), Instant.now().plus(delay));
+            retryScheduler.schedule(() -> retry(scheduled, retry + 1), Instant.now().plus(delay));
         } catch (TaskRejectedException exception) {
             // 앱 종료 중 등. 주기 재검사가 회복한다
             pendingRetryUsers.removeAll(scheduled);

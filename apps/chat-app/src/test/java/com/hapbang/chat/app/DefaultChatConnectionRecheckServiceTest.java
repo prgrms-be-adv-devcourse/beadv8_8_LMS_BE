@@ -8,31 +8,38 @@ import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.*;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.dao.QueryTimeoutException;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import com.hapbang.chat.app.port.LocalChatConnections;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+/**
+ * 재검사 서비스를 운영 생성자로 만들고(재시도는 서비스 전용 스케줄러가 실제로 실행한다) 연결 닫기·자격 조회 호출과 운영 지표로 확인한다.
+ */
 class DefaultChatConnectionRecheckServiceTest {
 
     private final LocalChatConnections connections = mock(LocalChatConnections.class);
     private final ChatRecipientStateReader reader = mock(ChatRecipientStateReader.class);
-    private final TaskScheduler scheduler = mock(TaskScheduler.class);
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final DefaultChatConnectionRecheckService service = new DefaultChatConnectionRecheckService(connections,
-            reader, scheduler, meterRegistry, 2, 3, Duration.ofSeconds(1), Duration.ofSeconds(10));
+    private final List<DefaultChatConnectionRecheckService> created = new ArrayList<>();
+    /** 운영 기본 간격(1s~10s). 재시도가 실행되기 전에 끝나는 테스트가 쓴다 */
+    private final DefaultChatConnectionRecheckService service = service(2, 3, Duration.ofSeconds(1),
+            Duration.ofSeconds(10));
+
+    @AfterEach
+    void tearDown() {
+        created.forEach(DefaultChatConnectionRecheckService::destroy);
+    }
 
     @Test
     void 지금도_채팅할_수_없는_회원만_닫는다() {
@@ -90,106 +97,99 @@ class DefaultChatConnectionRecheckServiceTest {
 
     @Test
     void 조회에_실패한_회원만_backoff로_다시_확인하고_그때_연결이_남은_회원만_조회한다() {
+        DefaultChatConnectionRecheckService retrying = service(2, 3, Duration.ofMillis(300), Duration.ofSeconds(1));
         when(connections.connectedUserIds()).thenReturn(new LinkedHashSet<>(List.of(HOST_ID, GUEST_ID, ADMIN_ID)));
         when(reader.findChatAllowedUserIds(List.of(HOST_ID, GUEST_ID)))
                 .thenThrow(new QueryTimeoutException("DB 지연"));
         when(reader.findChatAllowedUserIds(List.of(ADMIN_ID))).thenReturn(Set.of(ADMIN_ID));
-        ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
-        ArgumentCaptor<Instant> at = ArgumentCaptor.forClass(Instant.class);
-        Instant before = Instant.now();
-
-        service.recheckAllConnected();
-
-        // 실패한 묶음 하나만 예약한다. 첫 재시도는 initial-delay 뒤다
-        verify(scheduler, times(1)).schedule(retry.capture(), at.capture());
-        assertThat(at.getValue()).isBetween(before.plusMillis(900), Instant.now().plusSeconds(1));
-        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
-                .isEqualTo(1);
-
         // 재시도 전에 HOST의 연결이 끊겼다
         when(connections.connectedAmong(List.of(HOST_ID, GUEST_ID))).thenReturn(Set.of(GUEST_ID));
         when(reader.findChatAllowedUserIds(List.of(GUEST_ID))).thenReturn(Set.of());
-        retry.getValue().run();
+        List<Long> closedAt = new CopyOnWriteArrayList<>();
+        when(connections.closeNotAllowed(GUEST_ID)).thenAnswer(invocation -> {
+            closedAt.add(System.nanoTime());
+            return 1;
+        });
+        long before = System.nanoTime();
 
+        retrying.recheckAllConnected();
+
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
+                .isEqualTo(1);
+        verify(connections, timeout(3_000)).closeNotAllowed(GUEST_ID);
+        // 첫 재시도는 initial-delay 뒤다(스케줄러 시각 오차 몇 ms는 허용)
+        assertThat(Duration.ofNanos(closedAt.getFirst() - before)).isGreaterThan(Duration.ofMillis(250));
+        // 실패한 묶음 하나만 다시 확인하고, 그때 연결이 남은 회원만 조회한다
+        verify(reader, times(1)).findChatAllowedUserIds(List.of(HOST_ID, GUEST_ID));
         verify(reader).findChatAllowedUserIds(List.of(GUEST_ID));
-        verify(connections).closeNotAllowed(GUEST_ID);
         verify(connections, never()).closeNotAllowed(HOST_ID);
+        verify(connections, never()).closeNotAllowed(ADMIN_ID);
     }
 
     @Test
     void 조회가_실패했다가_회복되면_주기_재검사를_기다리지_않고_지금도_채팅할_수_없는_회원을_닫는다() {
-        ThreadPoolTaskScheduler realScheduler = startedScheduler();
-        try {
-            DefaultChatConnectionRecheckService retrying = new DefaultChatConnectionRecheckService(connections,
-                    reader, realScheduler, meterRegistry, 500, 3, Duration.ofMillis(50), Duration.ofMillis(200));
-            when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
-            when(reader.findChatAllowedUserIds(List.of(HOST_ID)))
-                    .thenThrow(new QueryTimeoutException("DB 지연"))
-                    .thenReturn(Set.of());
+        DefaultChatConnectionRecheckService retrying = service(500, 3, Duration.ofMillis(50),
+                Duration.ofMillis(200));
+        when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
+        when(reader.findChatAllowedUserIds(List.of(HOST_ID)))
+                .thenThrow(new QueryTimeoutException("DB 지연"))
+                .thenReturn(Set.of());
 
-            retrying.recheckUser(HOST_ID);
+        retrying.recheckUser(HOST_ID);
 
-            verify(connections, never()).closeNotAllowed(any());
-            verify(connections, timeout(2_000)).closeNotAllowed(HOST_ID);
-            assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
-                    .isEqualTo(1);
-            assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count())
-                    .isZero();
-        } finally {
-            realScheduler.shutdown();
-        }
+        verify(connections, never()).closeNotAllowed(any());
+        verify(connections, timeout(2_000)).closeNotAllowed(HOST_ID);
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
+                .isEqualTo(1);
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count())
+                .isZero();
     }
 
     @Test
     void 재시도_상한에_닿으면_지표를_세고_더_조회하지_않는다() {
-        ThreadPoolTaskScheduler realScheduler = startedScheduler();
-        try {
-            DefaultChatConnectionRecheckService retrying = new DefaultChatConnectionRecheckService(connections,
-                    reader, realScheduler, meterRegistry, 500, 2, Duration.ofMillis(20), Duration.ofMillis(40));
-            when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
-            when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 장애"));
+        DefaultChatConnectionRecheckService retrying = service(500, 2, Duration.ofMillis(20), Duration.ofMillis(40));
+        when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
+        when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 장애"));
 
-            retrying.recheckUser(HOST_ID);
+        retrying.recheckUser(HOST_ID);
 
-            await().atMost(Duration.ofSeconds(2)).until(() -> meterRegistry
-                    .counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count() == 1);
-            // 첫 확인 1번 + 재시도 2번에서 멈춘다(빠른 반복 없음)
-            verify(reader, after(300).times(3)).findChatAllowedUserIds(any());
-            assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
-                    .isEqualTo(3);
-            verify(connections, never()).closeNotAllowed(any());
-        } finally {
-            realScheduler.shutdown();
-        }
+        await().atMost(Duration.ofSeconds(2)).until(() -> meterRegistry
+                .counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count() == 1);
+        // 첫 확인 1번 + 재시도 2번에서 멈춘다(빠른 반복 없음)
+        verify(reader, after(300).times(3)).findChatAllowedUserIds(any());
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.LOOKUP_FAILURE_METRIC).count())
+                .isEqualTo(3);
+        verify(connections, never()).closeNotAllowed(any());
     }
 
     @Test
     void 재시도는_initial_delay부터_두_배씩_늦추고_max_delay에서_멈추며_상한_뒤에는_더_예약하지_않는다() {
-        // 설정값(1s·10s)에 재시도 5번을 주어 상한(10s)에 닿는 것까지 본다. 운영 설정(3번)은 1s·2s·4s 뒤 주기 재검사에 맡긴다
-        DefaultChatConnectionRecheckService retrying = new DefaultChatConnectionRecheckService(connections, reader,
-                scheduler, meterRegistry, 500, 5, Duration.ofSeconds(1), Duration.ofSeconds(10));
+        // 100ms·500ms에 재시도 5번을 주어 상한(500ms)에 닿는 것까지 본다. 운영 설정(1s·10s, 3번)은 1s·2s·4s 뒤 주기 재검사에 맡긴다
+        DefaultChatConnectionRecheckService retrying = service(500, 5, Duration.ofMillis(100), Duration.ofMillis(500));
         when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
-        when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 장애"));
-        ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
-        ArgumentCaptor<Instant> at = ArgumentCaptor.forClass(Instant.class);
-        List<Long> delaySeconds = new ArrayList<>();
+        List<Long> lookedUpAt = new CopyOnWriteArrayList<>();
+        when(reader.findChatAllowedUserIds(any())).thenAnswer(invocation -> {
+            lookedUpAt.add(System.nanoTime());
+            throw new QueryTimeoutException("DB 장애");
+        });
 
-        Instant triggered = Instant.now();
         retrying.recheckUser(HOST_ID);
-        for (int scheduled = 1; scheduled <= 5; scheduled++) {
-            verify(scheduler, times(scheduled)).schedule(task.capture(), at.capture());
-            // 반올림: 예약 시각은 호출 시각 + 지연이다
-            delaySeconds.add(Math.round(Duration.between(triggered, at.getValue()).toMillis() / 1000.0));
-            triggered = Instant.now();
-            task.getValue().run();
-        }
 
-        assertThat(delaySeconds).containsExactly(1L, 2L, 4L, 8L, 10L);
+        await().atMost(Duration.ofSeconds(10)).until(() -> meterRegistry
+                .counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count() == 1);
         // 첫 확인 + 재시도 5번 뒤에는 더 예약하지 않는다
-        verify(scheduler, times(5)).schedule(any(Runnable.class), any(Instant.class));
-        verify(reader, times(6)).findChatAllowedUserIds(List.of(HOST_ID));
-        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count())
-                .isEqualTo(1);
+        verify(reader, after(700).times(6)).findChatAllowedUserIds(List.of(HOST_ID));
+        List<Long> gapsMillis = new ArrayList<>();
+        for (int i = 1; i < lookedUpAt.size(); i++) {
+            gapsMillis.add(Duration.ofNanos(lookedUpAt.get(i) - lookedUpAt.get(i - 1)).toMillis());
+        }
+        // 간격은 예약한 지연보다 짧지 않다(스케줄러 시각 오차 몇 ms는 허용): 100·200·400·500·500
+        List<Long> expected = List.of(100L, 200L, 400L, 500L, 500L);
+        for (int i = 0; i < expected.size(); i++) {
+            assertThat(gapsMillis.get(i)).as("재시도 %d의 간격", i + 1).isGreaterThan(expected.get(i) - 20);
+        }
+        // 상한에서 멈춘다: 두 배로 늘었다면 1600ms였을 마지막 간격
+        assertThat(gapsMillis.getLast()).isLessThan(1_600);
         verify(connections, never()).closeNotAllowed(any());
     }
 
@@ -205,26 +205,34 @@ class DefaultChatConnectionRecheckServiceTest {
             service.recheckUser(HOST_ID);
         }
 
-        verify(scheduler, times(1)).schedule(any(Runnable.class), any(Instant.class));
-        assertThat(service.pendingRetryUsers()).isEqualTo(1);
         assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_COALESCED_METRIC).count())
                 .isEqualTo(requests - 1);
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_DROPPED_METRIC).count()).isZero();
+        // 합친 재시도는 한 번만 실행된다: 첫 확인 requests번 + 재시도 1번
+        verify(reader, timeout(3_000).times(requests + 1)).findChatAllowedUserIds(List.of(HOST_ID));
+        verify(reader, after(300).times(requests + 1)).findChatAllowedUserIds(List.of(HOST_ID));
     }
 
     @Test
     void 재시도를_기다리는_회원이_상한이면_예약하지_않고_세며_주기_재검사가_그_회원을_다시_본다() {
-        service.setMaxPendingRetryUsers(2);
+        // 재시도는 한 번만 해서, 예약한 회원의 재시도가 끝난 뒤에는 남은 예약이 없게 한다
+        DefaultChatConnectionRecheckService limited = service(2, 1, Duration.ofMillis(200), Duration.ofMillis(200));
+        limited.setMaxPendingRetryUsers(2);
         when(connections.connectedAmong(any())).thenAnswer(invocation -> Set.copyOf(invocation.getArgument(0)));
         when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 지연"));
 
-        service.recheckUser(HOST_ID);
-        service.recheckUser(GUEST_ID);
-        service.recheckUser(ADMIN_ID);
+        limited.recheckUser(HOST_ID);
+        limited.recheckUser(GUEST_ID);
+        limited.recheckUser(ADMIN_ID);
 
-        verify(scheduler, times(2)).schedule(any(Runnable.class), any(Instant.class));
-        assertThat(service.pendingRetryUsers()).isEqualTo(2);
         assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_DROPPED_METRIC).count())
                 .isEqualTo(1);
+        // 예약한 두 회원만 다시 확인하고, 상한에서 빠진 회원은 다시 확인하지 않는다
+        await().atMost(Duration.ofSeconds(3)).until(() -> meterRegistry
+                .counter(DefaultChatConnectionRecheckService.RETRY_EXHAUSTED_METRIC).count() == 2);
+        verify(reader, times(2)).findChatAllowedUserIds(List.of(HOST_ID));
+        verify(reader, times(2)).findChatAllowedUserIds(List.of(GUEST_ID));
+        verify(reader, times(1)).findChatAllowedUserIds(List.of(ADMIN_ID));
 
         // 조회가 회복되면 주기 재검사가 예약에서 빠진 회원도 다시 본다
         reset(reader);
@@ -232,31 +240,38 @@ class DefaultChatConnectionRecheckServiceTest {
         when(reader.findChatAllowedUserIds(List.of(HOST_ID, GUEST_ID))).thenReturn(Set.of(HOST_ID, GUEST_ID));
         when(reader.findChatAllowedUserIds(List.of(ADMIN_ID))).thenReturn(Set.of());
 
-        service.recheckAllConnected();
+        limited.recheckAllConnected();
 
         verify(connections).closeNotAllowed(ADMIN_ID);
     }
 
     @Test
-    void 예약한_재시도가_실행되면_기다리는_회원에서_빠진다() {
+    void 예약한_재시도가_실행된_뒤의_새_실패는_합치지_않고_다시_예약한다() {
+        DefaultChatConnectionRecheckService retrying = service(500, 3, Duration.ofMillis(50), Duration.ofMillis(50));
         when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
-        when(reader.findChatAllowedUserIds(List.of(HOST_ID))).thenThrow(new QueryTimeoutException("DB 지연"))
-                .thenReturn(Set.of(HOST_ID));
-        ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
-        service.recheckUser(HOST_ID);
-        verify(scheduler).schedule(retry.capture(), any(Instant.class));
-        assertThat(service.pendingRetryUsers()).isEqualTo(1);
-
-        retry.getValue().run();
-
-        assertThat(service.pendingRetryUsers()).isZero();
+        when(reader.findChatAllowedUserIds(List.of(HOST_ID)))
+                .thenThrow(new QueryTimeoutException("DB 지연"))
+                .thenReturn(Set.of(HOST_ID))
+                .thenThrow(new QueryTimeoutException("DB 지연"))
+                .thenReturn(Set.of());
+        retrying.recheckUser(HOST_ID);
+        // 재시도가 실행돼 자격을 확인했다(닫지 않음)
+        verify(reader, timeout(2_000).times(2)).findChatAllowedUserIds(List.of(HOST_ID));
         verify(connections, never()).closeNotAllowed(any());
+
+        retrying.recheckUser(HOST_ID);
+
+        // 기다리는 회원에서 빠졌으므로 새 실패는 새 재시도로 예약되고, 그 재시도가 닫는다
+        verify(connections, timeout(2_000)).closeNotAllowed(HOST_ID);
+        assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_COALESCED_METRIC).count())
+                .isZero();
     }
 
-    private static ThreadPoolTaskScheduler startedScheduler() {
-        ThreadPoolTaskScheduler realScheduler = new ThreadPoolTaskScheduler();
-        realScheduler.setPoolSize(1);
-        realScheduler.initialize();
-        return realScheduler;
+    private DefaultChatConnectionRecheckService service(int batchSize, int maxRetries, Duration initialDelay,
+            Duration maxDelay) {
+        DefaultChatConnectionRecheckService created = new DefaultChatConnectionRecheckService(connections, reader,
+                meterRegistry, batchSize, maxRetries, initialDelay, maxDelay);
+        this.created.add(created);
+        return created;
     }
 }
