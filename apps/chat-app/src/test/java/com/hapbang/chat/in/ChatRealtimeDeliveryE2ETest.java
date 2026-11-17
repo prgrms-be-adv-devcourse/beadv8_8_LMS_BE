@@ -36,7 +36,6 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import com.hapbang.chat.app.ChatConnectionRecheckService;
 import com.hapbang.chat.app.ChatRealtimeFacade;
-import com.hapbang.chat.app.ChatRecipientStateReader;
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalRoomSubscriptions;
@@ -59,9 +58,10 @@ import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
+import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.chat.in.support.RealtimeStompClient.RoomSubscription;
-import com.hapbang.chat.in.support.RealtimeStompClient;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 import com.hapbang.chat.out.redis.RedisRealtimeChatFanout;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -128,7 +128,7 @@ class ChatRealtimeDeliveryE2ETest {
     private ChatRoomUseCase chatRoomUseCase;
 
     @Autowired
-    private ChatRecipientStateReader chatRecipientStateReader;
+    private ChatRoomMembershipLoader chatRoomMembershipLoader;
 
     @Autowired
     private LocalRoomSubscriptions localRoomSubscriptions;
@@ -554,7 +554,7 @@ class ChatRealtimeDeliveryE2ETest {
     }
 
     private int currentSetVersion(Long chatRoomId) {
-        return chatRecipientStateReader.findRoomMembership(chatRoomId).setVersion();
+        return chatRoomMembershipLoader.load(chatRoomId).setVersion();
     }
 
     /** Redis의 그 채널 구독자 수(이 namespace는 이 앱만 쓴다) */

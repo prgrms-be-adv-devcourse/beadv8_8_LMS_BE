@@ -11,8 +11,12 @@ import java.util.Arrays;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.port.ChatRoomMemberships;
 import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -78,6 +82,21 @@ class ChatRealtimeServiceBoundaryTest {
         noClasses().that().resideInAPackage("com.hapbang.chat.app.port..")
                 .should().dependOnClassesThat().resideInAnyPackage("com.hapbang.chat.in..", "com.hapbang.chat.out..")
                 .check(classes);
+    }
+
+    @Test
+    @DisplayName("방 참여 캐시(out/cache)는 app 클래스를 부르지 않고 app/port의 repository로 읽기 전용 트랜잭션 하나에서 읽는다")
+    void membershipCacheReadsThroughRepositoryPorts() throws NoSuchMethodException {
+        noClasses().that().resideInAPackage("com.hapbang.chat.out.cache..")
+                .should().dependOnClassesThat().resideInAPackage("com.hapbang.chat.app")
+                .check(classes);
+        // 캐시와 다른 빈이어야 캐시가 프록시를 거쳐 불러 트랜잭션이 걸린다
+        Transactional transactional = ChatRoomMembershipLoader.class.getMethod("load", Long.class)
+                .getAnnotation(Transactional.class);
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isTrue();
+        assertThat(ChatRoomMemberships.class).isAssignableFrom(CachedChatRoomMemberships.class);
+        assertThat(ChatRoomMembershipLoader.class).isNotEqualTo(CachedChatRoomMemberships.class);
     }
 
     /** 업무 서비스 계약은 app, 이 JVM의 연결 목록 같은 바깥 계약(port)은 app/port의 인터페이스다 */

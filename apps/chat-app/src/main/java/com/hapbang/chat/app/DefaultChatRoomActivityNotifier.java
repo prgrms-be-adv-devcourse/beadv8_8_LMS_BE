@@ -13,12 +13,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatNotifyRule;
@@ -39,7 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier {
 
-    private final ChatRoomMembershipCache chatRoomMembershipCache;
+    private final ChatRoomMemberships chatRoomMemberships;
     private final LocalChatConnections localChatConnections;
     private final LocalRoomSubscriptions localRoomSubscriptions;
     private final ObjectProvider<ChatPresence> chatPresence;
@@ -48,12 +49,12 @@ public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier
     private final Map<Long, Batch> batches = new ConcurrentHashMap<>();
 
     /** 한 묶음에 기억하는 메시지 수 상한(1000)은 미확정 초기값(Q12)이다. 넘으면 오래된 것부터 세지 않는다 */
-    public DefaultChatRoomActivityNotifier(ChatRoomMembershipCache chatRoomMembershipCache,
+    public DefaultChatRoomActivityNotifier(ChatRoomMemberships chatRoomMemberships,
             LocalChatConnections localChatConnections, LocalRoomSubscriptions localRoomSubscriptions,
             ObjectProvider<ChatPresence> chatPresence, LocalChatSender localChatSender,
             @Value("${hapbang.chat.realtime.activity.max-messages-per-batch:1000}") int maxEntriesPerRoom) {
         Assert.isTrue(maxEntriesPerRoom > 0, "hapbang.chat.realtime.activity.max-messages-per-batch는 1 이상이어야 합니다.");
-        this.chatRoomMembershipCache = chatRoomMembershipCache;
+        this.chatRoomMemberships = chatRoomMemberships;
         this.localChatConnections = localChatConnections;
         this.localRoomSubscriptions = localRoomSubscriptions;
         this.chatPresence = chatPresence;
@@ -94,7 +95,7 @@ public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier
         if (localChatConnections.connectedUserIds().isEmpty()) {
             return;
         }
-        RoomMembership membership = chatRoomMembershipCache.get(roomId, batch.maxSetVersion());
+        RoomMembership membership = chatRoomMemberships.get(roomId, batch.maxSetVersion());
         Map<Long, ChatRecipientState> candidates = new HashMap<>();
         for (ChatRecipientState state : membership.members().values()) {
             if (state.canChat() && state.activeParticipant() && batch.countFor(state) > 0) {

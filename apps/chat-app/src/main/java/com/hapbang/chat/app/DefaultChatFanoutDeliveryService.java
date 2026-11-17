@@ -9,7 +9,6 @@ import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
@@ -17,10 +16,12 @@ import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
 import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
-import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatMessageType;
 
 import lombok.RequiredArgsConstructor;
@@ -47,7 +48,7 @@ public class DefaultChatFanoutDeliveryService implements ChatFanoutDeliveryServi
 
     private final LocalChatConnections localChatConnections;
     private final LocalRoomSubscriptions localRoomSubscriptions;
-    private final ChatRoomMembershipCache chatRoomMembershipCache;
+    private final ChatRoomMemberships chatRoomMemberships;
     private final LocalChatSender localChatSender;
 
     @Override
@@ -66,7 +67,7 @@ public class DefaultChatFanoutDeliveryService implements ChatFanoutDeliveryServi
 
         RoomMembership cached;
         try {
-            cached = chatRoomMembershipCache.get(roomId, fanout.recipientSetVersion());
+            cached = chatRoomMemberships.get(roomId, fanout.recipientSetVersion());
         } catch (RuntimeException exception) {
             // 확인하지 못한 구독을 자격 있음으로 보지 않는다. 받지 못한 회원은 이력 대조로 복구한다
             log.error("실시간 전달 직전 참여 상태 조회 실패로 버림 deliveryId={}, roomId={}, messageId={}",
@@ -79,7 +80,7 @@ public class DefaultChatFanoutDeliveryService implements ChatFanoutDeliveryServi
             // 캐시가 구독보다 먼저 읽혔을 수 있다(재입장 뒤 새 세대로 등록한 구독을 재입장 전 상태로 보는 경우). 회수하기 전에 지금 DB를
             // 다시 읽는다. 다시 읽은 상태는 이 구독들의 등록(그때 DB 확인) 뒤에 읽은 것이다
             try {
-                membership = chatRoomMembershipCache.refresh(roomId);
+                membership = chatRoomMemberships.refresh(roomId);
             } catch (RuntimeException exception) {
                 log.error("구독 회수 직전 참여 상태 조회 실패로 버림 deliveryId={}, roomId={}", fanout.deliveryId(), roomId,
                         exception);
@@ -132,7 +133,7 @@ public class DefaultChatFanoutDeliveryService implements ChatFanoutDeliveryServi
         }
         RoomMembership membership;
         try {
-            membership = chatRoomMembershipCache.get(activity.roomId(), activity.recipientSetVersion());
+            membership = chatRoomMemberships.get(activity.roomId(), activity.recipientSetVersion());
         } catch (RuntimeException exception) {
             // 결과 확인을 못 받으면 FE가 이력에서 전송 ID를 찾는다
             log.warn("전송 결과 확인 직전 참여 상태 조회 실패로 버림 deliveryId={}, roomId={}", activity.deliveryId(),

@@ -12,14 +12,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.ChatUnreadMemberCounter.RecentCounts;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
-import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.LocalChatSender;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -42,7 +43,7 @@ import lombok.extern.slf4j.Slf4j;
 public class DefaultChatReadCountNotifier implements ChatReadCountNotifier {
 
     private final LocalRoomSubscriptions localRoomSubscriptions;
-    private final ChatRoomMembershipCache chatRoomMembershipCache;
+    private final ChatRoomMemberships chatRoomMemberships;
     private final ChatUnreadMemberCounter chatUnreadMemberCounter;
     private final LocalChatSender localChatSender;
     private final int window;
@@ -51,12 +52,12 @@ public class DefaultChatReadCountNotifier implements ChatReadCountNotifier {
 
     /** 다시 세는 순번 구간 크기(100)는 미확정 운영 수치(Q12)다. 기본값은 코드가 원본이고 같은 키의 yaml·환경 변수가 덮는다 */
     public DefaultChatReadCountNotifier(LocalRoomSubscriptions localRoomSubscriptions,
-            ChatRoomMembershipCache chatRoomMembershipCache, ChatUnreadMemberCounter chatUnreadMemberCounter,
+            ChatRoomMemberships chatRoomMemberships, ChatUnreadMemberCounter chatUnreadMemberCounter,
             LocalChatSender localChatSender,
             @Value("${hapbang.chat.realtime.read-counts.window:100}") int window) {
         Assert.isTrue(window > 0, "hapbang.chat.realtime.read-counts.window는 1 이상이어야 합니다.");
         this.localRoomSubscriptions = localRoomSubscriptions;
-        this.chatRoomMembershipCache = chatRoomMembershipCache;
+        this.chatRoomMemberships = chatRoomMemberships;
         this.chatUnreadMemberCounter = chatUnreadMemberCounter;
         this.localChatSender = localChatSender;
         this.window = window;
@@ -96,7 +97,7 @@ public class DefaultChatReadCountNotifier implements ChatReadCountNotifier {
         }
         RecentCounts counts = found.get();
         // 참여 상태는 센 스냅샷 이상으로 맞춘 뒤 읽고, 구독도 그 뒤에 고른다(센 값에 들어간 참여 변경을 받는 쪽도 본다)
-        RoomMembership membership = chatRoomMembershipCache.get(roomId,
+        RoomMembership membership = chatRoomMemberships.get(roomId,
                 Math.max(minSetVersion, counts.recipientSetVersion()));
         List<Subscription> subscriptions = localRoomSubscriptions.subscriptions(roomId);
         // 같은 가시 범위의 구독끼리 묶어 payload를 한 번만 만든다

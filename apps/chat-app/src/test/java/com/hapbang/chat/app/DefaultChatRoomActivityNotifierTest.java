@@ -24,17 +24,20 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -46,12 +49,12 @@ class DefaultChatRoomActivityNotifierTest {
 
     private static final Long ROOM_ID = 10L;
 
-    private final ChatRecipientStateReader reader = mock(ChatRecipientStateReader.class);
+    private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final LocalChatConnections connections = mock(LocalChatConnections.class);
     private final ChatPresence presence = mock(ChatPresence.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(provider(null), 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+    private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final ChatRoomActivityNotifier notifier = new DefaultChatRoomActivityNotifier(cache, connections, subscriptions,
             provider(presence), sender, 1000);
@@ -71,7 +74,7 @@ class DefaultChatRoomActivityNotifierTest {
 
     @Test
     void 방별로_묶어_한_번_보내고_구독한_세션과_자기_메시지만_있는_회원은_뺀다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
         subscriptions.register(new Subscription("g-open", "sub", ROOM_ID, GUEST_ID, 1));
 
         notifier.record(activity(1, 1, HOST_ID));
@@ -92,7 +95,7 @@ class DefaultChatRoomActivityNotifierTest {
     @Test
     void 회원마다_자기가_보낸_메시지와_가시_범위_밖_메시지는_세지_않는다() {
         // 게스트는 순번 3부터 보인다(재입장)
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1), member(GUEST_ID, 2, 3)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1), member(GUEST_ID, 2, 3)));
 
         notifier.record(activity(1, 1, HOST_ID));
         notifier.record(activity(2, 1, GUEST_ID));
@@ -111,7 +114,7 @@ class DefaultChatRoomActivityNotifierTest {
 
     @Test
     void 묶음_마지막_메시지_버전으로_참여를_다시_읽어_그_전에_나간_회원에게_보내지_않는다() {
-        when(reader.findRoomMembership(ROOM_ID))
+        when(loader.load(ROOM_ID))
                 .thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)))
                 .thenReturn(membership(2, member(HOST_ID, 1, 1)));
         notifier.record(activity(1, 1, HOST_ID));
@@ -123,12 +126,12 @@ class DefaultChatRoomActivityNotifierTest {
         notifier.flush();
 
         verify(sender, never()).sendRoomActivity(eq(GUEST_ID), any(), any());
-        verify(reader, times(2)).findRoomMembership(ROOM_ID);
+        verify(loader, times(2)).load(ROOM_ID);
     }
 
     @Test
     void 접속_중이_아닌_회원과_알림_대상이_아닌_메시지는_보내지_않는다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
         doReturn(Set.of()).when(presence).onlineAmong(any());
 
         notifier.record(activity(1, 1, HOST_ID));
@@ -149,7 +152,7 @@ class DefaultChatRoomActivityNotifierTest {
         when(connections.connectedUserIds()).thenReturn(local);
         doReturn(local).when(connections).connectedAmong(any());
         when(connections.sessionIdsOf(any())).thenAnswer(invocation -> Set.of("s-" + invocation.getArgument(0)));
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(new RoomMembership(1, members));
+        when(loader.load(ROOM_ID)).thenReturn(new RoomMembership(1, members));
 
         for (int batch = 0; batch < 5; batch++) {
             for (int i = 1; i <= 20; i++) {
@@ -158,7 +161,7 @@ class DefaultChatRoomActivityNotifierTest {
             notifier.flush();
         }
 
-        verify(reader, times(1)).findRoomMembership(ROOM_ID);
+        verify(loader, times(1)).load(ROOM_ID);
         verify(presence, times(5)).onlineAmong(any());
         // 보낸 사람(1번)을 뺀 999명에게 묶음마다 한 번(초당 20건이어도 회원당 한 번)
         verify(sender, times(999 * 5)).sendRoomActivity(any(), any(), any());
@@ -166,7 +169,7 @@ class DefaultChatRoomActivityNotifierTest {
 
     @Test
     void 묶음을_얻은_직후_묶음_주기가_끼어들어도_그_메시지를_잃지_않는다() throws Exception {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
         PausingBatches batches = new PausingBatches();
         ReflectionTestUtils.setField(notifier, "batches", batches);
         notifier.record(activity(1, 1, HOST_ID));

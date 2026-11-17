@@ -15,15 +15,18 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.ChatUnreadMemberCounter.RecentCounts;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
-import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.LocalChatSender;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
 import com.hapbang.chat.app.port.RoomChannelSubscriptions;
+import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -38,11 +41,11 @@ class DefaultChatReadCountNotifierTest {
     private static final Long GUEST_A = 11L;
     private static final long VERSION = 1_700_000_000_000_000L;
 
-    private final ChatRecipientStateReader reader = mock(ChatRecipientStateReader.class);
+    private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final ChatUnreadMemberCounter counter = mock(ChatUnreadMemberCounter.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels(), 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+    private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final ChatReadCountNotifier notifier = new DefaultChatReadCountNotifier(subscriptions, cache, counter,
             sender, 100);
@@ -52,12 +55,12 @@ class DefaultChatReadCountNotifierTest {
         notifier.record(new ReadChangedFanout(ROOM_ID, 0));
         notifier.flush();
 
-        verifyNoInteractions(counter, sender, reader);
+        verifyNoInteractions(counter, sender, loader);
     }
 
     @Test
     void 같은_방의_신호는_묶음마다_한_번만_세고_마지막_100개_구간으로_센다() {
-        when(reader.findRoomMembership(ROOM_ID))
+        when(loader.load(ROOM_ID))
                 .thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenReturn(Optional.of(counts(1, 3, Map.of(1L, 0, 3L, 1))));
@@ -79,7 +82,7 @@ class DefaultChatReadCountNotifierTest {
     @Test
     void 현재_세대이고_참여_중이고_채팅할_수_있는_구독에만_보낸다() {
         Long suspended = 12L;
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(3, member(HOST_ID, 1, 1),
+        when(loader.load(ROOM_ID)).thenReturn(membership(3, member(HOST_ID, 1, 1),
                 member(GUEST_ID, 2, 1), new ChatRecipientState(suspended, false, true, 1, 1)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenReturn(Optional.of(counts(1, 2, Map.of(2L, 1))));
@@ -102,7 +105,7 @@ class DefaultChatReadCountNotifierTest {
     @Test
     void 구독_회원의_가시_범위_앞_순번은_싣지_않고_같은_범위의_구독끼리_payload를_한_번만_만든다() {
         // 게스트 A는 순번 3부터 보인다(늦게 초대됨). 구간에 없는 순번(0인 메시지)은 0이다
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1),
+        when(loader.load(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1),
                 member(GUEST_ID, 1, 1), member(GUEST_A, 1, 3)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenReturn(Optional.of(counts(1, 4,
@@ -133,7 +136,7 @@ class DefaultChatReadCountNotifierTest {
 
     @Test
     void 가시_범위가_센_구간_뒤인_구독에는_보내지_않는다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1),
+        when(loader.load(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1, 1),
                 member(GUEST_A, 1, 5)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenReturn(Optional.of(counts(1, 4, Map.of(4L, 1))));
@@ -148,7 +151,7 @@ class DefaultChatReadCountNotifierTest {
 
     @Test
     void 참여_변경_신호의_수신자_집합_버전이_캐시보다_새로우면_참여를_다시_읽는다() {
-        when(reader.findRoomMembership(ROOM_ID))
+        when(loader.load(ROOM_ID))
                 .thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)))
                 .thenReturn(membership(2, member(HOST_ID, 1, 1)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
@@ -165,7 +168,7 @@ class DefaultChatReadCountNotifierTest {
         notifier.record(new ReadChangedFanout(ROOM_ID, 0));
         notifier.flush();
 
-        verify(reader, times(2)).findRoomMembership(ROOM_ID);
+        verify(loader, times(2)).load(ROOM_ID);
         ArgumentCaptor<List<RoomTarget>> targets = targetsCaptor();
         verify(sender).sendReadCounts(eq(ROOM_ID), any(), targets.capture());
         assertThat(targets.getValue()).extracting(RoomTarget::sessionId).containsExactly("h-1");
@@ -174,7 +177,7 @@ class DefaultChatReadCountNotifierTest {
     @Test
     void 캐시를_읽은_뒤_강퇴와_새_메시지가_커밋돼도_센_스냅샷의_버전으로_참여를_다시_읽어_강퇴된_회원에게_보내지_않는다() {
         // 캐시는 강퇴 전(버전 1)이다. 그 뒤 게스트 강퇴(버전 2)와 새 메시지(순번 3)가 커밋되고, 집계가 그 스냅샷을 센다
-        when(reader.findRoomMembership(ROOM_ID))
+        when(loader.load(ROOM_ID))
                 .thenReturn(membership(1, member(HOST_ID, 1, 1), member(GUEST_ID, 1, 1)))
                 .thenReturn(membership(2, member(HOST_ID, 1, 1)));
         cache.get(ROOM_ID, 1);
@@ -187,9 +190,9 @@ class DefaultChatReadCountNotifierTest {
         notifier.flush();
 
         // 집계를 먼저 하고, 참여는 그 스냅샷의 버전 이상으로 읽는다
-        var order = inOrder(counter, reader);
+        var order = inOrder(counter, loader);
         order.verify(counter).countRecent(eq(ROOM_ID), eq(100), any());
-        order.verify(reader).findRoomMembership(ROOM_ID);
+        order.verify(loader).load(ROOM_ID);
         ArgumentCaptor<List<RoomTarget>> targets = targetsCaptor();
         verify(sender).sendReadCounts(eq(ROOM_ID), any(), targets.capture());
         assertThat(targets.getValue()).extracting(RoomTarget::sessionId).containsExactly("h-1");
@@ -197,7 +200,7 @@ class DefaultChatReadCountNotifierTest {
 
     @Test
     void 집계에_실패하면_그_묶음만_버리고_다음_신호는_다시_센다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenThrow(new IllegalStateException("DB 장애"))
                 .thenReturn(Optional.of(counts(1, 1, Map.of())));
@@ -215,7 +218,7 @@ class DefaultChatReadCountNotifierTest {
 
     @Test
     void 없거나_볼_수_없게_된_방이면_세지_않은_것으로_보고_보내지_않는다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1, 1)));
         when(counter.countRecent(eq(ROOM_ID), eq(100), any()))
                 .thenReturn(Optional.empty());
         subscriptions.register(new Subscription("h-1", "sub", ROOM_ID, HOST_ID, 1));
@@ -224,7 +227,7 @@ class DefaultChatReadCountNotifierTest {
         notifier.flush();
 
         // 집계가 빈 값이면 참여도 읽지 않고 아무에게도 보내지 않는다
-        verifyNoInteractions(sender, reader);
+        verifyNoInteractions(sender, loader);
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.hapbang.chat.app.dto;
 
+import com.hapbang.chat.domain.ChatRoomMember;
+import com.hapbang.chat.domain.ChatUser;
+
 /**
  * 실시간 전달 직전에 다시 읽은 수신 후보의 최신 상태.
  *
@@ -15,6 +18,19 @@ public record ChatRecipientState(
         int participationVersion,
         long visibleFromSequence
 ) {
+
+    /**
+     * 회원 복제본과 그 방의 참여 행으로 만든다. 회원 자격은 도메인({@link ChatUser#canChat()}), 참여 상태는
+     * {@link ChatRoomMember}의 값을 그대로 쓴다.
+     *
+     * @param member 그 방의 참여 행. 없으면 null(참여 중 아님, 세대 0, 볼 수 있는 순번 없음)
+     */
+    public static ChatRecipientState of(ChatUser user, ChatRoomMember member) {
+        return member == null
+                ? new ChatRecipientState(user.getId(), user.canChat(), false, 0, Long.MAX_VALUE)
+                : new ChatRecipientState(user.getId(), user.canChat(), member.isActive(),
+                        member.getParticipationVersion(), member.getVisibleFromSequence());
+    }
 
     /**
      * 메시지 저장 당시의 참여 세대와 순번으로 지금 받을 수 있는지. 자격·현재 참여·세대 일치·가시 범위를 모두 만족해야 한다.

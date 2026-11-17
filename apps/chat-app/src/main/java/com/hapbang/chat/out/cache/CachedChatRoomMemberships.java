@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.out.cache;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -14,14 +14,15 @@ import org.springframework.util.Assert;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 방 활성 참여자의 상태 캐시. 방 topic 전달·새 메시지 알림이 버전 확인 규칙(설계 4.2)으로 쓴다.
+ * 방 활성 참여자의 상태 캐시({@link ChatRoomMemberships}의 구현). 방 topic 전달·새 메시지 알림이 버전 확인 규칙(설계 4.2)으로 쓴다.
+ * DB 조회는 {@link ChatRoomMembershipLoader}가 repository port로, 읽기 전용 트랜잭션 하나로 한다.
  * <ul>
  *     <li>메시지는 저장 때 가리킨 수신자 집합 버전 V를 싣는다. 캐시 버전이 V보다 작으면 DB에서 다시 읽는다(버전을 먼저, 참여를
  *     나중에). 퇴장·재입장은 방 잠금 아래 버전을 올리므로, 퇴장 커밋 뒤 저장된 메시지를 처음 내보낼 때 반드시 그 퇴장을 본다.</li>
@@ -47,12 +48,12 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-public class ChatRoomMembershipCache {
+public class CachedChatRoomMemberships implements ChatRoomMemberships {
 
     /** 지표의 {@code cache} 태그 값 */
     public static final String CACHE_NAME = "chat.realtime.room_membership";
 
-    private final ChatRecipientStateReader chatRecipientStateReader;
+    private final ChatRoomMembershipLoader chatRoomMembershipLoader;
     private final long refreshNanos;
     /** 방 ID → 방 참여 상태. 완료 전 future는 그 방을 지금 읽는 중이라는 자리다. 실패한 future는 담지 않는다 */
     private final Cache<Long, CompletableFuture<Entry>> entries;
@@ -62,18 +63,21 @@ public class ChatRoomMembershipCache {
      * 덮는다.
      */
     @Autowired
-    public ChatRoomMembershipCache(ChatRecipientStateReader chatRecipientStateReader, MeterRegistry meterRegistry,
+    public CachedChatRoomMemberships(ChatRoomMembershipLoader chatRoomMembershipLoader, MeterRegistry meterRegistry,
             @Value("${hapbang.chat.realtime.room.membership-cache-rooms:1000}") int maxRooms,
             @Value("${hapbang.chat.realtime.room.membership-refresh:60s}") Duration refresh) {
-        this(chatRecipientStateReader, meterRegistry, maxRooms, refresh, ForkJoinPool.commonPool());
+        this(chatRoomMembershipLoader, meterRegistry, maxRooms, refresh, ForkJoinPool.commonPool());
     }
 
-    /** 퇴출 등 캐시 정리를 돌릴 실행기를 직접 넘긴다(테스트). 운영은 Caffeine 기본값인 공용 풀이다 */
-    ChatRoomMembershipCache(ChatRecipientStateReader chatRecipientStateReader, MeterRegistry meterRegistry,
+    /**
+     * 퇴출 등 캐시 정리를 돌릴 실행기를 직접 넘긴다(테스트용). 운영은 Caffeine 기본값인 공용 풀이다. app 서비스 테스트도 버전 규칙을
+     * 함께 확인하려고 이 생성자로 실제 캐시를 만든다.
+     */
+    public CachedChatRoomMemberships(ChatRoomMembershipLoader chatRoomMembershipLoader, MeterRegistry meterRegistry,
             int maxRooms, Duration refresh, Executor maintenanceExecutor) {
         Assert.isTrue(maxRooms > 0, "hapbang.chat.realtime.room.membership-cache-rooms는 1 이상이어야 합니다.");
         Assert.isTrue(refresh.isPositive(), "hapbang.chat.realtime.room.membership-refresh는 0보다 커야 합니다.");
-        this.chatRecipientStateReader = chatRecipientStateReader;
+        this.chatRoomMembershipLoader = chatRoomMembershipLoader;
         this.refreshNanos = refresh.toNanos();
         this.entries = Caffeine.newBuilder()
                 .maximumSize(maxRooms)
@@ -83,11 +87,7 @@ public class ChatRoomMembershipCache {
         CaffeineCacheMetrics.monitor(meterRegistry, entries, CACHE_NAME);
     }
 
-    /**
-     * 적어도 {@code minSetVersion}까지의 참여 변경을 반영한 방 참여 상태.
-     *
-     * @throws RuntimeException 조회 실패
-     */
+    @Override
     public RoomMembership get(Long roomId, int minSetVersion) {
         Entry present = completedValue(entries.getIfPresent(roomId));
         Entry entry = isUsable(present, minSetVersion)
@@ -102,10 +102,9 @@ public class ChatRoomMembershipCache {
     }
 
     /**
-     * 캐시와 관계없이 지금 DB에서 다시 읽는다(더 낮은 버전으로 덮지는 않는다). 캐시가 구독보다 먼저 읽힌 탓에 판단이 어긋날 수 있을
-     * 때(재입장 뒤 새 세대로 등록한 구독을 재입장 전에 읽은 상태로 판단하는 경우) 회수하기 전에 부른다. 같은 방을 이미 읽는 중이면
-     * 그 읽기는 이 호출 전에 시작했으므로 끝나기를 기다린 뒤 직접 다시 읽는다.
+     * 같은 방을 이미 읽는 중이면 그 읽기는 이 호출 전에 시작했으므로 끝나기를 기다린 뒤 직접 다시 읽는다.
      */
+    @Override
     public RoomMembership refresh(Long roomId) {
         return load(roomId, cached -> false).membership();
     }
@@ -144,7 +143,7 @@ public class ChatRoomMembershipCache {
     /** 계산 밖에서 DB를 읽어 이 요청이 세운 자리를 채운다. 실패하면 자리를 읽기 전 값으로 되돌린 뒤 기다리던 요청을 깨운다 */
     private Entry read(Long roomId, CompletableFuture<Entry> created, @Nullable Entry previous) {
         try {
-            RoomMembership loaded = chatRecipientStateReader.findRoomMembership(roomId);
+            RoomMembership loaded = chatRoomMembershipLoader.load(roomId);
             Entry entry = previous != null && loaded.setVersion() < previous.membership().setVersion()
                     ? previous
                     : new Entry(loaded, System.nanoTime());

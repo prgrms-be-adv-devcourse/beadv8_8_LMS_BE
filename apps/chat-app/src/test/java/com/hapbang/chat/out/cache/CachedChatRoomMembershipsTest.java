@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.out.cache;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.QueryTimeoutException;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
 import com.hapbang.chat.app.dto.ChatRecipientState;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -26,103 +26,103 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  * 충분한 캐시는 잠금 없이 돌려주고, 같은 방의 다시 읽기는 한 번에 하나이고, 조회가 실패하면 캐시를 바꾸지 않으며,
  * 방 수 상한을 넘으면 방을 버린다.
  */
-class ChatRoomMembershipCacheTest {
+class CachedChatRoomMembershipsTest {
 
-    private final ChatRecipientStateReader reader = mock(ChatRecipientStateReader.class);
+    private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     @Test
     void 캐시_버전_이하의_메시지는_다시_읽지_않고_더_큰_버전에서만_다시_읽는다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3), membership(4));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(3), membership(4));
 
         assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
         assertThat(cache.get(1L, 2).setVersion()).isEqualTo(3);
         assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
         assertThat(cache.get(1L, 4).setVersion()).isEqualTo(4);
 
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
     }
 
     @Test
     void 자격_재조회_주기가_지나면_버전이_같아도_다시_읽는다() throws Exception {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofMillis(50));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofMillis(50));
+        when(loader.load(1L)).thenReturn(membership(3));
 
         cache.get(1L, 3);
         Thread.sleep(80);
         cache.get(1L, 3);
 
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
     }
 
     @Test
     void 메시지보다_낮은_버전만_읽히면_확인하지_못한_것으로_본다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(2));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(2));
 
         assertThatThrownBy(() -> cache.get(1L, 3)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void 조회_실패는_그대로_알린다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenThrow(new QueryTimeoutException("timeout"));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenThrow(new QueryTimeoutException("timeout"));
 
         assertThatThrownBy(() -> cache.get(1L, 1)).isInstanceOf(QueryTimeoutException.class);
     }
 
     @Test
     void 조회가_실패하면_캐시는_그대로이고_다음_요청은_이전_상태를_쓴다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3)).thenThrow(new QueryTimeoutException("timeout"));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(3)).thenThrow(new QueryTimeoutException("timeout"));
 
         cache.get(1L, 3);
         assertThatThrownBy(() -> cache.get(1L, 4)).isInstanceOf(QueryTimeoutException.class);
 
         assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
     }
 
     @Test
     void 처음_조회가_실패해도_다음_요청은_다시_읽는다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenThrow(new QueryTimeoutException("timeout")).thenReturn(membership(3));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenThrow(new QueryTimeoutException("timeout")).thenReturn(membership(3));
 
         assertThatThrownBy(() -> cache.get(1L, 1)).isInstanceOf(QueryTimeoutException.class);
 
         assertThat(cache.get(1L, 1).setVersion()).isEqualTo(3);
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
     }
 
     @Test
     void 메시지보다_낮은_버전을_읽어도_읽은_결과는_캐시에_남는다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(2));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(2));
 
         assertThatThrownBy(() -> cache.get(1L, 3)).isInstanceOf(IllegalStateException.class);
 
         assertThat(cache.get(1L, 2).setVersion()).isEqualTo(2);
-        verify(reader, times(1)).findRoomMembership(1L);
+        verify(loader, times(1)).load(1L);
     }
 
     @Test
     void 주기가_지나_다시_읽은_버전이_더_낮으면_덮지_않고_다음_요청에서_다시_읽는다() throws Exception {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofMillis(50));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(5), membership(4), membership(5));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofMillis(50));
+        when(loader.load(1L)).thenReturn(membership(5), membership(4), membership(5));
 
         cache.get(1L, 5);
         Thread.sleep(80);
 
         assertThat(cache.get(1L, 1).setVersion()).isEqualTo(5);
         assertThat(cache.get(1L, 1).setVersion()).isEqualTo(5);
-        verify(reader, times(3)).findRoomMembership(1L);
+        verify(loader, times(3)).load(1L);
     }
 
     @Test
     void refresh는_캐시와_관계없이_다시_읽고_더_낮은_버전으로_덮지_않는다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(5), membership(4), membership(6));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(5), membership(4), membership(6));
 
         assertThat(cache.refresh(1L).setVersion()).isEqualTo(5);
         assertThat(cache.refresh(1L).setVersion()).isEqualTo(5);
@@ -130,27 +130,27 @@ class ChatRoomMembershipCacheTest {
         assertThat(cache.refresh(1L).setVersion()).isEqualTo(6);
         assertThat(cache.get(1L, 6).setVersion()).isEqualTo(6);
 
-        verify(reader, times(3)).findRoomMembership(1L);
+        verify(loader, times(3)).load(1L);
     }
 
     @Test
     void refresh_조회가_실패하면_캐시는_그대로다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3)).thenThrow(new QueryTimeoutException("timeout"));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(3)).thenThrow(new QueryTimeoutException("timeout"));
 
         cache.get(1L, 3);
         assertThatThrownBy(() -> cache.refresh(1L)).isInstanceOf(QueryTimeoutException.class);
 
         assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
     }
 
     @Test
     void 같은_방의_동시_요청은_DB를_한_번만_읽는다() throws Exception {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
         CountDownLatch reading = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        when(reader.findRoomMembership(1L)).thenAnswer(invocation -> {
+        when(loader.load(1L)).thenAnswer(invocation -> {
             reading.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return membership(3);
@@ -170,18 +170,18 @@ class ChatRoomMembershipCacheTest {
             assertThat(first.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
             assertThat(second.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
         }
-        verify(reader, times(1)).findRoomMembership(1L);
+        verify(loader, times(1)).load(1L);
     }
 
     @Test
     void 한_방의_DB_조회가_멈춰도_다른_방은_hit도_miss도_기다리지_않는다() throws Exception {
         // 1·33·65는 Caffeine 안 해시 표가 작을 때 같은 해시 칸에 드는 방 ID다(칸 잠금 안에서 DB를 읽으면 33·65가 기다린다)
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
         CountDownLatch reading = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        when(reader.findRoomMembership(33L)).thenReturn(membership(1));
-        when(reader.findRoomMembership(65L)).thenReturn(membership(1));
-        when(reader.findRoomMembership(1L)).thenAnswer(invocation -> {
+        when(loader.load(33L)).thenReturn(membership(1));
+        when(loader.load(65L)).thenReturn(membership(1));
+        when(loader.load(1L)).thenAnswer(invocation -> {
             reading.countDown();
             assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
             return membership(3);
@@ -209,15 +209,15 @@ class ChatRoomMembershipCacheTest {
             assertThat(first.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
             assertThat(second.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
         }
-        verify(reader, times(1)).findRoomMembership(1L);
-        verify(reader, times(1)).findRoomMembership(33L);
-        verify(reader, times(1)).findRoomMembership(65L);
+        verify(loader, times(1)).load(1L);
+        verify(loader, times(1)).load(33L);
+        verify(loader, times(1)).load(65L);
     }
 
     @Test
     void 방_수_상한을_넘으면_방을_버리고_다시_읽는다() {
-        ChatRoomMembershipCache cache = cache(2, Duration.ofHours(1));
-        when(reader.findRoomMembership(anyLong())).thenReturn(membership(1));
+        CachedChatRoomMemberships cache = cache(2, Duration.ofHours(1));
+        when(loader.load(anyLong())).thenReturn(membership(1));
 
         for (int pass = 0; pass < 2; pass++) {
             for (long roomId = 1; roomId <= 10; roomId++) {
@@ -226,23 +226,23 @@ class ChatRoomMembershipCacheTest {
         }
 
         // 상한이 2이므로 두 번째 차례에서 적어도 8개 방은 버려져 다시 읽는다. 어떤 방을 버릴지는 정하지 않는다
-        verify(reader, atLeast(18)).findRoomMembership(anyLong());
+        verify(loader, atLeast(18)).load(anyLong());
     }
 
     @Test
     void 캐시_크기와_퇴출_수를_지표로_낸다() {
-        ChatRoomMembershipCache cache = cache(2, Duration.ofHours(1));
-        when(reader.findRoomMembership(anyLong())).thenReturn(membership(1));
-        when(reader.findRoomMembership(99L)).thenThrow(new QueryTimeoutException("timeout"));
+        CachedChatRoomMemberships cache = cache(2, Duration.ofHours(1));
+        when(loader.load(anyLong())).thenReturn(membership(1));
+        when(loader.load(99L)).thenThrow(new QueryTimeoutException("timeout"));
 
         for (long roomId = 1; roomId <= 10; roomId++) {
             cache.get(roomId, 1);
         }
         assertThatThrownBy(() -> cache.get(99L, 1)).isInstanceOf(QueryTimeoutException.class);
 
-        assertThat(meterRegistry.get("cache.size").tag("cache", ChatRoomMembershipCache.CACHE_NAME).gauge().value())
+        assertThat(meterRegistry.get("cache.size").tag("cache", CachedChatRoomMemberships.CACHE_NAME).gauge().value())
                 .isLessThanOrEqualTo(2);
-        assertThat(meterRegistry.get("cache.evictions").tag("cache", ChatRoomMembershipCache.CACHE_NAME)
+        assertThat(meterRegistry.get("cache.evictions").tag("cache", CachedChatRoomMemberships.CACHE_NAME)
                 .functionCounter().count()).isGreaterThanOrEqualTo(8);
         // 모두 처음 보는 방이라 빠른 경로에서 miss, 항목 계산(조회 실패 포함)마다 put으로 센다
         assertThat(gets("miss")).isEqualTo(11);
@@ -251,14 +251,14 @@ class ChatRoomMembershipCacheTest {
 
     @Test
     void 빠른_경로는_충분한_캐시면_DB를_부르지_않고_낮은_버전이면_항목_계산으로_간다() {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3), membership(4));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofHours(1));
+        when(loader.load(1L)).thenReturn(membership(3), membership(4));
 
         cache.get(1L, 3);
         assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
         assertThat(cache.get(1L, 4).setVersion()).isEqualTo(4);
 
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
         assertThat(gets("miss")).isEqualTo(1);
         assertThat(gets("hit")).isEqualTo(2);
         // 두 번째 요청은 항목 계산에 들어가지 않는다
@@ -267,31 +267,31 @@ class ChatRoomMembershipCacheTest {
 
     @Test
     void 빠른_경로는_주기가_지난_캐시면_항목_계산으로_간다() throws Exception {
-        ChatRoomMembershipCache cache = cache(10, Duration.ofMillis(50));
-        when(reader.findRoomMembership(1L)).thenReturn(membership(3));
+        CachedChatRoomMemberships cache = cache(10, Duration.ofMillis(50));
+        when(loader.load(1L)).thenReturn(membership(3));
 
         cache.get(1L, 3);
         Thread.sleep(80);
         cache.get(1L, 3);
 
-        verify(reader, times(2)).findRoomMembership(1L);
+        verify(loader, times(2)).load(1L);
         assertThat(gets("hit")).isEqualTo(1);
         assertThat(puts()).isEqualTo(2);
     }
 
     private double gets(String result) {
-        return meterRegistry.get("cache.gets").tag("cache", ChatRoomMembershipCache.CACHE_NAME).tag("result", result)
+        return meterRegistry.get("cache.gets").tag("cache", CachedChatRoomMemberships.CACHE_NAME).tag("result", result)
                 .functionCounter().count();
     }
 
     private double puts() {
-        return meterRegistry.get("cache.puts").tag("cache", ChatRoomMembershipCache.CACHE_NAME)
+        return meterRegistry.get("cache.puts").tag("cache", CachedChatRoomMemberships.CACHE_NAME)
                 .functionCounter().count();
     }
 
     /** 퇴출을 호출 스레드에서 바로 돌려 상한을 곧바로 확인할 수 있게 한다 */
-    private ChatRoomMembershipCache cache(int maxRooms, Duration refresh) {
-        return new ChatRoomMembershipCache(reader, meterRegistry, maxRooms, refresh, Runnable::run);
+    private CachedChatRoomMemberships cache(int maxRooms, Duration refresh) {
+        return new CachedChatRoomMemberships(loader, meterRegistry, maxRooms, refresh, Runnable::run);
     }
 
     /** 두 번째 요청이 같은 방의 첫 조회를 기다리며 멈출 때까지 기다린다 */
