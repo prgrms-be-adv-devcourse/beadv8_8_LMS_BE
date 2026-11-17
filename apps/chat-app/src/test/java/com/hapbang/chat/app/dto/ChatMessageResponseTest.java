@@ -4,6 +4,7 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +33,7 @@ class ChatMessageResponseTest {
         ChatMessage message = ChatMessage.appearanceRequestSent(directRoom(), HOST_ID, 10L,
                 AppearanceRequestSentData.of("호스트", request), NOW);
 
-        ChatMessageResponse response = ChatMessageResponse.of(message, GUEST_ID);
+        ChatMessageResponse response = ChatMessageResponse.of(message, GUEST_ID, Map.of());
         JsonNode json = JSON.readTree(JSON.writeValueAsString(response));
 
         assertThat(json.get("content").asString()).isEmpty();
@@ -76,7 +77,7 @@ class ChatMessageResponseTest {
     void 일반_메시지의_알림_값_필드는_모두_null이고_본문을_그대로_내보낸다() {
         ChatMessage message = ChatMessage.text(directRoom(), HOST_ID, "안녕하세요", "client-1", NOW);
 
-        JsonNode json = JSON.readTree(JSON.writeValueAsString(ChatMessageResponse.of(message, HOST_ID)));
+        JsonNode json = JSON.readTree(JSON.writeValueAsString(ChatMessageResponse.of(message, HOST_ID, Map.of())));
 
         for (String field : new String[] {"appearanceRequestSent", "appearanceApplicationSubmitted"}) {
             assertThat(json.has(field)).isTrue();

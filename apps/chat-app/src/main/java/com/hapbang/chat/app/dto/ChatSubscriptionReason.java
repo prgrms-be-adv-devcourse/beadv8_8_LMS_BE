@@ -20,7 +20,5 @@ public enum ChatSubscriptionReason {
     /** 그 회원이 방을 나갔다(회수) */
     LEFT,
     /** 그 회원이 방에서 내보내졌다(회수) */
-    REMOVED,
-    /** 방이 닫혔다(회수) */
-    ROOM_CLOSED
+    REMOVED
 }
