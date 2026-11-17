@@ -95,7 +95,7 @@ class ChatUserBackfillIntegrationTest {
     @MockitoSpyBean
     private ChatUserRepository chatUserRepository;
 
-    @MockitoSpyBean
+    @Autowired
     private ChatUserTestRepository chatUserTestRepository;
 
     private ChatNativeSql sql;

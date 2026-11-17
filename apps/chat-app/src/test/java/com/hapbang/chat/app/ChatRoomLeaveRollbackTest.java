@@ -32,7 +32,7 @@ class ChatRoomLeaveRollbackTest {
     @MockitoSpyBean
     private ChatMessageRepository chatMessageRepository;
 
-    @MockitoSpyBean
+    @Autowired
     private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired

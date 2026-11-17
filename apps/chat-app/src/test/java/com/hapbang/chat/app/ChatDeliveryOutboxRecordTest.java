@@ -76,19 +76,19 @@ class ChatDeliveryOutboxRecordTest {
     @MockitoSpyBean
     private ChatOutboxRepository chatOutboxRepository;
 
-    @MockitoSpyBean
+    @Autowired
     private ChatOutboxTestRepository chatOutboxTestRepository;
 
     @MockitoSpyBean
     private ChatRecipientSetMemberRepository chatRecipientSetMemberRepository;
 
-    @MockitoSpyBean
+    @Autowired
     private ChatRecipientSetMemberTestRepository chatRecipientSetMemberTestRepository;
 
     @MockitoSpyBean
     private ChatMessageRepository chatMessageRepository;
 
-    @MockitoSpyBean
+    @Autowired
     private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
