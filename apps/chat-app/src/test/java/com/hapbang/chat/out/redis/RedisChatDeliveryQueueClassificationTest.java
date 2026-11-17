@@ -110,7 +110,7 @@ class RedisChatDeliveryQueueClassificationTest {
         assertThat(wrongArity).isNotNull();
         assertThat(RedisFailures.hasMessage(wrongArity, "ERR")).isTrue();
         assertThat(RedisFailures.isConnectivityFailure(wrongArity)).isFalse();
-        assertThat(RedisFailures.isMemoryFull(wrongArity)).isFalse();
+        assertThat(RedisFailures.isWriteRejected(wrongArity)).isFalse();
 
         Throwable noScript = catchThrowable(() -> redis.execute((RedisCallback<Object>) connection ->
                 connection.scriptingCommands().evalSha("ffffffffffffffffffffffffffffffffffffffff", ReturnType.STATUS,
