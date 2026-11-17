@@ -21,8 +21,6 @@ public interface MemberCouponRepository extends Repository<MemberCoupon, Long>, 
 
     /** 회원당 같은 쿠폰 1장 */
     String MEMBER_COUPON_UNIQUE = "uk_member_coupon_member_coupon";
-    /** 같은 쿠폰·같은 발급 요청은 1장 */
-    String ISSUE_REQUEST_UNIQUE = "uk_member_coupon_issue_request";
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends MemberCoupon> S saveAndFlush(S entity);

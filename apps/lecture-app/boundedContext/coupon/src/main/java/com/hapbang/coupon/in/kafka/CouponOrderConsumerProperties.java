@@ -29,9 +29,4 @@ public record CouponOrderConsumerProperties(Integer retryAttempts, Duration retr
                     "hapbang.coupon.order-consumer.retry-interval은 0보다 크고 retry-max-interval 이하여야 한다");
         }
     }
-
-    /** 모두 기본값 */
-    public static CouponOrderConsumerProperties defaults() {
-        return new CouponOrderConsumerProperties(null, null, null);
-    }
 }

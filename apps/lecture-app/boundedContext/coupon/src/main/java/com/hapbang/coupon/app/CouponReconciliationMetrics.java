@@ -70,9 +70,4 @@ public class CouponReconciliationMetrics {
     public long backlogHolds() {
         return backlogHolds.get();
     }
-
-    /** 테스트·확인용 */
-    public long capacityReserved() {
-        return capacityReserved.get();
-    }
 }

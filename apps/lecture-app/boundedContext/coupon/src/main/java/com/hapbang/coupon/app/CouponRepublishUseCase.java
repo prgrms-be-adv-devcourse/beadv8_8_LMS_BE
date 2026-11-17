@@ -350,11 +350,6 @@ public class CouponRepublishUseCase {
      * @param ending 훑기를 어떻게 끝냈는가
      */
     public record CouponResult(long couponId, int sent, int acked, int failed, Ending ending) {
-
-        /** 끝까지 훑지 못했는가(멈춤·오류) */
-        public boolean stopped() {
-            return ending != Ending.COMPLETED;
-        }
     }
 
     /** 한 쿠폰의 훑기를 끝낸 방식 */
