@@ -5,8 +5,8 @@ import java.util.Locale;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.coupon.app.port.CouponDltLogReader;
 import com.hapbang.coupon.domain.IssueCompensation;
-import com.hapbang.coupon.out.CouponDltLogRepository;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -35,12 +35,12 @@ public class CouponDltMetrics {
     static final String COMPENSATIONS = "coupon.issue.compensations";
 
     private final MeterRegistry meterRegistry;
-    private final CouponDltLogRepository couponDltLogRepository;
+    private final CouponDltLogReader couponDltLogReader;
 
     public CouponDltMetrics(ObjectProvider<MeterRegistry> meterRegistryProvider,
-                            CouponDltLogRepository couponDltLogRepository) {
+                            CouponDltLogReader couponDltLogReader) {
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
-        this.couponDltLogRepository = couponDltLogRepository;
+        this.couponDltLogReader = couponDltLogReader;
         Gauge.builder(PENDING, this, CouponDltMetrics::countPending)
                 .description("처리되지 않은 쿠폰 DLT 격리 기록 수(발급 요청·주문 이벤트, PENDING·REPLAYING, 수집 때마다 셈, "
                         + "세지 못하면 NaN)")
@@ -61,7 +61,7 @@ public class CouponDltMetrics {
 
     double countPending() {
         try {
-            return couponDltLogRepository.countUnresolved();
+            return couponDltLogReader.countUnresolved();
         } catch (RuntimeException e) {
             log.warn("쿠폰 발급 DLT 격리 기록 수를 세지 못했다", e);
             return Double.NaN;

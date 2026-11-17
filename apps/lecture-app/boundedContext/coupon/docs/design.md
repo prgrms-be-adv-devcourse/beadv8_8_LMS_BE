@@ -11,7 +11,7 @@
 | Gradle 프로젝트 | 경로 | 역할 | 의존 |
 | --- | --- | --- | --- |
 | `:lecture-app` | `apps/lecture-app` | 실행 진입점 `LectureApplication`, `application.yaml`, Dockerfile, Flyway, **기존 강의 모듈 코드(`com.hapbang.lecture`) 그대로** | `:shared`, `runtimeOnly(project(":coupon"))` |
-| `:coupon` | `apps/lecture-app/boundedContext/coupon` | 쿠폰 모듈(`com.hapbang.coupon`) | `:shared`와, 쿠폰 코드가 컴파일에 필요한 것을 `:coupon/build.gradle.kts`에 직접 선언: `:kafka`, `:redis`(패키지 `com.hapbang.common`), data-jpa, webmvc, validation, security-core, swagger-annotations, resilience4j-circuitbreaker, `micrometer-core`(지표), `compileOnly postgresql`(UNIQUE 제약 이름으로 멱등 판별). `caffeine`(매진 캐시)만 새 라이브러리이고 decisions.md의 2026-11-09 결정으로 들였다. 나머지는 lecture-app이 이미 실어 오는 것이다. 루트 Gradle의 공통 적용은 `-app` 프로젝트에만 걸리므로 하위 프로젝트는 스스로 선언한다 |
+| `:coupon` | `apps/lecture-app/boundedContext/coupon` | 쿠폰 모듈(`com.hapbang.coupon`) | `:shared`와, 쿠폰 코드가 컴파일에 필요한 것을 `:coupon/build.gradle.kts`에 직접 선언: `:kafka`, `:redis`(패키지 `com.hapbang.common`), data-jpa, webmvc, validation, security-core, swagger-annotations, resilience4j-circuitbreaker, `micrometer-core`(지표), `compileOnly postgresql`(UNIQUE 제약 이름으로 멱등 판별). `caffeine`(매진 캐시)과 `querydsl-jpa`(조회 쿼리, Q타입은 `querydsl-apt` jpa classifier로 생성)만 새 라이브러리이고 decisions.md의 2026-11-09·2026-11-17 결정으로 들였다. 나머지는 lecture-app이 이미 실어 오는 것이다. 루트 Gradle의 공통 적용은 `-app` 프로젝트에만 걸리므로 하위 프로젝트는 스스로 선언한다 |
 
 - `:lecture-app` → `:coupon`은 **`runtimeOnly`**다. 같은 jar·같은 JVM에 실리되 강의 코드가 쿠폰 클래스를 컴파일 시점에 볼 수 없다. 쿠폰은 강의를 전혀 의존하지 않는다.
 - 두 모듈이 주고받는 **HTTP DTO·Kafka 이벤트 schema는 `common/shared`**에 둔다. 팀 규칙(shared에는 DTO·이벤트·Enum·오류 코드·공통 HTTP Client만)과 같고, 다른 앱 사이와 같은 방식이다. 이벤트 소유권 문제(순환)는 생기지 않는다.
@@ -48,6 +48,7 @@ hapbang-backend/
          │  ├─ package-info.java             # @ApplicationModule(displayName = "Coupon", allowedDependencies = {})
          │  ├─ domain/                       # Coupon, MemberCoupon, CouponUsage, CouponIssueRequest, 상태·금액 규칙
          │  ├─ app/                          # 계산·예약·해제·발급·복원 UseCase, 만료·대사·재발행 배치
+         │  │  └─ port/                      # app이 바깥에 요구하는 계약: Redis·HTTP 포트, DB 조회 계약(XxxReader·RecoveryLookup)과 그 결과 record
          │  ├─ config/                       # Redis·Kafka·Flyway 위치·HTTP 클라이언트 설정
          │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답, 배치 켜기 애노테이션, 인증 principal 읽기)
          │  ├─ in/                           # 들어오는 것: 컨트롤러·리스너 (lecture-app 규칙)
@@ -59,6 +60,8 @@ hapbang-backend/
          │  │  └─ event/                     # Kafka 소비자: OrderItemPaid·OrderItemCancelCompleted(lecture.events.v1)·CouponIssueRequested(coupon.events.v1)
          │  └─ out/                          # 나가는 것: Repository·클라이언트
          │     ├─ CouponRepository.java, MemberCouponRepository.java, … (@Table(schema = "coupon"))
+         │     ├─ XxxRepositoryCustom.java       # app/port의 조회 계약을 이어받는 Spring Data 조각
+         │     ├─ XxxRepositoryCustomImpl.java   # 그 조각의 QueryDSL 구현(JPAQueryFactory는 구현체 안에서 만든다)
          │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행)
          │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행 (접수 직후 앱이 전송, 재발행 배치가 재사용)
          │     └─ billing/                   # billing 내부 API를 부르는 @HttpExchange 클라이언트 (계약은 사용자 담당)
@@ -105,6 +108,15 @@ hapbang-backend/
 - JPA 엔티티는 `@Table(schema = "coupon")`로 스키마를 명시한다. Flyway는 한 인스턴스이고 `schemas: [lecture, coupon]`, `default-schema: lecture`다. 쿠폰 마이그레이션은 `:coupon`의 `db/migration/coupon`에 두며(기본 위치가 재귀로 읽는다) SQL은 `coupon.` 접두사를 명시한다.
 - 다른 스키마를 직접 읽지 않는다(JOIN·FK·Repository 접근 금지). 강의 상태 확인은 제공 계약을 통해 수행한다.
 - 통합 테스트는 한 모듈 롤백이 다른 모듈 커밋을 되돌리지 않음을 확인한다(운영 문서 "경계" 시나리오). HTTP·Kafka만 쓰므로 구조상 묶일 수 없지만, 실수로 Java 직접 호출이 들어오면 Modulith `verify()`가 잡는다.
+
+### DB 조회: QueryDSL, 상태 변경: 저장소 메서드 (2026-11-17)
+
+- 조회 JPQL은 QueryDSL(OpenFeign 7.x)로 쓴다. app 계약 → out custom 인터페이스 → out 구현체 순서다: `app/port`의 `XxxReader`(예: `MemberCouponReader`, `CouponReader`, 복구 조회는 `RecoveryLookup`) ← `out`의 `XxxRepositoryCustom`(계약을 extends) ← `XxxRepositoryCustomImpl`(QueryDSL). Spring Data `XxxRepository`가 `XxxRepositoryCustom`을 extends한다. 이름에 `Port`를 붙이지 않는다.
+- app 서비스는 옮긴 조회를 `XxxReader` 타입으로 주입받아 부른다. 저장·`findById`·이름으로 만드는 메서드·상태 변경은 지금처럼 `XxxRepository`로 부른다. 조회 계약을 구현한 빈이 저장소와 QueryDSL 구현체 둘이므로 저장소 인터페이스에 `@Primary`를 붙여 저장소(예외 변환이 걸린 프록시)가 주입되게 한다.
+- insert·update·delete(`@Modifying` JPQL의 조건부 갱신·CAS)는 QueryDSL로 옮기지 않고 저장소 메서드로 둔다. native SQL(`ON CONFLICT`·`issued_count` 증가)과 `@Lock` 조회, 이름으로 만드는 메서드도 그대로다.
+- `JPAQueryFactory`는 빈으로 등록하지 않고 구현체마다 공유 `EntityManager`로 만든다(`CouponQuerydslSupport`). 같은 JVM의 강의 모듈이 자기 `JPAQueryFactory` 빈을 둘 수 있기 때문이다. 템플릿은 표준 JPQL(`JPQLTemplates.DEFAULT`)이다.
+- 기존 JPQL과 같은 SQL을 만든다. 상태·유형 enum 조건은 바인딩 매개변수가 아닌 리터럴(`CouponQuerydslSupport.literal`)로 써서 부분 인덱스(`status = 'PENDING'`, `type = 'PLATFORM'`, `status in ('USED', 'EXPIRED')`)의 조건과 맞춘다. 예산 수집의 `(expires_at, id)` 행 값 비교는 QueryDSL 템플릿으로 쓴다. 차이는 SQL 의미가 같은 것뿐이다: `A and B or C`의 불필요한 괄호가 빠지고, 값 하나짜리 `in`이 `=`가 된다.
+- 첫 페이지와 다음 페이지를 나누던 메서드(만료 커서, 예산 수집 커서, 상태 선택 목록)는 QueryDSL의 동적 조건으로 한 메서드가 됐다. 커서·상태가 없으면 그 조건을 넣지 않으므로 NULL timestamp 매개변수를 바인딩하지 않는다.
 
 ### 용어: 포트·어댑터·클라이언트 (2026-11-10)
 

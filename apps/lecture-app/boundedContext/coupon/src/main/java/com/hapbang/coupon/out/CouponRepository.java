@@ -1,9 +1,9 @@
 package com.hapbang.coupon.out;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -17,8 +17,14 @@ import com.hapbang.coupon.domain.CouponType;
 
 import jakarta.persistence.LockModeType;
 
-/** 쿠폰 정책 저장소. 동시 상태 변경은 {@code Coupon}의 {@code @Version}이 막는다. 목록 조회는 모두 최신순(같은 시각이면 ID 역순)이다 */
-public interface CouponRepository extends JpaRepository<Coupon, Long> {
+/**
+ * 쿠폰 정책 저장소. 동시 상태 변경은 {@code Coupon}의 {@code @Version}이 막는다. 목록 조회는 모두 최신순(같은 시각이면 ID 역순)이다.
+ * <p>
+ * 조건 조회는 {@link CouponRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약({@code CouponReader}) 주입이 같은 계약을
+ * 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ */
+@Primary
+public interface CouponRepository extends JpaRepository<Coupon, Long>, CouponRepositoryCustom {
 
     /**
      * 쿠폰을 읽고, 상태를 바꾸지 않아도 이 트랜잭션이 커밋될 때 {@code version}을 올린다(OPTIMISTIC_FORCE_INCREMENT).
@@ -30,31 +36,6 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Coupon c where c.id = :id")
     Optional<Coupon> findForBudgetRelease(@Param("id") long id);
-
-    /** 예약은 확정됐지만 한 번도 발급을 열지 못한 만료 플랫폼 쿠폰. 결과 불명 예약은 먼저 같은 작업 ID로 확정한다. */
-    @Query("""
-            select c.id from Coupon c
-            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM
-              and c.status = com.hapbang.coupon.domain.CouponStatus.DRAFT
-              and c.issueEndAt <= :now and c.issuedCount = 0
-              and c.budgetReservationId is not null and c.id > :afterId
-              and not exists (select 1 from BudgetWork w where w.couponId = c.id
-                  and w.kind = com.hapbang.coupon.domain.BudgetWorkKind.RELEASE and w.target like 'UNISSUED:%')
-            order by c.id
-            """)
-    List<Long> findExpiredDraftBudgetIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
-
-    /** 미확인 만료 발급 쿠폰이 남은 플랫폼 정책만 고른다. 완료 이력과 판매자 이력을 전역 발급 쿠폰 ID 순으로 다시 읽지 않는다. */
-    @Query("""
-            select c.id from Coupon c
-            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM and c.id > :afterId
-              and exists (select 1 from MemberCoupon mc where mc.couponId = c.id and mc.expiresAt <= :now
-                  and mc.status in (com.hapbang.coupon.domain.MemberCouponStatus.USED,
-                                    com.hapbang.coupon.domain.MemberCouponStatus.EXPIRED)
-                  and (mc.budgetReleaseCheckedStatus is null or mc.budgetReleaseCheckedStatus <> mc.status))
-            order by c.id
-            """)
-    List<Long> findPlatformMemberBudgetCouponIds(@Param("now") Instant now, @Param("afterId") long afterId, Limit limit);
 
     /**
      * 확정 발급 수를 "확정 발급 수 &lt; 총수량"이고 쿠폰의 epoch가 요청의 epoch와 같을 때만 1 올린다(발급 확정 트랜잭션의 마지막). 바꾼 행 수
@@ -73,20 +54,6 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
             where id = :couponId and issued_count < quantity and epoch = :epoch
             """, nativeQuery = true)
     int incrementIssuedCount(@Param("couponId") long couponId, @Param("epoch") long epoch);
-
-    /**
-     * 이 강의에 지금 받을 수 있는 쿠폰: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료)이며, 그 강의 대상이거나 모든 강의 대상.
-     * 판정 규칙은 {@code CouponAvailabilityRule.isListedFor}와 같다.
-     */
-    @Query("""
-            select c from Coupon c
-            where c.status = com.hapbang.coupon.domain.CouponStatus.OPEN
-              and c.issueStartAt <= :now and c.issueEndAt > :now
-              and ((c.targetType = com.hapbang.coupon.domain.CouponTargetType.LECTURE and c.lectureId = :lectureId)
-                   or c.targetType = com.hapbang.coupon.domain.CouponTargetType.ANY_LECTURE)
-            order by c.createdAt desc, c.id desc
-            """)
-    List<Coupon> findIssuableFor(@Param("lectureId") long lectureId, @Param("now") Instant now, Limit limit);
 
     /** 판매자가 신청한 판매자 쿠폰. 상태를 주면 그 상태만 */
     default List<Coupon> findSellerCoupons(long sellerId, CouponStatus status, Limit limit) {
@@ -111,22 +78,4 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
     List<Coupon> findAllByOrderByCreatedAtDescIdDesc(Limit limit);
 
     List<Coupon> findByStatusOrderByCreatedAtDescIdDesc(CouponStatus status, Limit limit);
-
-    /**
-     * 이 강의의 가격 인상을 막는 플랫폼 쿠폰이 있는가: 그 강의 대상 플랫폼 쿠폰이 발급 중(OPEN)이거나, 그 쿠폰의 발급 쿠폰 중 RESERVED이거나
-     * 만료 전(expiresAt > now) AVAILABLE인 것이 있다. 판매자 쿠폰은 보지 않는다. 중단(SUSPENDED) 쿠폰은 OPEN으로 치지 않는다.
-     */
-    @Query("""
-            select count(c) > 0 from Coupon c
-            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM
-              and c.targetType = com.hapbang.coupon.domain.CouponTargetType.LECTURE
-              and c.lectureId = :lectureId
-              and (c.status = com.hapbang.coupon.domain.CouponStatus.OPEN
-                   or exists (select 1 from MemberCoupon mc
-                              where mc.couponId = c.id
-                                and (mc.status = com.hapbang.coupon.domain.MemberCouponStatus.RESERVED
-                                     or (mc.status = com.hapbang.coupon.domain.MemberCouponStatus.AVAILABLE
-                                         and mc.expiresAt > :now))))
-            """)
-    boolean existsPriceRaiseBlocker(@Param("lectureId") long lectureId, @Param("now") Instant now);
 }

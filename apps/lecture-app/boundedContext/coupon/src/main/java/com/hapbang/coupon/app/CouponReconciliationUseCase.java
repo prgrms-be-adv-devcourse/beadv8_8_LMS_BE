@@ -18,6 +18,9 @@ import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.RepairResult;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
+import com.hapbang.coupon.app.port.IssueCapacityReservationReader;
+import com.hapbang.coupon.app.port.IssueResultReader;
+import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponLimitsProperties;
@@ -34,9 +37,6 @@ import com.hapbang.coupon.domain.IssueReconciliationRule.SoldOutRepair;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.IssueCapacityReservationRepository;
-import com.hapbang.coupon.out.IssueResultReadRepository;
-import com.hapbang.coupon.out.IssueResultRow;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
@@ -74,9 +74,9 @@ public class CouponReconciliationUseCase {
     static final String MISMATCH_LOG_TAG = "[COUPON_ISSUE_RECONCILIATION_MISMATCH]";
 
     private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
-    private final IssueCapacityReservationRepository reservationRepository;
+    private final IssueCapacityReservationReader reservationReader;
     private final CouponRepository couponRepository;
-    private final IssueResultReadRepository resultRepository;
+    private final IssueResultReader resultReader;
     private final CouponReconciliationStore store;
     private final CouponIssueStore issueStore;
     private final CouponRedisProperties redisProperties;
@@ -88,8 +88,8 @@ public class CouponReconciliationUseCase {
     private final Clock clock;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public CouponReconciliationUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, IssueCapacityReservationRepository reservationRepository,
-                                       CouponRepository couponRepository, IssueResultReadRepository resultRepository,
+    public CouponReconciliationUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, IssueCapacityReservationReader reservationReader,
+                                       CouponRepository couponRepository, IssueResultReader resultReader,
                                        CouponReconciliationStore store, CouponIssueStore issueStore,
                                        CouponRedisProperties redisProperties, CouponCapacitySupport capacitySupport,
                                        CouponReconciliationMetrics metrics, CouponLimitsProperties limits,
@@ -97,9 +97,9 @@ public class CouponReconciliationUseCase {
                                        PlatformTransactionManager transactionManager,
                                        @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
-        this.reservationRepository = reservationRepository;
+        this.reservationReader = reservationReader;
         this.couponRepository = couponRepository;
-        this.resultRepository = resultRepository;
+        this.resultReader = resultReader;
         this.store = store;
         this.issueStore = issueStore;
         this.redisProperties = redisProperties;
@@ -159,7 +159,7 @@ public class CouponReconciliationUseCase {
 
     private Summary run() {
         Tally tally = new Tally();
-        for (Long couponId : reservationRepository.findCouponIds()) {
+        for (Long couponId : reservationReader.findCouponIds()) {
             try {
                 tally.add(reconcile(couponId));
             } catch (RuntimeException exception) {
@@ -236,7 +236,7 @@ public class CouponReconciliationUseCase {
                 return null;
             }
             Map<String, DbResult> results = new HashMap<>();
-            for (IssueResultRow row : resultRepository.findRowsByCouponId(couponId)) {
+            for (IssueResultRow row : resultReader.findRowsByCouponId(couponId)) {
                 results.put(row.issueRequestId(), new DbResult(row.memberId(), row.result(), row.epoch()));
             }
             return new Read(coupon.getStatus(), coupon.getQuantity(), coupon.getIssueEndAt(), results, null);

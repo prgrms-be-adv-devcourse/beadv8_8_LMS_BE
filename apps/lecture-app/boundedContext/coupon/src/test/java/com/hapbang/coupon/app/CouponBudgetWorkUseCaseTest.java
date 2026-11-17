@@ -32,7 +32,7 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.out.BudgetWorkRepository;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
 
 /** 조회 결과 검증·선점 분기를 독립적으로 확인한다. 저장소의 실제 lease·CAS와 트랜잭션 격리는 검증하지 않는다. */
 class CouponBudgetWorkUseCaseTest {
@@ -57,14 +57,14 @@ class CouponBudgetWorkUseCaseTest {
     void setUp() {
         coupon = draftPlatformCoupon();
         when(budgetProvider.getIfAvailable()).thenReturn(budget);
-        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder,
+        useCase = new CouponBudgetWorkUseCase(works, works, coupons, coupons, members, releaseRecorder,
                 budgetProvider, new CouponBudgetWorkProperties(null, LEASE, 100),
                 CouponUsageFixture.transactionManager(), CLOCK);
     }
 
     @Test
     void 후보_정책별로_회원_cursor를_진행하고_실패한_회원도_뒤_정책의_등록을_막지_않는다() {
-        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder, budgetProvider,
+        useCase = new CouponBudgetWorkUseCase(works, works, coupons, coupons, members, releaseRecorder, budgetProvider,
                 new CouponBudgetWorkProperties(null, LEASE, 2), CouponUsageFixture.transactionManager(), CLOCK);
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(2))).thenReturn(List.of(1L, 2L));
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2))).thenReturn(List.of(3L));

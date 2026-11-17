@@ -18,7 +18,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
 
 import com.hapbang.coupon.config.CouponExpiryProperties;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -31,7 +31,8 @@ class MemberCouponExpiryUseCaseTest {
     private final PlatformTransactionManager transactionManager = transactionManager();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final MemberCouponExpiryUseCase useCase = new MemberCouponExpiryUseCase(recorder, memberCouponRepository,
-            new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager, CLOCK);
+            memberCouponRepository, new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager,
+            CLOCK);
 
     @Test
     void 묶음_크기만큼_찬_동안_같은_시각으로_반복하고_모자란_묶음에서_끝낸다() {

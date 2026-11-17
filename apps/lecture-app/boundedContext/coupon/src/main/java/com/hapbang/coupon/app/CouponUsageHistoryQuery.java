@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.coupon.app.dto.CouponUsageView;
+import com.hapbang.coupon.app.port.CouponUsageReader;
 import com.hapbang.coupon.domain.CouponUsageStatus;
-import com.hapbang.coupon.out.CouponUsageRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,14 +21,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CouponUsageHistoryQuery {
 
-    private final CouponUsageRepository couponUsageRepository;
+    private final CouponUsageReader couponUsageReader;
 
     /** @param status 없으면 전체 */
     @Transactional(readOnly = true)
     public Page<CouponUsageView> myUsages(long memberId, CouponUsageStatus status, Pageable pageable) {
         Pageable page = PageRequest.of(pageable.getPageNumber(),
                 Math.min(pageable.getPageSize(), CouponSupport.MAX_LIST_SIZE));
-        return couponUsageRepository.findMyUsages(memberId, status, page)
+        return couponUsageReader.findMyUsages(memberId, status, page)
                 .map(used -> CouponUsageView.of(used.usage(), used.coupon()));
     }
 }

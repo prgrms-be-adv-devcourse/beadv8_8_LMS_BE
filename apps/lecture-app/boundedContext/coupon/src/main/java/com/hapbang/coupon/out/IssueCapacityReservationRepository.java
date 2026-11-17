@@ -1,8 +1,8 @@
 package com.hapbang.coupon.out;
 
 import java.time.Instant;
-import java.util.List;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -12,8 +12,12 @@ import com.hapbang.coupon.domain.IssueCapacityReservation;
 
 /**
  * 쿠폰별 발급 저장소 용량 예약. 합계({@link IssueCapacityRepository})와 같은 트랜잭션에서 쓴다.
+ * 대사 대상 조회는 {@link IssueCapacityReservationRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약
+ * ({@code IssueCapacityReservationReader}) 주입이 같은 계약을 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
  */
-public interface IssueCapacityReservationRepository extends JpaRepository<IssueCapacityReservation, Long> {
+@Primary
+public interface IssueCapacityReservationRepository extends JpaRepository<IssueCapacityReservation, Long>,
+        IssueCapacityReservationRepositoryCustom {
 
     /**
      * 쿠폰의 예약 행을 없을 때만 만든다. 같은 쿠폰을 동시에 열면 뒤에 온 쪽은 앞의 커밋을 기다린 뒤 0을 받는다.
@@ -54,8 +58,4 @@ public interface IssueCapacityReservationRepository extends JpaRepository<IssueC
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from IssueCapacityReservation r where r.couponId = :couponId and r.reservedAt <= :cutoff")
     int deleteByCouponIdReservedAtOrBefore(@Param("couponId") long couponId, @Param("cutoff") Instant cutoff);
-
-    /** 예약이 있는 쿠폰 ID(대사 대상). 오래된 예약 순 */
-    @Query("select r.couponId from IssueCapacityReservation r order by r.reservedAt asc, r.couponId asc")
-    List<Long> findCouponIds();
 }

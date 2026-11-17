@@ -19,6 +19,9 @@ import org.springframework.data.domain.Limit;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponState;
+import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;

@@ -21,7 +21,7 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.out.BudgetWorkRepository;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponBudgetState;
+import com.hapbang.coupon.app.port.MemberCouponBudgetState;
 import com.hapbang.coupon.out.MemberCouponRepository;
 
 /** 저장소가 돌려준 현재 상태에서 해제 차액과 CAS 인자를 정한다. 실제 CAS·트랜잭션 원자성은 DB 테스트가 확인한다. */
@@ -36,7 +36,8 @@ class CouponBudgetReleaseRecorderTest {
     private final MemberCouponRepository members = mock();
     private final CouponUsageRepository usages = mock();
     private final BudgetWorkRepository works = mock();
-    private final CouponBudgetReleaseRecorder recorder = new CouponBudgetReleaseRecorder(coupons, members, usages, works);
+    private final CouponBudgetReleaseRecorder recorder = new CouponBudgetReleaseRecorder(coupons, members, members, usages,
+            works);
 
     @BeforeEach
     void setUp() {
