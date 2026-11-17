@@ -2,6 +2,7 @@ package com.hapbang.coupon.out;
 
 import java.util.List;
 
+import com.hapbang.coupon.app.port.IssueResultReadRepositoryCustom;
 import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.domain.QCouponIssueRequest;
 import com.querydsl.core.types.Projections;

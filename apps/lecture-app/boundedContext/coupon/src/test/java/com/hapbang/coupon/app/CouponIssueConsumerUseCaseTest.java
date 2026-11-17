@@ -18,6 +18,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
@@ -25,10 +29,6 @@ import com.hapbang.coupon.domain.IssueDelivery;
 import com.hapbang.coupon.domain.IssueRejectReason;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.ProcessedOperation;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

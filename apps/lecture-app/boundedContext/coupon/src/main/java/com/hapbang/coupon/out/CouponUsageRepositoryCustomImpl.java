@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
 
+import com.hapbang.coupon.app.port.CouponUsageRepositoryCustom;
 import com.hapbang.coupon.app.port.UsedCoupon;
 import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.QCoupon;

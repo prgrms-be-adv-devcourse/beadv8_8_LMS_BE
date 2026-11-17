@@ -15,20 +15,20 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueReceipt;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.IssueControlState;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.IssueStatus;
 import com.hapbang.coupon.domain.RecoveryBoundary;
 import com.hapbang.coupon.domain.RecoveryRun;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 // (쿠폰, 요청 ID)로 DB → Redis 순서로 읽는지와 Redis 장애·유실 처리를 본다. 회원 대조 규칙은 IssueStatusRuleTest가 본다

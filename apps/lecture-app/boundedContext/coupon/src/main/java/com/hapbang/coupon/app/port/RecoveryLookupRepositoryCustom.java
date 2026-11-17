@@ -7,8 +7,12 @@ import java.util.List;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.RecoveryIssueResult;
 
-/** 복구·Redis 프로세스 점검이 읽는 조회. 모두 쿠폰 스키마 안의 테이블만 읽는다 */
-public interface RecoveryLookup {
+/**
+ * 복구·Redis 프로세스 점검이 읽는 조회. 모두 쿠폰 스키마 안의 테이블만 읽는다
+ * <p>
+ * {@link RecoveryLookupRepository}의 QueryDSL 조회 조각이다. 구현은 {@code out}의 {@code RecoveryLookupRepositoryCustomImpl}이다.
+ */
+public interface RecoveryLookupRepositoryCustom {
 
     /** 쿠폰의 DB 확정 발급 요청 결과 전부(재구축 입력, 처리 epoch 포함). 저장 순서 */
     List<RecoveryIssueResult> findResults(Long couponId);

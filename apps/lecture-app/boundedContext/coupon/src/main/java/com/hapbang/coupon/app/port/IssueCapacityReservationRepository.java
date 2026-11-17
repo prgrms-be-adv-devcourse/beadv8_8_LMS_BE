@@ -1,23 +1,26 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
+import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.IssueCapacityReservation;
 
 /**
  * 쿠폰별 발급 저장소 용량 예약. 합계({@link IssueCapacityRepository})와 같은 트랜잭션에서 쓴다.
- * 대사 대상 조회는 {@link IssueCapacityReservationRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약
- * ({@code IssueCapacityReservationReader}) 주입이 같은 계약을 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ * 대사 대상 조회는 {@link IssueCapacityReservationRepositoryCustom}(QueryDSL)이 맡는다.
  */
-@Primary
-public interface IssueCapacityReservationRepository extends JpaRepository<IssueCapacityReservation, Long>,
+public interface IssueCapacityReservationRepository extends Repository<IssueCapacityReservation, Long>,
         IssueCapacityReservationRepositoryCustom {
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    Optional<IssueCapacityReservation> findById(Long id);
+
+    long count();
 
     /**
      * 쿠폰의 예약 행을 없을 때만 만든다. 같은 쿠폰을 동시에 열면 뒤에 온 쪽은 앞의 커밋을 기다린 뒤 0을 받는다.

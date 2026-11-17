@@ -12,7 +12,7 @@
 - 모든 강의 대상 정률 쿠폰만 장당 최대 할인액을 입력한다. 예산 = 수량 × 최대 할인액.
 - `:lecture-app`은 유지하고 안에 Gradle 하위 프로젝트 `:coupon`을 둔다. 배포는 lecture-app pod 하나. JVM이 나뉘어 있다고 가정해 강의 ↔ 쿠폰은 내부 HTTP API + Kafka로만 통신하고 `@ApplicationModuleListener`는 쓰지 않는다. 트랜잭션은 연결하지 않는다(design.md "모듈 경계").
 - Caffeine(`com.github.ben-manes.caffeine:caffeine`, Spring Boot BOM 관리 버전)을 팀 공통 캐시 라이브러리로 들인다(2026-11-09 사용자 결정, chat-app `ChatRoomMembershipCache`와 공통). 쿠폰에서는 매진 캐시 `CouponSoldOutCache` 하나에 쓴다. Spring Cache 추상화(`@Cacheable`)는 쓰지 않는다.
-- QueryDSL(OpenFeign fork `io.github.openfeign.querydsl`, 7.x, 버전은 version catalog)을 조회 쿼리에 쓴다(2026-11-17 사용자 결정, chat-app과 같은 작업). 조회 JPQL만 옮기고 insert·update·delete는 저장소 메서드(`@Modifying` JPQL·native)로 둔다. 구조는 `app/port`의 조회 계약 → `out`의 `XxxRepositoryCustom` → `XxxRepositoryCustomImpl`이고 이름에 `Port`를 붙이지 않는다(design.md "DB 조회").
+- QueryDSL(OpenFeign fork `io.github.openfeign.querydsl`, 7.x, 버전은 version catalog)을 조회 쿼리에 쓴다(2026-11-17 사용자 결정, chat-app과 같은 작업). 조회 JPQL만 옮기고 insert·update·delete는 저장소 메서드(`@Modifying` JPQL·native)로 둔다. 구조는 저장소 인터페이스 자체를 app port로 둔다(2026-11-17 정정, 완화된 헥사고날): `app/port`의 `XxxRepository`(Spring Data Commons `Repository`만 상속, 쓰는 기본 메서드·이름 쿼리·`@Query`·`@Modifying`·`@Lock`)와 `XxxRepositoryCustom`(QueryDSL 조회 계약), `out`의 `XxxRepositoryCustomImpl`. 처음 구조의 별도 조회 계약 `XxxReader`와 저장소 `@Primary`는 없앴고 서비스는 `XxxRepository`를 주입받는다. 구현체는 `META-INF/spring.factories`로 조각에 잇는다(Spring Data가 조각 인터페이스 패키지에서만 구현체를 찾기 때문). 이름에 `Port`를 붙이지 않는다(design.md "DB 조회").
 
 ## 검토를 반영한 설계 보완
 

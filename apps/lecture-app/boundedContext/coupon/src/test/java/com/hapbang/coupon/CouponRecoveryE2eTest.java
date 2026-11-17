@@ -33,11 +33,11 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.coupon.domain.Coupon;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;

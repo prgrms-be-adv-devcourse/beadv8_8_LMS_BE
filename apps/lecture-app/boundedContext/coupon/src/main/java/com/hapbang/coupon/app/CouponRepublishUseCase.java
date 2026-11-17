@@ -15,13 +15,13 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.coupon.app.port.CouponDltLogReader;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
-import com.hapbang.coupon.app.port.CouponRepublishReader;
+import com.hapbang.coupon.app.port.CouponRepublishQueryRepository;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
@@ -85,8 +85,8 @@ public class CouponRepublishUseCase {
     private static final List<CouponStatus> TARGET_STATUSES =
             List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED, CouponStatus.CLOSED);
 
-    private final CouponRepublishReader republishReader;
-    private final CouponDltLogReader couponDltLogReader;
+    private final CouponRepublishQueryRepository couponRepublishQueryRepository;
+    private final CouponDltLogRepository couponDltLogRepository;
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
     private final CouponIssueDeliveryProperties properties;
@@ -96,16 +96,16 @@ public class CouponRepublishUseCase {
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong lastRepublishedEpochSecond = new AtomicLong();
 
-    public CouponRepublishUseCase(CouponRepublishReader republishReader,
-                                  CouponDltLogReader couponDltLogReader,
+    public CouponRepublishUseCase(CouponRepublishQueryRepository couponRepublishQueryRepository,
+                                  CouponDltLogRepository couponDltLogRepository,
                                   CouponIssueStore couponIssueStore,
                                   CouponIssueEventPublisher couponIssueEventPublisher,
                                   CouponIssueDeliveryProperties properties,
                                   CouponRedisProperties redisProperties,
                                   ObjectProvider<MeterRegistry> meterRegistry,
                                   @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.republishReader = republishReader;
-        this.couponDltLogReader = couponDltLogReader;
+        this.couponRepublishQueryRepository = couponRepublishQueryRepository;
+        this.couponDltLogRepository = couponDltLogRepository;
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
         this.properties = properties;
@@ -123,7 +123,7 @@ public class CouponRepublishUseCase {
         Instant now = clock.instant();
         Run run = new Run(now);
         List<CouponResult> results = new ArrayList<>();
-        for (RepublishTargetCoupon target : republishReader.findTargets(TARGET_STATUSES)) {
+        for (RepublishTargetCoupon target : couponRepublishQueryRepository.findTargets(TARGET_STATUSES)) {
             CouponRun coupon = new CouponRun(target.couponId());
             try {
                 republishCoupon(target, run, coupon);
@@ -167,7 +167,7 @@ public class CouponRepublishUseCase {
                     couponId, state.ready(), state.epoch(), target.epoch());
             return;
         }
-        Set<String> dltUnresolved = new HashSet<>(couponDltLogReader.findUnresolvedRequestIds(couponId));
+        Set<String> dltUnresolved = new HashSet<>(couponDltLogRepository.findUnresolvedRequestIds(couponId));
         try {
             couponIssueStore.scanRequests(couponId, properties.republish().scanCount(),
                     page -> republishPage(couponId, state.epoch(), page, dltUnresolved, run, coupon));
@@ -255,7 +255,7 @@ public class CouponRepublishUseCase {
         for (Candidate candidate : candidates) {
             candidateIds.add(candidate.issueRequestId());
         }
-        Set<String> recorded = new HashSet<>(republishReader.findRecordedIds(couponId, candidateIds));
+        Set<String> recorded = new HashSet<>(couponRepublishQueryRepository.findRecordedIds(couponId, candidateIds));
         for (Candidate candidate : candidates) {
             Decision decision = RepublishRule.decide(candidate.record(), run.now, republishAfter, epoch,
                     recorded.contains(candidate.issueRequestId()), dltUnresolved.contains(candidate.issueRequestId()));

@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.coupon.app.port.CouponRepositoryCustom;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;

@@ -1,13 +1,13 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.MemberCoupon;
@@ -16,16 +16,23 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 /**
  * 발급 쿠폰 저장소. 쿠폰 정책과의 조인은 같은 쿠폰 스키마 안에서만 한다.
  * <p>
- * 조회는 {@link MemberCouponRepositoryCustom}(QueryDSL)이, 상태 전이(조건부 갱신)는 여기의 JPQL이 맡는다. {@code @Primary}는 조회 계약
- * ({@code MemberCouponReader}) 주입이 같은 계약을 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ * 조회는 {@link MemberCouponRepositoryCustom}(QueryDSL)이, 상태 전이(조건부 갱신)는 여기의 JPQL이 맡는다.
  */
-@Primary
-public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long>, MemberCouponRepositoryCustom {
+public interface MemberCouponRepository extends Repository<MemberCoupon, Long>, MemberCouponRepositoryCustom {
 
     /** 회원당 같은 쿠폰 1장 */
     String MEMBER_COUPON_UNIQUE = "uk_member_coupon_member_coupon";
     /** 같은 쿠폰·같은 발급 요청은 1장 */
     String ISSUE_REQUEST_UNIQUE = "uk_member_coupon_issue_request";
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    <S extends MemberCoupon> S save(S entity);
+
+    <S extends MemberCoupon> S saveAndFlush(S entity);
+
+    List<MemberCoupon> findAll();
+
+    long count();
 
     /** 회원이 이 쿠폰에서 받은 한 장. 발급 확정이 회원 중복(UNIQUE) 위반을 같은 요청의 재전달인지 가를 때 쓴다 */
     Optional<MemberCoupon> findByMemberIdAndCouponId(long memberId, long couponId);

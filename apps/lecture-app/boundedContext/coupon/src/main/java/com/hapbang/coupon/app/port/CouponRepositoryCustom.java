@@ -7,8 +7,12 @@ import org.springframework.data.domain.Limit;
 
 import com.hapbang.coupon.domain.Coupon;
 
-/** 쿠폰 정책 조회. 목록은 모두 최신순(같은 시각이면 ID 역순)이다 */
-public interface CouponReader {
+/**
+ * 쿠폰 정책 조회. 목록은 모두 최신순(같은 시각이면 ID 역순)이다
+ * <p>
+ * {@link CouponRepository}의 QueryDSL 조회 조각이다. 구현은 {@code out}의 {@code CouponRepositoryCustomImpl}이다.
+ */
+public interface CouponRepositoryCustom {
 
     /**
      * 예약은 확정됐지만 한 번도 발급을 열지 못한 만료 플랫폼 쿠폰 ID(DRAFT, 발급 종료 ≤ now, 확정 발급 0장, 예산 예약 ID 있음).

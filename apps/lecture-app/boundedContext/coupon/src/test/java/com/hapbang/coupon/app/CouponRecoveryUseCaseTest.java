@@ -18,6 +18,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
@@ -28,6 +29,8 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildControl;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
+import com.hapbang.coupon.app.port.RecoveryLookupRepository;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponRecoveryProperties;
 import com.hapbang.coupon.domain.Coupon;
@@ -43,9 +46,6 @@ import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.RecoveryLookupRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 

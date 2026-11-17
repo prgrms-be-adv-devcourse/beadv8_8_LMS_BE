@@ -1,14 +1,13 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Limit;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.Coupon;
@@ -20,11 +19,18 @@ import jakarta.persistence.LockModeType;
 /**
  * 쿠폰 정책 저장소. 동시 상태 변경은 {@code Coupon}의 {@code @Version}이 막는다. 목록 조회는 모두 최신순(같은 시각이면 ID 역순)이다.
  * <p>
- * 조건 조회는 {@link CouponRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약({@code CouponReader}) 주입이 같은 계약을
- * 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ * 조건 조회는 {@link CouponRepositoryCustom}(QueryDSL)이 맡는다.
  */
-@Primary
-public interface CouponRepository extends JpaRepository<Coupon, Long>, CouponRepositoryCustom {
+public interface CouponRepository extends Repository<Coupon, Long>, CouponRepositoryCustom {
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    <S extends Coupon> S save(S entity);
+
+    <S extends Coupon> S saveAndFlush(S entity);
+
+    Optional<Coupon> findById(Long id);
+
+    boolean existsById(Long id);
 
     /**
      * 쿠폰을 읽고, 상태를 바꾸지 않아도 이 트랜잭션이 커밋될 때 {@code version}을 올린다(OPTIMISTIC_FORCE_INCREMENT).

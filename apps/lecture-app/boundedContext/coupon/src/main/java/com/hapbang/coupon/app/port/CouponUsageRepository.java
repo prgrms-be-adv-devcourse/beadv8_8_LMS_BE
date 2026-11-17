@@ -1,12 +1,11 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.CouponUsage;
@@ -14,16 +13,25 @@ import com.hapbang.coupon.domain.CouponUsage;
 import jakarta.persistence.LockModeType;
 
 /**
- * 쿠폰 사용 시도 저장소. 회원의 사용 이력 조회는 {@link CouponUsageRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약
- * ({@code CouponUsageReader}) 주입이 같은 계약을 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ * 쿠폰 사용 시도 저장소. 회원의 사용 이력 조회는 {@link CouponUsageRepositoryCustom}(QueryDSL)이 맡는다.
  */
-@Primary
-public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long>, CouponUsageRepositoryCustom {
+public interface CouponUsageRepository extends Repository<CouponUsage, Long>, CouponUsageRepositoryCustom {
 
     /** 발급 쿠폰의 한 사용 시도는 한 행 */
     String MEMBER_COUPON_GENERATION_UNIQUE = "uk_coupon_usage_member_coupon_generation";
     /** 발급 쿠폰 한 장은 같은 주문 항목에 동시에 한 번만 예약한다(RESERVED만 보는 부분 유일 인덱스). 해제 뒤 재예약은 허용한다 */
     String RESERVED_ORDER_ITEM_MEMBER_COUPON_UNIQUE = "uk_coupon_usage_order_item_member_coupon_reserved";
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    <S extends CouponUsage> S save(S entity);
+
+    <S extends CouponUsage> S saveAndFlush(S entity);
+
+    <S extends CouponUsage> List<S> saveAllAndFlush(Iterable<S> entities);
+
+    List<CouponUsage> findAll();
+
+    long count();
 
     /** 예약 작업 하나가 만든 사용 시도. 주문 항목 → 적용 순서 */
     List<CouponUsage> findByReservationWorkIdOrderByOrderItemIdAscApplyOrderAsc(String reservationWorkId);

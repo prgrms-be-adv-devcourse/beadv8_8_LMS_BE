@@ -1,10 +1,12 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.IssueCapacity;
@@ -13,7 +15,12 @@ import com.hapbang.coupon.domain.IssueCapacity;
  * 발급 저장소 용량 예약 합계. 동시 발급 열기가 합산 상한을 넘지 않도록 합계를 조건부로만 바꾼다. 행이 없으면 합계 0이다.
  * 쿠폰별 예약 행({@link IssueCapacityReservationRepository})과 같은 트랜잭션에서 쓴다.
  */
-public interface IssueCapacityRepository extends JpaRepository<IssueCapacity, Short> {
+public interface IssueCapacityRepository extends Repository<IssueCapacity, Short> {
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    Optional<IssueCapacity> findById(Short id);
+
+    List<IssueCapacity> findAll();
 
     /**
      * 합계에 수량을 더한다. 더한 합계가 상한 이하일 때만 반영한다(행이 없으면 수량으로 만든다). 같은 행의 동시 UPSERT는 행 잠금으로 줄을 서고,

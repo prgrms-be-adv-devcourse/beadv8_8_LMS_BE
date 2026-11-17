@@ -12,10 +12,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponRepository;
 
 // 판매자·관리자 조회의 본인 확인과 목록 조건(상태·상한) 전달을 본다. 정렬·필터 SQL은 Repository가 맡는다
 class CouponPolicyQueryTest {

@@ -14,8 +14,8 @@ import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueSnapshot;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
-import com.hapbang.coupon.app.port.CouponReader;
-import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponAvailabilityRule;
@@ -33,17 +33,17 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponSummaryQuery {
 
-    private final CouponReader couponReader;
-    private final MemberCouponReader memberCouponReader;
+    private final CouponRepository couponRepository;
+    private final MemberCouponRepository memberCouponRepository;
     private final CouponIssueStore couponIssueStore;
     private final CouponSupport couponSupport;
     private final Clock clock;
 
-    public CouponSummaryQuery(CouponReader couponReader, MemberCouponReader memberCouponReader,
+    public CouponSummaryQuery(CouponRepository couponRepository, MemberCouponRepository memberCouponRepository,
                               CouponIssueStore couponIssueStore, CouponSupport couponSupport,
                               @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.couponReader = couponReader;
-        this.memberCouponReader = memberCouponReader;
+        this.couponRepository = couponRepository;
+        this.memberCouponRepository = memberCouponRepository;
         this.couponIssueStore = couponIssueStore;
         this.couponSupport = couponSupport;
         this.clock = clock;
@@ -52,7 +52,7 @@ public class CouponSummaryQuery {
     /** 이 강의에 지금 받을 수 있는 쿠폰(최신순, 상한 {@link CouponSupport#MAX_LIST_SIZE}건). 매진·이미 받은 쿠폰도 표시와 함께 넣는다 */
     public List<CouponSummaryView> issuableFor(long memberId, long lectureId) {
         Instant now = clock.instant();
-        List<Coupon> coupons = couponReader.findIssuableFor(lectureId, now, CouponSupport.LIST_LIMIT).stream()
+        List<Coupon> coupons = couponRepository.findIssuableFor(lectureId, now, CouponSupport.LIST_LIMIT).stream()
                 .filter(coupon -> CouponAvailabilityRule.isListedFor(coupon, lectureId, now))
                 .toList();
         return toViews(memberId, coupons);
@@ -72,7 +72,7 @@ public class CouponSummaryQuery {
             return List.of();
         }
         List<Long> couponIds = coupons.stream().map(Coupon::getId).toList();
-        Set<Long> owned = new HashSet<>(memberCouponReader.findCouponIdsOwnedBy(memberId, couponIds));
+        Set<Long> owned = new HashSet<>(memberCouponRepository.findCouponIdsOwnedBy(memberId, couponIds));
         Map<Long, IssueSnapshot> snapshots = readSnapshots(couponIds, memberId);
         return coupons.stream()
                 .map(coupon -> {

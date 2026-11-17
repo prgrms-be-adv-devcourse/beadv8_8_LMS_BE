@@ -11,6 +11,7 @@ import org.springframework.data.domain.Limit;
 
 import com.hapbang.coupon.app.port.MemberCouponBudgetState;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponRepositoryCustom;
 import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.domain.CouponTargetType;

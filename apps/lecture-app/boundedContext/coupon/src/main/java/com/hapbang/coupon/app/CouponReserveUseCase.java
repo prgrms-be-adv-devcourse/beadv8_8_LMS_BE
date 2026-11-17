@@ -17,8 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponState;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -35,9 +37,6 @@ import com.hapbang.coupon.domain.usage.UsageContentKey;
 import com.hapbang.coupon.domain.usage.UsageItem;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponUsageException;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
@@ -71,21 +70,18 @@ public class CouponReserveUseCase {
 
     private final CouponUsageSupport usageSupport;
     private final MemberCouponRepository memberCouponRepository;
-    private final MemberCouponReader memberCouponReader;
     private final CouponUsageRepository couponUsageRepository;
     private final ProcessedOperationRepository processedOperationRepository;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public CouponReserveUseCase(CouponUsageSupport usageSupport, MemberCouponRepository memberCouponRepository,
-                                MemberCouponReader memberCouponReader,
                                 CouponUsageRepository couponUsageRepository,
                                 ProcessedOperationRepository processedOperationRepository,
                                 PlatformTransactionManager transactionManager,
                                 @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.usageSupport = usageSupport;
         this.memberCouponRepository = memberCouponRepository;
-        this.memberCouponReader = memberCouponReader;
         this.couponUsageRepository = couponUsageRepository;
         this.processedOperationRepository = processedOperationRepository;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -241,7 +237,7 @@ public class CouponReserveUseCase {
         if (updated == 1) {
             return;
         }
-        Optional<MemberCouponState> state = memberCouponReader.findStateById(usage.getMemberCouponId());
+        Optional<MemberCouponState> state = memberCouponRepository.findStateById(usage.getMemberCouponId());
         boolean usable = state.isPresent() && state.get().memberId() == memberId
                 && state.get().status() == MemberCouponStatus.AVAILABLE && state.get().expiresAt().isAfter(now);
         CouponErrorCode code = usable && state.get().generation() != expected

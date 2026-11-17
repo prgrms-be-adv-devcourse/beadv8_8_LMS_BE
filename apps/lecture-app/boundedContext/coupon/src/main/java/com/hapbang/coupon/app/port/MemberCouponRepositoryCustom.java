@@ -12,8 +12,10 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 /**
  * 발급 쿠폰 조회. 쿠폰 정책과의 조인은 같은 쿠폰 스키마 안에서만 한다. 상태 전이(예약·해제·사용·복원·만료·예산 해제 계획)는 저장소의
  * 조건부 갱신이 맡는다.
+ * <p>
+ * {@link MemberCouponRepository}의 QueryDSL 조회 조각이다. 구현은 {@code out}의 {@code MemberCouponRepositoryCustomImpl}이다.
  */
-public interface MemberCouponReader {
+public interface MemberCouponRepositoryCustom {
 
     /** 이 쿠폰들 중 회원이 발급 쿠폰을 가진 쿠폰 ID(상태와 관계없이). {@code couponIds}가 비면 부르지 않는다 */
     List<Long> findCouponIdsOwnedBy(long memberId, Collection<Long> couponIds);

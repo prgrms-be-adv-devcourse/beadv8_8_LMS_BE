@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
+import com.hapbang.coupon.app.port.RecoveryLookupRepositoryCustom;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.QCoupon;
 import com.hapbang.coupon.domain.QCouponIssueRequest;

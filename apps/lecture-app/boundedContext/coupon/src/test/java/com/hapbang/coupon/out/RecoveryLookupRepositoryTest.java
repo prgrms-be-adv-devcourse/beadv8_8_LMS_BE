@@ -8,6 +8,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.RecoveryLookupRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;

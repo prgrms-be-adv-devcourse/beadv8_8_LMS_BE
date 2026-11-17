@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.domain.RecoveryBoundary;
 import com.hapbang.coupon.domain.RecoveryRedisState;
 import com.hapbang.coupon.domain.RecoveryRun;

@@ -13,9 +13,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.out.CouponRepository;
 
 /**
  * 쿠폰 하나의 DB 대역. 저장소 mock은 같은 객체를 돌려주고, 트랜잭션 대역은 커밋 때 쿠폰이 바뀌었거나 version 강제 증가 조회

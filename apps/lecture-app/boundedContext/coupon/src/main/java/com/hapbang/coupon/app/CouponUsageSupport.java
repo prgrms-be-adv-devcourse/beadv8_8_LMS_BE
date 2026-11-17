@@ -18,8 +18,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.OwnedCoupon;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponCalculateProperties;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponUsage;
@@ -30,7 +31,6 @@ import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 import com.hapbang.coupon.domain.usage.UsableCoupon;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponUsageException;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 
 /**
  * 쿠폰 사용(계산·예약·해제·예약 상태 조회)이 함께 쓰는 검사·조회·작업 기록.
@@ -54,15 +54,15 @@ public class CouponUsageSupport {
 
     private final CouponCalculator calculator = new CouponCalculator();
     private final CouponCalculateProperties properties;
-    private final MemberCouponReader memberCouponReader;
+    private final MemberCouponRepository memberCouponRepository;
     private final ProcessedOperationRepository processedOperationRepository;
     private final TransactionTemplate newTransaction;
 
-    public CouponUsageSupport(CouponCalculateProperties properties, MemberCouponReader memberCouponReader,
+    public CouponUsageSupport(CouponCalculateProperties properties, MemberCouponRepository memberCouponRepository,
                               ProcessedOperationRepository processedOperationRepository,
                               PlatformTransactionManager transactionManager) {
         this.properties = properties;
-        this.memberCouponReader = memberCouponReader;
+        this.memberCouponRepository = memberCouponRepository;
         this.processedOperationRepository = processedOperationRepository;
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -110,7 +110,7 @@ public class CouponUsageSupport {
         if (memberCouponIds.isEmpty()) {
             return Map.of();
         }
-        return memberCouponReader.findOwnedByIds(Set.copyOf(memberCouponIds)).stream()
+        return memberCouponRepository.findOwnedByIds(Set.copyOf(memberCouponIds)).stream()
                 .map(owned -> UsableCoupon.of(owned.memberCoupon(), owned.coupon()))
                 .sorted((left, right) -> Long.compare(left.memberCouponId(), right.memberCouponId()))
                 .collect(Collectors.toMap(UsableCoupon::memberCouponId, Function.identity(), (left, right) -> left,
@@ -120,7 +120,7 @@ public class CouponUsageSupport {
     /** 회원이 가진 AVAILABLE 발급 쿠폰 전부(만료 여부는 계산기가 본다). 추천 후보 */
     List<UsableCoupon> availableCoupons(long memberId) {
         List<UsableCoupon> coupons = new ArrayList<>();
-        for (OwnedCoupon owned : memberCouponReader.findMyCoupons(memberId, MemberCouponStatus.AVAILABLE)) {
+        for (OwnedCoupon owned : memberCouponRepository.findMyCoupons(memberId, MemberCouponStatus.AVAILABLE)) {
             coupons.add(UsableCoupon.of(owned.memberCoupon(), owned.coupon()));
         }
         return coupons;

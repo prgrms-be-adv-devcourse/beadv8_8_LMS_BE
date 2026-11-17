@@ -13,9 +13,9 @@ import org.springframework.kafka.listener.ListenerExecutionFailedException;
 import org.springframework.kafka.support.serializer.DeserializationException;
 
 import com.hapbang.coupon.app.CouponDltPayload;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
-import com.hapbang.coupon.out.CouponDltLogRepository;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 

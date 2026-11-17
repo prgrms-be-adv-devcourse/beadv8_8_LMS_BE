@@ -13,7 +13,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.ProcessCheck;
-import com.hapbang.coupon.out.RecoveryLookupRepository;
+import com.hapbang.coupon.app.port.RecoveryLookupRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;

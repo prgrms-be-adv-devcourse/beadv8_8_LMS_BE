@@ -13,8 +13,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
@@ -23,8 +25,6 @@ import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import lombok.extern.slf4j.Slf4j;

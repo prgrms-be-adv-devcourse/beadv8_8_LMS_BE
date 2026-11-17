@@ -6,7 +6,7 @@ import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.Test;
 
-import com.hapbang.coupon.out.CouponDltLogRepository;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 

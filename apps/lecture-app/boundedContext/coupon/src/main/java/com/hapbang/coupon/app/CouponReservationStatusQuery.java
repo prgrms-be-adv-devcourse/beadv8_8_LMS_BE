@@ -5,10 +5,10 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
-import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.shared.coupon.api.CouponReservationStatusResponse;
 
 /**

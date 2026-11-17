@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.IssueCapacityRepository;
+import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.domain.Coupon;
@@ -15,8 +17,6 @@ import com.hapbang.coupon.domain.IssueCapacityReservation;
 import com.hapbang.coupon.domain.IssueCapacityRule;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.IssueCapacityRepository;
-import com.hapbang.coupon.out.IssueCapacityReservationRepository;
 
 import lombok.extern.slf4j.Slf4j;
 

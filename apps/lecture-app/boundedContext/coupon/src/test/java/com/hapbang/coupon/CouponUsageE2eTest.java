@@ -53,8 +53,11 @@ import com.hapbang.coupon.app.CouponOpenUseCase;
 import com.hapbang.coupon.app.CouponSupport;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.out.billing.HttpPromotionBudget;
 import com.hapbang.testsupport.billing.RealBillingTestFixture;
@@ -72,9 +75,6 @@ import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
@@ -132,7 +132,7 @@ class CouponUsageE2eTest {
     @Autowired private com.hapbang.coupon.app.CouponBudgetReleaseRecorder budgetReleaseRecorder;
     @Autowired private com.hapbang.coupon.app.CouponOrderConsumerUseCase couponOrderConsumerUseCase;
     @Autowired private com.hapbang.coupon.app.MemberCouponExpiryUseCase memberCouponExpiryUseCase;
-    @Autowired private com.hapbang.coupon.out.BudgetWorkRepository budgetWorkRepository;
+    @Autowired private com.hapbang.coupon.app.port.BudgetWorkRepository budgetWorkRepository;
     @Autowired private org.springframework.transaction.PlatformTransactionManager budgetTransactionManager;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate budgetJdbc;
     @Autowired private CouponIssueStore couponIssueStore;
@@ -393,7 +393,7 @@ class CouponUsageE2eTest {
                 now.minusSeconds(60), now.minusSeconds(10), now)).getId();
         var metrics = new org.springframework.beans.factory.support.StaticListableBeanFactory();
         var expiry = new com.hapbang.coupon.app.MemberCouponExpiryUseCase(budgetReleaseRecorder, memberCouponRepository,
-                memberCouponRepository, new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
+                new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
                 metrics.getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), budgetTransactionManager,
                 java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
 
@@ -517,8 +517,8 @@ class CouponUsageE2eTest {
     private com.hapbang.coupon.app.CouponBudgetWorkUseCase budgetWorker(Instant now) {
         org.springframework.beans.factory.support.StaticListableBeanFactory beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
         beans.addBean("budget", promotionBudget);
-        return new com.hapbang.coupon.app.CouponBudgetWorkUseCase(budgetWorkRepository, budgetWorkRepository,
-                couponRepository, couponRepository, memberCouponRepository, budgetReleaseRecorder, beans.getBeanProvider(com.hapbang.coupon.app.port.PromotionBudget.class),
+        return new com.hapbang.coupon.app.CouponBudgetWorkUseCase(budgetWorkRepository,
+                couponRepository, memberCouponRepository, budgetReleaseRecorder, beans.getBeanProvider(com.hapbang.coupon.app.port.PromotionBudget.class),
                 new com.hapbang.coupon.config.CouponBudgetWorkProperties(null, java.time.Duration.ofSeconds(60), 100),
                 budgetTransactionManager, java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
     }

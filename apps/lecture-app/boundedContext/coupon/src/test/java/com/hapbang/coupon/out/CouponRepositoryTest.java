@@ -13,6 +13,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.coupon.app.port.BudgetWorkRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;

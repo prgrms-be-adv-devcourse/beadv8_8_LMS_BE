@@ -1,11 +1,11 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
+import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.Repository;
 
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
@@ -15,14 +15,23 @@ import com.hapbang.coupon.domain.CouponDltStatus;
  * ({@code uk_coupon_dlt_log_pending_request}, 부분 유일 인덱스)다. REPLAYING은 이 인덱스에 들지 않는다(선점 뒤 재격리가 새 PENDING이
  * 될 수 있게).
  * <p>
- * 미처리 조회는 {@link CouponDltLogRepositoryCustom}(QueryDSL)이 맡는다. {@code @Primary}는 조회 계약({@code CouponDltLogReader}) 주입이
- * 같은 계약을 구현한 QueryDSL 구현체 빈이 아닌 이 저장소를 고르게 한다.
+ * 미처리 조회는 {@link CouponDltLogRepositoryCustom}(QueryDSL)이 맡는다.
  */
-@Primary
-public interface CouponDltLogRepository extends JpaRepository<CouponDltLog, Long>, CouponDltLogRepositoryCustom {
+public interface CouponDltLogRepository extends Repository<CouponDltLog, Long>, CouponDltLogRepositoryCustom {
 
     String SOURCE_UNIQUE = "uk_coupon_dlt_log_source";
     String PENDING_REQUEST_UNIQUE = "uk_coupon_dlt_log_pending_request";
+
+    // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
+    <S extends CouponDltLog> S save(S entity);
+
+    <S extends CouponDltLog> S saveAndFlush(S entity);
+
+    Optional<CouponDltLog> findById(Long id);
+
+    List<CouponDltLog> findAll();
+
+    Page<CouponDltLog> findAll(Pageable pageable);
 
     /** 이 메시지 위치를 이미 격리했는가(DLT 전송이 실패해 다시 격리할 때) */
     boolean existsBySourceTopicAndSourcePartitionAndSourceOffset(String sourceTopic, int sourcePartition,

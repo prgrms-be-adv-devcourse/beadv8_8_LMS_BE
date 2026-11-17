@@ -16,8 +16,8 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.CannotCreateTransactionException;
 
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.config.CouponExpiryProperties;
-import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,7 +31,7 @@ class MemberCouponExpiryUseCaseTest {
     private final PlatformTransactionManager transactionManager = transactionManager();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final MemberCouponExpiryUseCase useCase = new MemberCouponExpiryUseCase(recorder, memberCouponRepository,
-            memberCouponRepository, new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager,
+            new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager,
             CLOCK);
 
     @Test

@@ -28,12 +28,15 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.coupon.app.port.BudgetWorkRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
@@ -48,9 +51,6 @@ import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.BudgetWorkRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 // 발급 열기의 단계 순서와 실패 뒤 남는 상태, 재시도를 본다. 저장소는 같은 객체를 돌려주는 대역이라 트랜잭션 사이에 상태가 이어지고,
@@ -406,8 +406,8 @@ class CouponOpenUseCaseTest {
     /** 시계만 다른 같은 UseCase */
     private CouponOpenUseCase useCaseAt(Instant now) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
-        CouponBudgetWorkUseCase budgetWorkUseCase = new CouponBudgetWorkUseCase(budgetWorkRepository, budgetWorkRepository,
-                couponRepository, couponRepository, mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudgetProvider,
+        CouponBudgetWorkUseCase budgetWorkUseCase = new CouponBudgetWorkUseCase(budgetWorkRepository,
+                couponRepository, mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudgetProvider,
                 new CouponBudgetWorkProperties(null, Duration.ofMinutes(1), 100), db.transactionManager(), clock);
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
                 budgetWorkRepository, budgetWorkUseCase, issueStore, capacitySupport, promotionBudgetProvider,

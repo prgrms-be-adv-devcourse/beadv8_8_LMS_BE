@@ -5,9 +5,9 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.coupon.app.dto.CouponView;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.out.CouponRepository;
 
 import lombok.RequiredArgsConstructor;
 

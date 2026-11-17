@@ -3,6 +3,7 @@ package com.hapbang.coupon.out;
 import java.util.Collection;
 import java.util.List;
 
+import com.hapbang.coupon.app.port.CouponRepublishQueryRepositoryCustom;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.QCoupon;
