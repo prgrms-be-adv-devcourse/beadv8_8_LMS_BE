@@ -66,13 +66,17 @@ class ChatRealtimeServiceBoundaryTest {
     }
 
     @Test
-    @DisplayName("in/scheduler의 트리거는 app 호출만 하고 out 구현과 Redis·Kafka·STOMP 기술 타입에 의존하지 않는다")
+    @DisplayName("in/scheduler의 트리거는 app 호출만 하고 app/port·out 구현과 Redis·Kafka·STOMP 기술 타입에 의존하지 않는다")
     void schedulerTriggersOnlyCallApp() {
         classes().that().resideInAPackage("com.hapbang.chat.in.scheduler..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "com.hapbang.chat.app..", "com.hapbang.chat.global..", "com.hapbang.chat.in.scheduler..",
                         "java..", "", "org.springframework.scheduling..", "org.springframework.stereotype..",
                         "lombok..")
+                .check(classes);
+        // app 아래라도 port(저장소·외부 연동 계약)는 트리거가 직접 부르지 않는다. 일은 app 서비스가 한다
+        noClasses().that().resideInAPackage("com.hapbang.chat.in.scheduler..")
+                .should().dependOnClassesThat().resideInAPackage("com.hapbang.chat.app.port..")
                 .check(classes);
     }
 
