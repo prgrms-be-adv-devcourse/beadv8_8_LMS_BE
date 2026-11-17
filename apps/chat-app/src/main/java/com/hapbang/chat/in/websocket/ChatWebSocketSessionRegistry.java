@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,10 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskRejectedException;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
@@ -116,11 +113,9 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
     private final ObjectProvider<ChatPresence> chatPresence;
     /** 방 topic 구독 목록 정리. 이 목록이 연결 목록을 쓰므로 생성 순환을 피해 지연해서 얻는다 */
     private final ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade;
-    private final TaskScheduler expiryScheduler;
+    private final ThreadPoolTaskScheduler expiryScheduler;
     /** 만료 종료를 실제로 하는 실행기. 예약 스레드를 막지 않게 따로 둔다 */
-    private final Executor expiryCloser;
-    /** 이 목록이 만들어 직접 닫아야 하는 만료 스케줄러·닫기 실행기인지 */
-    private final boolean ownsScheduler;
+    private final ThreadPoolTaskExecutor expiryCloser;
     private final Clock clock;
 
     /**
@@ -128,41 +123,17 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
      * 한다. 닫기는 별도 실행기(스레드 4·대기열 10000)가 한다. 주기 대조 간격(30초)과 닫기 실행기 크기는 미확정 초기값(Q12)이다.
      * 기본값은 이 코드가 원본이고 application.yaml에 두지 않는다.
      */
-    @Autowired
     public ChatWebSocketSessionRegistry(ObjectProvider<ChatPresence> chatPresence,
-            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade,
+            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade, Clock clock,
             @Value("${hapbang.chat.realtime.websocket.expiry-sweep-interval:30s}") Duration expirySweepInterval,
             @Value("${hapbang.chat.realtime.websocket.expiry-close-workers:4}") int expiryCloseWorkers,
             @Value("${hapbang.chat.realtime.websocket.expiry-close-queue-capacity:10000}") int expiryCloseQueueCapacity) {
-        this(chatPresence, chatRoomTopicFacade, expiryScheduler(),
-                expiryCloser(expiryCloseWorkers, expiryCloseQueueCapacity), true, Clock.systemUTC(),
-                expirySweepInterval);
-    }
-
-    /** 만료 스케줄러·닫기 실행기·시계를 직접 넘긴다(테스트). 넘긴 것은 닫지 않는다 */
-    ChatWebSocketSessionRegistry(ObjectProvider<ChatPresence> chatPresence,
-            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade, TaskScheduler expiryScheduler,
-            Executor expiryCloser, Clock clock, Duration expirySweepInterval) {
-        this(chatPresence, chatRoomTopicFacade, expiryScheduler, expiryCloser, false, clock, expirySweepInterval);
-    }
-
-    /** 만료 닫기를 부른 스레드에서 바로 한다(테스트) */
-    ChatWebSocketSessionRegistry(ObjectProvider<ChatPresence> chatPresence,
-            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade, TaskScheduler expiryScheduler, Clock clock,
-            Duration expirySweepInterval) {
-        this(chatPresence, chatRoomTopicFacade, expiryScheduler, Runnable::run, clock, expirySweepInterval);
-    }
-
-    private ChatWebSocketSessionRegistry(ObjectProvider<ChatPresence> chatPresence,
-            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade, TaskScheduler expiryScheduler,
-            Executor expiryCloser, boolean ownsScheduler, Clock clock, Duration expirySweepInterval) {
         Assert.isTrue(expirySweepInterval.isPositive(),
                 "hapbang.chat.realtime.websocket.expiry-sweep-interval은 0보다 커야 합니다.");
         this.chatPresence = chatPresence;
         this.chatRoomTopicFacade = chatRoomTopicFacade;
-        this.expiryScheduler = expiryScheduler;
-        this.expiryCloser = expiryCloser;
-        this.ownsScheduler = ownsScheduler;
+        this.expiryCloser = expiryCloser(expiryCloseWorkers, expiryCloseQueueCapacity);
+        this.expiryScheduler = expiryScheduler();
         this.clock = clock;
         expiryScheduler.scheduleAtFixedRate(this::sweepExpired, clock.instant().plus(expirySweepInterval),
                 expirySweepInterval);
@@ -193,15 +164,8 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
 
     @Override
     public void destroy() {
-        if (!ownsScheduler) {
-            return;
-        }
-        if (expiryScheduler instanceof ThreadPoolTaskScheduler scheduler) {
-            scheduler.shutdown();
-        }
-        if (expiryCloser instanceof ThreadPoolTaskExecutor executor) {
-            executor.shutdown();
-        }
+        expiryScheduler.shutdown();
+        expiryCloser.shutdown();
     }
 
     @Override
@@ -642,10 +606,5 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
      */
     private record SessionUser(Long userId, Instant authenticatedAt, AtomicReference<Instant> expiresAt,
                                AtomicBoolean stompConnected) {
-    }
-
-    /** 남아 있는 만료 예약 수(테스트용) */
-    int expiryTimerCount() {
-        return expiryTimers.size();
     }
 }
