@@ -2,12 +2,9 @@ package com.hapbang.chat.out.cache;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Predicate;
 
 import org.jspecify.annotations.Nullable;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -62,26 +59,15 @@ public class CachedChatRoomMemberships implements ChatRoomMemberships {
      * 캐시하는 방 수(1000)·자격 재조회 주기(60s)는 미확정 초기값(Q12)이다. 기본값은 코드가 원본이고 같은 키의 yaml·환경 변수가
      * 덮는다.
      */
-    @Autowired
     public CachedChatRoomMemberships(ChatRoomMembershipLoader chatRoomMembershipLoader, MeterRegistry meterRegistry,
             @Value("${hapbang.chat.realtime.room.membership-cache-rooms:1000}") int maxRooms,
             @Value("${hapbang.chat.realtime.room.membership-refresh:60s}") Duration refresh) {
-        this(chatRoomMembershipLoader, meterRegistry, maxRooms, refresh, ForkJoinPool.commonPool());
-    }
-
-    /**
-     * 퇴출 등 캐시 정리를 돌릴 실행기를 직접 넘긴다(테스트용). 운영은 Caffeine 기본값인 공용 풀이다. app 서비스 테스트도 버전 규칙을
-     * 함께 확인하려고 이 생성자로 실제 캐시를 만든다.
-     */
-    public CachedChatRoomMemberships(ChatRoomMembershipLoader chatRoomMembershipLoader, MeterRegistry meterRegistry,
-            int maxRooms, Duration refresh, Executor maintenanceExecutor) {
         Assert.isTrue(maxRooms > 0, "hapbang.chat.realtime.room.membership-cache-rooms는 1 이상이어야 합니다.");
         Assert.isTrue(refresh.isPositive(), "hapbang.chat.realtime.room.membership-refresh는 0보다 커야 합니다.");
         this.chatRoomMembershipLoader = chatRoomMembershipLoader;
         this.refreshNanos = refresh.toNanos();
         this.entries = Caffeine.newBuilder()
                 .maximumSize(maxRooms)
-                .executor(maintenanceExecutor)
                 .recordStats()
                 .build();
         CaffeineCacheMetrics.monitor(meterRegistry, entries, CACHE_NAME);

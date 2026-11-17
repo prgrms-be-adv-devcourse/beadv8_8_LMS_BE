@@ -1,6 +1,7 @@
 package com.hapbang.chat.out.cache;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.*;
 import static org.mockito.Mockito.*;
 
 import java.time.Duration;
@@ -219,10 +220,13 @@ class CachedChatRoomMembershipsTest {
         CachedChatRoomMemberships cache = cache(2, Duration.ofHours(1));
         when(loader.load(anyLong())).thenReturn(membership(1));
 
-        for (int pass = 0; pass < 2; pass++) {
-            for (long roomId = 1; roomId <= 10; roomId++) {
-                cache.get(roomId, 1);
-            }
+        for (long roomId = 1; roomId <= 10; roomId++) {
+            cache.get(roomId, 1);
+        }
+        // 퇴출은 Caffeine 정리 실행기(공용 풀)에서 돈다
+        await().atMost(Duration.ofSeconds(5)).until(() -> evictions() >= 8);
+        for (long roomId = 1; roomId <= 10; roomId++) {
+            cache.get(roomId, 1);
         }
 
         // 상한이 2이므로 두 번째 차례에서 적어도 8개 방은 버려져 다시 읽는다. 어떤 방을 버릴지는 정하지 않는다
@@ -240,10 +244,10 @@ class CachedChatRoomMembershipsTest {
         }
         assertThatThrownBy(() -> cache.get(99L, 1)).isInstanceOf(QueryTimeoutException.class);
 
-        assertThat(meterRegistry.get("cache.size").tag("cache", CachedChatRoomMemberships.CACHE_NAME).gauge().value())
-                .isLessThanOrEqualTo(2);
-        assertThat(meterRegistry.get("cache.evictions").tag("cache", CachedChatRoomMemberships.CACHE_NAME)
-                .functionCounter().count()).isGreaterThanOrEqualTo(8);
+        // 퇴출은 Caffeine 정리 실행기(공용 풀)에서 돈다
+        await().atMost(Duration.ofSeconds(5)).until(() -> evictions() >= 8);
+        await().atMost(Duration.ofSeconds(5)).until(() -> meterRegistry.get("cache.size")
+                .tag("cache", CachedChatRoomMemberships.CACHE_NAME).gauge().value() <= 2);
         // 모두 처음 보는 방이라 빠른 경로에서 miss, 항목 계산(조회 실패 포함)마다 put으로 센다
         assertThat(gets("miss")).isEqualTo(11);
         assertThat(puts()).isEqualTo(11);
@@ -284,14 +288,18 @@ class CachedChatRoomMembershipsTest {
                 .functionCounter().count();
     }
 
+    private double evictions() {
+        return meterRegistry.get("cache.evictions").tag("cache", CachedChatRoomMemberships.CACHE_NAME)
+                .functionCounter().count();
+    }
+
     private double puts() {
         return meterRegistry.get("cache.puts").tag("cache", CachedChatRoomMemberships.CACHE_NAME)
                 .functionCounter().count();
     }
 
-    /** 퇴출을 호출 스레드에서 바로 돌려 상한을 곧바로 확인할 수 있게 한다 */
     private CachedChatRoomMemberships cache(int maxRooms, Duration refresh) {
-        return new CachedChatRoomMemberships(loader, meterRegistry, maxRooms, refresh, Runnable::run);
+        return new CachedChatRoomMemberships(loader, meterRegistry, maxRooms, refresh);
     }
 
     /** 두 번째 요청이 같은 방의 첫 조회를 기다리며 멈출 때까지 기다린다 */
