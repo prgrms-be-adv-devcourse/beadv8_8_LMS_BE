@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.ChatStoredJson;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
@@ -31,7 +32,7 @@ class ChatMessageResponseTest {
         AppearanceRequestDto request = new AppearanceRequestDto(10L, HOST_ID, GUEST_ID, "금요일 밤 합방", 50_000L,
                 LocalDateTime.of(2026, 11, 20, 21, 0), LocalDateTime.of(2026, 11, 13, 23, 59, 30, 123_000_000));
         ChatMessage message = ChatMessage.appearanceRequestSent(directRoom(), HOST_ID, 10L,
-                AppearanceRequestSentData.of("호스트", request), NOW);
+                ChatStoredJson.writeNotificationData(AppearanceRequestSentData.of("호스트", request)), NOW);
 
         ChatMessageResponse response = ChatMessageResponse.of(message, GUEST_ID, Map.of());
         JsonNode json = JSON.readTree(JSON.writeValueAsString(response));
@@ -62,9 +63,9 @@ class ChatMessageResponseTest {
                 GUEST_ID, NOW);
 
         ChatMessageResponse requestSent = ChatMessageResponse.from(ChatMessage.appearanceRequestSent(directRoom(),
-                HOST_ID, 10L, AppearanceRequestSentData.of("호스트", request), NOW));
+                HOST_ID, 10L, ChatStoredJson.writeNotificationData(AppearanceRequestSentData.of("호스트", request)), NOW));
         ChatMessageResponse applicationSubmitted = ChatMessageResponse.from(ChatMessage.appearanceApplicationSubmitted(
-                directRoom(), GUEST_ID, 20L, 7L, AppearanceApplicationSubmittedData.of("게스트", application), NOW));
+                directRoom(), GUEST_ID, 20L, 7L, ChatStoredJson.writeNotificationData(AppearanceApplicationSubmittedData.of("게스트", application)), NOW));
 
         assertThat(JSON.writeValueAsString(requestSent.appearanceRequestSent())).isEqualTo("""
                 {"v":1,"hostNickname":"호스트","title":"금요일 밤 합방","fee":50000,\
@@ -91,7 +92,7 @@ class ChatMessageResponseTest {
         AppearanceApplicationDto application = new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID,
                 GUEST_ID, NOW);
         ChatMessage message = ChatMessage.appearanceApplicationSubmitted(directRoom(), GUEST_ID, 20L, 7L,
-                AppearanceApplicationSubmittedData.of("게스트", application), NOW);
+                ChatStoredJson.writeNotificationData(AppearanceApplicationSubmittedData.of("게스트", application)), NOW);
 
         ChatMessageResponse response = ChatMessageResponse.from(message).withClientMessageId("client-1");
 
@@ -104,7 +105,7 @@ class ChatMessageResponseTest {
     void 안_읽은_사람_수는_일반_메시지에만_담고_시스템_안내는_둘_다_null이다() {
         ChatMessage text = ChatMessage.text(directRoom(), HOST_ID, "안녕하세요", null, NOW);
         ChatMessage notice = ChatMessage.groupMemberLeft(ChatRoom.createGroup(70L, HOST_ID, "모집", 3, NOW), GUEST_ID,
-                GroupMemberLeftData.of(GUEST_ID), NOW);
+                ChatStoredJson.writeNotificationData(GroupMemberLeftData.of(GUEST_ID)), NOW);
 
         ChatMessageResponse counted = ChatMessageResponse.from(text).withReadCount(2, 1_000L);
         JsonNode json = JSON.readTree(JSON.writeValueAsString(ChatMessageResponse.from(text)));

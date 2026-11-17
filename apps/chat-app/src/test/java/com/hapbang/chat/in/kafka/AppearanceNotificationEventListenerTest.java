@@ -46,6 +46,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.ChatStoredJson;
 import com.hapbang.chat.app.ChatGroupRoomService;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
@@ -153,7 +154,7 @@ class AppearanceNotificationEventListenerTest {
                     assertThat(message.getSenderUserId()).isEqualTo(HOST_ID);
                     // 서버는 문구를 만들지 않고, 이벤트 값과 채팅 회원 복제본의 닉네임만 KST 일시로 남긴다
                     assertThat(message.getContent()).isEmpty();
-                    assertThat(message.readAppearanceRequestSent()).isEqualTo(new AppearanceRequestSentData(1, "호스트",
+                    assertThat(ChatStoredJson.readAppearanceRequestSent(message)).isEqualTo(new AppearanceRequestSentData(1, "호스트",
                             "금요일 밤 합방", 50_000L, "2026-11-20T21:00:00", "2026-11-13T21:00:00"));
                 }));
     }
@@ -172,7 +173,7 @@ class AppearanceNotificationEventListenerTest {
                     assertThat(message.getSenderUserId()).isEqualTo(GUEST_ID);
                     assertThat(message.getParentReferenceId()).isEqualTo(7L);
                     assertThat(message.getContent()).isEmpty();
-                    assertThat(message.readAppearanceApplicationSubmitted())
+                    assertThat(ChatStoredJson.readAppearanceApplicationSubmitted(message))
                             .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
                 }));
     }

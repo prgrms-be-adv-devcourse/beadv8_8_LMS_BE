@@ -181,7 +181,8 @@ public class ChatRoomUseCase {
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
         if (chatRoom.isCurrentGroup()) {
             ChatMessage notice = chatMessageRepository.save(
-                    ChatMessage.groupMemberLeft(chatRoom, userId, GroupMemberLeftData.of(userId), now));
+                    ChatMessage.groupMemberLeft(chatRoom, userId,
+                            ChatStoredJson.writeNotificationData(GroupMemberLeftData.of(userId)), now));
             if (remaining.getMemberCount() > 0) {
                 chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
             }

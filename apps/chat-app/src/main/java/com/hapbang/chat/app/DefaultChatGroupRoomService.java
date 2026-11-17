@@ -234,7 +234,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         Optional<ChatGroupInviteRequest> stored = chatGroupInviteRequestRepository.findForUpdate(chatRoomId, requestId);
         if (stored.isPresent() && stored.get().isRetained(now, properties.inviteRequestRetention())) {
             // 같은 요청의 재시도(동시에 온 재시도 포함): 저장한 결과를 그대로 돌려주고 다시 초대하지 않는다
-            return stored.get().outcomes();
+            return ChatStoredJson.readInviteOutcomes(stored.get());
         }
         chatValidationService.validateCanChat(requesterId);
         requireManageable(chatRoom, requesterId);
@@ -272,7 +272,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         if (!joined.isEmpty()) {
             ChatRecipientSet recipientSet = chatRecipientSetRecorder.snapshot(chatRoom, now);
             ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMembersInvited(chatRoom, requesterId,
-                    GroupMembersInvitedData.of(requesterId, joined), now));
+                    ChatStoredJson.writeNotificationData(GroupMembersInvitedData.of(requesterId, joined)), now));
             chatDeliveryRecorder.recordMessage(notice, recipientSet.getId(), ChatNotifyRule.NONE, now);
             // 새 참여자는 이전 메시지를 볼 수 없어 이전 값은 그대로지만, 참여 변경은 모두 알린다(받는 앱이 참여 캐시를 맞춘다)
             chatReadCountSignals.membershipChanged(chatRoomId, recipientSet.getSetVersion());
@@ -284,7 +284,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             chatGroupInviteRequestRepository.flush();
         }
         ChatGroupInviteRequest inviteRequest = chatGroupInviteRequestRepository.save(
-                ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId, outcomes, now));
+                ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId,
+                        ChatStoredJson.writeInviteOutcomes(outcomes), now));
         if (!joined.isEmpty()) {
             eventPublisher.publishEvent(new GroupMembersInvitedEvent(chatRoomId, inviteRequest.getId(),
                     chatRoom.getRecruitId(), chatRoom.getTitle(), requesterId, joined, instantOf(now)));
@@ -319,7 +320,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
                 ChatRoomEventType.MEMBER_KICKED, now));
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
         ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMemberKicked(chatRoom, requesterId,
-                GroupMemberKickedData.of(requesterId, targetUserId), now));
+                ChatStoredJson.writeNotificationData(GroupMemberKickedData.of(requesterId, targetUserId)), now));
         chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
         chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
         eventPublisher.publishEvent(new GroupMemberKickedEvent(chatRoomId, chatRoom.getRecruitId(), chatRoom.getTitle(),
@@ -347,7 +348,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         // 폐쇄해도 참여는 그대로라 지금 참여자가 폐쇄 시점 참여자다(호스트 포함). 회원 ID 열만 읽는다
         List<Long> memberUserIds = chatRoomMemberRepository.findActiveUserIds(chatRoomId).stream().sorted().toList();
         ChatMessage notice = chatMessageRepository.save(
-                ChatMessage.groupRoomClosed(chatRoom, requesterId, GroupRoomClosedData.of(requesterId), now));
+                ChatMessage.groupRoomClosed(chatRoom, requesterId,
+                        ChatStoredJson.writeNotificationData(GroupRoomClosedData.of(requesterId)), now));
         if (chatRoom.getActiveMemberCount() > 0) {
             chatDeliveryRecorder.recordMessage(notice, chatRoom.getCurrentRecipientSetId(), ChatNotifyRule.NONE, now);
         }
@@ -369,7 +371,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         for (ChatRoom chatRoom : rooms) {
             // 안내를 먼저 저장한다(읽기 전용 방에는 순번을 발급하지 않는다). 연결된 참여자에게는 폐쇄와 같이 이 안내가 상태 변경을 알린다
             ChatMessage notice = chatMessageRepository.save(ChatMessage.groupHostUnavailable(chatRoom, hostUserId,
-                    GroupHostUnavailableData.of(hostUserId), now));
+                    ChatStoredJson.writeNotificationData(GroupHostUnavailableData.of(hostUserId)), now));
             if (chatRoom.getActiveMemberCount() > 0) {
                 chatDeliveryRecorder.recordMessage(notice, chatRoom.getCurrentRecipientSetId(), ChatNotifyRule.NONE,
                         now);
@@ -409,7 +411,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private Optional<List<ChatGroupInviteOutcome>> findRetained(Long chatRoomId, UUID requestId, LocalDateTime now) {
         return chatGroupInviteRequestRepository.findByChatRoomIdAndRequestId(chatRoomId, requestId)
                 .filter(request -> request.isRetained(now, properties.inviteRequestRetention()))
-                .map(ChatGroupInviteRequest::outcomes);
+                .map(ChatStoredJson::readInviteOutcomes);
     }
 
     private ChatRoom findViewableGroup(Long chatRoomId) {

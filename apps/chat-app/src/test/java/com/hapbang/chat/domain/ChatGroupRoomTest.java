@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.ChatStoredJson;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 
 import tools.jackson.databind.JsonNode;
@@ -152,11 +153,11 @@ class ChatGroupRoomTest {
     void 단체방_안내는_본문이_비어_있고_종류별_값_필드_하나만_채운다() {
         ChatRoom room = groupRoom();
         ChatMessage invited = ChatMessage.groupMembersInvited(room, HOST_ID,
-                GroupMembersInvitedData.of(HOST_ID, List.of(GUEST_ID, OTHER_INFLUENCER_ID)), NOW);
-        ChatMessage kicked = ChatMessage.groupMemberKicked(room, HOST_ID, GroupMemberKickedData.of(HOST_ID, GUEST_ID),
+                ChatStoredJson.writeNotificationData(GroupMembersInvitedData.of(HOST_ID, List.of(GUEST_ID, OTHER_INFLUENCER_ID))), NOW);
+        ChatMessage kicked = ChatMessage.groupMemberKicked(room, HOST_ID, ChatStoredJson.writeNotificationData(GroupMemberKickedData.of(HOST_ID, GUEST_ID)),
                 NOW);
-        ChatMessage left = ChatMessage.groupMemberLeft(room, GUEST_ID, GroupMemberLeftData.of(GUEST_ID), NOW);
-        ChatMessage closed = ChatMessage.groupRoomClosed(room, HOST_ID, GroupRoomClosedData.of(HOST_ID), NOW);
+        ChatMessage left = ChatMessage.groupMemberLeft(room, GUEST_ID, ChatStoredJson.writeNotificationData(GroupMemberLeftData.of(GUEST_ID)), NOW);
+        ChatMessage closed = ChatMessage.groupRoomClosed(room, HOST_ID, ChatStoredJson.writeNotificationData(GroupRoomClosedData.of(HOST_ID)), NOW);
 
         JsonNode json = JSON.readTree(JSON.writeValueAsString(ChatMessageResponse.from(invited)));
         assertThat(json.get("messageType").asString()).isEqualTo("SYSTEM");
@@ -180,7 +181,7 @@ class ChatGroupRoomTest {
 
     @Test
     void 단체방_안내는_일대일_방에_남기지_않는다() {
-        assertThatThrownBy(() -> ChatMessage.groupMemberLeft(directRoom(), GUEST_ID, GroupMemberLeftData.of(GUEST_ID),
+        assertThatThrownBy(() -> ChatMessage.groupMemberLeft(directRoom(), GUEST_ID, ChatStoredJson.writeNotificationData(GroupMemberLeftData.of(GUEST_ID)),
                 NOW)).isInstanceOf(IllegalStateException.class);
     }
 
@@ -189,10 +190,10 @@ class ChatGroupRoomTest {
         List<ChatGroupInviteOutcome> outcomes = List.of(ChatGroupInviteOutcome.joined(GUEST_ID),
                 ChatGroupInviteOutcome.alreadyMember(HOST_ID),
                 ChatGroupInviteOutcome.failed(USER_ID, ChatGroupInviteFailure.CHAT_NOT_ALLOWED));
-        ChatGroupInviteRequest request = ChatGroupInviteRequest.record(1L, UUID.randomUUID(), HOST_ID, outcomes, NOW);
+        ChatGroupInviteRequest request = ChatGroupInviteRequest.record(1L, UUID.randomUUID(), HOST_ID, ChatStoredJson.writeInviteOutcomes(outcomes), NOW);
         Duration retention = Duration.ofHours(24);
 
-        assertThat(request.outcomes()).isEqualTo(outcomes);
+        assertThat(ChatStoredJson.readInviteOutcomes(request)).isEqualTo(outcomes);
         assertThat(request.isRetained(NOW.plusHours(24).minusNanos(1000), retention)).isTrue();
         assertThat(request.isRetained(NOW.plusHours(24), retention)).isFalse();
     }

@@ -77,8 +77,8 @@ public class ChatMessage {
     private Long parentReferenceId;
 
     /**
-     * 알림 메시지가 담는 값의 JSON({@link NotificationData}). 알림 종류별 record를 직렬화해 넣고, 읽을 때는 종류별 메서드
-     * ({@link #readAppearanceRequestSent()} 등)로 그 종류의 record로 바꾼다. 문구는 프론트가 종류별 템플릿으로 만든다.
+     * 알림 메시지가 담는 값의 JSON({@link NotificationData}). 알림 종류별 record를 app이 직렬화해 넘기고, 읽을 때도 app이
+     * 알림 종류로 record를 골라 바꾼다. 문구는 프론트가 종류별 템플릿으로 만든다.
      * 단체방 안내도 같은 방식으로 종류별 값을 담는다. 일반 메시지·1:1 방의 시스템 메시지와 문구(content)로 남긴 기존 알림은 null
      */
     @JdbcTypeCode(SqlTypes.JSON)
@@ -142,90 +142,50 @@ public class ChatMessage {
      * 출연 요청 도착 알림. 보낸 사람은 요청을 보낸 호스트, 대상은 출연 요청서다.
      */
     public static ChatMessage appearanceRequestSent(ChatRoom chatRoom, Long hostId, Long requestId,
-            AppearanceRequestSentData data, LocalDateTime now) {
-        Assert.state(data != null, "알림 값이 비어 있습니다.");
-        return notification(chatRoom, hostId, NotificationKind.APPEARANCE_REQUEST_SENT, requestId, null,
-                NotificationData.write(data), now);
+            String dataJson, LocalDateTime now) {
+        Assert.state(dataJson != null, "알림 값이 비어 있습니다.");
+        return notification(chatRoom, hostId, NotificationKind.APPEARANCE_REQUEST_SENT, requestId, null, dataJson,
+                now);
     }
 
     /**
      * 출연 모집 지원 도착 알림. 보낸 사람은 지원한 게스트, 대상은 지원이고 상위 건은 모집글이다.
      */
     public static ChatMessage appearanceApplicationSubmitted(ChatRoom chatRoom, Long guestId, Long applicationId,
-            Long recruitId, AppearanceApplicationSubmittedData data, LocalDateTime now) {
-        Assert.state(data != null, "알림 값이 비어 있습니다.");
+            Long recruitId, String dataJson, LocalDateTime now) {
+        Assert.state(dataJson != null, "알림 값이 비어 있습니다.");
         return notification(chatRoom, guestId, NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, applicationId,
-                recruitId, NotificationData.write(data), now);
+                recruitId, dataJson, now);
     }
 
     /** 단체방 초대 안내. 보낸 사람은 초대한 호스트, 값은 이번 요청으로 참여한 회원들이다 */
-    public static ChatMessage groupMembersInvited(ChatRoom chatRoom, Long hostId, GroupMembersInvitedData data,
+    public static ChatMessage groupMembersInvited(ChatRoom chatRoom, Long hostId, String dataJson,
             LocalDateTime now) {
-        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBERS_INVITED, data, now);
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBERS_INVITED, dataJson, now);
     }
 
     /** 단체방 강퇴 안내. 보낸 사람은 내보낸 호스트다 */
-    public static ChatMessage groupMemberKicked(ChatRoom chatRoom, Long hostId, GroupMemberKickedData data,
+    public static ChatMessage groupMemberKicked(ChatRoom chatRoom, Long hostId, String dataJson,
             LocalDateTime now) {
-        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBER_KICKED, data, now);
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBER_KICKED, dataJson, now);
     }
 
     /** 단체방 나가기 안내. 보낸 사람은 나간 회원이다 */
-    public static ChatMessage groupMemberLeft(ChatRoom chatRoom, Long leftUserId, GroupMemberLeftData data,
+    public static ChatMessage groupMemberLeft(ChatRoom chatRoom, Long leftUserId, String dataJson,
             LocalDateTime now) {
-        return groupNotice(chatRoom, leftUserId, NotificationKind.GROUP_MEMBER_LEFT, data, now);
+        return groupNotice(chatRoom, leftUserId, NotificationKind.GROUP_MEMBER_LEFT, dataJson, now);
     }
 
     /** 단체방 폐쇄 안내. 보낸 사람은 폐쇄한 호스트다. 방을 읽기 전용으로 바꾸기 전에 만든다 */
-    public static ChatMessage groupRoomClosed(ChatRoom chatRoom, Long hostId, GroupRoomClosedData data,
+    public static ChatMessage groupRoomClosed(ChatRoom chatRoom, Long hostId, String dataJson,
             LocalDateTime now) {
-        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_ROOM_CLOSED, data, now);
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_ROOM_CLOSED, dataJson, now);
     }
 
     /** 단체방 호스트 자격 상실 안내. 보낸 사람은 자격을 잃은 호스트다. 방을 읽기 전용으로 바꾸기 전에 만든다 */
-    public static ChatMessage groupHostUnavailable(ChatRoom chatRoom, Long hostId, GroupHostUnavailableData data,
+    public static ChatMessage groupHostUnavailable(ChatRoom chatRoom, Long hostId, String dataJson,
             LocalDateTime now) {
-        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_HOST_UNAVAILABLE, data, now);
-    }
-
-    /** 단체방 호스트 자격 상실 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
-    public GroupHostUnavailableData readGroupHostUnavailable() {
-        return readNotificationData(NotificationKind.GROUP_HOST_UNAVAILABLE, GroupHostUnavailableData.class);
-    }
-
-    /** 단체방 초대 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
-    public GroupMembersInvitedData readGroupMembersInvited() {
-        return readNotificationData(NotificationKind.GROUP_MEMBERS_INVITED, GroupMembersInvitedData.class);
-    }
-
-    /** 단체방 강퇴 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
-    public GroupMemberKickedData readGroupMemberKicked() {
-        return readNotificationData(NotificationKind.GROUP_MEMBER_KICKED, GroupMemberKickedData.class);
-    }
-
-    /** 단체방 나가기 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
-    public GroupMemberLeftData readGroupMemberLeft() {
-        return readNotificationData(NotificationKind.GROUP_MEMBER_LEFT, GroupMemberLeftData.class);
-    }
-
-    /** 단체방 폐쇄 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
-    public GroupRoomClosedData readGroupRoomClosed() {
-        return readNotificationData(NotificationKind.GROUP_ROOM_CLOSED, GroupRoomClosedData.class);
-    }
-
-    /** 출연 요청 도착 알림의 값. 다른 종류의 메시지이거나 값이 없거나 읽을 수 없으면 null이다 */
-    public AppearanceRequestSentData readAppearanceRequestSent() {
-        return readNotificationData(NotificationKind.APPEARANCE_REQUEST_SENT, AppearanceRequestSentData.class);
-    }
-
-    /** 출연 모집 지원 도착 알림의 값. 다른 종류의 메시지이거나 값이 없거나 읽을 수 없으면 null이다 */
-    public AppearanceApplicationSubmittedData readAppearanceApplicationSubmitted() {
-        return readNotificationData(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED,
-                AppearanceApplicationSubmittedData.class);
-    }
-
-    private <T> T readNotificationData(NotificationKind kind, Class<T> type) {
-        return notificationKind == kind ? NotificationData.read(notificationDataJson, type) : null;
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_HOST_UNAVAILABLE, dataJson, now);
     }
 
     /**
@@ -248,14 +208,14 @@ public class ChatMessage {
      * 단체방 안내(시스템 메시지). 서버만 만든다. 문구는 만들지 않고 종류와 값(행위자·대상 회원 ID)만 남기며, 본문은
      * {@link #NOTIFICATION_CONTENT}(빈 문자열)다. 출연 건을 가리키지 않으므로 {@code referenceId}는 비워 둔다.
      */
-    private static ChatMessage groupNotice(ChatRoom chatRoom, Long senderUserId, NotificationKind kind, Object data,
-            LocalDateTime now) {
+    private static ChatMessage groupNotice(ChatRoom chatRoom, Long senderUserId, NotificationKind kind,
+            String dataJson, LocalDateTime now) {
         Assert.state(chatRoom.isGroup(), "단체방 안내는 단체방에만 남깁니다.");
-        Assert.state(data != null, "안내 값이 비어 있습니다.");
+        Assert.state(dataJson != null, "안내 값이 비어 있습니다.");
         ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.SYSTEM, NOTIFICATION_CONTENT,
                 now);
         message.notificationKind = kind;
-        message.notificationDataJson = NotificationData.write(data);
+        message.notificationDataJson = dataJson;
         return message;
     }
 }

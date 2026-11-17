@@ -53,7 +53,8 @@ public class ChatNotificationUseCase {
     public void notifyAppearanceRequestSent(AppearanceRequestDto request) {
         notify(NotificationKind.APPEARANCE_REQUEST_SENT, request.requestId(), request.hostId(),
                 request.guestId(), (room, hostNickname, now) -> ChatMessage.appearanceRequestSent(room,
-                        request.hostId(), request.requestId(), AppearanceRequestSentData.of(hostNickname, request), now));
+                        request.hostId(), request.requestId(),
+                        ChatStoredJson.writeNotificationData(AppearanceRequestSentData.of(hostNickname, request)), now));
     }
 
     /** 출연 모집 지원 도착: 게스트가 호스트에게 */
@@ -62,7 +63,8 @@ public class ChatNotificationUseCase {
                 application.guestId(), application.hostId(),
                 (room, guestNickname, now) -> ChatMessage.appearanceApplicationSubmitted(room, application.guestId(),
                         application.applicationId(), application.recruitId(),
-                        AppearanceApplicationSubmittedData.of(guestNickname, application), now));
+                        ChatStoredJson.writeNotificationData(
+                                AppearanceApplicationSubmittedData.of(guestNickname, application)), now));
     }
 
     /**

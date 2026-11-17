@@ -100,7 +100,7 @@ class ChatNotificationUseCaseTest {
 
         ChatMessage stored = chatMessageTestRepository.findById(messageId).orElseThrow();
         assertThat(stored.getContent()).isEmpty();
-        assertThat(stored.readAppearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
+        assertThat(ChatStoredJson.readAppearanceRequestSent(stored)).isEqualTo(REQUEST_SENT_DATA);
         assertThat(sql.row("""
                 select cast(pg_typeof(notification_data) as text) as column_type,
                        jsonb_typeof(notification_data -> 'v') as v_type,
