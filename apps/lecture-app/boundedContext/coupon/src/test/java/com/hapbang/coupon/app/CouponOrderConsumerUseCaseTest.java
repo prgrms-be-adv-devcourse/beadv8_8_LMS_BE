@@ -27,7 +27,7 @@ import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponState;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
@@ -61,7 +61,7 @@ class CouponOrderConsumerUseCaseTest {
         CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(
                 new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
         useCase = new CouponOrderConsumerUseCase(mock(CouponBudgetReleaseRecorder.class),
-                couponUsageRepository, memberCouponRepository,
+                couponUsageRepository, memberCouponRepository, memberCouponRepository,
                 processedOperationRepository, metrics, transactionManager(), CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),

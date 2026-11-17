@@ -406,8 +406,8 @@ class CouponOpenUseCaseTest {
     /** 시계만 다른 같은 UseCase */
     private CouponOpenUseCase useCaseAt(Instant now) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
-        CouponBudgetWorkUseCase budgetWorkUseCase = new CouponBudgetWorkUseCase(budgetWorkRepository, couponRepository,
-                mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudgetProvider,
+        CouponBudgetWorkUseCase budgetWorkUseCase = new CouponBudgetWorkUseCase(budgetWorkRepository, budgetWorkRepository,
+                couponRepository, couponRepository, mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudgetProvider,
                 new CouponBudgetWorkProperties(null, Duration.ofMinutes(1), 100), db.transactionManager(), clock);
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
                 budgetWorkRepository, budgetWorkUseCase, issueStore, capacitySupport, promotionBudgetProvider,

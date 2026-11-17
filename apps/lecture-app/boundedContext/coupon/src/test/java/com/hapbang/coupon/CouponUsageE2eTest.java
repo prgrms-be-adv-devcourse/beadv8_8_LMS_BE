@@ -393,7 +393,7 @@ class CouponUsageE2eTest {
                 now.minusSeconds(60), now.minusSeconds(10), now)).getId();
         var metrics = new org.springframework.beans.factory.support.StaticListableBeanFactory();
         var expiry = new com.hapbang.coupon.app.MemberCouponExpiryUseCase(budgetReleaseRecorder, memberCouponRepository,
-                new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
+                memberCouponRepository, new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
                 metrics.getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), budgetTransactionManager,
                 java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
 
@@ -442,7 +442,7 @@ class CouponUsageE2eTest {
         // 이전 writer처럼 완료 표식을 건드리지 않고 상태만 EXPIRED로 복원해도 다시 수집한다.
         tx.executeWithoutResult(status -> memberCouponRepository.restore(id, 1, now));
         assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
-                .extracting(com.hapbang.coupon.out.MemberCouponExpiryTarget::id).containsExactly(id);
+                .extracting(com.hapbang.coupon.app.port.MemberCouponExpiryTarget::id).containsExactly(id);
         budgetReleaseRecorder.recordDue(id, now);
         assertThat(memberCouponRepository.findBudgetState(id).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getAmount).isEqualTo(1_500L);
@@ -517,8 +517,8 @@ class CouponUsageE2eTest {
     private com.hapbang.coupon.app.CouponBudgetWorkUseCase budgetWorker(Instant now) {
         org.springframework.beans.factory.support.StaticListableBeanFactory beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
         beans.addBean("budget", promotionBudget);
-        return new com.hapbang.coupon.app.CouponBudgetWorkUseCase(budgetWorkRepository, couponRepository,
-                memberCouponRepository, budgetReleaseRecorder, beans.getBeanProvider(com.hapbang.coupon.app.port.PromotionBudget.class),
+        return new com.hapbang.coupon.app.CouponBudgetWorkUseCase(budgetWorkRepository, budgetWorkRepository,
+                couponRepository, couponRepository, memberCouponRepository, budgetReleaseRecorder, beans.getBeanProvider(com.hapbang.coupon.app.port.PromotionBudget.class),
                 new com.hapbang.coupon.config.CouponBudgetWorkProperties(null, java.time.Duration.ofSeconds(60), 100),
                 budgetTransactionManager, java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
     }

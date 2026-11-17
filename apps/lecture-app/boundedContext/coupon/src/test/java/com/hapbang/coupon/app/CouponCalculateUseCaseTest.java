@@ -54,7 +54,7 @@ class CouponCalculateUseCaseTest {
 
     @Test
     void 매핑을_생략하면_회원의_AVAILABLE_쿠폰으로_추천하고_계산_근거를_돌려준다() {
-        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+        when(memberCouponRepository.findMyCoupons(MEMBER_ID, MemberCouponStatus.AVAILABLE))
                 .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L))));
 
         CouponCalculateResponse response = useCase.calculate(request(null));
@@ -86,7 +86,7 @@ class CouponCalculateUseCaseTest {
         assertThat(response.recommended()).isFalse();
         assertThat(response.totalDiscount()).isEqualTo(1_000);
         verify(memberCouponRepository).findOwnedByIds(argThat(ids -> ids.size() == 1 && ids.contains(SELLER_COUPON)));
-        verify(memberCouponRepository, never()).findOwnedByStatus(anyLong(), any());
+        verify(memberCouponRepository, never()).findMyCoupons(anyLong(), any());
     }
 
     @Test
@@ -177,7 +177,7 @@ class CouponCalculateUseCaseTest {
     }
 
     private void givenSellerAndPlatformAvailable() {
-        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+        when(memberCouponRepository.findMyCoupons(MEMBER_ID, MemberCouponStatus.AVAILABLE))
                 .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)),
                         owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L))));
     }
@@ -186,7 +186,7 @@ class CouponCalculateUseCaseTest {
 
     @Test
     void 미리보기는_강의_조회로_가격과_판매자를_채워_추천하고_매핑을_주면_그_매핑만_계산한다() {
-        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+        when(memberCouponRepository.findMyCoupons(MEMBER_ID, MemberCouponStatus.AVAILABLE))
                 .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L))));
         givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)));
 
