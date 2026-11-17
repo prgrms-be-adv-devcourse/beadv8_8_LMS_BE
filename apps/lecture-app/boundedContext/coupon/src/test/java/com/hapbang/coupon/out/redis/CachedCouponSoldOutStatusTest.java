@@ -71,6 +71,16 @@ class CachedCouponSoldOutStatusTest {
     }
 
     @Test
+    void Redis_템플릿_상태_오류도_읽지_못한_것으로_보고_매진이_아닌_것으로_담는다() {
+        CachedCouponSoldOutStatus cache = cache(CouponIssueDeliveryProperties.defaults(), CouponSoldOutCacheProperties.defaults());
+        when(redisSoldOut.test(COUPON_ID)).thenThrow(new IllegalStateException("redis"));
+
+        assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        verify(redisSoldOut, times(1)).test(COUPON_ID);
+    }
+
+    @Test
     void 시계가_읽은_시각보다_앞으로_돌아가면_다시_읽는다() {
         CachedCouponSoldOutStatus cache = cache(CouponIssueDeliveryProperties.defaults(), CouponSoldOutCacheProperties.defaults());
         when(redisSoldOut.test(COUPON_ID)).thenReturn(false, true);
