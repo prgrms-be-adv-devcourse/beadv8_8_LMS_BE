@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex;
+import com.hapbang.auxiliary.search.common.out.EsKeywordIndex;
 import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSearchCondition;
 import com.hapbang.auxiliary.search.influencer.app.InfluencerSort;
@@ -71,11 +73,23 @@ public class InfluencerSearcher {
 
     private final ElasticsearchClient client;
     private final SearchRankingProperties ranking;
+    private final KeywordIndex keywordIndex;
 
     public InfluencerSearcher(@Qualifier(SearchElasticsearchConfig.CLIENT) ElasticsearchClient client,
             SearchRankingProperties ranking) {
         this.client = client;
         this.ranking = ranking;
+        this.keywordIndex = new EsKeywordIndex(client, InfluencerIndexDefinition.ALIAS,
+                EsKeywordIndex.withoutBoost(KEYWORD_FIELDS), EsKeywordIndex.withoutBoost(JAMO_FIELDS),
+                Query.of(q -> q.term(t -> t.field("hidden").value(false))));
+    }
+
+    /**
+     * 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸, 보이는 인플루언서. 분야·팔로워·평점 조건은 보지 않는다(조건이 좁아 0건인 것은
+     * 오타가 아니다)
+     */
+    public KeywordIndex keywordIndex() {
+        return keywordIndex;
     }
 
     /**

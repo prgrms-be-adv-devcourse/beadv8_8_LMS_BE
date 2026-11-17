@@ -155,6 +155,98 @@ public final class HangulKeys {
         return consonant;
     }
 
+    /**
+     * {@link #jamo}로 푼 낱자를 한글 입력기 규칙대로 다시 음절로 묶는다(#977 검색어 제안이 자모 칸에서 찾은 낱말을 되돌린다).
+     * <ul>
+     *     <li>첫소리 뒤에 모음이 오면 음절을 연다. 두 모음이 겹모음이 되면({@code ㅗㅏ} → {@code ㅘ}) 하나로 묶는다.</li>
+     *     <li>뒤따르는 자음은 받침이 된다. 겹받침이 되는 두 자음({@code ㄹㄱ})은 하나로 묶는다. 다만 그 자음 바로 뒤에 모음이 오면 다음 음절의 첫소리로
+     *     넘긴다({@code ㄷㅏㄹㄱㅇㅡㄹ} → {@code 닭을}, {@code ㅇㅣㄹㄱㅣ} → {@code 읽기}가 아니라 {@code 일기}).</li>
+     *     <li>음절이 되지 못하는 낱자·영문·숫자·띄어쓰기는 그대로 둔다.</li>
+     * </ul>
+     *
+     * @return 묶은 문자열. {@code null}이면 {@code null}
+     */
+    public static String compose(String jamo) {
+        if (jamo == null) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        int length = jamo.length();
+        int i = 0;
+        while (i < length) {
+            int cho = indexOf(CHO, jamo.substring(i, i + 1));
+            if (cho < 0 || i + 1 >= length || !isSimpleVowel(jamo.charAt(i + 1))) {
+                out.append(jamo.charAt(i));
+                i++;
+                continue;
+            }
+            int next = i + 2;
+            String vowel = jamo.substring(i + 1, i + 2);
+            if (next < length && indexOf(JUNG, vowel + jamo.charAt(next)) >= 0) {
+                vowel += jamo.charAt(next);
+                next++;
+            }
+            String jong = jong(jamo, next);
+            out.append((char) (SYLLABLE_FIRST + (cho * JUNG_COUNT + indexOf(JUNG, vowel)) * JONG_COUNT + indexOf(JONG, jong)));
+            i = next + jong.length();
+        }
+        return out.toString();
+    }
+
+    /**
+     * 두 말을 {@link #jamo}로 풀어 낱자 몇 개를 넣고·빼고·바꿔야 같아지는지(편집 거리). 한글 오타는 글자보다 낱자가 가깝다: {@code 가팡}은
+     * {@code 가방}과 1({@code ㅍ}→{@code ㅂ}), {@code 가수}와 3이다. 글자 단위로는 둘 다 1이라 가를 수 없다. 영문은 알파벳 단위다.
+     */
+    public static int jamoDistance(String a, String b) {
+        String left = jamo(a);
+        String right = jamo(b);
+        int[] previous = new int[right.length() + 1];
+        int[] current = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) {
+            previous[j] = j;
+        }
+        for (int i = 1; i <= left.length(); i++) {
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++) {
+                int replace = previous[j - 1] + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(replace, Math.min(previous[j], current[j - 1]) + 1);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[right.length()];
+    }
+
+    /** {@code from}부터 받침이 될 자음(겹받침이면 둘, 없으면 빈 문자열). 자음 바로 뒤가 모음이면 그 자음은 다음 음절의 첫소리다 */
+    private static String jong(String jamo, int from) {
+        for (int size = 2; size >= 1; size--) {
+            int end = from + size;
+            if (end > jamo.length() || indexOf(JONG, jamo.substring(from, end)) <= 0) {
+                continue;
+            }
+            if (end < jamo.length() && isSimpleVowel(jamo.charAt(end))) {
+                continue;
+            }
+            return jamo.substring(from, end);
+        }
+        return "";
+    }
+
+    private static int indexOf(String[] table, String value) {
+        for (int i = 0; i < table.length; i++) {
+            if (table[i].equals(value)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** {@link #jamo}가 내는 홑모음(겹모음은 이 둘로 나뉘어 있다) */
+    private static boolean isSimpleVowel(char ch) {
+        return "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅛㅜㅠㅡㅣ".indexOf(ch) >= 0;
+    }
+
     private static boolean isSyllable(char ch) {
         return ch >= SYLLABLE_FIRST && ch <= SYLLABLE_LAST;
     }
