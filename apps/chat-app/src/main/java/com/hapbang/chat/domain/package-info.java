@@ -10,4 +10,11 @@
  */
 // 스키마는 Flyway 마이그레이션(src/main/resources/db/migration/V*__create_chat_tables.sql)으로 만든다.
 // 엔티티를 바꾸면 같은 PR에 마이그레이션을 추가한다(docs/db-migration.md).
+// 회원 복제본(ChatUser)의 부모는 shared 모듈에 있어 이 모듈에서 Q타입이 만들어지지 않는다. QChatUser가 부모 Q타입을 쓰므로 여기서 함께 만든다.
+@QueryEntities({BaseEntity.class, BaseUser.class, ReplicaUser.class})
 package com.hapbang.chat.domain;
+
+import com.hapbang.shared.jpa.BaseEntity;
+import com.hapbang.shared.member.domain.BaseUser;
+import com.hapbang.shared.member.domain.ReplicaUser;
+import com.querydsl.core.annotations.QueryEntities;

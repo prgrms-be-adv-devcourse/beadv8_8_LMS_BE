@@ -23,7 +23,7 @@ import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponState;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
@@ -46,7 +46,7 @@ class CouponReserveUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new CouponReserveUseCase(support(memberCouponRepository, processedOperationRepository,
-                transactionManager), memberCouponRepository, couponUsageRepository, processedOperationRepository,
+                transactionManager), memberCouponRepository, memberCouponRepository, couponUsageRepository, processedOperationRepository,
                 transactionManager, CLOCK);
         givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)),
                 owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));

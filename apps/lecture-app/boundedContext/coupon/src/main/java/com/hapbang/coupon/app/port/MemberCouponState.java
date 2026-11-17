@@ -1,4 +1,4 @@
-package com.hapbang.coupon.out;
+package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
 

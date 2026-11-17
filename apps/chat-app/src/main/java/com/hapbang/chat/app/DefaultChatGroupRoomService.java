@@ -85,6 +85,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatGroupInviteRequestRepository chatGroupInviteRequestRepository;
+    private final ChatRoomReader chatRoomReader;
+    private final ChatRoomMemberReader chatRoomMemberReader;
     private final ChatValidationService chatValidationService;
     private final ChatRoomSupporter chatRoomSupporter;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
@@ -97,7 +99,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     @Transactional(readOnly = true)
     public Optional<Long> findCurrentRoomOf(Long requesterId, Long recruitId) {
         chatValidationService.validateCanChat(requesterId);
-        return chatRoomRepository.findCurrentGroup(recruitId).map(room -> requireRecruitHost(room, requesterId));
+        return chatRoomReader.findCurrentGroup(recruitId).map(room -> requireRecruitHost(room, requesterId));
     }
 
     @Override
@@ -113,7 +115,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         if (!recruit.hostId().equals(requesterId)) {
             throw new ChatException(ChatErrorCode.NOT_RECRUIT_HOST);
         }
-        Optional<ChatRoom> current = chatRoomRepository.findCurrentGroup(recruit.recruitId());
+        Optional<ChatRoom> current = chatRoomReader.findCurrentGroup(recruit.recruitId());
         if (current.isPresent()) {
             // 먼저 만든 요청이 커밋했다(동시 생성의 재시도 포함). 같은 방을 돌려준다
             return new ChatRoomOpenResult(requireRecruitHost(current.get(), requesterId), false, List.of());
@@ -141,7 +143,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     public ChatGroupRoomsResponse getRooms(Long userId, Long recruitId) {
         chatValidationService.validateCanChat(userId);
         LocalDateTime now = LocalDateTime.now();
-        List<ChatRoomMember> memberships = chatRoomMemberRepository.findActiveGroupMemberships(recruitId, userId)
+        List<ChatRoomMember> memberships = chatRoomMemberReader.findActiveGroupMemberships(recruitId, userId)
                 .stream()
                 .filter(member -> member.getChatRoom().isViewable(now))
                 .toList();
@@ -182,7 +184,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         // 제목 컬럼만 바꾼다(방을 잠그지 않는다). 영속성 컨텍스트를 비우므로 방 값을 먼저 읽어 둔다
         chatRoomRepository.updateGroupTitle(chatRoomId, recruitTitle, LocalDateTime.now());
 
-        Set<Long> members = new HashSet<>(chatRoomMemberRepository.findActiveUserIds(chatRoomId));
+        Set<Long> members = new HashSet<>(chatRoomMemberReader.findActiveUserIds(chatRoomId));
         long after = cursor == null ? 0L : cursor;
         List<Long> candidateIds = applicantUserIds.stream()
                 .distinct()
@@ -346,7 +348,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         }
         LocalDateTime now = LocalDateTime.now();
         // 폐쇄해도 참여는 그대로라 지금 참여자가 폐쇄 시점 참여자다(호스트 포함). 회원 ID 열만 읽는다
-        List<Long> memberUserIds = chatRoomMemberRepository.findActiveUserIds(chatRoomId).stream().sorted().toList();
+        List<Long> memberUserIds = chatRoomMemberReader.findActiveUserIds(chatRoomId).stream().sorted().toList();
         ChatMessage notice = chatMessageRepository.save(
                 ChatMessage.groupRoomClosed(chatRoom, requesterId, GroupRoomClosedData.of(requesterId), now));
         if (chatRoom.getActiveMemberCount() > 0) {

@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -25,7 +27,6 @@ import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponState;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
 import com.hapbang.shared.coupon.api.CouponReleaseResponse;
@@ -51,12 +52,14 @@ public class CouponReleaseUseCase {
     private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final CouponUsageSupport usageSupport;
     private final MemberCouponRepository memberCouponRepository;
+    private final MemberCouponReader memberCouponReader;
     private final CouponUsageRepository couponUsageRepository;
     private final ProcessedOperationRepository processedOperationRepository;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public CouponReleaseUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, CouponUsageSupport usageSupport, MemberCouponRepository memberCouponRepository,
+    public CouponReleaseUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder, CouponUsageSupport usageSupport,
+                                MemberCouponRepository memberCouponRepository, MemberCouponReader memberCouponReader,
                                 CouponUsageRepository couponUsageRepository,
                                 ProcessedOperationRepository processedOperationRepository,
                                 PlatformTransactionManager transactionManager,
@@ -64,6 +67,7 @@ public class CouponReleaseUseCase {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.usageSupport = usageSupport;
         this.memberCouponRepository = memberCouponRepository;
+        this.memberCouponReader = memberCouponReader;
         this.couponUsageRepository = couponUsageRepository;
         this.processedOperationRepository = processedOperationRepository;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -151,7 +155,7 @@ public class CouponReleaseUseCase {
     /** 해제 조건부 갱신. 1행이면 갱신 뒤 상태(AVAILABLE·EXPIRED)를 돌려준다. 0행이면 해제 불가(USED·다른 generation 등) */
     private MemberCouponStatus casRelease(CouponUsage usage, Instant now) {
         int updated = memberCouponRepository.release(usage.getMemberCouponId(), usage.getGeneration(), now);
-        Optional<MemberCouponState> state = memberCouponRepository.findStateById(usage.getMemberCouponId());
+        Optional<MemberCouponState> state = memberCouponReader.findStateById(usage.getMemberCouponId());
         if (updated != 1) {
             throw notAllowed(usage.getMemberCouponId(), "발급 쿠폰이 이 사용 시도로 예약된 상태가 아닙니다: "
                     + state.map(found -> found.status() + "/generation=" + found.generation()).orElse("없음"));

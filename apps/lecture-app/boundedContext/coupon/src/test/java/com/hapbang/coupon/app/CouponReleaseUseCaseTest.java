@@ -23,7 +23,7 @@ import com.hapbang.coupon.domain.usage.UsageItem;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponState;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
 import com.hapbang.shared.coupon.api.CouponReleaseResponse;
@@ -45,7 +45,7 @@ class CouponReleaseUseCaseTest {
     void setUp() {
         var transactionManager = transactionManager();
         useCase = new CouponReleaseUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), support(memberCouponRepository, processedOperationRepository,
-                transactionManager), memberCouponRepository, couponUsageRepository, processedOperationRepository,
+                transactionManager), memberCouponRepository, memberCouponRepository, couponUsageRepository, processedOperationRepository,
                 transactionManager, CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),

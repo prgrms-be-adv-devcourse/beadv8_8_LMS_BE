@@ -32,14 +32,16 @@ import lombok.extern.slf4j.Slf4j;
 public class ChatGroupHistoryExpiryService {
 
     private final ChatRoomRepository chatRoomRepository;
+    private final ChatRoomReader chatRoomReader;
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final TransactionTemplate roomTransaction;
     private final int batchSize;
 
-    public ChatGroupHistoryExpiryService(ChatRoomRepository chatRoomRepository,
+    public ChatGroupHistoryExpiryService(ChatRoomRepository chatRoomRepository, ChatRoomReader chatRoomReader,
             ChatRoomLogRepository chatRoomLogRepository, PlatformTransactionManager transactionManager,
             ChatGroupProperties properties) {
         this.chatRoomRepository = chatRoomRepository;
+        this.chatRoomReader = chatRoomReader;
         this.chatRoomLogRepository = chatRoomLogRepository;
         this.roomTransaction = new TransactionTemplate(transactionManager);
         this.batchSize = properties.historyExpiryBatchSize();
@@ -54,7 +56,7 @@ public class ChatGroupHistoryExpiryService {
         int failed = 0;
         long afterId = 0L;
         while (true) {
-            List<Long> roomIds = chatRoomRepository.findHistoryExpiryDueIds(now, afterId, Limit.of(batchSize));
+            List<Long> roomIds = chatRoomReader.findHistoryExpiryDueIds(now, afterId, Limit.of(batchSize));
             for (Long roomId : roomIds) {
                 try {
                     if (Boolean.TRUE.equals(roomTransaction.execute(status -> expire(roomId, now)))) {

@@ -85,22 +85,70 @@ public final class B0FixtureGenerator {
     private final Map<B0Record, B0Record> sentToCanceled = new IdentityHashMap<>();
     private final Map<B0Record, B0Record> originalToResend = new IdentityHashMap<>();
     private final List<B0Record[]> paidAndConfirmed = new ArrayList<>();
+    private final Sizes sizes;
     private long sequence = 1;
 
-    private B0FixtureGenerator(long seed) {
+    /**
+     * 분류·이벤트별 건수. 회원은 늘 1,000(활성 950·정지 30·탈퇴 20)이다. 같은 seed·같은 크기면 같은 출력이 나온다
+     *
+     * @param charges            충전 완료(앞 200건은 활성 회원 5명에게 40건씩)
+     * @param appearancePayouts  출연 지급
+     * @param lecturePayouts     강의 지급(하루 묶음)
+     * @param requestsSent       출연 요청 도착(예약 R1 생성)
+     * @param requestsCanceled   그중 취소(같은 key, 도착 뒤). {@code requestsSent} 이하
+     * @param requestsExpired    출연 요청 만료
+     * @param applications       모집 지원
+     * @param reviews            출연 리뷰 공개(알림 대상 아님)
+     * @param ordersPaid         강의 구매 완료(예약 R5 생성)
+     * @param itemsConfirmed     구매 확정(예약 취소). {@code ordersPaid} 이하
+     * @param lecturesApproved   강의 승인
+     * @param inquiries          문의 답변
+     * @param invitations        단체방 초대
+     * @param resends            즉시 알림 이벤트 재전송
+     * @param legacy             LEGACY(알림 없이 커밋)
+     * @param unknownReceivers   받는 사람 복제본 없음(재시도 뒤 DLT, 실패 단계)
+     * @param broken             깨진 본문(DLT, 실패 단계)
+     */
+    public record Sizes(int charges, int appearancePayouts, int lecturePayouts, int requestsSent, int requestsCanceled,
+                        int requestsExpired, int applications, int reviews, int ordersPaid, int itemsConfirmed,
+                        int lecturesApproved, int inquiries, int invitations, int resends, int legacy,
+                        int unknownReceivers, int broken) {
+
+        /** B0 공식 크기(ND-172). 바꾸면 B0 기준선이 달라진다({@code B0FixtureInvarianceTest}) */
+        public static final Sizes B0 = new Sizes(1_110, 370, 370, 600, 150, 200, 300, 138, 400, 150, 375, 231, 231,
+                250, 50, 50, 25);
+
+        public Sizes {
+            if (requestsCanceled > requestsSent || itemsConfirmed > ordersPaid || charges < 200) {
+                throw new IllegalArgumentException("크기 조합이 맞지 않는다: " + this);
+            }
+        }
+    }
+
+    private B0FixtureGenerator(long seed, Sizes sizes) {
         this.random = new Random(seed);
+        this.sizes = sizes;
     }
 
     /** 두 단계 투입(ND-166) 순서로 만든다: 정상 단계 레코드 다음에 실패 단계 레코드 */
     public static B0Fixture generate(long seed) {
-        return generate(seed, true);
+        return generate(seed, Sizes.B0, true);
+    }
+
+    /** 크기를 정해 두 단계 투입 순서로 만든다(N15 L4, ND-189) */
+    public static B0Fixture generate(long seed, Sizes sizes) {
+        return generate(seed, sizes, true);
     }
 
     /**
      * @param phased false면 단계를 나누기 전 순서. 단계를 나눠도 레코드·기대 결과·순서 의존 관계가 같은지 비교하는 시험에만 쓴다
      */
     static B0Fixture generate(long seed, boolean phased) {
-        B0FixtureGenerator generator = new B0FixtureGenerator(seed);
+        return generate(seed, Sizes.B0, phased);
+    }
+
+    private static B0Fixture generate(long seed, Sizes sizes, boolean phased) {
+        B0FixtureGenerator generator = new B0FixtureGenerator(seed, sizes);
         generator.members();
         generator.alerts();
         if (phased) {
@@ -141,16 +189,16 @@ public final class B0FixtureGenerator {
         billing(base);
         List<B0Record> sents = appearance(base);
         List<B0Record[]> lecture = lecture(base);
-        for (int i = 0; i < 231; i++) {
+        for (int i = 0; i < sizes.inquiries(); i++) {
             base.add(inquiry());
         }
-        for (int i = 0; i < 231; i++) {
+        for (int i = 0; i < sizes.invitations(); i++) {
             base.add(invited());
         }
         Collections.shuffle(base, random);
         alerts.addAll(base);
         // 취소는 같은 요청의 도착 뒤(같은 key, 순서 의존)
-        for (int i = 0; i < 150; i++) {
+        for (int i = 0; i < sizes.requestsCanceled(); i++) {
             B0Record sent = sents.get(i);
             B0Record canceled = canceled((AppearanceRequestSentEvent) sent.event());
             insertAfter(sent, canceled);
@@ -162,29 +210,29 @@ public final class B0FixtureGenerator {
             paidAndConfirmed.add(pair);
         }
         resends();
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < sizes.legacy(); i++) {
             insertAnywhere(legacy());
         }
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < sizes.unknownReceivers(); i++) {
             insertAnywhere(unknownReceiver());
         }
-        for (int i = 0; i < 25; i++) {
+        for (int i = 0; i < sizes.broken(); i++) {
             insertAnywhere(broken());
         }
     }
 
     private void billing(List<B0Record> base) {
         List<Long> heavy = pick(active, 5);
-        for (int i = 0; i < 1_110; i++) {
+        for (int i = 0; i < sizes.charges(); i++) {
             long user = i < 200 ? heavy.get(i / 40) : any();
             base.add(charge(user));
         }
-        for (int i = 0; i < 370; i++) {
+        for (int i = 0; i < sizes.appearancePayouts(); i++) {
             base.add(payout(SettlementSourceType.APPEARANCE_REQUEST, any(), Instant.parse("2026-06-10T03:00:00Z")
                     .plusSeconds(i * 60L)));
         }
         List<Long> sellers = pick(everyone, 30);
-        for (int i = 0; i < 370; i++) {
+        for (int i = 0; i < sizes.lecturePayouts(); i++) {
             Instant paidAt = Instant.parse("2026-06-01T01:00:00Z").plusSeconds(86_400L * random.nextInt(5)
                     + 60L * random.nextInt(600));
             base.add(payout(SettlementSourceType.LECTURE_ORDER_ITEM, sellers.get(random.nextInt(sellers.size())),
@@ -194,7 +242,7 @@ public final class B0FixtureGenerator {
 
     private List<B0Record> appearance(List<B0Record> base) {
         List<B0Record> sents = new ArrayList<>();
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < sizes.requestsSent(); i++) {
             List<Long> pair = pick(active, 2);
             LocalDateTime deadline = LocalDateTime.parse("2027-03-01T18:00:00").plusMinutes(i);
             AppearanceRequestDto request = new AppearanceRequestDto(next(), pair.get(0), pair.get(1), "B0 요청 " + i,
@@ -206,7 +254,7 @@ public final class B0FixtureGenerator {
             scheduleTimes.add(deadline.atZone(KST).toInstant());
             scheduleTimes.add(deadline.minusHours(12).atZone(KST).toInstant());
         }
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < sizes.requestsExpired(); i++) {
             List<Long> pair = pick(everyone, 2);
             AppearanceRequestDto request = new AppearanceRequestDto(next(), pair.get(0), pair.get(1), "B0 만료 " + i,
                     30_000L, LocalDateTime.parse("2026-08-01T20:00:00"), LocalDateTime.parse("2026-07-01T18:00:00"));
@@ -215,7 +263,7 @@ public final class B0FixtureGenerator {
                     new AppearanceRequestExpiredEvent(request, expiredAt), B0Category.NORMAL));
             eventTimes.add(expiredAt.atZone(KST).toInstant());
         }
-        for (int i = 0; i < 300; i++) {
+        for (int i = 0; i < sizes.applications(); i++) {
             List<Long> pair = pick(everyone, 2);
             LocalDateTime appliedAt = LocalDateTime.parse("2026-06-12T09:00:00").plusMinutes(i);
             AppearanceApplicationDto application = new AppearanceApplicationDto(next(), next(), "B0 모집 " + i,
@@ -225,7 +273,7 @@ public final class B0FixtureGenerator {
                     new AppearanceApplicationSubmittedEvent(application), B0Category.NORMAL));
             eventTimes.add(appliedAt.atZone(KST).toInstant());
         }
-        for (int i = 0; i < 138; i++) {
+        for (int i = 0; i < sizes.reviews(); i++) {
             List<Long> pair = pick(everyone, 2);
             LocalDateTime publishedAt = LocalDateTime.parse("2026-06-20T12:00:00");
             AppearanceReviewPublishedEvent review = new AppearanceReviewPublishedEvent(next(), next(), pair.get(0),
@@ -237,11 +285,11 @@ public final class B0FixtureGenerator {
         return sents;
     }
 
-    /** @return (구매 완료 레코드, 구매 확정 레코드) 150쌍. 구매 확정은 아직 넣지 않았다 */
+    /** @return (구매 완료 레코드, 구매 확정 레코드) 쌍(B0는 150쌍). 구매 확정은 아직 넣지 않았다 */
     private List<B0Record[]> lecture(List<B0Record> base) {
         List<B0Record[]> pairs = new ArrayList<>();
         List<B0Record> paidRecords = new ArrayList<>();
-        for (int i = 0; i < 400; i++) {
+        for (int i = 0; i < sizes.ordersPaid(); i++) {
             long buyer = active.get(random.nextInt(active.size()));
             List<LectureOrderItemDto> items = new ArrayList<>();
             int count = 1 + random.nextInt(3);
@@ -260,7 +308,7 @@ public final class B0FixtureGenerator {
                 scheduleTimes.add(paidDate.plusDays(8).atStartOfDay(KST).toInstant());
             }
         }
-        for (int i = 0; i < 150; i++) {
+        for (int i = 0; i < sizes.itemsConfirmed(); i++) {
             B0Record paidRecord = paidRecords.get(i);
             LectureOrderPaidEvent paid = (LectureOrderPaidEvent) paidRecord.event();
             LectureOrderItemDto item = paid.items().getFirst();
@@ -273,7 +321,7 @@ public final class B0FixtureGenerator {
                     "order-item:" + item.orderItemId(), confirmed, B0Category.NORMAL)});
             eventTimes.add(confirmedAt.toInstant());
         }
-        for (int i = 0; i < 375; i++) {
+        for (int i = 0; i < sizes.lecturesApproved(); i++) {
             OffsetDateTime approvedAt = OffsetDateTime.parse("2026-06-15T10:00:00+09:00").plusMinutes(i);
             LectureApprovedEvent approved = new LectureApprovedEvent(next(), any(), "B0 강의 승인 " + i, 1, approvedAt);
             base.add(record(B0EventType.LECTURE_APPROVED, "lecture:" + approved.lectureId(), approved,
@@ -332,11 +380,16 @@ public final class B0FixtureGenerator {
                 .filter(r -> r.category() == B0Category.NORMAL && resendable.contains(r.type())).toList());
         // 고객센터·지갑 재전송은 반드시 들어가게 한다(범위표). 고른 것과 겹치지 않게 앞에서부터 바꾼다
         Collections.shuffle(candidates, random);
-        List<B0Record> chosen = new ArrayList<>(candidates.subList(0, 250));
+        int count = sizes.resends();
+        if (count == 0) {
+            // 재전송이 없는 크기에서는 필수 유형을 고르지 않는다(바꿀 자리가 없다). 0보다 크면 지금 규칙 그대로다(B0 불변)
+            return;
+        }
+        List<B0Record> chosen = new ArrayList<>(candidates.subList(0, count));
         int replace = 0;
         for (B0EventType required : List.of(B0EventType.INQUIRY_ANSWERED, B0EventType.CHARGE)) {
             if (chosen.stream().noneMatch(r -> r.type() == required)) {
-                chosen.set(replace++, candidates.subList(250, candidates.size()).stream()
+                chosen.set(replace++, candidates.subList(count, candidates.size()).stream()
                         .filter(r -> r.type() == required).findFirst().orElseThrow());
             }
         }

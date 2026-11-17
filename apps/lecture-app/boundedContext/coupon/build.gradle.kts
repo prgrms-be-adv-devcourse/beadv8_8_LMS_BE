@@ -7,6 +7,10 @@ dependencies {
     implementation(project(":kafka"))
     implementation(project(":redis"))
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    // JPQL 조회·조건부 갱신을 문자열 대신 컴파일 시점에 검사되는 쿼리로 쓴다(OpenFeign QueryDSL). 버전은 version catalog가 관리한다
+    implementation(libs.querydsl.jpa)
+    // 엔티티의 Q타입 생성기(jpa classifier). jakarta.persistence API는 생성기가 함께 가져온다
+    annotationProcessor(variantOf(libs.querydsl.apt) { classifier("jpa") })
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // Facade 역할 검사(@PreAuthorize). 메서드 보안과 사용자 헤더 인증은 같은 JVM의 lecture-app 보안 설정이 켠다

@@ -17,6 +17,8 @@ wiremock = "3.13.2"
 resilience4j = "2.4.0"
 # Spring Boot 4.1.1 BOM의 native-build-tools-plugin.version과 맞춘다(#609)
 graalvm-native = "1.1.8"
+# QueryDSL(OpenFeign fork, 원래 com.querydsl의 관리가 멈춘 뒤 이어서 관리된다). chat·쿠폰 모듈의 JPQL을 타입 안전한 쿼리로 쓴다
+querydsl = "7.7"
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
@@ -33,6 +35,9 @@ resilience4j-bulkhead = { module = "io.github.resilience4j:resilience4j-bulkhead
 resilience4j-micrometer = { module = "io.github.resilience4j:resilience4j-micrometer", version.ref = "resilience4j" }
 # 앱 안 메모리 캐시. Spring Boot BOM이 버전을 관리하므로 버전을 적지 않는다. Spring Cache 추상화(@Cacheable) 없이 직접 쓴다
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine" }
+querydsl-jpa = { module = "io.github.openfeign.querydsl:querydsl-jpa", version.ref = "querydsl" }
+# Q타입 생성기. annotationProcessor에는 classifier jpa로 싣는다(variantOf)
+querydsl-apt = { module = "io.github.openfeign.querydsl:querydsl-apt", version.ref = "querydsl" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

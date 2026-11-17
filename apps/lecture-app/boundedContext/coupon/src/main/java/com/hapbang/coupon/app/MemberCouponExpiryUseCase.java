@@ -14,9 +14,10 @@ import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponReader;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponExpiryProperties;
-import com.hapbang.coupon.out.MemberCouponExpiryTarget;
 import com.hapbang.coupon.out.MemberCouponRepository;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -46,18 +47,21 @@ public class MemberCouponExpiryUseCase {
 
     private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final MemberCouponRepository memberCouponRepository;
+    private final MemberCouponReader memberCouponReader;
     private final CouponExpiryProperties properties;
     private final MeterRegistry meterRegistry;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public MemberCouponExpiryUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
-                                     MemberCouponRepository memberCouponRepository, CouponExpiryProperties properties,
+                                     MemberCouponRepository memberCouponRepository,
+                                     MemberCouponReader memberCouponReader, CouponExpiryProperties properties,
                                      ObjectProvider<MeterRegistry> meterRegistryProvider,
                                      PlatformTransactionManager transactionManager,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.memberCouponRepository = memberCouponRepository;
+        this.memberCouponReader = memberCouponReader;
         this.properties = properties;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
         this.transaction = new TransactionTemplate(transactionManager);
@@ -74,7 +78,7 @@ public class MemberCouponExpiryUseCase {
         while (true) {
             MemberCouponExpiryTarget after = cursor;
             List<MemberCouponExpiryTarget> targets = transaction.execute(status ->
-                    memberCouponRepository.findExpiredCouponTargets(now, after == null ? null : after.expiresAt(),
+                    memberCouponReader.findExpiredCouponTargets(now, after == null ? null : after.expiresAt(),
                             after == null ? 0 : after.id(), Limit.of(batchSize)));
             batches++;
             if (targets.isEmpty()) {

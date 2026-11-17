@@ -40,7 +40,7 @@ import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.IssueCapacityReservationRepository;
 import com.hapbang.coupon.out.IssueResultReadRepository;
-import com.hapbang.coupon.out.IssueResultRow;
+import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;

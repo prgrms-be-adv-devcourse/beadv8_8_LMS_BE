@@ -22,6 +22,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.RecoveryRunView;
+import com.hapbang.coupon.app.port.CouponDltLogReader;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryUnavailableException;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
@@ -33,6 +34,7 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.BlockResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildControl;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
+import com.hapbang.coupon.app.port.RecoveryLookup;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponRecoveryProperties;
@@ -51,8 +53,6 @@ import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.RecoveryLookupRepository;
 import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
@@ -105,8 +105,8 @@ public class CouponRecoveryUseCase {
 
     private final CouponSupport couponSupport;
     private final RecoveryRunRepository recoveryRunRepository;
-    private final RecoveryLookupRepository recoveryLookupRepository;
-    private final CouponDltLogRepository couponDltLogRepository;
+    private final RecoveryLookup recoveryLookup;
+    private final CouponDltLogReader couponDltLogReader;
     private final CouponRecoveryStore recoveryStore;
     private final CouponIssueEventPublisher eventPublisher;
     private final CouponIssueBoundaryProbe boundaryProbe;
@@ -117,8 +117,8 @@ public class CouponRecoveryUseCase {
     private final Clock clock;
 
     public CouponRecoveryUseCase(CouponSupport couponSupport, RecoveryRunRepository recoveryRunRepository,
-                                 RecoveryLookupRepository recoveryLookupRepository,
-                                 CouponDltLogRepository couponDltLogRepository, CouponRecoveryStore recoveryStore,
+                                 RecoveryLookup recoveryLookup,
+                                 CouponDltLogReader couponDltLogReader, CouponRecoveryStore recoveryStore,
                                  CouponIssueEventPublisher eventPublisher, CouponIssueBoundaryProbe boundaryProbe,
                                  CouponRedisProperties redisProperties, CouponRecoveryProperties recoveryProperties,
                                  CouponIssueDeliveryProperties deliveryProperties,
@@ -126,8 +126,8 @@ public class CouponRecoveryUseCase {
                                  @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponSupport = couponSupport;
         this.recoveryRunRepository = recoveryRunRepository;
-        this.recoveryLookupRepository = recoveryLookupRepository;
-        this.couponDltLogRepository = couponDltLogRepository;
+        this.recoveryLookup = recoveryLookup;
+        this.couponDltLogReader = couponDltLogReader;
         this.recoveryStore = recoveryStore;
         this.eventPublisher = eventPublisher;
         this.boundaryProbe = boundaryProbe;
@@ -257,7 +257,7 @@ public class CouponRecoveryUseCase {
 
         Map<String, IssueRequestRecord> pending = pendingRequests(couponId, snapshot).records();
         // 처리되지 않은 DLT(PENDING·재발행 선점 중인 REPLAYING)는 관리자 재발행·거절이 맡으므로 여기서 다시 보내지 않는다
-        Set<String> dltPending = new HashSet<>(couponDltLogRepository.findUnresolvedRequestIds(couponId));
+        Set<String> dltPending = new HashSet<>(couponDltLogReader.findUnresolvedRequestIds(couponId));
         int republished = 0;
         List<String> failed = new ArrayList<>();
         for (Map.Entry<String, IssueRequestRecord> entry : pending.entrySet()) {
@@ -328,7 +328,7 @@ public class CouponRecoveryUseCase {
                     "발급 기록 보관 기간이 지난 쿠폰은 재구축하지 않습니다.");
         }
         RecoveryRebuildPlan plan = stepRule(() -> RecoveryRebuildPlan.of(coupon, run.getNewEpoch(),
-                recoveryLookupRepository.findResults(couponId)));
+                recoveryLookup.findResults(couponId)));
         RebuildControl control = new RebuildControl(coupon.getIssueStartAt(), coupon.getIssueEndAt(), keysExpireAt,
                 coupon.getVersion(), coupon.getExpiryType(), coupon.getExpiryDays(), coupon.getFixedExpiresAt(),
                 coupon.getStatus().name(), now);
@@ -520,7 +520,7 @@ public class CouponRecoveryUseCase {
         PendingRequests pending = pendingRequests(couponId, recoveryStore.snapshot(couponId));
         RecoveryOffsets boundary = RecoveryOffsets.parse(run.getKafkaBoundary());
         long kafkaLag = boundary.lagFrom(kafka(boundaryProbe::committedOffsets));
-        long dltPending = couponDltLogRepository.findUnresolvedRequestIds(couponId).size();
+        long dltPending = couponDltLogReader.findUnresolvedRequestIds(couponId).size();
         return new RecoveryUnresolved(pending.records().size() + pending.malformed(), kafkaLag, dltPending);
     }
 
@@ -543,7 +543,7 @@ public class CouponRecoveryUseCase {
         List<String> ids = new ArrayList<>(records.keySet());
         for (int from = 0; from < ids.size(); from += LOOKUP_CHUNK) {
             List<String> chunk = ids.subList(from, Math.min(ids.size(), from + LOOKUP_CHUNK));
-            recoveryLookupRepository.findExistingRequestIds(couponId, chunk).forEach(records::remove);
+            recoveryLookup.findExistingRequestIds(couponId, chunk).forEach(records::remove);
         }
         return new PendingRequests(records, malformed);
     }

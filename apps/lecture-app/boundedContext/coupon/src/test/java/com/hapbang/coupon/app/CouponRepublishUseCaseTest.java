@@ -34,7 +34,7 @@ import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.CouponDltLogRepository;
 import com.hapbang.coupon.out.CouponRepublishQueryRepository;
-import com.hapbang.coupon.out.RepublishTargetCoupon;
+import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 

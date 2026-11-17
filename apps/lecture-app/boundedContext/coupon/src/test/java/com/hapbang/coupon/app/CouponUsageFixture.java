@@ -21,7 +21,7 @@ import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.OwnedCoupon;
+import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 
 /** 쿠폰 사용 서비스 테스트 값. 저장한 것처럼 ID를 붙인 쿠폰·발급 쿠폰과 아무것도 하지 않는 트랜잭션 대역 */

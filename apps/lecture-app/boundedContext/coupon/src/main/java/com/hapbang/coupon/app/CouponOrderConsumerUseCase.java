@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
@@ -27,7 +29,6 @@ import com.hapbang.coupon.domain.UsageEventOutcome;
 import com.hapbang.coupon.domain.usage.UsageContentKey;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.MemberCouponState;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
@@ -63,6 +64,7 @@ public class CouponOrderConsumerUseCase {
     private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final CouponUsageRepository couponUsageRepository;
     private final MemberCouponRepository memberCouponRepository;
+    private final MemberCouponReader memberCouponReader;
     private final ProcessedOperationRepository processedOperationRepository;
     private final CouponOrderConsumerMetrics metrics;
     private final PlatformTransactionManager transactionManager;
@@ -71,7 +73,7 @@ public class CouponOrderConsumerUseCase {
 
     public CouponOrderConsumerUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
                                       CouponUsageRepository couponUsageRepository,
-                                      MemberCouponRepository memberCouponRepository,
+                                      MemberCouponRepository memberCouponRepository, MemberCouponReader memberCouponReader,
                                       ProcessedOperationRepository processedOperationRepository,
                                       CouponOrderConsumerMetrics metrics,
                                       PlatformTransactionManager transactionManager,
@@ -79,6 +81,7 @@ public class CouponOrderConsumerUseCase {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.couponUsageRepository = couponUsageRepository;
         this.memberCouponRepository = memberCouponRepository;
+        this.memberCouponReader = memberCouponReader;
         this.processedOperationRepository = processedOperationRepository;
         this.metrics = metrics;
         this.transactionManager = transactionManager;
@@ -208,7 +211,7 @@ public class CouponOrderConsumerUseCase {
 
     /** 사용 시도 하나에 이벤트를 반영하고, 상태를 바꿨으면 발급 쿠폰을 같은 generation의 조건부 갱신으로 바꾼다 */
     private UsageEventOutcome applyTo(Settlement settlement, CouponUsage usage, Instant now) {
-        MemberCouponState coupon = memberCouponRepository.findStateById(usage.getMemberCouponId())
+        MemberCouponState coupon = memberCouponReader.findStateById(usage.getMemberCouponId())
                 .orElseThrow(() -> new IllegalStateException("사용 시도의 발급 쿠폰이 없습니다: " + usage.getMemberCouponId()));
         boolean paid = EVENT_PAID.equals(settlement.event());
         UsageEventOutcome outcome = paid
