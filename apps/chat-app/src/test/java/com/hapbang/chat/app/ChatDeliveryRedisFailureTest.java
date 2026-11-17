@@ -102,6 +102,7 @@ class ChatDeliveryRedisFailureTest {
     @AfterAll
     static void stopRedis() {
         REDIS.stop();
+        DEDICATED.close();
     }
 
     @Autowired

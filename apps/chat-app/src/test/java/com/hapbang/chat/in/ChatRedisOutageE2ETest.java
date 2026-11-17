@@ -112,6 +112,7 @@ class ChatRedisOutageE2ETest {
     @AfterAll
     static void stopRedis() {
         REDIS.stop();
+        DEDICATED.close();
     }
 
     @LocalServerPort
