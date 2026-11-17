@@ -1,7 +1,6 @@
 package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Lock;
@@ -24,10 +23,6 @@ public interface BudgetWorkRepository extends Repository<BudgetWork, String>, Bu
     <S extends BudgetWork> S save(S entity);
     Optional<BudgetWork> findById(String id);
     boolean existsById(String id);
-
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    <S extends BudgetWork> S saveAndFlush(S entity);
-    List<BudgetWork> findAll();
 
     @Modifying(flushAutomatically = true)
     @Query("""

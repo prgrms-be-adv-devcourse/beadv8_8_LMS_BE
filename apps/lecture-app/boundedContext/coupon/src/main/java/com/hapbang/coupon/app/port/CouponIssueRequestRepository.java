@@ -16,9 +16,6 @@ public interface CouponIssueRequestRepository extends Repository<CouponIssueRequ
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends CouponIssueRequest> S save(S entity);
 
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    <S extends CouponIssueRequest> S saveAndFlush(S entity);
-
     /** 쿠폰 안의 이 발급 요청의 최종 결과 */
     Optional<CouponIssueRequest> findByCouponIdAndIssueRequestId(Long couponId, String issueRequestId);
 }

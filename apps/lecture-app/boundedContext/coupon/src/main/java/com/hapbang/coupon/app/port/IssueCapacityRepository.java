@@ -1,7 +1,6 @@
 package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Modifying;
@@ -19,9 +18,6 @@ public interface IssueCapacityRepository extends Repository<IssueCapacity, Short
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     Optional<IssueCapacity> findById(Short id);
-
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    List<IssueCapacity> findAll();
 
     /**
      * 합계에 수량을 더한다. 더한 합계가 상한 이하일 때만 반영한다(행이 없으면 수량으로 만든다). 같은 행의 동시 UPSERT는 행 잠금으로 줄을 서고,

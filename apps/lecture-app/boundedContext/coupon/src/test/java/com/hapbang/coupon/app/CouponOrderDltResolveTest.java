@@ -31,6 +31,9 @@ import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
+import com.hapbang.coupon.support.CouponDltLogTestRepository;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -60,13 +63,22 @@ class CouponOrderDltResolveTest {
     private CouponDltLogRepository couponDltLogRepository;
 
     @Autowired
+    private CouponDltLogTestRepository couponDltLogTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponUsageRepository couponUsageRepository;
+
+    @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -82,7 +94,7 @@ class CouponOrderDltResolveTest {
         CouponDltLog stale = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 0, 77L,
                 "order-item:" + ORDER_ITEM_ID), CouponDltPayload.writeOrderEvent(paid), "원인", now);
         stale.claimReplay(ADMIN_ID, now.minus(lease).minusSeconds(1), lease);
-        long dltId = couponDltLogRepository.save(stale).getId();
+        long dltId = couponDltLogTestRepository.save(stale).getId();
 
         assertThatThrownBy(() -> couponOrderDltRejectUseCase.reject(ADMIN_ID, dltId, "반영 안 된 줄 알고 거절"))
                 .isInstanceOf(CouponException.class)
@@ -103,11 +115,11 @@ class CouponOrderDltResolveTest {
     private long reservedUsage(Instant now) {
         Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
-        MemberCoupon memberCoupon = memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
+        MemberCoupon memberCoupon = memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
                 now, now.plus(Duration.ofDays(30)), now));
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 memberCouponRepository.reserve(memberCoupon.getId(), MEMBER_ID, 0, ORDER_ITEM_ID, now));
-        couponUsageRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+        couponUsageTestRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
                 new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(memberCoupon.getId(), couponId, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
                 "lecture-order:" + ORDER_ID + ":reserve", now));

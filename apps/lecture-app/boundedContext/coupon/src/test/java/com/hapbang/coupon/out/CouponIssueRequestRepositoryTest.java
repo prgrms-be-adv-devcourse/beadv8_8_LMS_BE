@@ -12,12 +12,13 @@ import org.springframework.dao.DataIntegrityViolationException;
 import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.IssueResultRow;
-import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.RecoveryIssueResult;
+import com.hapbang.coupon.support.CouponIssueRequestTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -29,10 +30,13 @@ class CouponIssueRequestRepositoryTest {
     private CouponIssueRequestRepository couponIssueRequestRepository;
 
     @Autowired
+    private CouponIssueRequestTestRepository couponIssueRequestTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
-    private MemberCouponRepository memberCouponRepository;
+    private MemberCouponTestRepository memberCouponTestRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -40,7 +44,7 @@ class CouponIssueRequestRepositoryTest {
     @Test
     void 쿠폰과_요청_ID로_최종_결과를_읽고_같은_쿠폰의_같은_요청_ID는_다시_저장하지_않는다() {
         Long couponId = saveCoupon();
-        MemberCoupon issued = memberCouponRepository.save(
+        MemberCoupon issued = memberCouponTestRepository.save(
                 MemberCoupon.issue(MEMBER_ID, couponId, "req-1", NOW, NOW.plusSeconds(60), NOW));
         couponIssueRequestRepository.save(
                 CouponIssueRequest.issued("req-1", MEMBER_ID, couponId, 1L, NOW, issued.getId(), NOW.plusSeconds(1)));
@@ -56,7 +60,7 @@ class CouponIssueRequestRepositoryTest {
         assertThat(found.getAcceptedAt()).isEqualTo(NOW);
         assertThat(couponIssueRequestRepository.findByCouponIdAndIssueRequestId(couponId, "req-unknown")).isEmpty();
         // 같은 쿠폰·같은 요청 ID의 다른 결과는 기존 결과를 덮지 않고 유일 제약 위반이다
-        assertThatThrownBy(() -> couponIssueRequestRepository.saveAndFlush(
+        assertThatThrownBy(() -> couponIssueRequestTestRepository.saveAndFlush(
                 CouponIssueRequest.rejected("req-1", MEMBER_ID, couponId, 1L, NOW, "매진", NOW)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uk_coupon_issue_request_coupon_request");
@@ -82,7 +86,7 @@ class CouponIssueRequestRepositoryTest {
     void 쿠폰의_확정_결과와_DB에_있는_요청_ID를_그_쿠폰_안에서만_찾는다() {
         Long couponId = saveCoupon();
         Long otherCouponId = saveCoupon();
-        MemberCoupon issued = memberCouponRepository.save(
+        MemberCoupon issued = memberCouponTestRepository.save(
                 MemberCoupon.issue(MEMBER_ID, couponId, "req-a", NOW, NOW.plusSeconds(60), NOW));
         couponIssueRequestRepository.save(
                 CouponIssueRequest.issued("req-a", MEMBER_ID, couponId, 1L, NOW, issued.getId(), NOW));

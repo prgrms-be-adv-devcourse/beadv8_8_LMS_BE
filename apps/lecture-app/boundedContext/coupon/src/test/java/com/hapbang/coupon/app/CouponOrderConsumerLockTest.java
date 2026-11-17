@@ -39,6 +39,8 @@ import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 import com.hapbang.testsupport.IntegrationTest;
@@ -67,10 +69,16 @@ class CouponOrderConsumerLockTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
     private CouponUsageRepository couponUsageRepository;
+
+    @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -178,11 +186,11 @@ class CouponOrderConsumerLockTest {
     private long reservedUsage(Instant now) {
         Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
-        MemberCoupon memberCoupon = memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-lock",
+        MemberCoupon memberCoupon = memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-lock",
                 now, now.plus(Duration.ofDays(30)), now));
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 memberCouponRepository.reserve(memberCoupon.getId(), MEMBER_ID, 0, ORDER_ITEM_ID, now));
-        couponUsageRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+        couponUsageTestRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
                 new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(memberCoupon.getId(), couponId, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
                 "lecture-order:" + ORDER_ID + ":reserve", now));

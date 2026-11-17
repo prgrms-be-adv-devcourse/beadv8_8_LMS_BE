@@ -20,9 +20,6 @@ public interface IssueCapacityReservationRepository extends Repository<IssueCapa
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     Optional<IssueCapacityReservation> findById(Long id);
 
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    long count();
-
     /**
      * 쿠폰의 예약 행을 없을 때만 만든다. 같은 쿠폰을 동시에 열면 뒤에 온 쪽은 앞의 커밋을 기다린 뒤 0을 받는다.
      *

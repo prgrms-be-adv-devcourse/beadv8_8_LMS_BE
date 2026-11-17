@@ -56,7 +56,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import com.hapbang.coupon.app.CouponDltPayload;
 import com.hapbang.coupon.app.CouponIssueConsumerUseCase;
 import com.hapbang.coupon.app.CouponRepublishUseCase;
-import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
 import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
@@ -71,6 +70,8 @@ import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
+import com.hapbang.coupon.support.CouponDltLogTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.coupon.event.CouponEventTopic;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 import com.hapbang.testsupport.IntegrationTest;
@@ -131,7 +132,10 @@ class CouponIssueDeliveryE2eTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
-    private CouponDltLogRepository couponDltLogRepository;
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
+    private CouponDltLogTestRepository couponDltLogTestRepository;
 
     @Autowired
     private CouponRepublishUseCase couponRepublishUseCase;
@@ -184,7 +188,7 @@ class CouponIssueDeliveryE2eTest {
         requestIssue(couponId, 200L, requestB).andExpect(status().isAccepted());
         awaitResult(couponId, requestB, CouponIssueResult.ISSUED);
         assertThat(memberCouponRepository.findByMemberIdAndCouponId(100L, couponId)).isPresent();
-        assertThat(memberCouponRepository.findAll()).filteredOn(memberCoupon -> memberCoupon.getCouponId() == couponId)
+        assertThat(memberCouponTestRepository.findAll()).filteredOn(memberCoupon -> memberCoupon.getCouponId() == couponId)
                 .hasSize(2);
         assertThat(issuedCount(couponId)).isEqualTo(2);
 
@@ -218,7 +222,7 @@ class CouponIssueDeliveryE2eTest {
         assertThat(stock(couponId)).isEqualTo(QUANTITY - 1);
 
         // 제한 재시도 뒤 격리 기록(PENDING)과 그룹별 DLT 메시지가 남는다. 발급 결과는 없다
-        CouponDltLog isolated = await().atMost(WAIT).until(() -> couponDltLogRepository.findAll().stream()
+        CouponDltLog isolated = await().atMost(WAIT).until(() -> couponDltLogTestRepository.findAll().stream()
                 .filter(log -> Long.valueOf(couponId).equals(log.getCouponId()) && requestId.equals(log.getIssueRequestId())
                         && log.getStatus() == CouponDltStatus.PENDING)
                 .findFirst().orElse(null), log -> log != null);
@@ -273,7 +277,7 @@ class CouponIssueDeliveryE2eTest {
         String requestId = "after-nul-" + run;
         requestIssue(couponId, 500L, requestId).andExpect(status().isAccepted());
         awaitResult(couponId, requestId, CouponIssueResult.ISSUED);
-        assertThat(couponDltLogRepository.findAll()).filteredOn(log -> Long.valueOf(couponId).equals(log.getCouponId()))
+        assertThat(couponDltLogTestRepository.findAll()).filteredOn(log -> Long.valueOf(couponId).equals(log.getCouponId()))
                 .singleElement().satisfies(log -> {
                     assertThat(log.getIssueRequestId()).isNull();
                     assertThat(log.getPayload())

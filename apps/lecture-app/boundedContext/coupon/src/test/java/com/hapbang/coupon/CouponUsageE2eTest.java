@@ -55,13 +55,16 @@ import com.hapbang.coupon.app.CouponSupport;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRepository;
-import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.out.billing.HttpPromotionBudget;
+import com.hapbang.coupon.support.BudgetWorkTestRepository;
+import com.hapbang.coupon.support.CouponTestRepository;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
@@ -119,10 +122,16 @@ class CouponUsageE2eTest {
     private CouponRepository couponRepository;
 
     @Autowired
+    private CouponTestRepository couponTestRepository;
+
+    @Autowired
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
-    private CouponUsageRepository couponUsageRepository;
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -134,6 +143,7 @@ class CouponUsageE2eTest {
     @Autowired private com.hapbang.coupon.app.CouponOrderConsumerUseCase couponOrderConsumerUseCase;
     @Autowired private com.hapbang.coupon.app.MemberCouponExpiryUseCase memberCouponExpiryUseCase;
     @Autowired private com.hapbang.coupon.app.port.BudgetWorkRepository budgetWorkRepository;
+    @Autowired private BudgetWorkTestRepository budgetWorkTestRepository;
     @Autowired private org.springframework.transaction.PlatformTransactionManager budgetTransactionManager;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate budgetJdbc;
     @Autowired private CouponIssueStore couponIssueStore;
@@ -200,7 +210,7 @@ class CouponUsageE2eTest {
             batch.get(10, TimeUnit.SECONDS);
             assertThat(budgetWorkRepository.findById(workId).orElseThrow().getStatus()).isEqualTo(BudgetWorkStatus.DONE);
             assertThat(opener.open(ADMIN_ID, couponId).status()).isEqualTo(CouponStatus.OPEN);
-            assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getWorkId).isEqualTo(workId);
+            assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getWorkId).isEqualTo(workId);
             assertThat(promotionBudget.status(workId)).satisfies(result -> {
                 assertThat(result.outcome()).isEqualTo(Outcome.SUCCEEDED);
                 assertThat(result.reservationId()).isEqualTo(couponRepository.findById(couponId).orElseThrow().getBudgetReservationId());
@@ -220,10 +230,10 @@ class CouponUsageE2eTest {
         Coupon coupon = couponRepository.findById(couponId).orElseThrow();
         String workId = coupon.budgetReserveWorkId();
         fundPromotion(coupon.budgetAmount());
-        budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, 1, now));
+        budgetWorkTestRepository.saveAndFlush(BudgetWork.reserve(coupon, 1, now));
         billing.dropNextResponse("/reservations");
         budgetWorker(now).execute(workId);
-        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getStatus)
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getStatus)
                 .isEqualTo(BudgetWorkStatus.PENDING);
         Instant afterEnd = coupon.getIssueEndAt().plusSeconds(1);
         budgetWorker(afterEnd).runDue();
@@ -306,7 +316,7 @@ class CouponUsageE2eTest {
         memberCouponExpiryUseCase.expireDue();
 
         assertThat(memberCouponRepository.findStateById(memberId).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(budgetWorkRepository.findAll()).singleElement().satisfies(work -> {
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().satisfies(work -> {
             assertThat(work.getAmount()).isEqualTo(1_500);
             assertThat(work.getStatus()).isEqualTo(com.hapbang.coupon.domain.BudgetWorkStatus.PENDING);
             assertThat(work.getTarget()).isEqualTo("MEMBER_COUPON:" + memberId);
@@ -315,7 +325,7 @@ class CouponUsageE2eTest {
         budgetWorker(now.plusSeconds(1)).runDue();
         assertThat(reservation(couponRepository.findById(couponId).orElseThrow().getBudgetReservationId()).releasedHp())
                 .isEqualTo(1_500);
-        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getStatus)
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getStatus)
                 .isEqualTo(BudgetWorkStatus.DONE);
     }
 
@@ -335,12 +345,12 @@ class CouponUsageE2eTest {
                             com.hapbang.coupon.domain.CouponType.PLATFORM, 1, PRICE, 400, 400, 0, 0, 1),
                     "budget-reserve", now.minusSeconds(60));
             usage.applyPaid("budget-paid", now.minusSeconds(60), MemberCouponStatus.RESERVED, 1, now.minusSeconds(60));
-            couponUsageRepository.saveAndFlush(usage);
+            couponUsageTestRepository.saveAndFlush(usage);
         });
         holdPlatform(couponId, memberId, 400L);
         budgetReleaseRecorder.recordDue(memberId, now);
         budgetReleaseRecorder.recordDue(memberId, now);
-        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(com.hapbang.coupon.domain.BudgetWork::getAmount)
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(com.hapbang.coupon.domain.BudgetWork::getAmount)
                 .isEqualTo(1_100L);
         assertThat(memberCouponRepository.findBudgetState(memberId).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.USED);
         assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
@@ -354,22 +364,22 @@ class CouponUsageE2eTest {
         assertThat(couponOrderConsumerUseCase.consume(canceled))
                 .isEqualTo(com.hapbang.coupon.app.CouponOrderConsumerUseCase.Result.APPLIED);
         assertThat(memberCouponRepository.findStateById(memberId).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(budgetWorkRepository.findAll()).hasSize(2);
-        assertThat(budgetWorkRepository.findAll().stream().mapToLong(com.hapbang.coupon.domain.BudgetWork::getAmount).sum())
+        assertThat(budgetWorkTestRepository.findAll()).hasSize(2);
+        assertThat(budgetWorkTestRepository.findAll().stream().mapToLong(com.hapbang.coupon.domain.BudgetWork::getAmount).sum())
                 .isEqualTo(1_500);
 
-        List<BudgetWork> releases = budgetWorkRepository.findAll();
+        List<BudgetWork> releases = budgetWorkTestRepository.findAll();
         for (BudgetWork release : releases) {
             billing.dropNextResponse("/releases");
             budgetWorker(now).execute(release.getWorkId());
         }
         budgetWorker(now.plusSeconds(1)).runDue();
-        assertThat(budgetWorkRepository.findAll()).allSatisfy(work -> {
+        assertThat(budgetWorkTestRepository.findAll()).allSatisfy(work -> {
             assertThat(work.getStatus()).isEqualTo(BudgetWorkStatus.PENDING);
             assertThat(work.getAttempt()).isEqualTo(1);
         });
         budgetWorker(now.plusSeconds(61)).runDue();
-        assertThat(budgetWorkRepository.findAll()).allSatisfy(work -> {
+        assertThat(budgetWorkTestRepository.findAll()).allSatisfy(work -> {
             assertThat(work.getStatus()).isEqualTo(BudgetWorkStatus.DONE);
             assertThat(work.getAttempt()).isEqualTo(2);
             assertThat(promotionBudget.status(work.getWorkId()).work().workId()).isEqualTo(work.getWorkId());
@@ -383,7 +393,7 @@ class CouponUsageE2eTest {
         Instant now = Instant.now();
         long badCoupon = budgetCoupon(now, false);
         long platformCoupon = budgetCoupon(now, true);
-        long sellerCoupon = couponRepository.saveAndFlush(Coupon.createSeller(SELLER_ID,
+        long sellerCoupon = couponTestRepository.saveAndFlush(Coupon.createSeller(SELLER_ID,
                 com.hapbang.coupon.domain.CouponFixture.lectureRate()
                         .issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
         long bad = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, badCoupon, "bad-budget",
@@ -402,12 +412,12 @@ class CouponUsageE2eTest {
         assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.AVAILABLE);
         assertThat(memberCouponRepository.findStateById(seller).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(memberCouponRepository.findStateById(platform).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getCouponId).isEqualTo(platformCoupon);
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getCouponId).isEqualTo(platformCoupon);
         assertThat(expiry.expireDue().expired()).isZero();
         reserveBudget(badCoupon, now);
         assertThat(expiry.expireDue().expired()).isEqualTo(1);
         assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(budgetWorkRepository.findAll()).hasSize(2);
+        assertThat(budgetWorkTestRepository.findAll()).hasSize(2);
     }
 
     @Test
@@ -426,7 +436,7 @@ class CouponUsageE2eTest {
                             com.hapbang.coupon.domain.CouponType.PLATFORM, 1, PRICE, 1_500, 1_500, 0, 0, 1),
                     "budget-full-used", now.minusSeconds(1));
             usage.applyPaid("budget-full-paid", now, MemberCouponStatus.RESERVED, 1, now);
-            couponUsageRepository.saveAndFlush(usage);
+            couponUsageTestRepository.saveAndFlush(usage);
         });
 
         budgetReleaseRecorder.recordDue(id, now);
@@ -434,7 +444,7 @@ class CouponUsageE2eTest {
             assertThat(state.plannedHp()).isZero();
             assertThat(state.checkedStatus()).isEqualTo(MemberCouponStatus.USED);
         });
-        assertThat(budgetWorkRepository.findAll()).isEmpty();
+        assertThat(budgetWorkTestRepository.findAll()).isEmpty();
         assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
                 .isEmpty();
 
@@ -446,7 +456,7 @@ class CouponUsageE2eTest {
                 .extracting(com.hapbang.coupon.app.port.MemberCouponExpiryTarget::id).containsExactly(id);
         budgetReleaseRecorder.recordDue(id, now);
         assertThat(memberCouponRepository.findBudgetState(id).orElseThrow().checkedStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
-        assertThat(budgetWorkRepository.findAll()).singleElement().extracting(BudgetWork::getAmount).isEqualTo(1_500L);
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getAmount).isEqualTo(1_500L);
         assertThat(memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now, null, 0, org.springframework.data.domain.Limit.of(10)))
                 .isEmpty();
     }
@@ -464,7 +474,7 @@ class CouponUsageE2eTest {
         budgetJdbc.update("update coupon.coupon set issued_count = 2 where id = ?", couponId);
         budgetReleaseRecorder.recordUnissued(couponId, now);
         budgetReleaseRecorder.recordUnissued(couponId, now);
-        assertThat(budgetWorkRepository.findAll()).singleElement().satisfies(work -> {
+        assertThat(budgetWorkTestRepository.findAll()).singleElement().satisfies(work -> {
             assertThat(work.getAmount()).isEqualTo(4_500L);
             assertThat(work.getTarget()).isEqualTo("UNISSUED:3");
         });
@@ -484,7 +494,7 @@ class CouponUsageE2eTest {
         long memberId = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, couponId, "budget-fence",
                 now.minusSeconds(60), now.minusSeconds(1), now)).getId();
         memberCouponExpiryUseCase.expireDue();
-        BudgetWork work = budgetWorkRepository.findAll().getFirst();
+        BudgetWork work = budgetWorkTestRepository.findAll().getFirst();
         assertThat(promotionBudget.release(work.getWorkId(), work.getReservationId(), work.getAmount(), work.getTarget(), work.getReason()).outcome())
                 .isEqualTo(Outcome.SUCCEEDED);
         billing.afterNextResponse("/works/" + work.getWorkId(), () -> {
@@ -510,7 +520,7 @@ class CouponUsageE2eTest {
         Coupon coupon = Coupon.createPlatform(ADMIN_ID,
                 com.hapbang.coupon.domain.CouponFixture.anyLectureAmount().quantity(5)
                         .issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now);
-        long id = couponRepository.saveAndFlush(coupon).getId();
+        long id = couponTestRepository.saveAndFlush(coupon).getId();
         if (reserved) reserveBudget(id, now);
         return id;
     }
@@ -581,14 +591,14 @@ class CouponUsageE2eTest {
                     assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
                     assertThat(state.generation()).isEqualTo(1);
                 });
-        assertThat(couponUsageRepository.findAll()).extracting(usage -> usage.getStatus())
+        assertThat(couponUsageTestRepository.findAll()).extracting(usage -> usage.getStatus())
                 .containsOnly(CouponUsageStatus.RELEASED).hasSize(2);
 
         // 해제한 쿠폰은 같은 주문 항목에 다시 예약할 수 있고, 새 세대의 새 사용 시도가 된다(이력 두 행)
         reserve(MEMBER_A, 9001L, 90011L, "order-9001:reserve:2", pairBasis(sellerOfA, platformOfA, 1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].coupons[0].reservedGeneration").value(2));
-        assertThat(couponUsageRepository.findAll()).filteredOn(usage -> usage.getMemberCouponId() == sellerOfA)
+        assertThat(couponUsageTestRepository.findAll()).filteredOn(usage -> usage.getMemberCouponId() == sellerOfA)
                 .extracting(usage -> usage.getGeneration() + ":" + usage.getStatus())
                 .containsExactlyInAnyOrder("1:RELEASED", "2:RESERVED");
 
@@ -607,7 +617,7 @@ class CouponUsageE2eTest {
 
         assertThat(statuses).containsExactlyInAnyOrder(200, 409);
         // 한 장은 한 주문 항목에만 예약됐고, 진 요청의 다른 장(플랫폼 쿠폰)은 AVAILABLE·세대 0 그대로다
-        assertThat(couponUsageRepository.findAll()).filteredOn(usage -> usage.getMemberCouponId() == sellerOfB)
+        assertThat(couponUsageTestRepository.findAll()).filteredOn(usage -> usage.getMemberCouponId() == sellerOfB)
                 .singleElement().extracting(usage -> usage.getStatus()).isEqualTo(CouponUsageStatus.RESERVED);
         long loserPlatform = statuses.get(0) == 200 ? platformOfB2 : platformOfB1;
         assertThat(memberCouponRepository.findStateById(loserPlatform).orElseThrow())
@@ -716,7 +726,7 @@ class CouponUsageE2eTest {
     /** 모든 강의 1,500 HP 플랫폼 쿠폰(중첩 가능) */
     private long savePlatformCoupon() {
         Instant now = Instant.now();
-        long id = couponRepository.saveAndFlush(Coupon.createPlatform(ADMIN_ID, terms(CouponTargetType.ANY_LECTURE, null, null,
+        long id = couponTestRepository.saveAndFlush(Coupon.createPlatform(ADMIN_ID, terms(CouponTargetType.ANY_LECTURE, null, null,
                 DiscountType.AMOUNT, 1_500), now)).getId();
         reserveBudget(id, now);
         return id;
@@ -731,7 +741,7 @@ class CouponUsageE2eTest {
 
     private long issue(long memberId, long couponId) {
         Instant now = Instant.now();
-        return memberCouponRepository.save(MemberCoupon.issue(memberId, couponId, "req-" + memberId + "-" + couponId,
+        return memberCouponTestRepository.save(MemberCoupon.issue(memberId, couponId, "req-" + memberId + "-" + couponId,
                 now, now.plus(Duration.ofDays(30)), now)).getId();
     }
 
@@ -831,7 +841,7 @@ class CouponUsageE2eTest {
 
     /** 쿠폰의 이 종류 예산 작업들. 오래된 순 */
     private List<BudgetWork> works(Long couponId, BudgetWorkKind kind) {
-        return budgetWorkRepository.findAll().stream()
+        return budgetWorkTestRepository.findAll().stream()
                 .filter(work -> work.getCouponId().equals(couponId) && work.getKind() == kind)
                 .sorted(Comparator.comparing(BudgetWork::getCreatedAt))
                 .toList();

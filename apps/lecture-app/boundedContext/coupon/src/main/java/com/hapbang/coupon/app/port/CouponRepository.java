@@ -28,9 +28,6 @@ public interface CouponRepository extends Repository<Coupon, Long>, CouponReposi
     Optional<Coupon> findById(Long id);
     boolean existsById(Long id);
 
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    <S extends Coupon> S saveAndFlush(S entity);
-
     /**
      * 쿠폰을 읽고, 상태를 바꾸지 않아도 이 트랜잭션이 커밋될 때 {@code version}을 올린다(OPTIMISTIC_FORCE_INCREMENT).
      * 커밋된 version을 발급 저장소의 fence로 새로 쓸 때(발급 열기·재개) 트랜잭션의 첫 조회로 쓴다.

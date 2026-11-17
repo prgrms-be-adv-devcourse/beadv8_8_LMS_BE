@@ -16,6 +16,7 @@ import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.support.BudgetWorkTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -27,6 +28,9 @@ class BudgetWorkRepositoryTest {
     private BudgetWorkRepository budgetWorkRepository;
 
     @Autowired
+    private BudgetWorkTestRepository budgetWorkTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
@@ -36,7 +40,7 @@ class BudgetWorkRepositoryTest {
     void 작업_lease는_한번만_선점되고_만료_뒤에는_새_attempt로_재선점한다() {
         Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         String id = BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW).getWorkId();
-        budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
+        budgetWorkTestRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
         entityManager.clear();
         assertThat(budgetWorkRepository.claim(id, NOW, NOW.plusSeconds(60))).isEqualTo(1);
         assertThat(budgetWorkRepository.claim(id, NOW.plusSeconds(59), NOW.plusSeconds(120))).isZero();
@@ -73,13 +77,13 @@ class BudgetWorkRepositoryTest {
         assertThat(works(coupon.getId(), BudgetWorkKind.RELEASE))
                 .isEmpty();
         // 같은 작업 ID의 새 작업은 완료된 작업을 덮지 않고 PK 위반이다
-        assertThatThrownBy(() -> budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW)))
+        assertThatThrownBy(() -> budgetWorkTestRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     /** 쿠폰의 이 종류 예산 작업들. 오래된 순 */
     private List<BudgetWork> works(Long couponId, BudgetWorkKind kind) {
-        return budgetWorkRepository.findAll().stream()
+        return budgetWorkTestRepository.findAll().stream()
                 .filter(work -> work.getCouponId().equals(couponId) && work.getKind() == kind)
                 .sorted(Comparator.comparing(BudgetWork::getCreatedAt))
                 .toList();

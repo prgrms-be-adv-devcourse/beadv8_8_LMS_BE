@@ -1,6 +1,5 @@
 package com.hapbang.coupon.app.port;
 
-import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -26,10 +25,6 @@ public interface CouponDltLogRepository extends Repository<CouponDltLog, Long>, 
     <S extends CouponDltLog> S saveAndFlush(S entity);
     Optional<CouponDltLog> findById(Long id);
     Page<CouponDltLog> findAll(Pageable pageable);
-
-    // 테스트 준비·검증에서만 쓰는 기본 메서드
-    <S extends CouponDltLog> S save(S entity);
-    List<CouponDltLog> findAll();
 
     /** 이 메시지 위치를 이미 격리했는가(DLT 전송이 실패해 다시 격리할 때) */
     boolean existsBySourceTopicAndSourcePartitionAndSourceOffset(String sourceTopic, int sourcePartition,

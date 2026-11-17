@@ -23,7 +23,6 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.port.CouponRepository;
-import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.Coupon;
@@ -34,6 +33,8 @@ import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -59,10 +60,13 @@ class CouponReserveRollbackTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
-    private CouponUsageRepository couponUsageRepository;
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private ProcessedOperationRepository processedOperationRepository;
@@ -100,7 +104,7 @@ class CouponReserveRollbackTest {
             assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
             assertThat(state.currentOrderItemId()).isEqualTo(OTHER_ORDER_ITEM_ID);
         });
-        assertThat(couponUsageRepository.count()).isZero();
+        assertThat(couponUsageTestRepository.count()).isZero();
         assertThat(processedOperationRepository.findByOperationId("coupon-reserve:" + WORK_ID)).get()
                 .satisfies(operation -> {
                     assertThat(operation.getResult()).isEqualTo("REJECTED");
@@ -134,7 +138,7 @@ class CouponReserveRollbackTest {
 
     private long issue(long couponId) {
         Instant now = Instant.now();
-        return memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-" + couponId, now,
+        return memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-" + couponId, now,
                 now.plus(Duration.ofDays(30)), now)).getId();
     }
 

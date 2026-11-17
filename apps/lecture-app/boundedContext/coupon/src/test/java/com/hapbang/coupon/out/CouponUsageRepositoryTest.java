@@ -13,7 +13,6 @@ import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
-import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.UsedCoupon;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponType;
@@ -23,6 +22,8 @@ import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -39,10 +40,13 @@ class CouponUsageRepositoryTest {
     private CouponUsageRepository couponUsageRepository;
 
     @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
-    private MemberCouponRepository memberCouponRepository;
+    private MemberCouponTestRepository memberCouponTestRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -50,7 +54,7 @@ class CouponUsageRepositoryTest {
     @Test
     void 사용_시도를_저장하고_예약_작업으로_찾고_해제_사실을_남긴다() {
         MemberCoupon memberCoupon = saveMemberCoupon("req-1");
-        couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
         entityManager.clear();
 
         CouponUsage found = couponUsageRepository.findByReservationWorkIdOrderByOrderItemIdAscApplyOrderAsc("work-1")
@@ -72,9 +76,9 @@ class CouponUsageRepositoryTest {
     @Test
     void 같은_발급_쿠폰의_같은_세대는_두_행이_될_수_없다() {
         MemberCoupon memberCoupon = saveMemberCoupon("req-1");
-        couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
 
-        assertThatThrownBy(() -> couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID + 1, 0, 1_000, 0)))
+        assertThatThrownBy(() -> couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID + 1, 0, 1_000, 0)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining(CouponUsageRepository.MEMBER_COUPON_GENERATION_UNIQUE);
     }
@@ -82,9 +86,9 @@ class CouponUsageRepositoryTest {
     @Test
     void 같은_발급_쿠폰을_같은_주문_항목에_동시에_두_번_예약할_수_없다() {
         MemberCoupon memberCoupon = saveMemberCoupon("req-1");
-        couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
 
-        assertThatThrownBy(() -> couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 1, 1_000, 0)))
+        assertThatThrownBy(() -> couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 1, 1_000, 0)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining(CouponUsageRepository.RESERVED_ORDER_ITEM_MEMBER_COUPON_UNIQUE);
     }
@@ -92,13 +96,13 @@ class CouponUsageRepositoryTest {
     @Test
     void 해제한_사용_시도가_있어도_같은_주문_항목에_새_세대로_다시_예약할_수_있다() {
         MemberCoupon memberCoupon = saveMemberCoupon("req-1");
-        CouponUsage first = couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        CouponUsage first = couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
         first.release("release-1", "주문 실패", null, MemberCouponStatus.AVAILABLE, NOW);
         entityManager.flush();
 
-        couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 1, 1_000, 0));
+        couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 1, 1_000, 0));
 
-        assertThat(couponUsageRepository.findAll()).extracting(CouponUsage::getGeneration)
+        assertThat(couponUsageTestRepository.findAll()).extracting(CouponUsage::getGeneration)
                 .containsExactlyInAnyOrder(1L, 2L);
     }
 
@@ -107,7 +111,7 @@ class CouponUsageRepositoryTest {
         MemberCoupon memberCoupon = saveMemberCoupon("req-1");
 
         // d = f + s는 맞지만 판매자 쿠폰인데 플랫폼이 부담한다
-        assertThatThrownBy(() -> couponUsageRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 1_000)))
+        assertThatThrownBy(() -> couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID, 0, 1_000, 1_000)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_coupon_usage_bearer");
     }
@@ -118,7 +122,7 @@ class CouponUsageRepositoryTest {
         AppliedCoupon tooLarge = new AppliedCoupon(memberCoupon.getId(), memberCoupon.getCouponId(), CouponType.SELLER,
                 1, 500, 600, 0, 600, 0, 1);
 
-        assertThatThrownBy(() -> couponUsageRepository.saveAndFlush(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+        assertThatThrownBy(() -> couponUsageTestRepository.saveAndFlush(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
                 new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE), tooLarge, "work-1", NOW)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_coupon_usage_discount_range");
@@ -128,9 +132,9 @@ class CouponUsageRepositoryTest {
     void 결제_완료와_취소_완료_사실을_저장하고_주문_항목의_사용_시도를_잠가_찾는다() {
         MemberCoupon paidCoupon = saveMemberCoupon("req-1");
         MemberCoupon reservedCoupon = saveMemberCoupon("req-2");
-        CouponUsage paid = couponUsageRepository.save(usage(paidCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
-        CouponUsage canceled = couponUsageRepository.save(usage(reservedCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
-        couponUsageRepository.save(usage(paidCoupon, ORDER_ITEM_ID + 1, 1, 1_000, 0));
+        CouponUsage paid = couponUsageTestRepository.save(usage(paidCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        CouponUsage canceled = couponUsageTestRepository.save(usage(reservedCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        couponUsageTestRepository.save(usage(paidCoupon, ORDER_ITEM_ID + 1, 1, 1_000, 0));
         paid.applyPaid("order-item-paid:901", NOW, MemberCouponStatus.RESERVED, 1, NOW);
         canceled.applyCancelCompleted("order-item-cancel-completed:901", NOW, MemberCouponStatus.RESERVED, 1, NOW,
                 NOW);
@@ -150,15 +154,15 @@ class CouponUsageRepositoryTest {
     void 회원_사용_이력은_본인_행만_예약_최신순_ID_역순으로_쿠폰_정책과_함께_페이지로_읽고_상태로_거른다() {
         MemberCoupon first = saveMemberCoupon("req-1");
         MemberCoupon second = saveMemberCoupon("req-2");
-        CouponUsage released = couponUsageRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 0, NOW));
+        CouponUsage released = couponUsageTestRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 0, NOW));
         released.release("release-1", "결제 실패", null, MemberCouponStatus.AVAILABLE, NOW.plusSeconds(5));
         entityManager.flush();
         // 같은 주문 항목에 해제 뒤 다시 예약한 시도(새 generation)와, 같은 시각에 예약한 다른 쿠폰의 시도
-        CouponUsage paid = couponUsageRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 1, NOW.plusSeconds(10)));
+        CouponUsage paid = couponUsageTestRepository.save(usageAt(MEMBER_ID, first, ORDER_ITEM_ID, 1, NOW.plusSeconds(10)));
         paid.applyPaid("order-item-paid:901", NOW.plusSeconds(11), MemberCouponStatus.RESERVED, 2, NOW.plusSeconds(11));
-        CouponUsage reserved = couponUsageRepository.save(
+        CouponUsage reserved = couponUsageTestRepository.save(
                 usageAt(MEMBER_ID, second, ORDER_ITEM_ID + 1, 0, NOW.plusSeconds(10)));
-        couponUsageRepository.save(usageAt(OTHER_MEMBER_ID, second, ORDER_ITEM_ID + 2, 1, NOW.plusSeconds(20)));
+        couponUsageTestRepository.save(usageAt(OTHER_MEMBER_ID, second, ORDER_ITEM_ID + 2, 1, NOW.plusSeconds(20)));
         entityManager.flush();
         entityManager.clear();
 
@@ -182,7 +186,7 @@ class CouponUsageRepositoryTest {
 
     private MemberCoupon saveMemberCoupon(String requestId) {
         Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
-        return memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, requestId, NOW, EXPIRES_AT, NOW));
+        return memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, requestId, NOW, EXPIRES_AT, NOW));
     }
 
     /** 판매자 쿠폰 한 장을 원가격에 적용한 사용 시도. {@code platformAmount}를 주면 판매자 부담에서 그만큼 옮긴다 */

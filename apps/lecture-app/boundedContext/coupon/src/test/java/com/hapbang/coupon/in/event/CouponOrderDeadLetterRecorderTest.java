@@ -13,9 +13,9 @@ import org.springframework.kafka.listener.ListenerExecutionFailedException;
 import org.springframework.kafka.support.serializer.DeserializationException;
 
 import com.hapbang.coupon.app.CouponDltPayload;
-import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
+import com.hapbang.coupon.support.CouponDltLogTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
@@ -32,7 +32,7 @@ class CouponOrderDeadLetterRecorderTest {
     private CouponOrderDeadLetterRecorder recorder;
 
     @Autowired
-    private CouponDltLogRepository couponDltLogRepository;
+    private CouponDltLogTestRepository couponDltLogTestRepository;
 
     @Test
     void NUL이_든_깨진_주문_이벤트는_Base64_원문으로_격리_기록이_저장된다() {
@@ -42,7 +42,7 @@ class CouponOrderDeadLetterRecorderTest {
 
         recorder.record(record, new ListenerExecutionFailedException("리스너 실패", broken));
 
-        CouponDltLog saved = couponDltLogRepository.findAll().stream()
+        CouponDltLog saved = couponDltLogTestRepository.findAll().stream()
                 .filter(log -> log.getSourceOffset() == 31L).findFirst().orElseThrow();
         assertThat(saved.getKind()).isEqualTo(CouponDltKind.ORDER);
         assertThat(saved.getPayload()).isEqualTo(CouponDltPayload.BASE64_PREFIX + Base64.getEncoder().encodeToString(data));
