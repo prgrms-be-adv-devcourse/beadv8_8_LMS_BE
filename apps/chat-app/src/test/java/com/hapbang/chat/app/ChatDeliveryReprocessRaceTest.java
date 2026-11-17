@@ -75,7 +75,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             stale.set(candidates);
             assertThat(spiedCheckpointStore.markDead(group, deliveryId, 0, ChatDeadReason.SOURCE_MISSING, null,
                     "다른 경로의 격리", ChatDeliveryClock.now())).isTrue();
-            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
             return candidates;
         }).doCallRealMethod().when(spiedOutboxStore)
                 .findRequeueCandidates(eq(ChatJobStream.DELIVERY), anyLong(), any(), any(), anyInt());
@@ -122,7 +122,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             for (int i = 0; i < threads; i++) {
                 Callable<Boolean> task = () -> {
                     start.await();
-                    return reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId);
+                    return reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null);
                 };
                 futures.add(executor.submit(task));
             }
@@ -160,7 +160,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
         doThrow(new IllegalStateException("초기화 실패")).when(spiedOutboxStore)
                 .resetRequeueForReprocess(eq(ChatJobStream.DELIVERY), eq(deliveryId), any());
 
-        assertThatThrownBy(() -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId))
+        assertThatThrownBy(() -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null))
                 .hasMessageContaining("초기화 실패");
 
         assertThat(auditRepository.findByConsumerGroupAndJobIdOrderByIdAsc(group, deliveryId)).isEmpty();
@@ -195,7 +195,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             return invocation.callRealMethod();
         }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
 
         assertThat(inTransaction.get()).isFalse();
         assertThat(committedAudits.get()).isEqualTo(1);

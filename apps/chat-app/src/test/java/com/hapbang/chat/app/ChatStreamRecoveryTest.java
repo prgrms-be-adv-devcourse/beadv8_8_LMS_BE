@@ -122,7 +122,7 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         }
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.DEAD);
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         var checkpoint = checkpoint(deliveryId);
@@ -132,7 +132,7 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         assertThat(checkpoint.getTotalAttemptCount()).isEqualTo(3);
         assertThat(fanout.messages()).singleElement()
                 .satisfies(payload -> assertThat(payload.deliveryId()).isEqualTo(deliveryId));
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isFalse();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isFalse();
     }
 
     @Test

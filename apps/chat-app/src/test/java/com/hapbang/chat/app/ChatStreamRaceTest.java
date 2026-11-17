@@ -89,7 +89,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
         doAnswer(invocation -> {
             assertThat(spiedCheckpointStore.markDead(group, deliveryId, 0, ChatDeadReason.PUBLISH_RETRY_EXHAUSTED,
                     job.entryId(), "다른 worker의 격리", ChatDeliveryClock.now())).isTrue();
-            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
             return invocation.callRealMethod();
         }).doCallRealMethod().when(spiedCheckpointStore)
                 .markPublished(anyString(), any(), anyInt(), anyLong(), any());

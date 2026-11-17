@@ -144,16 +144,10 @@ public class ChatStreamReconstructor {
      * 이 두 격리 외의 미완료 상태는 relay(lease 회수)·회수 루프·재구성이 스스로 진행하거나 상한에서 격리하므로 재처리 대상이
      * 아니다.
      *
-     * @return 되돌렸으면 true. 어느 쪽도 격리 상태가 아니면 false
-     */
-    public boolean reprocess(ChatJobStream stream, UUID jobId) {
-        return reprocess(stream, jobId, null);
-    }
-
-    /**
-     * 운영 재처리. {@link #reprocess(ChatJobStream, UUID)}와 같고, 요청한 관리자를 감사 기록에 남긴다.
+     * 요청한 관리자는 감사 기록에 남긴다.
      *
      * @param requestedBy 요청한 관리자 회원 ID. 없으면 null
+     * @return 되돌렸으면 true. 어느 쪽도 격리 상태가 아니면 false
      */
     public boolean reprocess(ChatJobStream stream, UUID jobId, Long requestedBy) {
         assertNoTransaction();
