@@ -19,8 +19,6 @@ import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.NotificationData;
 import com.hapbang.chat.domain.NotificationKind;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 

@@ -20,8 +20,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatOutboxRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
 

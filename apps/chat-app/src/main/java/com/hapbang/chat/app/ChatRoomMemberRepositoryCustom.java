@@ -8,9 +8,10 @@ import org.springframework.data.domain.Limit;
 import com.hapbang.chat.domain.ChatRoomMember;
 
 /**
- * 채팅방 참여 행 조회. 쓰기(저장·조건부 UPDATE)와 이름으로 만드는 조회는 repository 메서드를 그대로 쓴다.
+ * {@link ChatRoomMemberRepository}의 QueryDSL 조회. 구현은 out의 {@code ChatRoomMemberRepositoryCustomImpl}이다.
+ * 쓰기(저장·조건부 UPDATE)와 이름으로 만드는 조회는 {@link ChatRoomMemberRepository}에 둔다.
  */
-public interface ChatRoomMemberReader {
+public interface ChatRoomMemberRepositoryCustom {
 
     /**
      * 회원이 참여 중인, 볼 수 있는 방의 참여 정보(방을 함께 읽는다, 최근 방부터). 1:1 방은 종료되지 않은 방이고, 단체방은 사용 중·일시

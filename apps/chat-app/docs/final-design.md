@@ -45,7 +45,7 @@
 | 연결 제어 | `ChatWebSocketSessionRegistry`가 이 프로세스의 WebSocket 세션만 기억하고, 로그아웃(세션 ID)·정지·강등(회원 ID)에 닫는다. JWT 전환(#501) 뒤에는 연결 티켓으로 결합한 회원으로 로그아웃(회원 단위)·정지·강등·연결 만료에 닫는다(6장) |
 | 회원 복제 | `UserJoinedEvent`로 생성, `UserModifiedEvent`로 갱신. `ReplicaUser.memberVersion`으로 옛 이벤트를 무시한다(#262의 버전 비교는 이미 구현됨) |
 | 알림 | 출연 이벤트 2종을 1:1 방의 `NOTIFICATION` 메시지로 남긴다 |
-| DB 접근 | Spring Data JPA. PostgreSQL 전용 문장은 native `@Query`, JPQL 조회는 QueryDSL(app 조회 인터페이스 → out `XxxRepositoryCustom`·`XxxRepositoryCustomImpl`, 2026-11-17), 쓰기·잠그는 조회·이름으로 만드는 조회는 repository 메서드다([결정 사항](rules/decisions.md) "데이터 접근"·"JPQL 조회는 QueryDSL") |
+| DB 접근 | Spring Data JPA. PostgreSQL 전용 문장은 native `@Query`, JPQL 조회는 QueryDSL(app `XxxRepositoryCustom` → out `XxxRepositoryCustomImpl`, 2026-11-17), 쓰기·잠그는 조회·이름으로 만드는 조회는 repository 메서드다. repository 인터페이스는 app의 port로 Spring Data `Repository`만 extends한다(`JpaRepository` 상속 없음)([결정 사항](rules/decisions.md) "데이터 접근"·"JPQL 조회는 QueryDSL") |
 | 멱등·복구 | `clientMessageId` 재전송 방지(#261, #311), `participationVersion`으로 옛 퇴장 요청 무시, 읽음은 조건부 UPDATE로 단조 증가. FE는 `appliedIds`로 중복을 거르고 `roomSequence` 간격이 보이면 이력을 다시 조회한다(`incoming.ts`), 재연결마다 채팅 데이터를 다시 부른다(`ChatConnection.tsx`) |
 
 ### 2.2 앱 분리로 끊긴 것

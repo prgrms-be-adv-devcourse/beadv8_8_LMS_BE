@@ -31,7 +31,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
 import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**

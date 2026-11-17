@@ -7,13 +7,14 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.ChatRoomLogRepositoryCustom;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.QChatRoomLog;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatRoomLogRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatRoomLogRepository}의 조각으로 붙인다 */
+/** {@link ChatRoomLogRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatRoomLogRepository}의 조각으로 붙인다 */
 class ChatRoomLogRepositoryCustomImpl implements ChatRoomLogRepositoryCustom {
 
     private static final QChatRoomLog roomLog = QChatRoomLog.chatRoomLog;

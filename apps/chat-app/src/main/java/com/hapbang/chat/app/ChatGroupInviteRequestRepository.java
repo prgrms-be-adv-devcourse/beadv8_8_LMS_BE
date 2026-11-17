@@ -1,13 +1,14 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,7 +16,16 @@ import com.hapbang.chat.domain.ChatGroupInviteRequest;
 
 import jakarta.persistence.LockModeType;
 
-public interface ChatGroupInviteRequestRepository extends JpaRepository<ChatGroupInviteRequest, Long> {
+public interface ChatGroupInviteRequestRepository extends Repository<ChatGroupInviteRequest, Long> {
+
+    // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
+    <S extends ChatGroupInviteRequest> S save(S entity);
+    void delete(ChatGroupInviteRequest entity);
+    void flush();
+
+    // 테스트 검증에서만 쓰는 기본 메서드
+    List<ChatGroupInviteRequest> findAll();
+    long count();
 
     /** 방·요청 ID의 초대 결과 기록 */
     Optional<ChatGroupInviteRequest> findByChatRoomIdAndRequestId(Long chatRoomId, UUID requestId);

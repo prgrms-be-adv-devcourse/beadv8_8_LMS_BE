@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 /**
  * 메시지별 안 읽은 사람 수 native 집계의 interface projection. 컬럼 별칭(snake_case)을 속성 이름으로 읽는다.

@@ -9,9 +9,10 @@ import org.springframework.data.domain.Limit;
 import com.hapbang.chat.domain.ChatRoom;
 
 /**
- * 채팅방 조회. 잠그는 조회({@code @Lock})와 쓰기는 repository 메서드를 그대로 쓴다.
+ * {@link ChatRoomRepository}의 QueryDSL 조회. 구현은 out의 {@code ChatRoomRepositoryCustomImpl}이다. 잠그는
+ * 조회({@code @Lock})와 쓰기는 {@link ChatRoomRepository}에 둔다.
  */
-public interface ChatRoomReader {
+public interface ChatRoomRepositoryCustom {
 
     /**
      * 모집글의 현재 단체방(사용 중·일시 중지). 부분 유일 인덱스로 하나뿐이다. 읽기 전용으로 남은 이전 방은 나오지 않는다.

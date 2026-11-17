@@ -64,7 +64,6 @@ import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

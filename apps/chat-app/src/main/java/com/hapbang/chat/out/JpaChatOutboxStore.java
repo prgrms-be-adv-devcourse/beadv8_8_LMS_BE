@@ -9,15 +9,17 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
 
+import com.hapbang.chat.app.ChatControlOutboxRepository;
 import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.ChatOutboxRepository;
+import com.hapbang.chat.app.ChatOutboxRows.Candidate;
+import com.hapbang.chat.app.ChatOutboxRows.Claimed;
+import com.hapbang.chat.app.ChatOutboxRows.ControlJobRow;
+import com.hapbang.chat.app.ChatOutboxRows.DeliveryJobRow;
+import com.hapbang.chat.app.ChatOutboxRows.IsolatedJobRow;
 import com.hapbang.chat.app.ChatOutboxStore;
 import com.hapbang.chat.app.dto.ChatIsolatedJob;
 import com.hapbang.chat.domain.ChatOutboxStatus;
-import com.hapbang.chat.out.ChatOutboxRows.Candidate;
-import com.hapbang.chat.out.ChatOutboxRows.Claimed;
-import com.hapbang.chat.out.ChatOutboxRows.ControlJobRow;
-import com.hapbang.chat.out.ChatOutboxRows.DeliveryJobRow;
-import com.hapbang.chat.out.ChatOutboxRows.IsolatedJobRow;
 
 import lombok.RequiredArgsConstructor;
 

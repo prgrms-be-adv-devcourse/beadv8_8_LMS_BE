@@ -51,6 +51,7 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatConnectionControl;
+import com.hapbang.chat.app.ChatUserRepository;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
@@ -58,7 +59,6 @@ import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.ChatKafkaTopicConfig;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

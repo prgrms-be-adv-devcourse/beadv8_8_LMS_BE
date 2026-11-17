@@ -32,7 +32,6 @@ import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 

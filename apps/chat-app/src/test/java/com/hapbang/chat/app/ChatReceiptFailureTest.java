@@ -17,9 +17,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**

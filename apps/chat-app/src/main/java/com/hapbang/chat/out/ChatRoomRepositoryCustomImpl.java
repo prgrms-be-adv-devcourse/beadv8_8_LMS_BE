@@ -8,6 +8,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.ChatRoomRepositoryCustom;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomType;
@@ -16,7 +17,7 @@ import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatRoomRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatRoomRepository}의 조각으로 붙인다 */
+/** {@link ChatRoomRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatRoomRepository}의 조각으로 붙인다 */
 class ChatRoomRepositoryCustomImpl implements ChatRoomRepositoryCustom {
 
     private static final QChatRoom room = QChatRoom.chatRoom;

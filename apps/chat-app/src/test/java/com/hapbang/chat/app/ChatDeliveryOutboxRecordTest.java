@@ -31,13 +31,6 @@ import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatOutboxRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
-import com.hapbang.chat.out.ChatRecipientSetMemberRepository;
-import com.hapbang.chat.out.ChatRecipientSetRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
 

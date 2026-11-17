@@ -10,11 +10,10 @@ import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.ChatReadCountRows.MessageUnreadRow;
+import com.hapbang.chat.app.ChatReadCountRows.RecentUnreadRow;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatReadCountRows.MessageUnreadRow;
-import com.hapbang.chat.out.ChatReadCountRows.RecentUnreadRow;
 
 import lombok.RequiredArgsConstructor;
 

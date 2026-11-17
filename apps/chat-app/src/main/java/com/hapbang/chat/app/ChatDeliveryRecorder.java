@@ -11,8 +11,6 @@ import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
-import com.hapbang.chat.out.ChatOutboxRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
 
 import lombok.RequiredArgsConstructor;
 

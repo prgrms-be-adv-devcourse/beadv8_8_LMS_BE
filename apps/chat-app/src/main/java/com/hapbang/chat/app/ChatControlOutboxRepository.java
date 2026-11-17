@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -7,24 +7,27 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.ChatOutboxRows.ClaimedControlRow;
+import com.hapbang.chat.app.ChatOutboxRows.ControlCandidateRow;
+import com.hapbang.chat.app.ChatOutboxRows.ControlJobRow;
+import com.hapbang.chat.app.ChatOutboxRows.IsolatedJobRow;
 import com.hapbang.chat.domain.ChatControlOutbox;
-import com.hapbang.chat.out.ChatOutboxRows.ClaimedControlRow;
-import com.hapbang.chat.out.ChatOutboxRows.ControlCandidateRow;
-import com.hapbang.chat.out.ChatOutboxRows.ControlJobRow;
-import com.hapbang.chat.out.ChatOutboxRows.IsolatedJobRow;
 
 /**
- * 연결 제어 outbox 저장·조회. 기록은 {@link JpaChatConnectionControl}, 적재 상태 변경은 {@link JpaChatOutboxStore}가
+ * 연결 제어 outbox 저장·조회. 기록은 {@code JpaChatConnectionControl}, 적재 상태 변경은 {@code JpaChatOutboxStore}가
  * 아래 native 문장으로 한다. 적재 문장은 전달 outbox({@link ChatOutboxRepository})와 테이블만 다르고 같다.
  * 적재 변경 문장의 트랜잭션·영속성 컨텍스트 규칙도 전달 outbox와 같다.
  */
-public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOutbox, Long> {
+public interface ChatControlOutboxRepository extends Repository<ChatControlOutbox, Long> {
+
+    // 테스트 검증에서만 쓰는 기본 메서드. 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
+    List<ChatControlOutbox> findAll();
 
     Optional<ChatControlOutbox> findByControlId(UUID controlId);
 

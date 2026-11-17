@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import java.time.Instant;
 import java.time.LocalDateTime;

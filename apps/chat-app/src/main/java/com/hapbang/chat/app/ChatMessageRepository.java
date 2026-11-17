@@ -1,30 +1,33 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.domain.Limit;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
+import com.hapbang.chat.app.ChatReadCountRows.MessageUnreadRow;
+import com.hapbang.chat.app.ChatReadCountRows.RecentUnreadRow;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.NotificationKind;
-import com.hapbang.chat.out.ChatReadCountRows.MessageUnreadRow;
-import com.hapbang.chat.out.ChatReadCountRows.RecentUnreadRow;
 
 /**
  * 채팅 메시지 저장소. JPQL 조회는 {@link ChatMessageRepositoryCustom}(QueryDSL)에 있다.
- * <p>
- * 조회 구현 조각({@code ...CustomImpl})도 같은 app 조회 인터페이스의 빈이다. app이 그 인터페이스로 주입받을 때 이 repository
- * 프록시(예외 변환 포함)가 뽑히도록 {@code @Primary}로 둔다.
  */
-@Primary
-public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long>, ChatMessageRepositoryCustom {
+public interface ChatMessageRepository extends Repository<ChatMessage, Long>, ChatMessageRepositoryCustom {
+
+    // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
+    <S extends ChatMessage> S save(S entity);
+
+    // 테스트 검증에서만 쓰는 기본 메서드
+    Optional<ChatMessage> findById(Long id);
+    List<ChatMessage> findAll();
+    long count();
 
     /**
      * 주어진 일반 메시지({@code TEXT})마다 안 읽은 현재 참여자 수를 한 문장으로 센다. 메시지마다 참여자를 따로 읽지 않는다.

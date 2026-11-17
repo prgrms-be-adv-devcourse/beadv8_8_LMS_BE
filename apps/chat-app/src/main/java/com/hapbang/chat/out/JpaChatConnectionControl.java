@@ -1,6 +1,8 @@
 package com.hapbang.chat.out;
 
 import com.hapbang.chat.app.ChatConnectionControl;
+import com.hapbang.chat.app.ChatControlOutboxRepository;
+import com.hapbang.chat.app.ChatPublishCheckpointRepository;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;

@@ -1,14 +1,13 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.chat.domain.ChatRoom;
@@ -17,12 +16,16 @@ import jakarta.persistence.LockModeType;
 
 /**
  * 채팅방 저장소. 잠그지 않는 JPQL 조회는 {@link ChatRoomRepositoryCustom}(QueryDSL)에 있고, 잠그는 조회({@code @Lock})는 여기 있다.
- * <p>
- * 조회 구현 조각({@code ...CustomImpl})도 같은 app 조회 인터페이스의 빈이다. app이 그 인터페이스로 주입받을 때 이 repository
- * 프록시(예외 변환 포함)가 뽑히도록 {@code @Primary}로 둔다.
  */
-@Primary
-public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long>, ChatRoomRepositoryCustom {
+public interface ChatRoomRepository extends Repository<ChatRoom, Long>, ChatRoomRepositoryCustom {
+
+    // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
+    <S extends ChatRoom> S saveAndFlush(S entity);
+    Optional<ChatRoom> findById(Long id);
+
+    // 테스트 검증에서만 쓰는 기본 메서드
+    List<ChatRoom> findAll();
+    long count();
 
     /**
      * 그 회원이 호스트인 현재 단체방(사용 중·일시 중지)을 잠그고 ID 순으로 조회한다. 호스트 자격 상실 반영이 쓴다.

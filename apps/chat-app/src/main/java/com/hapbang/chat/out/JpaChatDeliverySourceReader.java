@@ -8,12 +8,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.ChatDeliverySourceReader;
+import com.hapbang.chat.app.ChatMessageRepository;
+import com.hapbang.chat.app.ChatReadCountRows.MessageUnreadRow;
+import com.hapbang.chat.app.ChatRecipientSetRepository;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatMessageSender;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatUser;
-import com.hapbang.chat.out.ChatReadCountRows.MessageUnreadRow;
 
 import lombok.RequiredArgsConstructor;
 

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.ChatRecipientStateReader;
+import com.hapbang.chat.app.ChatUserRepository;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomMember;

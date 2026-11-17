@@ -9,9 +9,10 @@ import org.springframework.data.domain.Limit;
 import com.hapbang.chat.domain.ChatMessage;
 
 /**
- * 채팅 메시지 조회. native SQL 집계·쓰기와 이름으로 만드는 조회는 repository 메서드를 그대로 쓴다.
+ * {@link ChatMessageRepository}의 QueryDSL 조회. 구현은 out의 {@code ChatMessageRepositoryCustomImpl}이다. native SQL
+ * 집계·쓰기와 이름으로 만드는 조회는 {@link ChatMessageRepository}에 둔다.
  */
-public interface ChatMessageReader {
+public interface ChatMessageRepositoryCustom {
 
     /**
      * 참여자의 조회 범위([fromSequence, beforeSequence)) 안의 메시지를 최신순으로 조회한다.
@@ -34,4 +35,11 @@ public interface ChatMessageReader {
      * 행 비교로 써야 (chat_room_id, sent_at, id) 인덱스의 범위 조건이 되어 커서 앞 항목을 다시 훑지 않는다.
      */
     List<ChatMessage> findHistoryAfter(Long chatRoomId, LocalDateTime at, long idAfter, Limit limit);
+
+    /**
+     * 메시지와 발신자 복제본을 한 문장으로 읽는다(전달 원본). 발신자가 없거나 복제본이 없으면 둘째 값이 null이다.
+     * 결과는 [ChatMessage, ChatUser] 한 행이고, 메시지가 없으면 빈 목록이다. out의 전달 원본 조회
+     * ({@code JpaChatDeliverySourceReader})가 쓴다.
+     */
+    List<Object[]> findWithSender(long messageId);
 }

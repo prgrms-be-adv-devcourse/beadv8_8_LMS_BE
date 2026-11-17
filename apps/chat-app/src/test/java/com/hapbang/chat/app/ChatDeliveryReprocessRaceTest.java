@@ -25,13 +25,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
 import com.hapbang.chat.out.JpaChatOutboxStore;
-import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
 import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**

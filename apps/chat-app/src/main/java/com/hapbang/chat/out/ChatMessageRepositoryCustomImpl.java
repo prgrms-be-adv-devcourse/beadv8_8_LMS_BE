@@ -8,6 +8,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.ChatMessageRepositoryCustom;
 import com.hapbang.chat.app.ChatRoomUnreadCount;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.QChatMessage;
@@ -20,7 +21,7 @@ import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatMessageRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatMessageRepository}의 조각으로 붙인다 */
+/** {@link ChatMessageRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatMessageRepository}의 조각으로 붙인다 */
 class ChatMessageRepositoryCustomImpl implements ChatMessageRepositoryCustom {
 
     private static final QChatMessage message = QChatMessage.chatMessage;

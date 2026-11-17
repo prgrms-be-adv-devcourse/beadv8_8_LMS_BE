@@ -12,12 +12,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.dto.ChatUserSyncResult.Outcome;
+import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.fixture.ChatNativeSql;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
