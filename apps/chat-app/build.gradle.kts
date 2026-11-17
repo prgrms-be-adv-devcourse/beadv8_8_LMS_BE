@@ -18,6 +18,10 @@ dependencies {
     implementation(libs.caffeine)
     // 알림용 단체방 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
+    // JPQL 쿼리를 문자열 대신 컴파일 시점에 검사되는 QueryDSL로 쓴다. Q타입은 엔티티에서 annotation processor로 만든다
+    implementation(libs.querydsl.jpa)
+    annotationProcessor(variantOf(libs.querydsl.apt) { classifier("jpa") })
+    annotationProcessor("jakarta.persistence:jakarta.persistence-api")
 }
 
 springBoot {
