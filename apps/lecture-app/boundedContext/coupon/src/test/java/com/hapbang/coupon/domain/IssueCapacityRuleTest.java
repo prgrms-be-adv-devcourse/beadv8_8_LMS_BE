@@ -18,12 +18,6 @@ class IssueCapacityRuleTest {
         assertThat(IssueCapacityRule.withinPerCoupon(quantity, 100)).isEqualTo(expected);
     }
 
-    @ParameterizedTest
-    @CsvSource({"0, 1000, true", "900, 100, true", "901, 100, false", "1000, 1, false"})
-    void 예약_합계에_이번_수량을_더해_합산_상한까지만_받는다(long reservedTotal, long quantity, boolean expected) {
-        assertThat(IssueCapacityRule.fitsTotal(reservedTotal, quantity, 1000)).isEqualTo(expected);
-    }
-
     @Test
     void 발급_종료된_쿠폰도_Redis_기록이_남아_있으면_예약을_풀지_않는다() {
         assertThat(IssueCapacityRule.releasable(CouponStatus.CLOSED, 1, 0, 0)).isFalse();

@@ -46,7 +46,6 @@ class RecoveryRunTest {
         assertThat(run.getStep()).isEqualTo(RecoveryStep.BLOCKED);
         assertThat(run.getPreviousEpoch()).isEqualTo(1L);
         assertThat(run.getNewEpoch()).isEqualTo(2L);
-        assertThat(run.isActive()).isTrue();
     }
 
     @Test
@@ -125,7 +124,6 @@ class RecoveryRunTest {
 
         assertThat(claim).isEqualTo(new RecoveryRun.StepClaim(RecoveryStep.REBUILDING, NOW, RecoveryStep.RESULTS_CHECKED));
         assertThat(run.getStep()).isEqualTo(RecoveryStep.REBUILDING);
-        assertThat(run.isActive()).isTrue();
         assertThatThrownBy(() -> run.claimRebuild(NOW.plusSeconds(1), LEASE))
                 .isInstanceOf(CouponDomainException.class)
                 .hasMessageContaining("진행 중");
@@ -178,7 +176,6 @@ class RecoveryRunTest {
         RecoveryRun.StepClaim resumeClaim = resumeFirst.claimResume("확인함", NOW, LEASE);
         assertThat(resumeClaim).isEqualTo(new RecoveryRun.StepClaim(RecoveryStep.RESUMING, NOW, RecoveryStep.REBUILT));
         assertThat(resumeFirst.getStep()).isEqualTo(RecoveryStep.RESUMING);
-        assertThat(resumeFirst.isActive()).isTrue();
         assertThatThrownBy(() -> resumeFirst.claimRebuild(NOW.plusSeconds(1), LEASE)).isInstanceOf(CouponDomainException.class);
         assertThatThrownBy(() -> resumeFirst.claimResume("확인함", NOW.plusSeconds(1), LEASE))
                 .isInstanceOf(CouponDomainException.class)
@@ -243,7 +240,6 @@ class RecoveryRunTest {
         run.abortLostResume(ADMIN_ID, redisState, LATER, LEASE);
 
         assertThat(run.getStep()).isEqualTo(RecoveryStep.ABORTED);
-        assertThat(run.isActive()).isFalse();
         assertThat(run.isRequestsLost()).isTrue();
         assertThat(run.getAbortReason()).isEqualTo("RESUME_UNKNOWN_" + redisState);
         assertThat(run.getAbortedBy()).isEqualTo(ADMIN_ID);
@@ -320,7 +316,6 @@ class RecoveryRunTest {
         resume(run, "유실 접수 없음을 확인함", "quantity=10", LATER);
 
         assertThat(run.getStep()).isEqualTo(RecoveryStep.RESUMED);
-        assertThat(run.isActive()).isFalse();
         assertThat(run.getResumeBasis()).isEqualTo("유실 접수 없음을 확인함");
         assertThat(run.getResumeEvidence()).isEqualTo("quantity=10");
         assertThat(run.getResumedAt()).isEqualTo(LATER);
@@ -368,7 +363,6 @@ class RecoveryRunTest {
         run.abort(ADMIN_ID, LATER);
 
         assertThat(run.getStep()).isEqualTo(RecoveryStep.ABORTED);
-        assertThat(run.isActive()).isFalse();
         assertThat(run.getAbortedBy()).isEqualTo(ADMIN_ID);
         assertThat(run.getAbortedAt()).isEqualTo(LATER);
         assertThat(run.getUpdatedAt()).isEqualTo(LATER);

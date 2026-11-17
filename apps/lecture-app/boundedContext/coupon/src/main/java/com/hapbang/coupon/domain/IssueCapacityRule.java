@@ -23,14 +23,6 @@ public final class IssueCapacityRule {
     }
 
     /**
-     * 이미 예약된 합(기록이 남은 쿠폰의 수량 합)에 이번 수량을 더해도 합산 상한 이하인가.
-     * DB 조건부 UPDATE가 같은 식으로 원자적으로 판정하며, 이 메서드는 그 식의 정의다.
-     */
-    public static boolean fitsTotal(long reservedTotal, long quantity, long maxTotalQuantity) {
-        return reservedTotal + quantity <= maxTotalQuantity;
-    }
-
-    /**
      * 쿠폰의 용량 예약을 풀어도 되는가: 다시 열 수 없는 상태(발급 종료 CLOSED, 심사 거절 REJECTED)이고 Redis에 정리할 기록이 하나도 남지
      * 않았으며(남은 requests 0), 진행 중 접수와 거절 보상 대기가 없다. 기록이 남은 CLOSED 쿠폰은 계속 용량을 차지한다.
      */
