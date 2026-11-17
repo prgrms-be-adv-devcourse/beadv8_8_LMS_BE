@@ -11,7 +11,7 @@
 | 인증 | 로그인 회원 전체(USER 이상). 비로그인이면 401이고 FE는 챗봇 대신 로그인 안내를 띄운다 |
 | 호출 제한 | 회원별. 넘으면 429 + `Retry-After`. 위젯은 429면 영역을 숨긴다 |
 | 대화 저장 | 서버는 대화를 저장하지 않는다. 자유 질문은 FE가 지난 대화를 요청마다 `history`로 보낸다. 대화를 어디에 언제까지 둘지는 FE가 정한다 |
-| 글자 수 | `message`·`interest`·`history`의 `content`는 코드 포인트로 센다(이모지 하나 = 1자). JS `String.length`(UTF-16)와 다르다 |
+| 글자 수 | `message`·`interest`·`q`·`history`의 `content`는 코드 포인트로 센다. FE는 `Array.from(text).length`로 센다(JS `String.length`는 UTF-16이라 다르다). 단일 코드 포인트 이모지(😀)는 1자이고, 국기(🇰🇷)·피부색(👍🏽)·ZWJ 조합(👨‍👩‍👧) 이모지는 코드 포인트 수만큼 여러 자다 |
 
 ## 2. 엔드포인트
 
@@ -20,6 +20,7 @@
 | 강의 추천 위젯 | `GET /api/v1/chatbot/recommendations/lectures?interest=` | | 없음 | 분당 60회, interest가 있으면 분당 10회도 함께 |
 | 인플루언서 추천 위젯 | `GET /api/v1/chatbot/recommendations/influencers` | | 없음 | 분당 60회 |
 | 챗봇 "FAQ 모아보기" | `GET /api/v1/chatbot/faqs?category=` | | 없음 | 없음 |
+| (챗봇 화면은 쓰지 않음) FAQ 검색 | `GET /api/v1/chatbot/faqs/search?q=` (`q` 1~200자) | | 없음(벡터 검색, 응답 `[{code, question, answer, score}]`) | FAQ 대화·자유 질문과 합쳐 분당 10회 |
 | 챗봇 "FAQ 질문하기" | `POST /api/v1/chatbot/chat/faq` | `{message}` (1~500자) | FAQ 검색 결과로 답변 | 자유 질문·FAQ 검색과 합쳐 분당 10회 |
 | 〃 (스트림) | `POST /api/v1/chatbot/chat/faq/stream` (SSE) | `{message}` | 〃 | 〃 |
 | 챗봇 "강의 추천받기" | `POST /api/v1/chatbot/recommendations/lectures/explained` | `{interest?}` (없어도 됨) | 쿼리 확장 + 리랭킹·이유 | 분당 10회 |
