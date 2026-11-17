@@ -18,18 +18,20 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
-import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
-import com.hapbang.coupon.app.port.CouponRecoveryStore;
+import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.ActivateResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.BlockResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildControl;
-import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
-import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
+import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
+import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponRecoveryProperties;
@@ -45,8 +47,6 @@ import com.hapbang.coupon.domain.RecoveryRedisState;
 import com.hapbang.coupon.domain.RecoveryRun;
 import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 // 복구 UseCase의 단계별 전제 조건과 저장소 호출. 단계 순서 규칙 자체는 RecoveryRunTest가 본다

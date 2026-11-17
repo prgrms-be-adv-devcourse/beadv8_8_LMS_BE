@@ -15,6 +15,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
@@ -29,8 +31,6 @@ import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.support.CouponDltLogTestRepository;
 import com.hapbang.coupon.support.CouponUsageTestRepository;
 import com.hapbang.coupon.support.MemberCouponTestRepository;

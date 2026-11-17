@@ -18,6 +18,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponCompensationStore;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
@@ -31,8 +33,6 @@ import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueCompensation;
 import com.hapbang.coupon.domain.IssueDelivery;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

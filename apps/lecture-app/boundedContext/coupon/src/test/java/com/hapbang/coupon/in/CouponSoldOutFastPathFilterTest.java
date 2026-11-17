@@ -26,7 +26,7 @@ import org.springframework.web.filter.ServerHttpObservationFilter;
 import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.CouponIssueRequestUseCase;
 import com.hapbang.coupon.app.CouponSoldOutCache;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.in.dto.IssueRequestCreateRequest;
 
 import io.micrometer.core.instrument.MeterRegistry;

@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponState;
@@ -29,14 +31,12 @@ import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 import com.hapbang.coupon.domain.usage.ItemResult;
-import com.hapbang.coupon.domain.usage.ReservationBasis;
 import com.hapbang.coupon.domain.usage.ReservationBasis.Check;
 import com.hapbang.coupon.domain.usage.ReservationBasis.RequestedCoupon;
+import com.hapbang.coupon.domain.usage.ReservationBasis;
 import com.hapbang.coupon.domain.usage.UsableCoupon;
 import com.hapbang.coupon.domain.usage.UsageContentKey;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 

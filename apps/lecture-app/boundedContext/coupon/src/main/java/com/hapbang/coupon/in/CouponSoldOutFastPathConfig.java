@@ -1,4 +1,4 @@
-package com.hapbang.coupon.config;
+package com.hapbang.coupon.in;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -8,7 +8,6 @@ import org.springframework.core.Ordered;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
 import com.hapbang.coupon.app.CouponSoldOutCache;
-import com.hapbang.coupon.in.CouponSoldOutFastPathFilter;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

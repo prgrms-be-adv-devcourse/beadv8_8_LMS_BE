@@ -18,6 +18,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
@@ -29,8 +31,6 @@ import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.CouponCalculator;
 import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 import com.hapbang.coupon.domain.usage.UsableCoupon;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponUsageException;
 
 /**
  * 쿠폰 사용(계산·예약·해제·예약 상태 조회)이 함께 쓰는 검사·조회·작업 기록.

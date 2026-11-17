@@ -1,4 +1,4 @@
-package com.hapbang.coupon.global.exception;
+package com.hapbang.coupon.app.exception;
 
 import org.springframework.http.HttpStatus;
 

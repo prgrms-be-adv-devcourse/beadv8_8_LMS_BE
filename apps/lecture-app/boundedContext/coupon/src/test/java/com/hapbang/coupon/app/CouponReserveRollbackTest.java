@@ -22,6 +22,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
@@ -32,7 +33,6 @@ import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.support.CouponUsageTestRepository;
 import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;

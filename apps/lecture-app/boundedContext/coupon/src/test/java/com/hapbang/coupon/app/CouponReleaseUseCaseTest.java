@@ -13,8 +13,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
@@ -23,8 +25,6 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
 import com.hapbang.shared.coupon.api.CouponReleaseResponse;
 

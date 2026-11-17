@@ -3,15 +3,15 @@ package com.hapbang.coupon.app;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
+import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponRepository;
-import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

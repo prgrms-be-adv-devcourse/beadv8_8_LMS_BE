@@ -1,10 +1,12 @@
-package com.hapbang.coupon.global.exception;
+package com.hapbang.coupon.app.exception;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+
+import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 
 import lombok.AccessLevel;
 import lombok.Getter;

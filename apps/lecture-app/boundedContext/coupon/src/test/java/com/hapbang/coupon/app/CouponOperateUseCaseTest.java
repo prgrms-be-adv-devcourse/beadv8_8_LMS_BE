@@ -19,8 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
+import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
@@ -28,7 +29,6 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
 
 // 중단·재개·종료에서 Redis와 DB의 순서·fence 인자, Redis 실패 뒤 남는 상태, 같은 요청 재호출을 본다.
 // 늦게 도착한 Redis 쓰기의 경쟁은 실제 Redis로 CouponIssueRaceTest가 본다

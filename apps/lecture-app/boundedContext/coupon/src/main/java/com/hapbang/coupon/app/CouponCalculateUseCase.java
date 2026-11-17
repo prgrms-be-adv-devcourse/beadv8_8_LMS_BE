@@ -8,6 +8,8 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponPlatformFundingProperties;
@@ -19,8 +21,6 @@ import com.hapbang.coupon.domain.usage.ItemResult;
 import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.domain.usage.UsableCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 

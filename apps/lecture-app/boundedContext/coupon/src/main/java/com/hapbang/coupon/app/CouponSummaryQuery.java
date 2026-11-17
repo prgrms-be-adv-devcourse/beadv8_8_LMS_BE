@@ -11,16 +11,16 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.coupon.app.dto.CouponSummaryView;
-import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueSnapshot;
+import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponAvailabilityRule;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 
 import lombok.extern.slf4j.Slf4j;
 

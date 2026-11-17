@@ -15,14 +15,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponCalculateProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.MemberCoupon;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponUsageException;
-import com.hapbang.coupon.app.port.OwnedCoupon;
 
 /** 쿠폰 사용 서비스 테스트 값. 저장한 것처럼 ID를 붙인 쿠폰·발급 쿠폰과 아무것도 하지 않는 트랜잭션 대역 */
 final class CouponUsageFixture {

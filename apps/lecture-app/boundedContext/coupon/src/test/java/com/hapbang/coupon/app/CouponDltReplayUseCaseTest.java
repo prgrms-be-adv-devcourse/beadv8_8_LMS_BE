@@ -17,17 +17,17 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
-import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.RecoveryRun;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 // 재발행 분기: 전송 전 REPLAYING 선점, ACK 뒤 REPLAYED, 전송 실패 되돌림(새 PENDING이 있으면 REPLAYED로 끝냄), 선점 lease 회수,

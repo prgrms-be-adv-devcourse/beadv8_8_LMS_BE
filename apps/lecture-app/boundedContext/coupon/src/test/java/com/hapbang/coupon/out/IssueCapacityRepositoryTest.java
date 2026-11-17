@@ -23,12 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.coupon.app.CouponCapacitySupport;
 import com.hapbang.coupon.app.CouponReconciliationMetrics;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.IssueCapacityRepository;
 import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.domain.Coupon;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.support.CouponTestRepository;
 import com.hapbang.coupon.support.IssueCapacityReservationTestRepository;
 import com.hapbang.coupon.support.IssueCapacityTestRepository;

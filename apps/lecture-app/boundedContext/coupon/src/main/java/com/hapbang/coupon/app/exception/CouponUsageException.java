@@ -1,4 +1,4 @@
-package com.hapbang.coupon.global.exception;
+package com.hapbang.coupon.app.exception;
 
 /**
  * 쿠폰 사용(계산·예약·해제)의 업무 실패. 실패한 발급 쿠폰이 있으면 응답에 {@code memberCouponId} 속성으로 싣는다.

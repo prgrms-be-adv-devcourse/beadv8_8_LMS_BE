@@ -23,9 +23,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.hapbang.coupon.app.CouponReconciliationAdminFacade;
 import com.hapbang.coupon.app.CouponReconciliationUseCase;
 import com.hapbang.coupon.app.dto.ReconcileHoldReleaseView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.global.config.CouponWebMvcConfig;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 

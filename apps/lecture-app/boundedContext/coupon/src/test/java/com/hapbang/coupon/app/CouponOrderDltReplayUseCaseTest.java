@@ -15,13 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.QueryTimeoutException;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 
 // 주문 이벤트 DLT 재처리: 실행 전 REPLAYING 선점, 저장한 원문(JSON 왕복)으로 소비 UseCase 재실행 뒤 REPLAYED, 같은 이유의 실패는 PENDING으로

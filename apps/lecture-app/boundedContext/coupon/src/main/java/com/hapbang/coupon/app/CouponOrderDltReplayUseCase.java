@@ -14,14 +14,14 @@ import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 
 import lombok.extern.slf4j.Slf4j;
 
