@@ -94,15 +94,15 @@ class CouponReserveRollbackTest {
         // 판매자 쿠폰의 조건부 갱신은 실제로 한 행을 바꿨다(그 뒤 롤백)
         assertThat(firstUpdated.get()).isEqualTo(1);
         // 먼저 갱신한 판매자 쿠폰은 롤백돼 AVAILABLE·세대 0 그대로다
-        assertThat(memberCouponRepository.findStateById(sellerCoupon).orElseThrow()).satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.generation()).isZero();
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(memberCouponTestRepository.findById(sellerCoupon).orElseThrow()).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getGeneration()).isZero();
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         // 플랫폼 쿠폰은 끼어든 다른 주문의 예약만 남는다
-        assertThat(memberCouponRepository.findStateById(platformCoupon).orElseThrow()).satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
-            assertThat(state.currentOrderItemId()).isEqualTo(OTHER_ORDER_ITEM_ID);
+        assertThat(memberCouponTestRepository.findById(platformCoupon).orElseThrow()).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(coupon.getCurrentOrderItemId()).isEqualTo(OTHER_ORDER_ITEM_ID);
         });
         assertThat(couponUsageTestRepository.count()).isZero();
         assertThat(processedOperationRepository.findByOperationId("coupon-reserve:" + WORK_ID)).get()

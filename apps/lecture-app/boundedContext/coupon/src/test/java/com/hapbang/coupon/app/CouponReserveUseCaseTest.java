@@ -91,7 +91,7 @@ class CouponReserveUseCaseTest {
     void 한_장의_조건부_갱신이_0행이면_사용_시도를_쓰지_않고_롤백한_뒤_거절_코드와_발급_쿠폰을_기록한다() {
         when(memberCouponRepository.reserve(eq(SELLER_COUPON), anyLong(), anyLong(), anyLong(), any())).thenReturn(0);
         when(memberCouponRepository.findStateById(SELLER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                SELLER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED, 1, EXPIRES_AT, 777L)));
+                SELLER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED, 1, EXPIRES_AT)));
 
         assertUsageError(() -> useCase.reserve(request(sellerBasis(1_000), platformBasis())),
                 CouponErrorCode.COUPON_NOT_USABLE, SELLER_COUPON);

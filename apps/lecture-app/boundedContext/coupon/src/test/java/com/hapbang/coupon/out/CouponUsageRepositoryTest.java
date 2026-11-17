@@ -80,7 +80,7 @@ class CouponUsageRepositoryTest {
 
         assertThatThrownBy(() -> couponUsageTestRepository.saveAndFlush(usage(memberCoupon, ORDER_ITEM_ID + 1, 0, 1_000, 0)))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining(CouponUsageRepository.MEMBER_COUPON_GENERATION_UNIQUE);
+                .hasMessageContaining("uk_coupon_usage_member_coupon_generation");
     }
 
     @Test

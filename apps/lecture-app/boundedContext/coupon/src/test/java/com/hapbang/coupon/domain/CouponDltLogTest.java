@@ -50,7 +50,7 @@ class CouponDltLogTest {
         CouponDltLog log = CouponDltLog.isolate(SOURCE, 42L, "req-1", "{}", "x".repeat(2_000), NOW);
 
         assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
-        assertThat(log.isPending()).isTrue();
+        assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(log.getFailureCause()).hasSize(CouponDltLog.MAX_FAILURE_CAUSE);
         assertThat(log.getSourceOffset()).isEqualTo(7L);
         assertThat(log.getMessageKey()).isEqualTo("42");
@@ -155,7 +155,7 @@ class CouponDltLogTest {
 
         assertThatThrownBy(() -> log.reject(ADMIN_ID, " ", NOW, LEASE)).isInstanceOf(CouponDomainException.class)
                 .extracting("error").isEqualTo(CouponDomainError.REJECT_REASON_REQUIRED);
-        assertThat(log.isPending()).isTrue();
+        assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
     }
 
     @Test

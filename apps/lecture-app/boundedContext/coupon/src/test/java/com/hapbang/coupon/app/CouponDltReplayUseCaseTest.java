@@ -125,7 +125,7 @@ class CouponDltReplayUseCaseTest {
         assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
                 .isInstanceOf(CouponException.class)
                 .extracting("errorCode").isEqualTo(CouponErrorCode.COUPON_EVENT_PUBLISH_FAILED);
-        assertThat(dltLog.isPending()).isTrue();
+        assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(dltLog.getHandledBy()).isNull();
         assertThat(dltLog.getReplayClaimedAt()).isNull();
     }
@@ -149,7 +149,7 @@ class CouponDltReplayUseCaseTest {
         assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
                 .isInstanceOf(CouponException.class)
                 .extracting("errorCode").isEqualTo(CouponErrorCode.COUPON_RECOVERY_IN_PROGRESS);
-        assertThat(dltLog.isPending()).isTrue();
+        assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         verifyNoInteractions(publisher);
     }
 

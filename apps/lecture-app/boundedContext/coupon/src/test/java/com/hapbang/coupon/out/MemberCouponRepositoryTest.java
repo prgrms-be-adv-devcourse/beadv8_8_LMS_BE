@@ -167,10 +167,10 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.reserve(expiringId, OTHER_MEMBER_ID, 0, 500L, NOW)).isZero();
 
         assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
-            assertThat(state.generation()).isEqualTo(1);
-            assertThat(state.currentOrderItemId()).isEqualTo(500L);
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(coupon.getGeneration()).isEqualTo(1);
+            assertThat(coupon.getCurrentOrderItemId()).isEqualTo(500L);
         });
         // 이미 RESERVED면 같은 기대 세대로 다시 예약하지 못한다
         assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 501L, NOW)).isZero();
@@ -188,10 +188,10 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.release(id, 0, NOW)).isZero();
 
         assertThat(memberCouponRepository.release(id, 1, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.generation()).isEqualTo(1);
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getGeneration()).isEqualTo(1);
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         // 이미 해제했으면(RESERVED가 아니면) 0행이다
         assertThat(memberCouponRepository.release(id, 1, NOW)).isZero();
@@ -220,9 +220,9 @@ class MemberCouponRepositoryTest {
         // 취소 완료: USED는 만료 전이면 AVAILABLE, 다른 세대는 0행, 이미 돌렸으면 0행
         assertThat(memberCouponRepository.restore(id, 0, NOW)).isZero();
         assertThat(memberCouponRepository.restore(id, 1, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         assertThat(memberCouponRepository.restore(id, 1, NOW)).isZero();
 
@@ -534,6 +534,12 @@ class MemberCouponRepositoryTest {
 
     private static List<Long> memberCouponIds(List<OwnedCoupon> owned) {
         return owned.stream().map(o -> o.memberCoupon().getId()).toList();
+    }
+
+    /** 조건부 갱신은 영속성 컨텍스트를 거치지 않으므로 비우고 DB에서 엔티티를 다시 읽는다 */
+    private MemberCoupon reread(long id) {
+        flushAndClear();
+        return memberCouponTestRepository.findById(id).orElseThrow();
     }
 
     private void flushAndClear() {

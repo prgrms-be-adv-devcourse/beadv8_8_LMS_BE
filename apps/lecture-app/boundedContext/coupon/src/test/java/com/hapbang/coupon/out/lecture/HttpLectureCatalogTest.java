@@ -24,7 +24,6 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 // 강의 조회 내부 API를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환·circuit breaker를 가짜 HTTP 서버로 확인한다
 class HttpLectureCatalogTest {
@@ -132,7 +131,6 @@ class HttpLectureCatalogTest {
         for (int i = 0; i < 2; i++) {
             assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
         }
-        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.OPEN);
         int sent = requests.size();
 
         assertThatThrownBy(() -> catalog.findLecture(1L))
@@ -152,9 +150,11 @@ class HttpLectureCatalogTest {
         respond(401, null);
         assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
 
-        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
-        assertThat(catalog.circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
-        assertThat(requests).hasSize(3);
+        // 최근 2번이 실패로 세졌다면 회로가 열려 다음 호출이 HTTP에 닿지 않는다
+        respond(404, """
+                {"status":404,"detail":"강의를 찾을 수 없습니다.","code":"LECTURE_NOT_FOUND"}""");
+        assertThat(catalog.findLecture(99L)).isEmpty();
+        assertThat(requests).hasSize(4);
     }
 
     private void assertUnavailable() {

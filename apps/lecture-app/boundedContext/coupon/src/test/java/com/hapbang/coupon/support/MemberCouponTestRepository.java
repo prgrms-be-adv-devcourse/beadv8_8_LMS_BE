@@ -1,6 +1,7 @@
 package com.hapbang.coupon.support;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
 
@@ -11,5 +12,6 @@ public interface MemberCouponTestRepository extends Repository<MemberCoupon, Lon
 
     <S extends MemberCoupon> S save(S entity);
     List<MemberCoupon> findAll();
+    Optional<MemberCoupon> findById(Long id);
     long count();
 }

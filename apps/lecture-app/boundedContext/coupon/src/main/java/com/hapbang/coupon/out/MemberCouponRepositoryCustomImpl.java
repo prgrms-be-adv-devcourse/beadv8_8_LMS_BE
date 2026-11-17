@@ -79,7 +79,7 @@ class MemberCouponRepositoryCustomImpl implements MemberCouponRepositoryCustom {
     public Optional<MemberCouponState> findStateById(long id) {
         QMemberCoupon mc = new QMemberCoupon("mc");
         return Optional.ofNullable(query.select(Projections.constructor(MemberCouponState.class, mc.id, mc.memberId,
-                        mc.status, mc.generation, mc.expiresAt, mc.currentOrderItemId))
+                        mc.status, mc.generation, mc.expiresAt))
                 .from(mc)
                 .where(mc.id.eq(id))
                 .fetchOne());

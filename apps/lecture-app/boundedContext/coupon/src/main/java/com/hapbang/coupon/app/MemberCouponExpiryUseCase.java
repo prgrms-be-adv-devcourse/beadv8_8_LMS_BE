@@ -65,7 +65,7 @@ public class MemberCouponExpiryUseCase {
     }
 
     /** 한 회차. 회차 시작 시각까지 기한이 지난 대상을 묶음으로 끝까지 만료한다 */
-    public ExpiryRun expireDue() {
+    public void expireDue() {
         Instant now = clock.instant();
         int batchSize = properties.batchSize();
         long expired = 0;
@@ -89,9 +89,7 @@ public class MemberCouponExpiryUseCase {
         if (expired > 0) {
             meterRegistry.counter(EXPIRED_METRIC).increment(expired);
         }
-        ExpiryRun run = new ExpiryRun(now, expired, batches);
         log.info("발급 쿠폰 만료 배치를 마쳤다 now={}, expired={}, batches={}", now, expired, batches);
-        return run;
     }
 
     private int expireTargets(List<Long> ids, Instant now) {
@@ -136,15 +134,5 @@ public class MemberCouponExpiryUseCase {
 
     private static void logItemFailure(long id, RuntimeException failure) {
         log.error("[COUPON_EXPIRY_ITEM_FAILED] 발급 쿠폰 만료를 되돌리고 다음 회차로 넘긴다 memberCouponId={}", id, failure);
-    }
-
-    /**
-     * 회차 결과.
-     *
-     * @param now     판정 기준 시각(회차 시작)
-     * @param expired 이번 회차에 EXPIRED로 바꾼 발급 쿠폰 수
-     * @param batches 조회한 대상 묶음 수(실패 시 ID별 갱신 트랜잭션은 별도)
-     */
-    public record ExpiryRun(Instant now, long expired, int batches) {
     }
 }

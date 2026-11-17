@@ -60,14 +60,4 @@ public class CouponReconciliationMetrics {
     public void updateCapacityReserved(long reservedTotal) {
         capacityReserved.set(reservedTotal);
     }
-
-    /** 테스트·확인용 */
-    public long mismatches(Mismatch kind) {
-        return mismatches.get(kind).get();
-    }
-
-    /** 테스트·확인용 */
-    public long backlogHolds() {
-        return backlogHolds.get();
-    }
 }

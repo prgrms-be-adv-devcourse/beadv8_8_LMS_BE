@@ -17,8 +17,6 @@ import jakarta.persistence.LockModeType;
  */
 public interface CouponUsageRepository extends Repository<CouponUsage, Long>, CouponUsageRepositoryCustom {
 
-    /** 발급 쿠폰의 한 사용 시도는 한 행 */
-    String MEMBER_COUPON_GENERATION_UNIQUE = "uk_coupon_usage_member_coupon_generation";
     /** 발급 쿠폰 한 장은 같은 주문 항목에 동시에 한 번만 예약한다(RESERVED만 보는 부분 유일 인덱스). 해제 뒤 재예약은 허용한다 */
     String RESERVED_ORDER_ITEM_MEMBER_COUPON_UNIQUE = "uk_coupon_usage_order_item_member_coupon_reserved";
 

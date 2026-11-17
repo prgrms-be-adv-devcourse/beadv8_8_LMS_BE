@@ -1,6 +1,7 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.app.CouponAppFixture.*;
+import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -20,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -43,7 +43,7 @@ import com.hapbang.coupon.domain.IssueHoldReason;
 import com.hapbang.coupon.domain.IssueReconciliationRule.Mismatch;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 // 대사 회차의 분기: 일치(정리·적체 보류·해제), 재확인 뒤 불일치(보류만), 전체 정리(용량 해제), 고아 예약, 복구 중 건너뛰기, 관리자 보류 해제,
 // DB 미확정 기록이 남은 쿠폰의 key 만료 연장.
@@ -60,8 +60,8 @@ class CouponReconciliationUseCaseTest {
     private final CouponIssueStore issueStore = mock();
     private final CouponCapacitySupport capacitySupport = mock();
     private final PlatformTransactionManager transactionManager = mock();
-    private final CouponReconciliationMetrics metrics =
-            new CouponReconciliationMetrics(new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final CouponReconciliationMetrics metrics = new CouponReconciliationMetrics(providerOf(meterRegistry));
 
     private final Map<String, String> requests = new HashMap<>();
     private final Set<Long> users = new HashSet<>();
@@ -97,7 +97,7 @@ class CouponReconciliationUseCaseTest {
         verify(store, never()).hold(COUPON_ID, IssueHoldReason.RECONCILE);
         verify(capacitySupport, never()).release(anyLong());
         assertThat(summary.backlogHolds()).isEqualTo(1);
-        assertThat(metrics.backlogHolds()).isEqualTo(1);
+        assertThat(backlogHolds()).isEqualTo(1);
     }
 
     @Test
@@ -111,7 +111,7 @@ class CouponReconciliationUseCaseTest {
         useCase.runScheduled();
 
         verify(store).releaseHold(COUPON_ID, IssueHoldReason.BACKLOG);
-        assertThat(metrics.backlogHolds()).isZero();
+        assertThat(backlogHolds()).isZero();
     }
 
     @Test
@@ -298,7 +298,7 @@ class CouponReconciliationUseCaseTest {
         verify(store, never()).repair(anyLong(), any(), anyList());
         verify(store, never()).cleanUp(anyLong());
         assertThat(summary.mismatched()).isEqualTo(1);
-        assertThat(metrics.mismatches(Mismatch.UNEXPLAINED)).isEqualTo(1);
+        assertThat(mismatches(Mismatch.UNEXPLAINED)).isEqualTo(1);
     }
 
     @Test
@@ -314,7 +314,7 @@ class CouponReconciliationUseCaseTest {
 
         verify(store, never()).hold(COUPON_ID, IssueHoldReason.RECONCILE);
         assertThat(summary.mismatched()).isZero();
-        assertThat(metrics.mismatches(Mismatch.UNEXPLAINED)).isZero();
+        assertThat(mismatches(Mismatch.UNEXPLAINED)).isZero();
     }
 
     @Test
@@ -468,5 +468,13 @@ class CouponReconciliationUseCaseTest {
         requests.put(requestId, IssueRequestRecord.accepted(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)))
                 .format());
         users.add(memberId);
+    }
+
+    private double backlogHolds() {
+        return meterRegistry.get(CouponReconciliationMetrics.BACKLOG_HOLDS).gauge().value();
+    }
+
+    private double mismatches(Mismatch kind) {
+        return meterRegistry.get(CouponReconciliationMetrics.MISMATCHES).tag("kind", kind.name()).gauge().value();
     }
 }

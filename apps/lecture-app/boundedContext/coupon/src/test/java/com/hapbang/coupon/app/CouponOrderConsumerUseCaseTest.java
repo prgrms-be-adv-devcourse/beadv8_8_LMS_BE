@@ -81,7 +81,7 @@ class CouponOrderConsumerUseCaseTest {
 
     private void givenCoupon(MemberCouponStatus status) {
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(
-                new MemberCouponState(MEMBER_COUPON, MEMBER_ID, status, GENERATION, EXPIRES_AT, ORDER_ITEM_ID)));
+                new MemberCouponState(MEMBER_COUPON, MEMBER_ID, status, GENERATION, EXPIRES_AT)));
     }
 
     @Test
@@ -251,7 +251,7 @@ class CouponOrderConsumerUseCaseTest {
         givenPlatformUsage(400);
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(
                 new MemberCouponState(MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED,
-                        GENERATION + 1, EXPIRES_AT, ORDER_ITEM_ID)));
+                        GENERATION + 1, EXPIRES_AT)));
 
         assertThat(useCase.consume(canceledWith(List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)))))
                 .isEqualTo(CouponOrderConsumerUseCase.Result.FACT_ONLY);

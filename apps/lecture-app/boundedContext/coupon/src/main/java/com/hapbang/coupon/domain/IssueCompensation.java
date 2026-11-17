@@ -18,19 +18,17 @@ import lombok.RequiredArgsConstructor;
 public enum IssueCompensation {
 
     /** 표식을 남기고 재고 +1, 회원 기록을 지웠다 */
-    RESTORED(1, true),
+    RESTORED(1),
     /** 이미 보상 표식이 있어 아무것도 바꾸지 않았다 */
-    ALREADY_COMPENSATED(2, false),
+    ALREADY_COMPENSATED(2),
     /** epoch가 다르거나 issue-control이 없어 표식만 남겼다(재고·회원 기록 불변) */
-    MARKED_ONLY(3, false),
+    MARKED_ONLY(3),
     /** 접수 기록이 없어 아무것도 바꾸지 않았다 */
-    NO_RECORD(0, false),
+    NO_RECORD(0),
     /** 접수 기록의 회원이 요청의 회원과 달라 아무것도 바꾸지 않았다 */
-    MEMBER_MISMATCH(-4, false);
+    MEMBER_MISMATCH(-4);
 
     private final long luaCode;
-    /** 재고를 되돌렸는가 */
-    private final boolean stockRestored;
 
     /**
      * compensate.lua 반환값을 해석한다.

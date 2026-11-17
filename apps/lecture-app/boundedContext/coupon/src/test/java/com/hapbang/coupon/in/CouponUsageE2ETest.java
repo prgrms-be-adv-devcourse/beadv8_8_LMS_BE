@@ -402,20 +402,27 @@ class CouponUsageE2ETest {
                 now.minusSeconds(60), now.minusSeconds(20), now)).getId();
         long platform = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, platformCoupon, "good-platform",
                 now.minusSeconds(60), now.minusSeconds(10), now)).getId();
+        var meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         var metrics = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        metrics.addBean("meterRegistry", meterRegistry);
         var expiry = new com.hapbang.coupon.app.MemberCouponExpiryUseCase(budgetReleaseRecorder, memberCouponRepository,
                 new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
                 metrics.getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), budgetTransactionManager,
                 java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+        // 만료 지표는 누적이다
+        var expired = meterRegistry.counter("coupon.expiry.expired");
 
-        assertThat(expiry.expireDue().expired()).isEqualTo(2);
+        expiry.expireDue();
+        assertThat(expired.count()).isEqualTo(2);
         assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.AVAILABLE);
         assertThat(memberCouponRepository.findStateById(seller).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(memberCouponRepository.findStateById(platform).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(budgetWorkTestRepository.findAll()).singleElement().extracting(BudgetWork::getCouponId).isEqualTo(platformCoupon);
-        assertThat(expiry.expireDue().expired()).isZero();
+        expiry.expireDue();
+        assertThat(expired.count()).isEqualTo(2);
         reserveBudget(badCoupon, now);
-        assertThat(expiry.expireDue().expired()).isEqualTo(1);
+        expiry.expireDue();
+        assertThat(expired.count()).isEqualTo(3);
         assertThat(memberCouponRepository.findStateById(bad).orElseThrow().status()).isEqualTo(MemberCouponStatus.EXPIRED);
         assertThat(budgetWorkTestRepository.findAll()).hasSize(2);
     }

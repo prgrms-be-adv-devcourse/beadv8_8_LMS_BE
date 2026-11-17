@@ -104,7 +104,7 @@ class CouponReleaseUseCaseTest {
     void 발급_쿠폰이_그_사용_시도로_예약된_상태가_아니면_USED처럼_해제할_수_없다() {
         when(memberCouponRepository.release(MEMBER_COUPON, 1, NOW)).thenReturn(0);
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.USED, 1, EXPIRES_AT, ORDER_ITEM_ID)));
+                MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.USED, 1, EXPIRES_AT)));
 
         assertUsageError(() -> useCase.release(request(ORDER_ID)), CouponErrorCode.COUPON_RELEASE_NOT_ALLOWED,
                 MEMBER_COUPON);
@@ -120,7 +120,7 @@ class CouponReleaseUseCaseTest {
 
     private void givenStateAfterRelease(MemberCouponStatus status) {
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                MEMBER_COUPON, MEMBER_ID, status, 1, EXPIRES_AT, null)));
+                MEMBER_COUPON, MEMBER_ID, status, 1, EXPIRES_AT)));
     }
 
     private static CouponReleaseRequest request(long orderId) {
