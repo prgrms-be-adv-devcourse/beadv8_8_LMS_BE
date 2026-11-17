@@ -16,7 +16,9 @@ import lombok.NoArgsConstructor;
 
 /**
  * 운영 재처리 감사 기록. 재처리가 시도 횟수·격리 원인을 비우기 직전의 outbox·발행 체크포인트 상태를 재처리마다 한 행으로 남긴다.
- * {@code app.ChatOutboxStore}가 재처리와 같은 트랜잭션에서 INSERT만 한다. 이 엔티티는 조회·검증용 매핑이다.
+ * 운영은 {@code app.ChatOutboxStore}가 재처리와 같은 트랜잭션에서 native INSERT만 하고 엔티티를 쓰지 않는다. 이 엔티티는 테스트가
+ * 기록을 읽는 매핑이라 테스트 소스의 같은 패키지에 둔다. 테스트 컨텍스트는 {@code @AutoConfigurationPackage("com.hapbang")}로 테스트
+ * 소스의 엔티티도 스캔한다.
  */
 @Entity
 @Table(name = "chat_delivery_reprocess_audit", schema = "chats",
