@@ -34,7 +34,6 @@ import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
-import com.hapbang.chat.out.ChatRoomUnreadCount;
 import com.hapbang.chat.out.ChatUserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -58,6 +57,9 @@ public class ChatRoomSupporter {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatUserRepository chatUserRepository;
+    private final ChatRoomMemberReader chatRoomMemberReader;
+    private final ChatMessageReader chatMessageReader;
+    private final ChatRoomLogReader chatRoomLogReader;
     private final ChatValidationService chatValidationService;
     private final ChatMessageSenders chatMessageSenders;
 
@@ -74,7 +76,7 @@ public class ChatRoomSupporter {
     public List<ChatRoomResponse> getMyRooms(Long userId) {
         chatValidationService.validateCanChat(userId);
         LocalDateTime now = LocalDateTime.now();
-        return toResponses(userId, chatRoomMemberRepository.findActiveByUserId(userId, now), now);
+        return toResponses(userId, chatRoomMemberReader.findActiveByUserId(userId, now), now);
     }
 
     /**
@@ -131,7 +133,7 @@ public class ChatRoomSupporter {
     public ChatRoomMemberPageResponse getMembers(Long chatRoomId, Long userId, Long cursor, int size) {
         chatValidationService.validateCanChat(userId);
         findViewerMembership(chatRoomId, userId, LocalDateTime.now());
-        List<ChatRoomMember> members = chatRoomMemberRepository.findActivePage(chatRoomId,
+        List<ChatRoomMember> members = chatRoomMemberReader.findActivePage(chatRoomId,
                 cursor == null ? 0L : cursor, Limit.of(size + 1));
         List<ChatRoomMember> page = members.subList(0, Math.min(size, members.size()));
         Long nextCursor = members.size() > size ? page.getLast().getId() : null;
@@ -170,10 +172,10 @@ public class ChatRoomSupporter {
         Limit limit = Limit.of(size + 1);
         List<ChatRoomLog> logs = after == null
                 ? chatRoomLogRepository.findByChatRoom_IdOrderByOccurredAtAscIdAsc(chatRoomId, limit)
-                : chatRoomLogRepository.findHistoryAfter(chatRoomId, after.at(), after.logIdAfter(), limit);
+                : chatRoomLogReader.findHistoryAfter(chatRoomId, after.at(), after.logIdAfter(), limit);
         List<ChatMessage> messages = after == null
                 ? chatMessageRepository.findByChatRoom_IdOrderBySentAtAscIdAsc(chatRoomId, limit)
-                : chatMessageRepository.findHistoryAfter(chatRoomId, after.at(), after.messageIdAfter(), limit);
+                : chatMessageReader.findHistoryAfter(chatRoomId, after.at(), after.messageIdAfter(), limit);
 
         List<ChatHistoryCursor> timeline = new ArrayList<>();
         logs.forEach(log -> timeline.add(new ChatHistoryCursor(log.getOccurredAt(), Kind.LOG, log.getId())));
@@ -243,7 +245,7 @@ public class ChatRoomSupporter {
     }
 
     private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {
-        List<ChatMessage> lastMessages = chatMessageRepository.findLastVisible(userId, chatRoomIds);
+        List<ChatMessage> lastMessages = chatMessageReader.findLastVisible(userId, chatRoomIds);
         Map<Long, ChatUser> senders = chatMessageSenders.usersOf(lastMessages);
         return lastMessages.stream()
                 .collect(Collectors.toMap(message -> message.getChatRoom().getId(),
@@ -251,7 +253,7 @@ public class ChatRoomSupporter {
     }
 
     private Map<Long, Long> countUnread(Long userId, List<Long> chatRoomIds) {
-        return chatMessageRepository.countUnread(userId, chatRoomIds).stream()
+        return chatMessageReader.countUnread(userId, chatRoomIds).stream()
                 .collect(Collectors.toMap(ChatRoomUnreadCount::chatRoomId, ChatRoomUnreadCount::unreadCount));
     }
 

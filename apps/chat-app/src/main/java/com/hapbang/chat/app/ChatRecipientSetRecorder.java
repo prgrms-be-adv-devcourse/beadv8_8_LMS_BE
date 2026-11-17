@@ -10,7 +10,6 @@ import com.hapbang.chat.domain.ChatRecipientSet;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.out.ChatRecipientSetMemberRepository;
 import com.hapbang.chat.out.ChatRecipientSetRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +28,8 @@ public class ChatRecipientSetRecorder {
 
     private final ChatRecipientSetRepository chatRecipientSetRepository;
     private final ChatRecipientSetMemberRepository chatRecipientSetMemberRepository;
-    private final ChatRoomMemberRepository chatRoomMemberRepository;
+    private final ChatRoomMemberReader chatRoomMemberReader;
+    private final ChatRecipientSetReader chatRecipientSetReader;
 
     /**
      * 지금의 활성 참여로 새 집합 버전을 만들고 방의 현재 버전으로 삼는다.
@@ -40,8 +40,8 @@ public class ChatRecipientSetRecorder {
     @Transactional(propagation = Propagation.MANDATORY)
     public ChatRecipientSet snapshot(ChatRoom chatRoom, LocalDateTime now) {
         Long chatRoomId = chatRoom.getId();
-        int memberCount = Math.toIntExact(chatRoomMemberRepository.countActiveMembers(chatRoomId));
-        int version = chatRecipientSetRepository.findLastVersion(chatRoomId) + 1;
+        int memberCount = Math.toIntExact(chatRoomMemberReader.countActiveMembers(chatRoomId));
+        int version = chatRecipientSetReader.findLastVersion(chatRoomId) + 1;
         ChatRecipientSet recipientSet = chatRecipientSetRepository.save(
                 ChatRecipientSet.create(chatRoomId, version, memberCount, now));
         int copied = chatRecipientSetMemberRepository.copyActiveMembers(recipientSet.getId(), chatRoomId);
