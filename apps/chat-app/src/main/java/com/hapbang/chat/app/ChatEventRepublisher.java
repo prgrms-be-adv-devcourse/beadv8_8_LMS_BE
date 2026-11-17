@@ -1,11 +1,9 @@
 package com.hapbang.chat.app;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.stereotype.Service;
 
@@ -27,28 +25,18 @@ public class ChatEventRepublisher {
 
     private final IncompleteEventPublications incompleteEventPublications;
     private final Clock clock;
-    private final Duration pendingGrace;
-    private final int batchSize;
 
-    @Autowired
-    public ChatEventRepublisher(IncompleteEventPublications incompleteEventPublications) {
-        this(incompleteEventPublications, Clock.systemUTC(), ChatExternalEvents.REPUBLISH_PENDING_GRACE,
-                ChatExternalEvents.REPUBLISH_BATCH_SIZE);
-    }
-
-    ChatEventRepublisher(IncompleteEventPublications incompleteEventPublications, Clock clock, Duration pendingGrace,
-            int batchSize) {
+    public ChatEventRepublisher(IncompleteEventPublications incompleteEventPublications, Clock clock) {
         this.incompleteEventPublications = incompleteEventPublications;
         this.clock = clock;
-        this.pendingGrace = pendingGrace;
-        this.batchSize = batchSize;
     }
 
     /**
      * @return 다시 보낸 기록 수
      */
     public int republishDue() {
-        Instant publishedBefore = clock.instant().minus(pendingGrace);
+        Instant publishedBefore = clock.instant().minus(ChatExternalEvents.REPUBLISH_PENDING_GRACE);
+        int batchSize = ChatExternalEvents.REPUBLISH_BATCH_SIZE;
         AtomicInteger selected = new AtomicInteger();
         incompleteEventPublications.resubmitIncompletePublications(publication ->
                 ChatExternalEvents.isExternalized(publication.getEvent())
