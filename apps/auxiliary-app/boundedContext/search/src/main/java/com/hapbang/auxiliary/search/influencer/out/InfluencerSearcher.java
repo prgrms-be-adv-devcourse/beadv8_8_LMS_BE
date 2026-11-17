@@ -81,13 +81,12 @@ public class InfluencerSearcher {
         this.ranking = ranking;
         this.keywordIndex = new EsKeywordIndex(client, InfluencerIndexDefinition.ALIAS,
                 EsKeywordIndex.withoutBoost(KEYWORD_FIELDS), EsKeywordIndex.withoutBoost(JAMO_FIELDS),
-                keyword -> Query.of(q -> q.bool(b -> b.filter(f -> f.term(t -> t.field("hidden").value(false)))
-                        .must(keywordQuery(keyword)))));
+                Query.of(q -> q.term(t -> t.field("hidden").value(false))));
     }
 
     /**
-     * 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸. 결과는 보이는 인플루언서를 검색어만으로 센다(분야·팔로워·평점 조건 없이, 조건이 좁아
-     * 0건인 것은 오타가 아니다)
+     * 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸, 보이는 인플루언서. 분야·팔로워·평점 조건은 보지 않는다(조건이 좁아 0건인 것은
+     * 오타가 아니다)
      */
     public KeywordIndex keywordIndex() {
         return keywordIndex;

@@ -45,7 +45,6 @@ public class SearchMetrics {
         private final String target;
         private final Timer latency;
         private final Counter zeroResults;
-        private final Timer correctionLatency;
 
         private Target(String target) {
             this.target = target;
@@ -53,8 +52,6 @@ public class SearchMetrics {
                     .description("검색 ES 요청 시간").publishPercentileHistogram().register(registry);
             this.zeroResults = Counter.builder("hapbang.search.zero.results").tag("target", target)
                     .description("검색어가 있는데 결과가 0건인 검색 수").register(registry);
-            this.correctionLatency = Timer.builder("hapbang.search.correction.latency").tag("target", target)
-                    .description("검색어 제안을 만드는 시간").publishPercentileHistogram().register(registry);
         }
 
         public String target() {
@@ -79,7 +76,9 @@ public class SearchMetrics {
          */
         public void suggested(String outcome, Duration took) {
             registry.counter("hapbang.search.correction", "target", target, "outcome", outcome).increment();
-            correctionLatency.record(took);
+            // 검색어 제안을 하는 대상만 처음 제안할 때 등록한다(자동완성 대상에 늘 0인 histogram을 만들지 않게)
+            Timer.builder("hapbang.search.correction.latency").tag("target", target).description("검색어 제안을 만드는 시간")
+                    .publishPercentileHistogram().register(registry).record(took);
         }
     }
 }

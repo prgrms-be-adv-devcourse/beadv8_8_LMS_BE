@@ -62,13 +62,16 @@ class EsKeywordIndexTest {
         lecture(lectureStore, 4, "Premiere 단축키 모음", "자주 쓰는 단축키", List.of(), "편집장", true, true);
         // 판매 중지 강의에만 있는 말(blender)은 제안하지 않는다
         lecture(lectureStore, 5, "Blender 3D 모델링", "판매 중지된 강의", List.of(), "모델러", false, true);
+        // 부사 "가장"은 자모 칸에는 있지만 본 검색이 버린다(nori 품사 거름). 제안하면 눌렀을 때 0건이다
+        lecture(lectureStore, 6, "가장 쉬운 OBS 입문", "처음 켜는 분", List.of(), "장비리뷰어", true, true);
         client.indices().refresh(r -> r.index(LectureIndexDefinition.ALIAS));
 
         InfluencerDocumentStore influencerStore = new InfluencerDocumentStore(client);
         influencer(influencerStore, 11, "메이플장인", "메이플스토리 보스 공략 방송", false);
         influencer(influencerStore, 12, "먹방요정", "오늘도 먹방", false);
-        // 숨긴 인플루언서의 닉네임은 제안하지 않는다
+        // 숨긴 인플루언서의 닉네임은 제안하지 않는다. 보이는 다른 사람 소개에 닉네임 조각(지킴이)이 있어도
         influencer(influencerStore, 13, "협곡지킴이", "롤 정글", true);
+        influencer(influencerStore, 14, "정글러", "협곡 지킴이 브이로그", false);
         client.indices().refresh(r -> r.index(InfluencerIndexDefinition.ALIAS));
 
         lectures = new LectureSearcher(client, new LectureRankingProperties(null, null, null)).keywordIndex();
@@ -81,9 +84,10 @@ class EsKeywordIndexTest {
             "썸내일 디자인|썸네일 디자인",
             "크로마기|크로마키",
             "편집쟝|편집장",
-            "premeire|premiere"
+            "premeire|premiere",
+            "쉬운 프리미여|쉬운 프리미어"
     })
-    @DisplayName("강의: 제목(자모 칸)·콘텐츠 제목(원문 칸)·판매자 닉네임·영문 오타를 고친다")
+    @DisplayName("강의: 제목(자모 칸)·콘텐츠 제목(원문 칸)·판매자 닉네임·영문 오타를 고친다. 관형형 어미가 든 검색어(쉬운)는 문장이 아니다")
     void lectureTypos(String keyword, String expected) {
         assertThat(KeywordCorrection.suggest(keyword, lectures)).isEqualTo(new Result(Outcome.SUGGESTED, expected));
     }
@@ -93,10 +97,14 @@ class EsKeywordIndexTest {
             "컷편집|KNOWN",
             "방송을|KNOWN",
             "방송 장비 추천|KNOWN",
+            "배그|KNOWN",
+            "배그를|KNOWN",
+            "가잔|NONE",
+            "프리미어프로|NONE",
             "마이크 뭐 사야 돼요|SENTENCE",
             "blendr|NONE"
     })
-    @DisplayName("강의: 있는 말·조사가 붙은 말은 고치지 않고, 문장은 건너뛰고, 판매 중지 강의에만 있는 말은 제안하지 않는다")
+    @DisplayName("강의: 있는 말·조사가 붙은 말·동의어(배그·배그를)는 고치지 않고, 본 검색이 버리는 말(가장)은 제안하지 않고, 붙여 쓴 말(프리미어프로)은 가까운 후보가 없어 제안하지 않고, 문장은 건너뛰고, 판매 중지 강의에만 있는 말은 제안하지 않는다")
     void lectureNoSuggestion(String keyword, Outcome expected) {
         assertThat(KeywordCorrection.suggest(keyword, lectures)).isEqualTo(new Result(expected, null));
     }

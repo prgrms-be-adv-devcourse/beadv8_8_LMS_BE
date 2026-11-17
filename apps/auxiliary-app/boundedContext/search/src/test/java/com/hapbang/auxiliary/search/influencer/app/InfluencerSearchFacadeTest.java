@@ -21,6 +21,7 @@ import org.springframework.data.domain.PageRequest;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
 import com.hapbang.auxiliary.search.common.app.KeywordIndex;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex.Analysis;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 
@@ -44,6 +45,7 @@ class InfluencerSearchFacadeTest {
     @BeforeEach
     void keywordIndex() {
         when(searcher.keywordIndex()).thenReturn(keywordIndex);
+        when(keywordIndex.analyze(any())).thenReturn(new Analysis(List.of(), false));
     }
 
     @Test
@@ -93,9 +95,8 @@ class InfluencerSearchFacadeTest {
     @DisplayName("검색어 제안은 분야·팔로워 조건과 상관없이 검색어만 보고 붙인다(#977)")
     void correctionIgnoresFilters() {
         when(searcher.search(any(), anyDouble(), anyInt())).thenReturn(new InfluencerSearcher.SearchResult(0, List.of()));
-        when(keywordIndex.analyze("메이플장임")).thenReturn(List.of("메이플", "장임"));
+        when(keywordIndex.analyze("메이플장임")).thenReturn(new Analysis(List.of("메이플", "장임"), false));
         when(keywordIndex.candidates(any())).thenReturn(Map.of("메이플장임", Set.of("메이플장인")));
-        when(keywordIndex.hasResults("메이플장인")).thenReturn(true);
 
         assertThat(facade.search(1L, "메이플장임", List.of("GAME"), null, 10_000L, null, PageRequest.of(0, 20)).correctedKeyword())
                 .isEqualTo("메이플장인");

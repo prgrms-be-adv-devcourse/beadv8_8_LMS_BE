@@ -37,7 +37,7 @@ import com.hapbang.auxiliary.search.lecture.out.LectureSearcher.SearchResult;
  *     ({@code GET /api/v1/lectures})은 그대로 쓸 수 있다.</li>
  *     <li>검색어로 0건이면 검색어를 모은다({@link LectureZeroResultKeywords}, L19). 회원은 회원 ID, 비회원은 client IP 해시로 서로 다른 검색자를
  *     센다. 강의 검색에는 필터가 없어 검색어가 있는 0건은 모두 센다.</li>
- *     <li>검색어가 있으면 결과 수와 상관없이 검색어 제안을 붙인다({@link KeywordCorrection}, #977). 제안이 실패해도 결과는 그대로 준다.</li>
+ *     <li>검색어가 있으면 결과 수와 상관없이 첫 페이지에 검색어 제안을 붙인다({@link KeywordCorrection}, #977). 제안이 실패해도 결과는 그대로 준다.</li>
  * </ul>
  */
 @Service
@@ -93,7 +93,7 @@ public class LectureSearchFacade {
         }
         Page<LectureSearchItem> page = new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()),
                 result.total());
-        return SearchPage.of(page, KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics));
+        return SearchPage.of(page, correctedKeyword(condition));
     }
 
     private void recordZeroResult(String keyword, Requester requester) {
@@ -155,5 +155,12 @@ public class LectureSearchFacade {
             return null;
         }
         return keyword.strip().replaceAll("\\s+", " ");
+    }
+
+    /** 검색어 제안(#977)은 첫 페이지에만 만든다(FE가 첫 페이지에만 보이고, 다음 페이지마다 같은 제안을 다시 만들지 않게) */
+    private String correctedKeyword(LectureSearchCondition condition) {
+        return condition.page() == 0
+                ? KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics)
+                : null;
     }
 }

@@ -97,10 +97,10 @@ public class LectureSearcher {
         this.ranking = ranking;
         this.keywordIndex = new EsKeywordIndex(client, LectureIndexDefinition.ALIAS,
                 EsKeywordIndex.withoutBoost(KEYWORD_FIELDS), EsKeywordIndex.withoutBoost(JAMO_FIELDS),
-                keyword -> visible().must(keywordQuery(keyword)).build()._toQuery());
+                visible().build()._toQuery());
     }
 
-    /** 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸, 결과는 본 검색과 같은 쿼리(평점 가산 없이)로 센다 */
+    /** 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸, 보이는 강의(판매 중·정상 판매자) */
     public KeywordIndex keywordIndex() {
         return keywordIndex;
     }

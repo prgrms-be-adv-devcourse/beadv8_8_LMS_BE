@@ -90,7 +90,7 @@ public class InfluencerSearchFacade {
         Page<InfluencerSearchItem> page = new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()),
                 result.total());
         // 검색어 제안(#977)은 분야·팔로워 같은 조건과 상관없이 검색어만 본다
-        return SearchPage.of(page, KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics));
+        return SearchPage.of(page, correctedKeyword(condition));
     }
 
     /** 검색어 밖의 조건(분야·인증·팔로워·평점)이 있는지 */
@@ -132,5 +132,12 @@ public class InfluencerSearchFacade {
         }
         return codes.stream().filter(Objects::nonNull).map(String::strip).filter(code -> !code.isEmpty()).distinct()
                 .toList();
+    }
+
+    /** 검색어 제안(#977)은 첫 페이지에만 만든다(FE가 첫 페이지에만 보이고, 다음 페이지마다 같은 제안을 다시 만들지 않게) */
+    private String correctedKeyword(InfluencerSearchCondition condition) {
+        return condition.page() == 0
+                ? KeywordCorrection.suggestOrNull(condition.keyword(), searcher.keywordIndex(), metrics)
+                : null;
     }
 }

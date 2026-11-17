@@ -20,10 +20,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel.PageMetadata;
 
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
 import com.hapbang.auxiliary.search.common.app.KeywordIndex;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex.Analysis;
 import com.hapbang.auxiliary.search.common.app.SearchMetrics;
 import com.hapbang.auxiliary.search.common.app.SearchPage;
 import com.hapbang.auxiliary.search.lecture.app.dto.LectureSearchItem;
@@ -46,6 +48,7 @@ class LectureSearchFacadeTest {
     @BeforeEach
     void keywordIndex() {
         when(searcher.keywordIndex()).thenReturn(keywordIndex);
+        when(keywordIndex.analyze(any())).thenReturn(new Analysis(List.of(), false));
     }
 
     @Test
@@ -168,15 +171,14 @@ class LectureSearchFacadeTest {
     void correctedKeyword() {
         LectureSearchItem item = new LectureSearchItem(1L, "프리미어 컷편집", 10_000L, 7L, "편집장", null, 0, null);
         when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(1, List.of(item)));
-        when(keywordIndex.analyze("프리미여")).thenReturn(List.of("프리", "미여"));
+        when(keywordIndex.analyze("프리미여")).thenReturn(new Analysis(List.of("프리", "미여"), false));
         when(keywordIndex.candidates(any())).thenReturn(Map.of("프리미여", Set.of("프리미어")));
-        when(keywordIndex.hasResults("프리미어")).thenReturn(true);
 
         SearchPage<LectureSearchItem> page = facade.search(Requester.member(1L), "프리미여", PageRequest.of(0, 20));
 
         assertThat(page.correctedKeyword()).isEqualTo("프리미어");
         assertThat(page.content()).containsExactly(item);
-        assertThat(page.page()).isEqualTo(new SearchPage.PageInfo(20, 0, 1, 1));
+        assertThat(page.page()).isEqualTo(new PageMetadata(20, 0, 1, 1));
         assertThat(registry.counter("hapbang.search.correction", "target", "lecture", "outcome", "suggested").count())
                 .isEqualTo(1);
         assertThat(registry.timer("hapbang.search.correction.latency", "target", "lecture").count()).isEqualTo(1);
@@ -198,12 +200,13 @@ class LectureSearchFacadeTest {
     }
 
     @Test
-    @DisplayName("검색어가 없거나 초성뿐이면 제안하지 않고 지표도 남기지 않는다")
+    @DisplayName("검색어가 없거나 초성뿐이거나 첫 페이지가 아니면 제안하지 않고 지표도 남기지 않는다")
     void noCorrectionWithoutKeywordOrChosungOnly() {
         when(searcher.search(any(), any(), anyInt())).thenReturn(new LectureSearcher.SearchResult(0, List.of()));
 
         assertThat(facade.search(Requester.member(1L), null, PageRequest.of(0, 20)).correctedKeyword()).isNull();
         assertThat(facade.search(Requester.member(1L), "ㅍㄹㅁㅇ", PageRequest.of(0, 20)).correctedKeyword()).isNull();
+        assertThat(facade.search(Requester.member(1L), "프리미여", PageRequest.of(1, 20)).correctedKeyword()).isNull();
 
         verify(keywordIndex, never()).indexedWords(any());
         assertThat(registry.find("hapbang.search.correction").counters()).isEmpty();

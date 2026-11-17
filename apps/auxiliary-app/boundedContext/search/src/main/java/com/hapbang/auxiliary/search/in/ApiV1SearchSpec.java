@@ -34,7 +34,8 @@ public interface ApiV1SearchSpec {
             팔로워·채널·평점은 대개 10분 안에 회원 앱 값을 따라간다. 프로필 사진은 없다(회원 사진 일괄 API로 채운다). \
             correctedKeyword는 검색어에 오타가 있을 때 고친 검색어다("이 검색어를 찾으셨나요?", 누르면 그 검색어로 다시 검색한다). \
             결과 수·분야 같은 조건과 상관없이 검색어만 보고 붙고, 고친 검색어로 결과가 있을 때만 준다. 없으면 null이고 결과는 원래 검색어 그대로다. \
-            문장(물음표, 또는 두 어절 이상이면서 동사·어미가 있음)과 초성뿐인 검색어에는 주지 않는다. 자동완성 후보와는 다른 것이다.""")
+            첫 페이지(page=0)에만 주고, 문장(물음표, 5어절 이상, 또는 문장을 끝내거나 잇는 어미가 있음)과 초성뿐인 검색어에는 주지 않는다. \
+            자동완성 후보와는 다른 것이다.""")
     RsData<SearchPage<InfluencerSearchItem>> searchInfluencers(
             Long userId,
             @Parameter(description = "검색어(최대 100자). 없으면 조건만으로 찾는다", example = "메이플") @Size(max = 100) String keyword,
@@ -57,7 +58,8 @@ public interface ApiV1SearchSpec {
             priceHp는 가격(HP)이고 아직 모르면 null이다. 썸네일은 없다(강의 앱 일괄 API로 채운다). 처음 화면(검색어 없음)은 강의 목록 API를 쓴다. \
             correctedKeyword는 검색어에 오타가 있을 때 고친 검색어다("이 검색어를 찾으셨나요?", 누르면 그 검색어로 다시 검색한다). \
             결과 수와 상관없이 붙고, 고친 검색어로 결과가 있을 때만 준다. 없으면 null이고 결과는 원래 검색어 그대로다. \
-            문장(물음표, 또는 두 어절 이상이면서 동사·어미가 있음)과 초성뿐인 검색어에는 주지 않는다. 자동완성 후보와는 다른 것이다.""")
+            첫 페이지(page=0)에만 주고, 문장(물음표, 5어절 이상, 또는 문장을 끝내거나 잇는 어미가 있음)과 초성뿐인 검색어에는 주지 않는다. \
+            자동완성 후보와는 다른 것이다.""")
     RsData<SearchPage<LectureSearchItem>> searchLectures(
             @Parameter(hidden = true) Principal principal,
             @Parameter(hidden = true) HttpServletRequest request,
