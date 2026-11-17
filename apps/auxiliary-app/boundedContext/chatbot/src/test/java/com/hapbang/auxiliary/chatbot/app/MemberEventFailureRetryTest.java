@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -8,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +59,7 @@ class MemberEventFailureRetryTest extends ChatbotIntegrationTestBase {
     @Autowired
     private MemberEventFailureRetryUseCase retryUseCase;
 
-    @Autowired
+    @MockitoSpyBean
     private CopyApplier copyApplier;
 
     @MockitoSpyBean
@@ -135,27 +137,64 @@ class MemberEventFailureRetryTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("두 관리자가 같은 기록을 동시에 다시 처리하면 한쪽만 처리하고 다른 쪽은 IN_PROGRESS")
+    @DisplayName("두 관리자가 같은 기록을 동시에 다시 처리하면 뒤 요청은 회원 락에서 기다렸다가 ALREADY_RESOLVED, 반영은 한 번")
     void concurrentRetry() throws Exception {
         long id = recordFailure("6", new UserMaskedEvent(6L, Instant.parse("2026-11-09T01:00:00Z")), dbDown());
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(invocation -> {
             entered.countDown();
-            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(release.await(30, TimeUnit.SECONDS)).isTrue();
             return invocation.callRealMethod();
         }).when(memberMasking).mask(any());
 
         CompletableFuture<List<MemberEventRetryResDto>> first =
                 CompletableFuture.supplyAsync(() -> retryUseCase.retry(List.of(id), ADMIN));
-        assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
-        List<MemberEventRetryResDto> second = retryUseCase.retry(List.of(id), 2L);
+        assertThat(entered.await(30, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<List<MemberEventRetryResDto>> second =
+                CompletableFuture.supplyAsync(() -> retryUseCase.retry(List.of(id), 2L));
+        awaitWaitingLock();
         release.countDown();
 
-        assertThat(second).extracting(MemberEventRetryResDto::result).containsExactly(MemberEventRetryResult.IN_PROGRESS);
-        assertThat(first.get(10, TimeUnit.SECONDS)).extracting(MemberEventRetryResDto::result)
+        assertThat(first.get(30, TimeUnit.SECONDS)).extracting(MemberEventRetryResDto::result)
                 .containsExactly(MemberEventRetryResult.SUCCEEDED);
+        assertThat(second.get(30, TimeUnit.SECONDS)).extracting(MemberEventRetryResDto::result)
+                .containsExactly(MemberEventRetryResult.ALREADY_RESOLVED);
         verify(memberMasking, times(1)).mask(any());
+    }
+
+    @Test
+    @DisplayName("관리자가 가입·변경을 다시 처리하는 중에 같은 회원의 마스킹이 와도 교착 없이 둘 다 끝난다(락 순서: 회원 → 실패 행)")
+    void retryAndMaskingDoNotDeadlock() throws Exception {
+        long id = recordFailure("51", new UserModifiedEvent(user(51, 1, "소개")), dbDown());
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        // 다시 처리가 회원·실패 행 락을 잡은 뒤 반영 직전에 멈춘다
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(30, TimeUnit.SECONDS)).isTrue();
+            return invocation.callRealMethod();
+        }).when(copyApplier).apply(any(UserDto.class));
+
+        CompletableFuture<List<MemberEventRetryResDto>> retry =
+                CompletableFuture.supplyAsync(() -> retryUseCase.retry(List.of(id), ADMIN));
+        assertThat(entered.await(30, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<MemberMasking.Result> masking = CompletableFuture.supplyAsync(() ->
+                memberMasking.mask(new UserMaskedEvent(51L, Instant.parse("2026-11-09T01:00:00Z"))));
+        awaitWaitingLock();
+        release.countDown();
+
+        assertThat(retry.get(30, TimeUnit.SECONDS)).extracting(MemberEventRetryResDto::result)
+                .containsExactly(MemberEventRetryResult.SUCCEEDED);
+        assertThat(masking.get(30, TimeUnit.SECONDS).first()).isTrue();
+        assertThat(rows.maskedMembers()).contains(51L);
+        assertThat(failure(id)).containsEntry("status", "RESOLVED").containsEntry("payload", null);
+    }
+
+    // 다른 트랜잭션이 락을 기다리기 시작할 때까지 기다린다(시간이 아니라 DB 상태로)
+    private void awaitWaitingLock() {
+        await().atMost(Duration.ofSeconds(30)).until(() ->
+                jdbcTemplate.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted", Integer.class) > 0);
     }
 
     @Test
