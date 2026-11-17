@@ -106,11 +106,6 @@ public class ChatUserEventListener {
                 key, partition, offset);
     }
 
-    /** 따로 세는 건너뛴 종류 수(테스트용) */
-    int skipCounterKeys() {
-        return skippedLog.counterKeys();
-    }
-
     private static ChatUserSyncResult rejectInvalid(Supplier<ChatUserSyncResult> sync) {
         try {
             return sync.get();

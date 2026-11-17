@@ -40,11 +40,6 @@ public final class SkippedEventLog {
         }
     }
 
-    /** 따로 세는 종류 수 */
-    public int counterKeys() {
-        return counters.size();
-    }
-
     private AtomicLong counterFor(String type) {
         AtomicLong counter = counters.get(type);
         if (counter != null) {

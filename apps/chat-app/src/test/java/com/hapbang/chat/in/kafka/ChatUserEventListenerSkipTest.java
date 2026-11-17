@@ -101,8 +101,8 @@ class ChatUserEventListenerSkipTest {
         assertThatThrownBy(() -> listener.onUnsupported(map, "7", 0, 2L))
                 .isInstanceOf(RejectedEventException.class).hasMessageNotContaining("secret-map");
 
+        // 건너뛴 기록(로그)도 남지 않는다
         assertThat(appender.list).isEmpty();
-        assertThat(listener.skipCounterKeys()).isZero();
     }
 
     @Test
@@ -117,7 +117,10 @@ class ChatUserEventListenerSkipTest {
         }
         listener.onUnsupported(new MissingTypeEvent(first), "1", 0, 9L);
 
-        assertThat(listener.skipCounterKeys()).isEqualTo(SkippedEventLog.MAX_COUNTERS);
+        // 건너뛸 때마다 남는 로그의 집계 칸: 따로 센 종류는 상한 수만큼이다
+        assertThat(appender.list.stream().map(e -> e.getArgumentArray()[5])
+                .filter(bucket -> !SkippedEventLog.OVERFLOW_BUCKET.equals(bucket)).distinct().count())
+                .isEqualTo(SkippedEventLog.MAX_COUNTERS);
         List<ILoggingEvent> overflowInfos = appender.list.stream()
                 .filter(e -> e.getLevel() == Level.INFO && SkippedEventLog.OVERFLOW_BUCKET.equals(e.getArgumentArray()[5]))
                 .toList();
