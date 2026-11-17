@@ -10,7 +10,8 @@
 | --- | --- |
 | 인증 | 로그인 회원 전체(USER 이상). 비로그인이면 401이고 FE는 챗봇 대신 로그인 안내를 띄운다 |
 | 호출 제한 | 회원별. 넘으면 429 + `Retry-After`. 위젯은 429면 영역을 숨긴다 |
-| 대화 저장 | 서버는 대화를 저장하지 않는다. 자유 질문은 FE가 화면의 대화를 요청마다 `history`로 보낸다(새로고침·로그아웃 때 비움) |
+| 대화 저장 | 서버는 대화를 저장하지 않는다. 자유 질문은 FE가 지난 대화를 요청마다 `history`로 보낸다. 대화를 어디에 언제까지 둘지는 FE가 정한다 |
+| 글자 수 | `message`·`interest`·`history`의 `content`는 코드 포인트로 센다(이모지 하나 = 1자). JS `String.length`(UTF-16)와 다르다 |
 
 ## 2. 엔드포인트
 
@@ -19,6 +20,8 @@
 | 강의 추천 위젯 | `GET /api/v1/chatbot/recommendations/lectures?interest=` | | 없음 | 분당 60회, interest가 있으면 분당 10회도 함께 |
 | 인플루언서 추천 위젯 | `GET /api/v1/chatbot/recommendations/influencers` | | 없음 | 분당 60회 |
 | 챗봇 "FAQ 모아보기" | `GET /api/v1/chatbot/faqs?category=` | | 없음 | 없음 |
+| 챗봇 "FAQ 질문하기" | `POST /api/v1/chatbot/chat/faq` | `{message}` (1~500자) | FAQ 검색 결과로 답변 | 자유 질문·FAQ 검색과 합쳐 분당 10회 |
+| 〃 (스트림) | `POST /api/v1/chatbot/chat/faq/stream` (SSE) | `{message}` | 〃 | 〃 |
 | 챗봇 "강의 추천받기" | `POST /api/v1/chatbot/recommendations/lectures/explained` | `{interest?}` (없어도 됨) | 쿼리 확장 + 리랭킹·이유 | 분당 10회 |
 | 챗봇 "인플루언서 추천받기" | `POST /api/v1/chatbot/recommendations/influencers/explained` | `{interest?}` (#720에서 추가, 없어도 됨) | 쿼리 확장 + 리랭킹·이유 | 분당 10회 |
 | 챗봇 "자유 질문하기" | `POST /api/v1/chatbot/messages` | `{message, history}` | Tool Calling | FAQ 검색·대화와 합쳐 분당 10회 |
@@ -46,8 +49,8 @@
 | 규칙 | 어기면 |
 | --- | --- |
 | 최근 12개만 쓴다 | 오류 아님(앞에서 버림) |
-| `role`은 `USER`·`ASSISTANT`만 | 400 `INVALID_REQUEST` |
-| `content`는 USER 1~500자, ASSISTANT 1~2,000자. 빈 내용 불가 | 400 `INVALID_CHAT_HISTORY` |
+| `role`은 `USER`·`ASSISTANT`만 | 모르는 값은 400 `INVALID_REQUEST`(`errors[].field`에 `history[0].role` 모양으로 위치). `role`·`content`가 빠졌거나 항목이 `null`이면 400 `INVALID_CHAT_HISTORY` |
+| `content`는 USER 1~500자, ASSISTANT 1~2,000자. 빈 내용·공백뿐인 내용 불가 | 400 `INVALID_CHAT_HISTORY` |
 | 쓰는(최근 12개) 대화의 글자 수 합 8,000자까지 | 400 `INVALID_CHAT_HISTORY` |
 | 50개까지 보낼 수 있다 | 400 `INVALID_CHAT_HISTORY` |
 | Tool 결과·추천 카드는 보내지 않는다 | 받는 필드가 없다 |
@@ -69,3 +72,21 @@
 | `error` | `{"message": "..."}` | 조각을 보낸 뒤 실패. 카드가 있으면 `cards` 다음에 온다 |
 
 첫 조각 전에 실패하면 정해진 답을 `token` 한 번 + (`cards`) + `done(fallback=true)`로 보낸다. 호출 제한·`history` 오류는 스트림을 열지 않고 429·400(ProblemDetail)이다.
+
+## 5. FAQ 대화
+
+요청: `{message}`만 받는다. 대화 기억이 없어 `history`를 보내지 않는다. `message`가 비었거나 공백뿐이거나 500자를 넘으면 400 `INVALID_REQUEST`.
+
+응답(`RsData<FaqAnswer>`): `answer`(답변 글), `sources`(근거 FAQ `[{code, question}]`), `fallback`. 추천 카드는 없다.
+
+- LLM이 실패하거나 시간 상한을 넘기면 `fallback=true`이고 FAQ 검색 상위 1건의 답변 또는 안내 문구로 답한다.
+
+스트림(SSE) 이벤트:
+
+| 이벤트 | data | 언제 |
+| --- | --- | --- |
+| `token` | `{"text": "..."}` | 답 조각, 0번 이상 |
+| `done` | `{"sources": [...], "fallback": false}` | 정상 끝, 마지막 한 번 |
+| `error` | `{"message": "..."}` | 조각을 보낸 뒤 실패 |
+
+첫 조각 전에 실패하면 정해진 답을 `token` 한 번 + `done(fallback=true)`로 보낸다. 호출 제한·요청 값 오류는 스트림을 열지 않고 429·400(ProblemDetail)이다.
