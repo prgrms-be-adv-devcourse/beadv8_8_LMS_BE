@@ -89,6 +89,10 @@ class KeywordCorrectionTest {
         assertThat(KeywordCorrection.isSentence("사야 돼요", () -> List.of("VV", "EC", "VV", "EF"))).isTrue();
         assertThat(KeywordCorrection.isSentence("먹방 하려면", () -> List.of("NNG", "XSV", "EC"))).isTrue();
         assertThat(KeywordCorrection.isSentence("가능?", () -> nouns)).isTrue();
+        // 물음표가 있으면 한 낱말 오타여도 어절 수·품사와 상관없이 문장이다
+        assertThat(KeywordCorrection.isSentence("프리미여?", () -> {
+            throw new AssertionError("물음표가 있으면 품사를 묻지 않는다");
+        })).isTrue();
         assertThat(KeywordCorrection.isSentence("a b c d e", () -> nouns)).isTrue();
         assertThat(KeywordCorrection.isSentence("방송 장비", () -> nouns)).isFalse();
         assertThat(KeywordCorrection.isSentence("쉬운 프리미여", () -> List.of("VA", "ETM", "NNG", "NNP"))).isFalse();

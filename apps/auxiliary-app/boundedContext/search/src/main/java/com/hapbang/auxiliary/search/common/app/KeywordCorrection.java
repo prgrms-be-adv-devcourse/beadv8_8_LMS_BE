@@ -10,7 +10,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -42,10 +43,10 @@ public final class KeywordCorrection {
     /** 바꿀 수 있는 자모 편집 거리 상한. 오타 대부분은 낱자 하나·둘 차이이고, 그보다 먼 말은 다른 말이다 */
     static final int MAX_DISTANCE = 2;
 
-    /** 실패 WARN 간격. 실패가 이어져도 요청마다 남기지 않는다(처음 한 번, 그 뒤 이 간격마다 그 사이 건수와 함께) */
-    private static final long WARN_INTERVAL_NANOS = Duration.ofMinutes(10).toNanos();
-    private static final AtomicLong nextWarnAt = new AtomicLong(System.nanoTime());
-    private static final AtomicLong failuresSinceWarn = new AtomicLong();
+    /** 실패 WARN 간격. 실패가 이어져도 요청마다 남기지 않는다(대상마다 처음 한 번, 그 뒤 이 간격마다 그 사이 건수와 함께) */
+    private static final Duration WARN_INTERVAL = Duration.ofMinutes(10);
+    /** 대상마다 따로 둔다. 한 대상이 계속 실패해도 다른 대상의 첫 실패는 바로 남긴다 */
+    private static final ConcurrentMap<String, WarnThrottle> warnThrottles = new ConcurrentHashMap<>();
 
     /** 결과 종류. 지표 태그 값이다 */
     public enum Outcome {
@@ -84,7 +85,7 @@ public final class KeywordCorrection {
 
     /**
      * 검색 API가 첫 페이지 결과를 찾은 뒤 부른다. 제안은 덤이라 무엇이 실패해도 검색 응답을 막지 않는다: 제안 없이(null) 응답한다. 실패는 지표
-     * {@code outcome=error}로 세고, WARN은 처음 한 번과 그 뒤 10분마다 그 사이 건수와 함께 남긴다(ES 분석기가 깨진 채 이어지면 요청마다 쌓이지
+     * {@code outcome=error}로 세고, WARN은 대상마다 처음 한 번과 그 뒤 10분마다 그 사이 건수와 함께 남긴다(ES 분석기가 깨진 채 이어지면 요청마다 쌓이지
      * 않게). 결과 종류와 시간을 지표로 남긴다. 검색어는 로그·지표에 남기지 않는다(남의 이름일 수 있다).
      *
      * @param keyword 정리한 검색어. 없거나 초성뿐이면 제안하지 않고 지표도 남기지 않는다(초성 검색·자동완성이 맡는다)
@@ -107,13 +108,14 @@ public final class KeywordCorrection {
     }
 
     private static void warnThrottled(String target, RuntimeException e) {
-        long failures = failuresSinceWarn.incrementAndGet();
-        long now = System.nanoTime();
-        long next = nextWarnAt.get();
-        if (now - next >= 0 && nextWarnAt.compareAndSet(next, now + WARN_INTERVAL_NANOS)) {
-            failuresSinceWarn.addAndGet(-failures);
+        long failures = warnThrottle(target).fail();
+        if (failures > 0) {
             log.warn("검색어 제안을 만들지 못해 제안 없이 응답한다 target={}, failures={}", target, failures, e);
         }
+    }
+
+    static WarnThrottle warnThrottle(String target) {
+        return warnThrottles.computeIfAbsent(target, t -> new WarnThrottle(WARN_INTERVAL, System::nanoTime));
     }
 
     /**
