@@ -17,13 +17,13 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
-import com.hapbang.chat.app.ChatDeliveryProperties;
 import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatOutboxRelay;
 import com.hapbang.chat.app.ChatStreamJobProcessor;
 import com.hapbang.chat.app.ChatStreamReconstructor;
 import com.hapbang.chat.app.ChatStreamTrimmer;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 
 /**
  * 실행기를 멈출 때 worker가 실제로 끝났는지 확인하고, 끝나지 않은 worker가 있으면 다시 시작하지 않는다.

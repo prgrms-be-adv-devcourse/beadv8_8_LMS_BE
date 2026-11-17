@@ -22,6 +22,7 @@ import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.app.port.RealtimeChatFanout;
 import com.hapbang.chat.app.port.ReclaimedJobs;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;

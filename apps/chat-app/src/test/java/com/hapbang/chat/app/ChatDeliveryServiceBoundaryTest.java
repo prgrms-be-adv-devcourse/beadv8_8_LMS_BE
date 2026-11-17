@@ -14,6 +14,7 @@ import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
 import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.out.redis.RedisChatDeliveryQueue;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;

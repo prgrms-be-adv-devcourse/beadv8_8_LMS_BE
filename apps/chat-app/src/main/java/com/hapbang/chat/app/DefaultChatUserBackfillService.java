@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.chat.app.dto.ChatUserBackfillResult;
@@ -14,6 +13,7 @@ import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
 import com.hapbang.chat.app.port.ChatMemberSnapshotSource;
 import com.hapbang.chat.app.port.ChatMemberSourceException;
+import com.hapbang.chat.config.ChatUserBackfillProperties;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 
@@ -35,7 +35,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@EnableConfigurationProperties(ChatUserBackfillProperties.class)
 public class DefaultChatUserBackfillService implements ChatUserBackfillService {
 
     private final ChatMemberSnapshotSource chatMemberSnapshotSource;

@@ -14,6 +14,7 @@ import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

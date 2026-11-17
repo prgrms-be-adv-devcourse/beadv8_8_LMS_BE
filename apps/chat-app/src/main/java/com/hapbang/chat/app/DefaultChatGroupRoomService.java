@@ -15,7 +15,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -37,6 +36,7 @@ import com.hapbang.chat.app.port.ChatRoomLogRepository;
 import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.app.port.ChatUserRepository;
+import com.hapbang.chat.config.ChatGroupProperties;
 import com.hapbang.chat.domain.ChatGroupInviteFailure;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 import com.hapbang.chat.domain.ChatGroupInviteRequest;
@@ -76,7 +76,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@EnableConfigurationProperties(ChatGroupProperties.class)
 public class DefaultChatGroupRoomService implements ChatGroupRoomService {
 
     private final ChatRoomRepository chatRoomRepository;

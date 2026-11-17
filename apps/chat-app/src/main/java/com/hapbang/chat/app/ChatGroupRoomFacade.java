@@ -26,6 +26,7 @@ import com.hapbang.chat.app.port.ChatRecruitSource.ChatApplicantPage;
 import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.port.ChatRecruitSource;
 import com.hapbang.chat.app.port.ChatRecruitSourceException;
+import com.hapbang.chat.config.ChatGroupProperties;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 
 import lombok.RequiredArgsConstructor;

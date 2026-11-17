@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

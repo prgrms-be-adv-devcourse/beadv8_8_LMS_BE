@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.port.ChatRoomLogRepository;
 import com.hapbang.chat.app.port.ChatRoomRepository;
+import com.hapbang.chat.config.ChatGroupProperties;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;

@@ -14,6 +14,7 @@ import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
