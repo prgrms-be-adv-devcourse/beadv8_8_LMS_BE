@@ -1,8 +1,10 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.in.scheduler;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.ChatEventRepublisher;
+import com.hapbang.chat.app.ChatExternalEvents;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;

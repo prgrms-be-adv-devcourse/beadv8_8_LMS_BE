@@ -54,11 +54,29 @@ class ChatRealtimeServiceBoundaryTest {
         noClasses().that().haveFullyQualifiedName(ChatRealtimeFacade.class.getName())
                 .or().haveFullyQualifiedName(DefaultChatFanoutDeliveryService.class.getName())
                 .or().haveFullyQualifiedName(DefaultChatConnectionRecheckService.class.getName())
-                .or().haveFullyQualifiedName(ChatConnectionRecheckBatch.class.getName())
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "com.hapbang.chat.in..", "com.hapbang.chat.out..",
                         "org.springframework.data.redis..", "io.lettuce..", "org.springframework.kafka..",
                         "org.springframework.messaging..", "org.springframework.web.socket..")
+                .check(classes);
+    }
+
+    @Test
+    @DisplayName("in/scheduler의 트리거는 app 호출만 하고 out 구현과 Redis·Kafka·STOMP 기술 타입에 의존하지 않는다")
+    void schedulerTriggersOnlyCallApp() {
+        classes().that().resideInAPackage("com.hapbang.chat.in.scheduler..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.hapbang.chat.app..", "com.hapbang.chat.global..", "com.hapbang.chat.in.scheduler..",
+                        "java..", "", "org.springframework.scheduling..", "org.springframework.stereotype..",
+                        "lombok..")
+                .check(classes);
+    }
+
+    @Test
+    @DisplayName("app/port는 in·out 구현에 의존하지 않는다")
+    void portsDoNotDependOnAdapters() {
+        noClasses().that().resideInAPackage("com.hapbang.chat.app.port..")
+                .should().dependOnClassesThat().resideInAnyPackage("com.hapbang.chat.in..", "com.hapbang.chat.out..")
                 .check(classes);
     }
 

@@ -1,10 +1,12 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.in.scheduler;
 
 import java.time.LocalDateTime;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.ChatGroupHistoryExpiryService;
+import com.hapbang.chat.app.ChatGroupInviteRequestCleaner;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;
