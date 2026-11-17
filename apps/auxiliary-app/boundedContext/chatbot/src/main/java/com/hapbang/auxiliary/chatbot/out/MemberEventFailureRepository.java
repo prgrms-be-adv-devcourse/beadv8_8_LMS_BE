@@ -21,9 +21,9 @@ public interface MemberEventFailureRepository extends JpaRepository<MemberEventF
     /** 관리자 목록(최신순) */
     Page<MemberEventFailure> findByStatusOrderByIdDesc(MemberEventFailureStatus status, Pageable pageable);
 
-    /** 전체 재처리 대상(오래된 순) */
-    @Query("SELECT f.id FROM MemberEventFailure f WHERE f.status = :status ORDER BY f.id")
-    List<Long> findIdsByStatus(@Param("status") MemberEventFailureStatus status, Pageable pageable);
+    /** 전체 재처리 대상(다시 처리할 수 있는 것만, 오래된 순) */
+    @Query("SELECT f.id FROM MemberEventFailure f WHERE f.status = :status AND f.replayable = true ORDER BY f.id")
+    List<Long> findReplayableIds(@Param("status") MemberEventFailureStatus status, Pageable pageable);
 
     /** 행 락을 잡는다. 다른 트랜잭션이 잡고 있으면 기다리지 않고 비어 있다(여러 관리자가 동시에 누름) */
     @Query(value = "SELECT * FROM chatbot.member_event_failure WHERE id = :id FOR UPDATE SKIP LOCKED", nativeQuery = true)

@@ -15,7 +15,7 @@ import tools.jackson.core.JacksonException;
  *     <li>DB 예외: 메시지 대신 {@code SQLState=…}만 남긴다. PostgreSQL 메시지의 {@code Detail: Key (…)=(값)}에 회원 값이 들어간다.
  *     SQLException이 없으면 메시지를 남기지 않는다.</li>
  *     <li>JSON 읽기 예외: 메시지에 받은 원문 일부가 들어가므로 남기지 않는다.</li>
- *     <li>그 밖: 가장 안쪽 원인의 메시지(없으면 바깥 메시지)에서 이메일·전화를 지운다. 길이는 기록이 자른다.</li>
+ *     <li>그 밖: 가장 안쪽 원인의 메시지(없으면 바깥 메시지)에서 이메일·전화를 지운다. 길이는 {@link MemberEventFailure.Cause}가 자른다.</li>
  * </ul>
  */
 final class FailureCauseExtractor {

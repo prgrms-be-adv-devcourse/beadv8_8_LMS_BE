@@ -125,7 +125,7 @@ public class MemberEventFailure {
     private void describe(Cause cause) {
         this.exceptionClass = cause.exceptionClass();
         this.rootCauseClass = cause.rootCauseClass();
-        this.message = cause.message() == null ? null : TextCut.head(cause.message(), MESSAGE_MAX_LENGTH);
+        this.message = cause.message();
     }
 
     /**
@@ -139,12 +139,16 @@ public class MemberEventFailure {
     }
 
     /**
-     * 실패 이유. 개인정보를 거른 뒤의 값이다
+     * 실패 이유. 개인정보를 거른 뒤의 값이다. 기록과 관리자 응답이 같은 값을 쓴다
      *
      * @param exceptionClass 예외 클래스(리스너 감싸기를 벗긴 것)
      * @param rootCauseClass 가장 안쪽 원인 클래스
-     * @param message        거른 메시지. 남기지 않으면 null
+     * @param message        거른 메시지. 코드포인트 {@value #MESSAGE_MAX_LENGTH}개까지 자른다. 남기지 않으면 null
      */
     public record Cause(String exceptionClass, String rootCauseClass, String message) {
+
+        public Cause {
+            message = message == null ? null : TextCut.head(message, MESSAGE_MAX_LENGTH);
+        }
     }
 }

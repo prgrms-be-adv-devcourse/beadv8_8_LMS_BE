@@ -32,7 +32,8 @@ import lombok.extern.slf4j.Slf4j;
  *     기다리지 않고 {@code IN_PROGRESS}. Kafka 소비와 겹치면 적용기·마스킹의 회원 락이 직렬화한다.</li>
  *     <li>두 번 처리해도 결과가 같다: 마스킹은 멱등, 가입·변경은 version 비교로 옛 값이 새 값을 덮지 않는다.</li>
  *     <li>반영이 실패하면 그 트랜잭션은 롤백하고, 새 트랜잭션에서 횟수와 이유만 바꾼다.</li>
- *     <li>고르지 않으면 처리 대기 기록을 오래된 순으로 상한({@code retry-all-limit})만큼 처리한다.</li>
+ *     <li>고르지 않으면 다시 처리할 수 있는 처리 대기 기록을 오래된 순으로 상한({@code retry-all-limit})만큼 처리한다.
+ *     다시 처리할 수 없는 기록은 처리 대기로 남아 목록에서 보이지만, 전체 처리의 앞자리를 막지 않게 뺀다.</li>
  * </ul>
  */
 @Slf4j
@@ -58,13 +59,13 @@ public class MemberEventFailureRetryUseCase {
     }
 
     /**
-     * @param ids     다시 처리할 기록. 비어 있으면 처리 대기 기록 전체(오래된 순, 상한까지)
+     * @param ids     다시 처리할 기록. 비어 있으면 다시 처리할 수 있는 처리 대기 기록(오래된 순, 상한까지)
      * @param adminId 요청한 관리자
      * @return 건별 결과(요청 순서)
      */
     public List<MemberEventRetryResDto> retry(List<Long> ids, Long adminId) {
         List<Long> targets = ids == null || ids.isEmpty()
-                ? repository.findIdsByStatus(MemberEventFailureStatus.PENDING, PageRequest.of(0, properties.retryAllLimit()))
+                ? repository.findReplayableIds(MemberEventFailureStatus.PENDING, PageRequest.of(0, properties.retryAllLimit()))
                 : ids;
         List<MemberEventRetryResDto> results = new ArrayList<>();
         for (Long id : targets) {
