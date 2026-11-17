@@ -40,8 +40,7 @@ public class HttpChatMemberSnapshotSource implements ChatMemberSnapshotSource {
         return read(api, afterId, size);
     }
 
-    /** 설정한 프록시로 한 페이지를 읽는다. 어댑터 테스트가 컨텍스트 없이 부른다 */
-    static MemberPageDto read(ChatMemberInternalApi api, Long afterId, int size) {
+    private static MemberPageDto read(ChatMemberInternalApi api, long afterId, int size) {
         ResponseEntity<ChatMemberInternalApi.Envelope> response;
         try {
             response = api.getMembers(size, afterId);

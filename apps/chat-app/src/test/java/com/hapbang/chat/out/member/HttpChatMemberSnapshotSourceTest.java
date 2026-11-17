@@ -95,13 +95,13 @@ class HttpChatMemberSnapshotSourceTest {
     }
 
     @Test
-    void afterId가_null이면_쿼리에서_빼고_마지막_페이지의_nextAfterId는_null이다() {
+    void 마지막_페이지의_nextAfterId는_null이다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"","data":{"items":[]}}""");
 
-        MemberPageDto page = HttpChatMemberSnapshotSource.read(api(), null, 500);
+        MemberPageDto page = source().readPage(0, 500);
 
-        assertThat(requests).containsExactly("GET /api/v1/internal/members?size=500 key=" + API_KEY);
+        assertThat(requests).containsExactly("GET /api/v1/internal/members?size=500&afterId=0 key=" + API_KEY);
         assertThat(page.items()).isEmpty();
         assertThat(page.nextAfterId()).isNull();
     }
@@ -217,12 +217,8 @@ class HttpChatMemberSnapshotSourceTest {
         this.body = body;
     }
 
-    private ChatMemberInternalApi api() {
-        return api("http://127.0.0.1:" + server.getAddress().getPort());
-    }
-
     private static ChatMemberInternalApi api(String baseUrl) {
-        return ChatMemberApiConfig.create(RestClient.builder(),
+        return ChatMemberApiTestClients.create(RestClient.builder(),
                 new ChatMemberApiProperties(baseUrl, Duration.ofMillis(500), Duration.ofMillis(300)), API_KEY);
     }
 
