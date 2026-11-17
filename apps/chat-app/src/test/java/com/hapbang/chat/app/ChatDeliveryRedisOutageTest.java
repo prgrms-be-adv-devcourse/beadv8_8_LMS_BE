@@ -37,7 +37,7 @@ import jakarta.persistence.EntityManager;
 
 /**
  * Redis가 오래 멈춰도 연결 불가를 작업의 시도로 세지 않아 격리(DEAD)하지 않고, 돌아오면 모두 한 번씩 발행한다
- * (2026-10-30 사용자 결정). 이 클래스만 쓰는 Redis 컨테이너(AOF, 고정 호스트 포트)를 강제 종료·재시작한다.
+ * (2026-10-30 사용자 결정). 이 클래스만 쓰는 Redis 컨테이너(AOF, 고정 중계 포트)를 강제 종료·재시작한다.
  * 운영 기준 10분 단절을, 적재·발행 시도 상한(2)과 재적재 상한(1)보다 훨씬 많은 relay·읽기·회수·재구성 호출로 줄여 재현한다.
  */
 @IntegrationTest
@@ -69,7 +69,7 @@ class ChatDeliveryRedisOutageTest {
     private static final String WORKER = "test:delivery:1";
     private static final String RECLAIMER = "test:delivery:reclaim";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -86,7 +86,7 @@ class ChatDeliveryRedisOutageTest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-" + UUID.randomUUID());
     }

@@ -107,7 +107,7 @@ class ChatRedisLongOutageE2ETest {
     private static final int REQUIRED_PROBES = 20;
     private static final String MESSAGES = "/user/queue/chats/messages";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -115,7 +115,7 @@ class ChatRedisLongOutageE2ETest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-redis-long-outage-" + UUID.randomUUID());
     }

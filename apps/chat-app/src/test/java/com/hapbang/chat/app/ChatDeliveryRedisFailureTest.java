@@ -45,7 +45,7 @@ import jakarta.persistence.EntityManager;
  * <p>
  * 공용 Redis 컨테이너를 멈추거나 설정을 바꾸지 않도록 이 클래스만 쓰는 별도 Redis 컨테이너를 띄운다.
  * 운영 후보 설정을 명시한다: AOF({@code appendonly yes}, {@code appendfsync always}), {@code maxmemory-policy noeviction}.
- * 재시작 뒤 같은 주소로 다시 붙도록 호스트 포트를 고정한다. 프로세스 강제 종료는 {@code docker kill}(SIGKILL)이다.
+ * 재시작 뒤 같은 주소로 다시 붙도록 JVM이 쥔 고정 중계 포트({@link com.hapbang.chat.fixture.FixedPortRedis})로 붙는다. 프로세스 강제 종료는 {@code docker kill}(SIGKILL)이다.
  * 운영 Redis의 실제 배포 설정·fsync 정책·메모리 상한 수치는 Q12 확정 대상이라 여기서 확정하지 않는다.
  */
 @IntegrationTest
@@ -77,7 +77,7 @@ class ChatDeliveryRedisFailureTest {
     private static final String WORKER = "test:delivery:1";
     private static final String RECLAIMER = "test:delivery:reclaim";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -94,7 +94,7 @@ class ChatDeliveryRedisFailureTest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-" + UUID.randomUUID());
     }
