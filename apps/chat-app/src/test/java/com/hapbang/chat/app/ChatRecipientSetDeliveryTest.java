@@ -37,6 +37,8 @@ import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.domain.ChatRecipientSetMember;
 import com.hapbang.chat.domain.ChatRoom;
+import com.hapbang.chat.support.ChatMessageTestRepository;
+import com.hapbang.chat.support.ChatRecipientSetMemberTestRepository;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
 /**

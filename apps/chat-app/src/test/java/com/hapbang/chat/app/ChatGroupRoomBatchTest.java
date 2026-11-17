@@ -32,6 +32,7 @@ import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomStatusReason;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatGroupInviteRequestTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;

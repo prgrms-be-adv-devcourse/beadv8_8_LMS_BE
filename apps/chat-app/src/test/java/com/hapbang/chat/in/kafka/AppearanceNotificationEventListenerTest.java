@@ -47,7 +47,6 @@ import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatGroupRoomService;
-import com.hapbang.chat.app.ChatMessageTestRepository;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
@@ -57,6 +56,7 @@ import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.kafka.ChatEventExternalizationConfig;
 import com.hapbang.chat.out.kafka.ChatEventKafkaConfig;
+import com.hapbang.chat.support.ChatMessageTestRepository;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;

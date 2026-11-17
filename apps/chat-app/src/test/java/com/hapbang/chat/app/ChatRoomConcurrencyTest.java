@@ -27,6 +27,8 @@ import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatRoomLogTestRepository;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**

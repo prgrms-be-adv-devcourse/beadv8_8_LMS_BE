@@ -61,6 +61,7 @@ import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;

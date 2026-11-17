@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.support;
 
 import java.util.List;
 import java.util.Optional;

@@ -24,6 +24,7 @@ import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatMessageTestRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;

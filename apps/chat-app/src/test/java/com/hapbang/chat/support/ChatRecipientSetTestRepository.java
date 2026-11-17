@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.support;
 
 import org.springframework.data.repository.Repository;
 

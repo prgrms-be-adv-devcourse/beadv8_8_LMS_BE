@@ -28,6 +28,8 @@ import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatRoomLogTestRepository;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;

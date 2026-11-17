@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
+import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
@@ -46,7 +47,7 @@ class ChatDeliveryAdminApiSecurityTest extends ChatDeliveryTestSupport {
     private MockMvc mockMvc;
 
     @Autowired
-    private ChatDeliveryReprocessAuditRepository auditRepository;
+    private ChatDeliveryReprocessAuditTestRepository auditRepository;
 
     // 쿠키 세션이 아니라 Gateway 사용자 헤더로 인증하므로 CSRF 토큰은 보지 않는다. 사용자 헤더가 없거나 형식이 틀리면 401이다
     @Test

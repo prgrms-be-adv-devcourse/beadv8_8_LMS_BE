@@ -19,6 +19,7 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.support.ChatMessageTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**

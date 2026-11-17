@@ -7,7 +7,7 @@ Stream consumer(#418)가 커밋된 작업을 Pub/Sub으로 내보내는 계약�
 ## 인터페이스
 
 ```java
-package com.hapbang.chat.app;
+package com.hapbang.chat.app.port;
 
 public interface RealtimeChatFanout {
 

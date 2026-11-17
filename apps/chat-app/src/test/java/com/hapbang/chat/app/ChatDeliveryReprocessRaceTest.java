@@ -31,6 +31,7 @@ import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
 
 /**
  * 재적재 상한 격리·운영 재처리의 경합과 트랜잭션 경계 (계약 tables-and-migrations "운영 재처리 감사와 누적 횟수",
@@ -55,7 +56,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private ChatDeliveryReprocessAuditRepository auditRepository;
+    private ChatDeliveryReprocessAuditTestRepository auditRepository;
 
     @Test
     void 재적재_상한_격리는_대조_때_읽은_세대로만_기록해_그_사이_운영_재처리된_새_세대를_격리하지_않는다() {

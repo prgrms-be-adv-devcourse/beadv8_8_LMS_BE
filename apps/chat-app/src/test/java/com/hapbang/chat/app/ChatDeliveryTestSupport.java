@@ -22,6 +22,8 @@ import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
+import com.hapbang.chat.support.ChatOutboxTestRepository;
+import com.hapbang.chat.support.ChatPublishCheckpointTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;

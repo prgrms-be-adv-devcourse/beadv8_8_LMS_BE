@@ -30,6 +30,7 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
+import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 
 /**
  * DB outbox → Stream 적재 (테스트 기준 "Outbox 적재").
