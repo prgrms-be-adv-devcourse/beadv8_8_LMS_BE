@@ -21,7 +21,7 @@ import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 class JdbcTableColumnsTest extends ChatbotIntegrationTestBase {
 
     // 엔티티로 다루는 테이블(ddl-auto: validate가 검사한다)
-    private static final Set<String> ENTITY_TABLES = Set.of("faq", "sync_run", "sync_mismatch");
+    private static final Set<String> ENTITY_TABLES = Set.of("faq", "sync_run", "sync_mismatch", "member_event_failure");
 
     private static final String BIGINT = "bigint";
     private static final String INTEGER = "integer";
