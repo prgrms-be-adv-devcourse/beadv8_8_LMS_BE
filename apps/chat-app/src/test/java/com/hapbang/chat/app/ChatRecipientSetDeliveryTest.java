@@ -149,15 +149,18 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         pollAll(ChatJobStream.DELIVERY, WORKER);
         fanout.reset();
 
-        var result = chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
-                GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3))).orElseThrow();
+        chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
+                GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3)));
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         List<ChatOutbox> outboxes = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
         ChatOutbox rejoinNotice = outboxes.get(outboxes.size() - 2);
         ChatOutbox notification = outboxes.getLast();
-        assertThat(notification.getMessageId()).isEqualTo(result.message().messageId());
+        List<ChatMessage> messages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
+        assertThat(notification.getMessageId()).isEqualTo(messages.getLast().getId());
+        assertThat(messages.getLast().getMessageType()).isEqualTo(ChatMessageType.NOTIFICATION);
+        assertThat(rejoinNotice.getMessageId()).isEqualTo(messages.get(messages.size() - 2).getId());
         assertThat(rejoinNotice.getNotifyRule()).isEqualTo(ChatNotifyRule.NONE);
         assertThat(notification.getNotifyRule()).isEqualTo(ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER);
 

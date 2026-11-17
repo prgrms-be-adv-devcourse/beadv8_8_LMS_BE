@@ -1,11 +1,8 @@
 package com.hapbang.chat.app;
 
-import java.util.Optional;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.app.dto.ChatNotificationResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
@@ -23,20 +20,20 @@ public class ChatNotificationFacade {
 
     private final ChatNotificationUseCase chatNotificationUseCase;
 
-    public Optional<ChatNotificationResult> notifyAppearanceRequestSent(AppearanceRequestDto request) {
+    public void notifyAppearanceRequestSent(AppearanceRequestDto request) {
         try {
-            return chatNotificationUseCase.notifyAppearanceRequestSent(request);
+            chatNotificationUseCase.notifyAppearanceRequestSent(request);
         } catch (DataIntegrityViolationException conflict) {
-            return chatNotificationUseCase.notifyAppearanceRequestSent(request);
+            chatNotificationUseCase.notifyAppearanceRequestSent(request);
         }
     }
 
-    public Optional<ChatNotificationResult> notifyAppearanceApplicationSubmitted(
+    public void notifyAppearanceApplicationSubmitted(
             AppearanceApplicationDto application) {
         try {
-            return chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
+            chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
         } catch (DataIntegrityViolationException conflict) {
-            return chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
+            chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
         }
     }
 }

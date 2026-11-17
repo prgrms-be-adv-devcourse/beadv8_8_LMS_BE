@@ -115,7 +115,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         Optional<ChatRoom> current = chatRoomRepository.findCurrentGroup(recruit.recruitId());
         if (current.isPresent()) {
             // 먼저 만든 요청이 커밋했다(동시 생성의 재시도 포함). 같은 방을 돌려준다
-            return new ChatRoomOpenResult(requireRecruitHost(current.get(), requesterId), false, List.of());
+            return new ChatRoomOpenResult(requireRecruitHost(current.get(), requesterId), false);
         }
         if (!recruit.isRecruiting()) {
             throw new ChatException(ChatErrorCode.RECRUIT_NOT_OPEN);
@@ -129,7 +129,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         chatRecipientSetRecorder.snapshot(chatRoom, now);
         log.info("단체방 생성 chatRoomId={}, recruitId={}, hostId={}", chatRoom.getId(), recruit.recruitId(),
                 requesterId);
-        return new ChatRoomOpenResult(chatRoom.getId(), true, List.of());
+        return new ChatRoomOpenResult(chatRoom.getId(), true);
     }
 
     /**

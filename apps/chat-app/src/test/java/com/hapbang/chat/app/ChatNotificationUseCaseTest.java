@@ -4,6 +4,7 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -13,7 +14,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
-import com.hapbang.chat.app.dto.ChatNotificationResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
@@ -73,10 +73,9 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 출연_요청이_도착하면_호스트와_게스트의_방을_만들고_게스트에게_알림을_남긴다() {
-        ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
-                .orElseThrow();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
 
-        ChatMessageResponse message = result.message();
+        ChatMessageResponse message = storedNotification();
         assertThat(message.messageType()).isEqualTo(ChatMessageType.NOTIFICATION);
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
         assertThat(message.referenceId()).isEqualTo(10L);
@@ -96,8 +95,8 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 알림_값은_jsonb로_저장되고_다시_읽어도_같다() {
-        Long messageId = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID)).orElseThrow()
-                .message().messageId();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
+        Long messageId = storedNotification().messageId();
 
         ChatMessage stored = chatMessageTestRepository.findById(messageId).orElseThrow();
         assertThat(stored.getContent()).isEmpty();
@@ -127,8 +126,8 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 저장한_알림_값을_읽을_수_없어도_이력_조회는_되고_값은_null이다() {
-        ChatMessageResponse sent = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
-                .orElseThrow().message();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
+        ChatMessageResponse sent = storedNotification();
         sql.update("""
                 update chats.chat_message set notification_data = cast('{"fee":"x"}' as jsonb) where id = :id""",
                 Map.of("id", sent.messageId()));
@@ -143,11 +142,10 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 모집_지원이_들어오면_호스트에게_알림을_남긴다() {
-        ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
-                new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
-                .orElseThrow();
+        chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
+                new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT));
 
-        ChatMessageResponse message = result.message();
+        ChatMessageResponse message = storedNotification();
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED);
         assertThat(message.referenceId()).isEqualTo(20L);
         assertThat(message.parentReferenceId()).isEqualTo(7L);
@@ -162,9 +160,9 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 관리자_기록_조회에도_알림_종류와_출연_건_ID와_값이_담긴다() {
-        Long chatRoomId = chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
-                new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
-                .orElseThrow().message().chatRoomId();
+        chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
+                new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT));
+        Long chatRoomId = storedNotification().chatRoomId();
 
         assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).messages()).singleElement()
                 .extracting(ChatMessageHistoryResponse::notificationKind, ChatMessageHistoryResponse::referenceId,
@@ -179,18 +177,19 @@ class ChatNotificationUseCaseTest {
     void 이미_대화하던_방이_있으면_그_방에_남긴다() {
         Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
 
-        ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
-                .orElseThrow();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
 
-        assertThat(result.message().chatRoomId()).isEqualTo(chatRoomId);
-        assertThat(result.rejoinNotices()).isEmpty();
+        assertThat(storedNotification().chatRoomId()).isEqualTo(chatRoomId);
+        // 둘 다 참여 중이라 재입장 안내 없이 알림 하나만 남는다
+        assertThat(chatMessageTestRepository.count()).isEqualTo(1);
     }
 
     @Test
     void 같은_이벤트가_다시_와도_알림은_하나만_남긴다() {
         chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
 
-        assertThat(chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))).isEmpty();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
+
         assertThat(chatMessageTestRepository.count()).isEqualTo(1);
     }
 
@@ -199,21 +198,22 @@ class ChatNotificationUseCaseTest {
         Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
-                .orElseThrow();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID));
 
-        assertThat(result.rejoinNotices()).extracting(ChatMessageResponse::content)
-                .containsExactly("게스트님이 다시 들어왔습니다.");
-        // 재입장 안내는 남아 있던 호스트에게만 보인다
+        // 재입장 안내(알림 앞)는 남아 있던 호스트에게만 보인다
         assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
-                .extracting(ChatMessageResponse::content).contains("게스트님이 다시 들어왔습니다.");
+                .extracting(ChatMessageResponse::messageType, ChatMessageResponse::content)
+                .containsExactly(tuple(ChatMessageType.NOTIFICATION, ""),
+                        tuple(ChatMessageType.SYSTEM, "게스트님이 다시 들어왔습니다."),
+                        tuple(ChatMessageType.SYSTEM, "게스트님이 나갔습니다."));
         assertThat(chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::messageType).containsExactly(ChatMessageType.NOTIFICATION);
     }
 
     @Test
     void 받는_사람이_채팅할_수_없는_회원이면_알림을_남기지_않는다() {
-        assertThat(chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, USER_ID))).isEmpty();
+        chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, USER_ID));
+
         assertThat(chatMessageTestRepository.count()).isZero();
         assertThat(chatRoomSupporter.getMyRooms(HOST_ID)).isEmpty();
     }
@@ -223,6 +223,15 @@ class ChatNotificationUseCaseTest {
         assertThatThrownBy(() -> chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, UNKNOWN_ID)))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_USER_NOT_FOUND);
+    }
+
+    /** 저장된 알림 메시지 하나를 응답으로 읽는다 */
+    private ChatMessageResponse storedNotification() {
+        List<ChatMessage> notifications = chatMessageTestRepository.findAll().stream()
+                .filter(message -> message.getMessageType() == ChatMessageType.NOTIFICATION)
+                .toList();
+        assertThat(notifications).hasSize(1);
+        return ChatMessageResponse.from(notifications.getFirst());
     }
 
     private static AppearanceRequestDto request(Long requestId, Long guestId) {

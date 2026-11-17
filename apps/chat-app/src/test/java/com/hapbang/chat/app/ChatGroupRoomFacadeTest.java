@@ -39,7 +39,6 @@ import com.hapbang.chat.app.dto.ChatInviteCandidatePageResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidateResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
-import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
@@ -542,13 +541,14 @@ class ChatGroupRoomFacadeTest {
 
         assertError(() -> chatRoomFacade.leave(roomId, HOST_ID, null), ChatErrorCode.HOST_CANNOT_LEAVE);
 
-        ChatRoomLeaveResult left = chatRoomFacade.leave(roomId, GUEST_ID, null);
+        chatRoomFacade.leave(roomId, GUEST_ID, null);
 
-        assertThat(left.left()).isTrue();
-        assertThat(left.roomEnded()).isFalse();
-        assertThat(left.leftNotice().notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_LEFT);
-        assertThat(left.leftNotice().groupMemberLeft().leftUserId()).isEqualTo(GUEST_ID);
-        assertThat(left.leftNotice().content()).isEmpty();
+        assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
+        ChatMessageResponse leftNotice = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 30).messages()
+                .getFirst();
+        assertThat(leftNotice.notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_LEFT);
+        assertThat(leftNotice.groupMemberLeft().leftUserId()).isEqualTo(GUEST_ID);
+        assertThat(leftNotice.content()).isEmpty();
         assertThat(chatRoomRepository.findById(roomId).orElseThrow().getStatus()).isEqualTo(ChatRoomStatus.ACTIVE);
     }
 
@@ -592,8 +592,10 @@ class ChatGroupRoomFacadeTest {
         });
 
         // 읽기 전용 방에서 나가면 안내를 남기지 않는다(폐쇄 안내가 마지막 메시지다). 폐쇄한 호스트도 나갈 수 있다
-        assertThat(chatRoomFacade.leave(roomId, GUEST_ID, 1).leftNotice()).isNull();
-        assertThat(chatRoomFacade.leave(roomId, HOST_ID, 1).left()).isTrue();
+        chatRoomFacade.leave(roomId, GUEST_ID, 1);
+        chatRoomFacade.leave(roomId, HOST_ID, 1);
+        assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
+        assertThat(memberOf(roomId, HOST_ID).isActive()).isFalse();
         assertThat(chatRoomRepository.findById(roomId).orElseThrow().getLastSequence()).isEqualTo(lastSequence);
     }
 

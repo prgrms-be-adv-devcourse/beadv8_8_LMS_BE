@@ -31,6 +31,9 @@ class ChatDeliverySourceReaderTest {
     @Autowired
     private ChatReadService chatReadService;
 
+    @Autowired
+    private ChatMessageSupporter chatMessageSupporter;
+
     private Long chatRoomId;
 
     @BeforeEach
@@ -49,7 +52,7 @@ class ChatDeliverySourceReaderTest {
 
     @Test
     void 시스템_안내의_전달_원본은_발신자_정보가_없고_없는_메시지는_빈_값이다() {
-        Long noticeId = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null).leftNotice().messageId();
+        Long noticeId = leaveAndGetNoticeId();
 
         assertThat(reader.findMessage(noticeId)).get().extracting(MessageSource::message)
                 .satisfies(message -> assertThat(message.sender()).isNull());
@@ -73,12 +76,18 @@ class ChatDeliverySourceReaderTest {
 
     @Test
     void 시스템_안내의_전달_원본은_안_읽은_사람_수를_싣지_않는다() {
-        Long noticeId = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null).leftNotice().messageId();
+        Long noticeId = leaveAndGetNoticeId();
 
         assertThat(reader.findMessage(noticeId)).get().extracting(MessageSource::message)
                 .satisfies(message -> {
                     assertThat(message.unreadMemberCount()).isNull();
                     assertThat(message.readCountVersion()).isNull();
                 });
+    }
+
+    /** 게스트가 나가고, 남은 호스트가 이력에서 보는 마지막 메시지(퇴장 안내)의 ID */
+    private Long leaveAndGetNoticeId() {
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        return chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 1).messages().getFirst().messageId();
     }
 }

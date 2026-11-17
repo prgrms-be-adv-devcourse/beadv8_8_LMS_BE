@@ -1,14 +1,11 @@
 package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.ChatRoomUseCase.OpenedRoom;
-import com.hapbang.chat.app.dto.ChatMessageResponse;
-import com.hapbang.chat.app.dto.ChatNotificationResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.port.ChatMessageRepository;
@@ -53,15 +50,15 @@ public class ChatNotificationUseCase {
     private final ChatDeliveryRecorder chatDeliveryRecorder;
 
     /** 출연 요청 도착: 호스트가 게스트에게 */
-    public Optional<ChatNotificationResult> notifyAppearanceRequestSent(AppearanceRequestDto request) {
-        return notify(NotificationKind.APPEARANCE_REQUEST_SENT, request.requestId(), request.hostId(),
+    public void notifyAppearanceRequestSent(AppearanceRequestDto request) {
+        notify(NotificationKind.APPEARANCE_REQUEST_SENT, request.requestId(), request.hostId(),
                 request.guestId(), (room, hostNickname, now) -> ChatMessage.appearanceRequestSent(room,
                         request.hostId(), request.requestId(), AppearanceRequestSentData.of(hostNickname, request), now));
     }
 
     /** 출연 모집 지원 도착: 게스트가 호스트에게 */
-    public Optional<ChatNotificationResult> notifyAppearanceApplicationSubmitted(AppearanceApplicationDto application) {
-        return notify(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, application.applicationId(),
+    public void notifyAppearanceApplicationSubmitted(AppearanceApplicationDto application) {
+        notify(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, application.applicationId(),
                 application.guestId(), application.hostId(),
                 (room, guestNickname, now) -> ChatMessage.appearanceApplicationSubmitted(room, application.guestId(),
                         application.applicationId(), application.recruitId(),
@@ -73,17 +70,17 @@ public class ChatNotificationUseCase {
      * @param referenceId 이미 남긴 알림인지 확인할 출연 알림 대상 ID
      * @param messageOf   열린 방과 행위자(보낸 사람) 닉네임으로 알림 메시지를 만든다
      */
-    private Optional<ChatNotificationResult> notify(NotificationKind kind, Long referenceId, Long senderId,
+    private void notify(NotificationKind kind, Long referenceId, Long senderId,
             Long receiverId, NotificationMessageFactory messageOf) {
         if (chatMessageRepository.existsByNotificationKindAndReferenceId(kind, referenceId)) {
             log.info("이미 남긴 채팅 알림 kind={}, referenceId={}", kind, referenceId);
-            return Optional.empty();
+            return;
         }
         ChatUser sender = chatUserOf(senderId);
         if (!sender.canChat() || !chatUserOf(receiverId).canChat()) {
             log.info("채팅할 수 없는 회원이라 알림을 남기지 않음 kind={}, referenceId={}, senderId={}, receiverId={}",
                     kind, referenceId, senderId, receiverId);
-            return Optional.empty();
+            return;
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -94,7 +91,6 @@ public class ChatNotificationUseCase {
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
         log.info("채팅 알림 kind={}, referenceId={}, chatRoomId={}", kind, referenceId, opened.chatRoom().getId());
         // 전달 대상 목록을 만들지 않는다. 알림 메시지·재입장 안내의 전달은 같은 트랜잭션의 outbox가 맡는다(설계 4.6)
-        return Optional.of(new ChatNotificationResult(ChatMessageResponse.from(message), opened.rejoinNotices()));
     }
 
     /**
