@@ -14,7 +14,6 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -58,23 +57,12 @@ public class KafkaCouponIssueEventPublisher implements CouponIssueEventPublisher
     public static final String EVENT_VERSION = "1";
     static final String PRODUCER_FACTORY_NAME = "couponIssueProducerFactory";
 
-    private final String topic;
     private final DefaultKafkaProducerFactory<String, CouponIssueRequested> producerFactory;
     private final KafkaTemplate<String, CouponIssueRequested> kafkaTemplate;
 
-    @Autowired
     public KafkaCouponIssueEventPublisher(ProducerFactory<?, ?> bootProducerFactory,
             ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
             ObjectProvider<ObservationRegistry> observationRegistry, CouponIssueDeliveryProperties properties) {
-        this(bootProducerFactory, producerFactoryCustomizers, observationRegistry, properties, CouponEventTopic.NAME);
-    }
-
-    /** 토픽만 바꾼다. 테스트가 공유 broker의 운영 토픽(다른 테스트의 소비자가 붙어 있다)을 피할 때 쓴다 */
-    KafkaCouponIssueEventPublisher(ProducerFactory<?, ?> bootProducerFactory,
-            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
-            ObjectProvider<ObservationRegistry> observationRegistry, CouponIssueDeliveryProperties properties,
-            String topic) {
-        this.topic = topic;
         Map<String, Object> configs = new HashMap<>(bootProducerFactory.getConfigurationProperties());
         configs.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, properties.publishAckTimeout().toMillis());
         applyDeliveryTimeout(configs, properties.producerDeliveryTimeout());
@@ -153,7 +141,7 @@ public class KafkaCouponIssueEventPublisher implements CouponIssueEventPublisher
     }
 
     private ProducerRecord<String, CouponIssueRequested> record(CouponIssueRequested event) {
-        ProducerRecord<String, CouponIssueRequested> record = new ProducerRecord<>(topic,
+        ProducerRecord<String, CouponIssueRequested> record = new ProducerRecord<>(CouponEventTopic.NAME,
                 String.valueOf(event.couponId()), event);
         record.headers().add("eventType", EVENT_TYPE.getBytes(StandardCharsets.UTF_8));
         record.headers().add("eventVersion", EVENT_VERSION.getBytes(StandardCharsets.UTF_8));

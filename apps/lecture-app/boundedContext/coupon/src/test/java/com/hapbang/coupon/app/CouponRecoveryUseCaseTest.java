@@ -33,9 +33,8 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
-import com.hapbang.coupon.config.CouponRecoveryProperties;
 import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueRequestRecord;
@@ -65,7 +64,7 @@ class CouponRecoveryUseCaseTest {
     private final PlatformTransactionManager transactionManager = mock();
     private final CouponRecoveryUseCase useCase = new CouponRecoveryUseCase(couponSupport, runRepository,
             issueRequestRepository, dltLogRepository, recoveryStore, publisher, probe, new CouponRedisProperties(null),
-            CouponRecoveryProperties.defaults(), CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
+            CouponTestProperties.recovery(), CouponTestProperties.issueDelivery(), transactionManager, CLOCK);
     /** 기본값의 경계 대기: 전송 준비 1초 + max(전송 수명 5초, 재발행 ACK 3초) + 여유 2초 */
     private static final Duration SETTLE = Duration.ofSeconds(8);
     /** 재구축·재개 선점 lease 기본값 */
@@ -125,12 +124,12 @@ class CouponRecoveryUseCaseTest {
     private RecoveryRun resultsCheckedRun() {
         RecoveryRun run = blockedRun();
         run.recordBoundary(new RecoveryBoundary(0, false, KAFKA_BOUNDARY, ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         return run;
     }
 
     private static String record(long memberId, boolean compensated) {
-        return new IssueRequestRecord(memberId, NOW, NOW.plus(Duration.ofDays(30)), true, compensated).format();
+        return new IssueRequestRecord(memberId, NOW, NOW.plus(Duration.ofDays(30)), null, true, compensated).format();
     }
 
     private void givenSnapshot(Long stock, Map<String, String> requests) {
@@ -208,8 +207,8 @@ class CouponRecoveryUseCaseTest {
     void 경계_재발행은_접수_기록의_epoch를_싣는다() {
         blockedRun();
         when(recoveryStore.block(eq(COUPON_ID), anyLong())).thenReturn(new BlockResult(true, false, false));
-        givenSnapshot(9L, Map.of("req-new", IssueRequestRecord.accepted(2L, NOW, NOW.plus(Duration.ofDays(30)), 3L)
-                .format()));
+        givenSnapshot(9L, Map.of("req-new", new IssueRequestRecord(2L, NOW, NOW.plus(Duration.ofDays(30)), 3L, false,
+                false).format()));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
 
         useCase.fixBoundary(ADMIN_ID, COUPON_ID, RECOVERY_ID);
@@ -373,7 +372,7 @@ class CouponRecoveryUseCaseTest {
         ReflectionTestUtils.setField(coupon, "issuedCount", 1);
         givenSnapshot(null, Map.of());
         when(issueRequestRepository.findResults(COUPON_ID)).thenReturn(List.of(
-                new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, NOW)));
+                new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, NOW, null)));
         when(recoveryStore.rebuild(anyLong(), anyLong(), any(), any())).thenAnswer(invocation -> {
             // Redis를 바꾸기 전에 선점이 커밋돼 있다
             assertThat(run.getStep()).isEqualTo(RecoveryStep.REBUILDING);
@@ -734,7 +733,7 @@ class CouponRecoveryUseCaseTest {
     void 끝까지_재개한_복구_뒤의_새_복구는_유실_의심을_이어받지_않는다() {
         RecoveryRun resumed = withRunId(RecoveryRun.start(COUPON_ID, coupon.getEpoch(), ADMIN_ID, true, NOW));
         resumed.recordBoundary(new RecoveryBoundary(0, true, KAFKA_BOUNDARY, ""), NOW);
-        resumed.recordResults(RecoveryUnresolved.none(), NOW);
+        resumed.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         rebuilt(resumed);
         resumed(resumed);
         when(runRepository.findFirstByCouponIdAndStepNotIn(COUPON_ID, RecoveryStep.finished())).thenReturn(Optional.empty());

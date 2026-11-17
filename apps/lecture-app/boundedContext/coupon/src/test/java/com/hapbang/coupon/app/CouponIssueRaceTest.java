@@ -44,6 +44,7 @@ import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
 import com.hapbang.coupon.out.redis.RedisCouponIssueStore;
@@ -88,7 +89,7 @@ class CouponIssueRaceTest {
 
         Instant now = clock.instant();
         couponId = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
-        coupon = Coupon.createSeller(SELLER_ID,
+        coupon = CouponFixture.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minus(Duration.ofHours(1)), now.plus(Duration.ofHours(1))).build(), now);
         ReflectionTestUtils.setField(coupon, "id", couponId);
         coupon.submitReview(now);

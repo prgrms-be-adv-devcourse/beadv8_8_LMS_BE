@@ -32,8 +32,8 @@ import com.hapbang.coupon.app.CouponRepublishUseCase.CouponResult;
 import com.hapbang.coupon.app.CouponRepublishUseCase.Ending;
 import com.hapbang.coupon.app.CouponRepublishUseCase.RepublishSummary;
 import com.hapbang.coupon.app.port.CouponRepository;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
@@ -66,7 +66,7 @@ class CouponRepublishUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new CouponRepublishUseCase(couponRepository, issueRequestRepository, dltLogRepository, issueStore, publisher,
-                CouponIssueDeliveryProperties.defaults(), new CouponRedisProperties(null), registry(meterRegistry),
+                CouponTestProperties.issueDelivery(), new CouponRedisProperties(null), registry(meterRegistry),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
         when(issueStore.findIssueControl(anyLong())).thenReturn(Optional.of(new IssueControlState(true, "OPEN", EPOCH, null)));
@@ -100,9 +100,9 @@ class CouponRepublishUseCaseTest {
     void 접수_기록에_접수_epoch가_있으면_그_epoch를_싣고_옛_형식이면_지금_epoch를_싣고_이전_epoch_기록은_보내지_않고_센다() {
         target(CouponStatus.OPEN);
         requests(Map.of(
-                "req-new", IssueRequestRecord.accepted(7, OLD, EXPIRES_AT, EPOCH).format() + "|PUBLISHED",
+                "req-new", new IssueRequestRecord(7, OLD, EXPIRES_AT, EPOCH, false, false).format() + "|PUBLISHED",
                 "req-old", accepted(8, OLD),
-                "req-stale", IssueRequestRecord.accepted(9, OLD, EXPIRES_AT, EPOCH - 1).format()));
+                "req-stale", new IssueRequestRecord(9, OLD, EXPIRES_AT, EPOCH - 1, false, false).format()));
 
         useCase.republishDue();
 
@@ -352,6 +352,7 @@ class CouponRepublishUseCaseTest {
     }
 
     private static String accepted(long memberId, Instant acceptedAt) {
-        return IssueRequestRecord.accepted(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30))).format();
+        return new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), null, false, false)
+                .format();
     }
 }

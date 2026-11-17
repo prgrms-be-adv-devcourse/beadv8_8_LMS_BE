@@ -25,6 +25,7 @@ import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.RecoveryRun;
@@ -43,8 +44,8 @@ class CouponDltReplayUseCaseTest {
     private final RecoveryRunRepository recoveryRunRepository = mock();
     private final CouponIssueEventPublisher publisher = mock();
     private final PlatformTransactionManager transactionManager = mock();
-    private final CouponIssueDeliveryProperties properties = CouponIssueDeliveryProperties.defaults();
-    private final CouponDltProperties dltProperties = CouponDltProperties.defaults();
+    private final CouponIssueDeliveryProperties properties = CouponTestProperties.issueDelivery();
+    private final CouponDltProperties dltProperties = CouponTestProperties.dlt();
     private final Duration lease = dltProperties.dltReplayLease();
 
     private CouponDltReplayUseCase useCase;

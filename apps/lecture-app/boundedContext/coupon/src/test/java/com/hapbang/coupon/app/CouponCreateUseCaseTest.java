@@ -20,6 +20,7 @@ import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.config.CouponPolicyProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
@@ -39,7 +40,7 @@ class CouponCreateUseCaseTest {
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class));
         useCase = new CouponCreateUseCase(couponRepository, support, new CouponPolicyProperties(null),
-                CouponLimitsProperties.defaults(), CLOCK);
+                CouponTestProperties.limits(), CLOCK);
         when(couponRepository.save(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
     }
 
@@ -112,7 +113,7 @@ class CouponCreateUseCaseTest {
         // 명령의 만료는 접수 후 30일이다
         CouponCreateUseCase shortLimit = new CouponCreateUseCase(couponRepository,
                 new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class)),
-                new CouponPolicyProperties(29), CouponLimitsProperties.defaults(), CLOCK);
+                new CouponPolicyProperties(29), CouponTestProperties.limits(), CLOCK);
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 12_000L, "ON_SALE")));
 

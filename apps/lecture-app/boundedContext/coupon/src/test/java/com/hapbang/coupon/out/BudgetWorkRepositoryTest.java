@@ -16,6 +16,7 @@ import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.support.BudgetWorkTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
@@ -38,7 +39,7 @@ class BudgetWorkRepositoryTest {
 
     @Test
     void 작업_lease는_한번만_선점되고_만료_뒤에는_새_attempt로_재선점한다() {
-        Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        Coupon coupon = couponRepository.save(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         String id = BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW).getWorkId();
         budgetWorkTestRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
         entityManager.clear();
@@ -57,12 +58,12 @@ class BudgetWorkRepositoryTest {
 
     @Test
     void 재시도는_결정적_작업_ID로_기존_작업을_찾고_같은_ID를_새로_저장하지_않는다() {
-        Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        Coupon coupon = couponRepository.save(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         budgetWorkRepository.save(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
         entityManager.flush();
         entityManager.clear();
 
-        BudgetWork found = budgetWorkRepository.findById(coupon.budgetReserveWorkId()).orElseThrow();
+        BudgetWork found = budgetWorkRepository.findById(coupon.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT)).orElseThrow();
         found.markDone("reservation-1", NOW.plusSeconds(1));
         entityManager.flush();
         entityManager.clear();

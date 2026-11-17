@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.config.CouponPlatformFundingProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponType;
 
 // 회원 쿠폰 조회 서비스: 플랫폼 재원이 꺼져 있으면 강의에 쓸 수 있는 쿠폰에서 플랫폼 쿠폰을 빼고, 쿠폰함은 그대로 보여 준다.
@@ -45,7 +46,7 @@ class MemberCouponQueryTest {
     void 플랫폼_재원이_켜져_있으면_쓸_수_있는_쿠폰에_플랫폼_쿠폰도_넣는다() {
         givenSellerAndPlatform();
         MemberCouponQuery query = new MemberCouponQuery(memberCouponRepository,
-                CouponPlatformFundingProperties.defaults(), CLOCK);
+                CouponTestProperties.platformFunding(), CLOCK);
 
         assertThat(query.usableFor(MEMBER_ID, LECTURE_ID)).extracting(MemberCouponView::memberCouponId)
                 .containsExactly(11L, 12L);

@@ -43,7 +43,8 @@ class CouponOrderDeadLetterRecorderTest {
         recorder.record(record, new ListenerExecutionFailedException("리스너 실패", broken));
 
         CouponDltLog saved = couponDltLogTestRepository.findAll().stream()
-                .filter(log -> log.getSourceOffset() == 31L).findFirst().orElseThrow();
+                .filter(log -> "lecture.events.v1".equals(log.getSourceTopic()) && log.getSourceOffset() == 31L)
+                .findFirst().orElseThrow();
         assertThat(saved.getKind()).isEqualTo(CouponDltKind.ORDER);
         assertThat(saved.getPayload()).isEqualTo(CouponDltPayload.BASE64_PREFIX + Base64.getEncoder().encodeToString(data));
         assertThat(CouponDltPayload.readOrderEvent(saved.getPayload())).isEmpty();

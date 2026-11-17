@@ -43,9 +43,4 @@ public record CouponLectureClientProperties(
         openDuration = openDuration == null ? Duration.ofSeconds(30) : openDuration;
         halfOpenCalls = halfOpenCalls == null ? 3 : halfOpenCalls;
     }
-
-    /** 설정 없이 쓰는 기본값 (테스트에서 직접 만들 때) */
-    public static CouponLectureClientProperties defaults() {
-        return new CouponLectureClientProperties(null, null, null, null, null, null, null, null, null);
-    }
 }

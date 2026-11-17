@@ -33,7 +33,7 @@ class RecoveryRunRepositoryTest {
     private RecoveryRun resumed(long couponId) {
         RecoveryRun run = RecoveryRun.start(couponId, 1L, ADMIN_ID, true, NOW);
         run.recordBoundary(new RecoveryBoundary(2, true, "0:5,1:0,2:0", ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         run.markRebuilt(run.claimRebuild(NOW, Duration.ofMinutes(2)), NOW);
         run.markResumed(run.claimResume("확인함", NOW, Duration.ofMinutes(2)), "확인함", "quantity=10", NOW);
         return recoveryRunRepository.saveAndFlush(run);
@@ -90,7 +90,7 @@ class RecoveryRunRepositoryTest {
     void 재개_중_유실_취소는_사유와_함께_끝난_복구로_저장된다() {
         RecoveryRun run = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, false, NOW);
         run.recordBoundary(new RecoveryBoundary(0, false, "0:1", ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         run.markRebuilt(run.claimRebuild(NOW, Duration.ofMinutes(2)), NOW);
         run.abandonClaim(run.claimResume("확인함", NOW, Duration.ofMinutes(2)), NOW);
         run.abortLostResume(ADMIN_ID, RecoveryRedisState.PROCESS_CHANGED, NOW, Duration.ofMinutes(2));
@@ -108,7 +108,7 @@ class RecoveryRunRepositoryTest {
     void 재개_선점_단계와_선점_시각이_저장되고_끝나지_않은_복구로_센다() {
         RecoveryRun run = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, false, NOW);
         run.recordBoundary(new RecoveryBoundary(0, false, "0:1", ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         run.markRebuilt(run.claimRebuild(NOW, Duration.ofMinutes(2)), NOW);
         run.claimResume("확인함", NOW.plusSeconds(20), Duration.ofMinutes(2));
         recoveryRunRepository.saveAndFlush(run);
@@ -125,7 +125,7 @@ class RecoveryRunRepositoryTest {
         RecoveryRun run = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, false, NOW);
         run.markBlocked(NOW);
         run.recordBoundary(new RecoveryBoundary(0, false, "0:1", ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         run.claimRebuild(NOW.plusSeconds(10), Duration.ofMinutes(2));
         recoveryRunRepository.saveAndFlush(run);
         entityManager.clear();

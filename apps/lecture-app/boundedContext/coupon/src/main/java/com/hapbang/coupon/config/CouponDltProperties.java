@@ -37,10 +37,6 @@ public record CouponDltProperties(Duration dltReplayLease, Duration dltReplayTim
         }
     }
 
-    /** 모두 기본값 */
-    public static CouponDltProperties defaults() {
-        return new CouponDltProperties(null, null);
-    }
 
     /** 재처리 트랜잭션 제한 시간(초). Spring 트랜잭션 제한 시간은 초 단위라 올린다 */
     public int dltReplayTimeoutSeconds() {

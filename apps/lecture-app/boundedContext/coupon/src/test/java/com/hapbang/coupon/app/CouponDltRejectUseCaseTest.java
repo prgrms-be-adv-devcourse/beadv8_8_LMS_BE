@@ -26,7 +26,7 @@ import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
-import com.hapbang.coupon.config.CouponDltProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.CouponIssueRequest;
@@ -42,7 +42,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 class CouponDltRejectUseCaseTest {
 
     private static final long DLT_ID = 5L;
-    private static final Duration LEASE = CouponDltProperties.defaults().dltReplayLease();
+    private static final Duration LEASE = CouponTestProperties.dlt().dltReplayLease();
     private static final String REQUEST_ID = "req-1";
     private static final Instant ISSUED_AT = NOW.minusSeconds(60);
     private static final CouponIssueRequested EVENT = new CouponIssueRequested(REQUEST_ID, COUPON_ID, MEMBER_ID, 1,
@@ -63,7 +63,7 @@ class CouponDltRejectUseCaseTest {
         when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
         CouponDltMetrics metrics = new CouponDltMetrics(providerOf(new SimpleMeterRegistry()), dltLogRepository);
         useCase = new CouponDltRejectUseCase(dltLogRepository, issueRequestRepository, processedOperationRepository,
-                couponRepository, compensationStore, metrics, CouponDltProperties.defaults(), transactionManager, CLOCK);
+                couponRepository, compensationStore, metrics, CouponTestProperties.dlt(), transactionManager, CLOCK);
         dltLog = log(CouponDltPayload.write(EVENT));
         when(dltLogRepository.findById(DLT_ID)).thenReturn(Optional.of(dltLog));
         when(couponRepository.existsById(COUPON_ID)).thenReturn(true);

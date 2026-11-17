@@ -69,9 +69,9 @@ class RecoveryRunTest {
     @Test
     void 경계_확정_전에는_결과를_확정하지_못하고_결과_확정_뒤에는_경계를_다시_정하지_못한다() {
         RecoveryRun run = started();
-        assertThatThrownBy(() -> run.recordResults(RecoveryUnresolved.none(), NOW)).isInstanceOf(CouponDomainException.class);
+        assertThatThrownBy(() -> run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW)).isInstanceOf(CouponDomainException.class);
 
-        RecoveryRun checked = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun checked = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         assertThatThrownBy(() -> checked.recordBoundary(BOUNDARY, NOW)).isInstanceOf(CouponDomainException.class);
     }
 
@@ -89,7 +89,7 @@ class RecoveryRunTest {
         run.recordResults(new RecoveryUnresolved(0, 0, 1), NOW);
         assertThatThrownBy(() -> run.claimRebuild(NOW, LEASE)).isInstanceOf(CouponDomainException.class);
 
-        run.recordResults(RecoveryUnresolved.none(), LATER);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), LATER);
         rebuild(run, LATER);
         assertThat(run.getStep()).isEqualTo(RecoveryStep.REBUILT);
     }
@@ -104,7 +104,7 @@ class RecoveryRunTest {
 
     @Test
     void 재구축은_다시_실행할_수_있고_재구축_뒤에는_결과를_다시_확정하지_않아_취소_금지를_우회하지_못한다() {
-        RecoveryRun run = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun run = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         rebuild(run, NOW);
         rebuild(run, LATER);
         assertThat(run.getStep()).isEqualTo(RecoveryStep.REBUILT);
@@ -119,7 +119,7 @@ class RecoveryRunTest {
 
     @Test
     void 재구축_선점은_Redis를_바꾸기_전의_단계이고_진행_중인_선점이_있으면_다시_선점하지_못한다() {
-        RecoveryRun run = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun run = resultsChecked(new RecoveryUnresolved(0, 0, 0));
 
         RecoveryRun.StepClaim claim = run.claimRebuild(NOW, LEASE);
 
@@ -130,14 +130,14 @@ class RecoveryRunTest {
                 .isInstanceOf(CouponDomainException.class)
                 .hasMessageContaining("진행 중");
         // 선점 중에는 결과 확정·취소·재개를 하지 않는다
-        assertThatThrownBy(() -> run.recordResults(RecoveryUnresolved.none(), NOW)).isInstanceOf(CouponDomainException.class);
+        assertThatThrownBy(() -> run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW)).isInstanceOf(CouponDomainException.class);
         assertThatThrownBy(() -> run.abort(ADMIN_ID, NOW)).isInstanceOf(CouponDomainException.class);
         assertThatThrownBy(() -> run.claimResume("확인함", NOW, LEASE)).isInstanceOf(CouponDomainException.class);
     }
 
     @Test
     void lease가_지난_선점은_버려진_것으로_보고_새로_선점하며_옛_선점으로는_완료하지_못한다() {
-        RecoveryRun run = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun run = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         RecoveryRun.StepClaim abandoned = run.claimRebuild(NOW, LEASE);
 
         RecoveryRun.StepClaim fresh = run.claimRebuild(NOW.plus(LEASE), LEASE);
@@ -151,18 +151,18 @@ class RecoveryRunTest {
 
     @Test
     void Redis가_쓰지_않은_재구축_실패는_선점_전_단계로_되돌리고_결과를_모르는_실패는_재구축_단계에_남는다() {
-        RecoveryRun released = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun released = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         released.releaseClaim(released.claimRebuild(NOW, LEASE), NOW);
         assertThat(released.getStep()).isEqualTo(RecoveryStep.RESULTS_CHECKED);
         released.abort(ADMIN_ID, LATER);
         assertThat(released.getStep()).isEqualTo(RecoveryStep.ABORTED);
 
-        RecoveryRun rebuiltBefore = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun rebuiltBefore = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         rebuild(rebuiltBefore, NOW);
         rebuiltBefore.releaseClaim(rebuiltBefore.claimRebuild(LATER, LEASE), LATER);
         assertThat(rebuiltBefore.getStep()).isEqualTo(RecoveryStep.REBUILT);
 
-        RecoveryRun unknown = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun unknown = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         unknown.abandonClaim(unknown.claimRebuild(NOW, LEASE), NOW);
         assertThat(unknown.getStep()).isEqualTo(RecoveryStep.REBUILDING);
         assertThat(unknown.getClaimedAt()).isNull();
@@ -184,7 +184,7 @@ class RecoveryRunTest {
                 .isInstanceOf(CouponDomainException.class)
                 .hasMessageContaining("진행 중");
         assertThatThrownBy(() -> resumeFirst.abort(ADMIN_ID, NOW)).isInstanceOf(CouponDomainException.class);
-        assertThatThrownBy(() -> resumeFirst.recordResults(RecoveryUnresolved.none(), NOW))
+        assertThatThrownBy(() -> resumeFirst.recordResults(new RecoveryUnresolved(0, 0, 0), NOW))
                 .isInstanceOf(CouponDomainException.class);
 
         RecoveryRun rebuildFirst = atStep(RecoveryStep.REBUILT);
@@ -281,7 +281,7 @@ class RecoveryRunTest {
 
     @Test
     void 재구축_선점으로는_재개를_완료하지_못한다() {
-        RecoveryRun run = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun run = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         RecoveryRun.StepClaim rebuildClaim = run.claimRebuild(NOW, LEASE);
 
         assertThatThrownBy(() -> run.markResumed(rebuildClaim, "확인함", "e", NOW)).isInstanceOf(CouponDomainException.class);
@@ -307,11 +307,11 @@ class RecoveryRunTest {
 
     @Test
     void 재개는_재구축_뒤에만_근거와_함께_하고_끝난_복구는_더_진행하지_않는다() {
-        RecoveryRun beforeRebuild = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun beforeRebuild = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         assertThatThrownBy(() -> beforeRebuild.claimResume("확인함", NOW, LEASE))
                 .isInstanceOf(CouponDomainException.class);
 
-        RecoveryRun run = resultsChecked(RecoveryUnresolved.none());
+        RecoveryRun run = resultsChecked(new RecoveryUnresolved(0, 0, 0));
         rebuild(run, NOW);
         assertThatThrownBy(() -> run.claimResume(" ", NOW, LEASE))
                 .isInstanceOf(CouponDomainException.class)
@@ -324,7 +324,7 @@ class RecoveryRunTest {
         assertThat(run.getResumeBasis()).isEqualTo("유실 접수 없음을 확인함");
         assertThat(run.getResumeEvidence()).isEqualTo("quantity=10");
         assertThat(run.getResumedAt()).isEqualTo(LATER);
-        assertThatThrownBy(() -> run.recordResults(RecoveryUnresolved.none(), LATER))
+        assertThatThrownBy(() -> run.recordResults(new RecoveryUnresolved(0, 0, 0), LATER))
                 .isInstanceOf(CouponDomainException.class);
         assertThatThrownBy(() -> run.markRequestsLost(LATER)).isInstanceOf(CouponDomainException.class);
     }
@@ -348,7 +348,7 @@ class RecoveryRunTest {
         if (step == RecoveryStep.BOUNDARY_FIXED) {
             return run;
         }
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         if (step == RecoveryStep.RESULTS_CHECKED) {
             return run;
         }
@@ -427,7 +427,7 @@ class RecoveryRunTest {
 
         RecoveryRun resumed = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, true, NOW);
         resumed.recordBoundary(BOUNDARY, NOW);
-        resumed.recordResults(RecoveryUnresolved.none(), NOW);
+        resumed.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         rebuild(resumed, NOW);
         resume(resumed, "확인함", "quantity=10", LATER);
         assertThat(resumed.leavesUnknownAt(retainedUntil.minusMillis(1), retainedUntil)).isTrue();

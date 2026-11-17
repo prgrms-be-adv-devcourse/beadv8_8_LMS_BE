@@ -29,6 +29,7 @@ import com.hapbang.coupon.app.port.IssueCapacityRepository;
 import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.support.CouponTestRepository;
 import com.hapbang.coupon.support.IssueCapacityReservationTestRepository;
 import com.hapbang.coupon.support.IssueCapacityTestRepository;
@@ -108,7 +109,7 @@ class IssueCapacityRepositoryTest {
     @Test
     void 열기_재시도는_예약을_다시_쓰며_합계를_늘리지_않고_예약_시각만_바꾼다() {
         Coupon coupon = couponTestRepository.saveAndFlush(
-                Coupon.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW));
+                CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW));
         Instant retryAt = NOW.plusSeconds(600);
 
         capacity(Clock.fixed(NOW, ZoneOffset.UTC)).reserve(coupon);
@@ -127,7 +128,7 @@ class IssueCapacityRepositoryTest {
         List<Coupon> coupons = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
             coupons.add(couponTestRepository.saveAndFlush(
-                    Coupon.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW)));
+                    CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW)));
         }
         CouponCapacitySupport capacity = new CouponCapacitySupport(capacityRepository, reservationRepository,
                 new CouponLimitsProperties(30, LIMIT, null, null, null), metrics(), transactionManager, Clock.systemUTC());

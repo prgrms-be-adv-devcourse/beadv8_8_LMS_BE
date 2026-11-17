@@ -80,11 +80,6 @@ public interface CouponRecoveryStore {
      */
     record IssueControlState(boolean present, boolean ready, String hold, Instant keysExpireAt) {
 
-        /** keysExpireAt을 보지 않는 곳에서 쓴다 */
-        public IssueControlState(boolean present, boolean ready, String hold) {
-            this(present, ready, hold, null);
-        }
-
         public static IssueControlState missing() {
             return new IssueControlState(false, false, null, null);
         }

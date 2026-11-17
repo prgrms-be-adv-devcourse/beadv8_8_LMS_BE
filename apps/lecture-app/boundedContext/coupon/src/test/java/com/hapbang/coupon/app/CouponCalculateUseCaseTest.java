@@ -23,6 +23,7 @@ import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponPlatformFundingProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
@@ -162,7 +163,7 @@ class CouponCalculateUseCaseTest {
 
     @Test
     void 플랫폼_재원이_켜져_있으면_플랫폼_쿠폰도_추천하고_직접_고를_수_있다() {
-        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponPlatformFundingProperties.defaults(),
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponTestProperties.platformFunding(),
                 CLOCK);
         givenSellerAndPlatformAvailable();
         givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));

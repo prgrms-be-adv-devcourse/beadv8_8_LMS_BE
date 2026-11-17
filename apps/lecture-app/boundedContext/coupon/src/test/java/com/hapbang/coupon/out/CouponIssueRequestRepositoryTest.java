@@ -13,6 +13,7 @@ import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.MemberCoupon;
@@ -115,7 +116,7 @@ class CouponIssueRequestRepositoryTest {
     }
 
     private Long saveCoupon() {
-        return couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
+        return couponRepository.save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
     }
 
     private void flushAndClear() {

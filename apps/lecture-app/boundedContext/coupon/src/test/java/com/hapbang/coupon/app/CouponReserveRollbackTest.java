@@ -27,6 +27,7 @@ import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponTerms;
 import com.hapbang.coupon.domain.DiscountType;
@@ -76,9 +77,9 @@ class CouponReserveRollbackTest {
 
     @Test
     void 앞_장을_예약한_뒤_뒤_장의_조건부_갱신이_0행이면_앞_장도_되돌리고_거절을_기록한다() {
-        long sellerCoupon = issue(couponRepository.save(Coupon.createSeller(SELLER_ID,
+        long sellerCoupon = issue(couponRepository.save(CouponFixture.createSeller(SELLER_ID,
                 terms(CouponTargetType.LECTURE, LECTURE_ID, PRICE, DiscountType.RATE, 10), Instant.now())).getId());
-        long platformCoupon = issue(couponRepository.save(Coupon.createPlatform(ADMIN_ID,
+        long platformCoupon = issue(couponRepository.save(CouponFixture.createPlatform(ADMIN_ID,
                 terms(CouponTargetType.ANY_LECTURE, null, null, DiscountType.AMOUNT, 1_500), Instant.now())).getId());
         assertThat(sellerCoupon).isLessThan(platformCoupon);
         AtomicInteger firstUpdated = interleaveReservationOf(platformCoupon);

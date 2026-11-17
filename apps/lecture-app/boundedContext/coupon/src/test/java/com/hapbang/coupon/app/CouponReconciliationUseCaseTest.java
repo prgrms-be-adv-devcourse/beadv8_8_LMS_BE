@@ -34,9 +34,9 @@ import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
 import com.hapbang.coupon.app.port.IssueResultRow;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueHoldReason;
@@ -78,7 +78,7 @@ class CouponReconciliationUseCaseTest {
         // 재발행 대기 임계치 1건
         useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, issueRequestRepository, store,
                 issueStore, new CouponRedisProperties(null), capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
-                CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
+                CouponTestProperties.issueDelivery(), transactionManager, CLOCK);
     }
 
     @Test
@@ -460,13 +460,13 @@ class CouponReconciliationUseCaseTest {
     }
 
     private static String record(long memberId, long epoch) {
-        return IssueRequestRecord.accepted(memberId, NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)), epoch)
-                .format();
+        return new IssueRequestRecord(memberId, NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)), epoch, false,
+                false).format();
     }
 
     private void accepted(String requestId, long memberId, Instant acceptedAt) {
-        requests.put(requestId, IssueRequestRecord.accepted(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)))
-                .format());
+        requests.put(requestId, new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), null,
+                false, false).format());
         users.add(memberId);
     }
 

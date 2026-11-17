@@ -182,14 +182,6 @@ public class Coupon {
     }
 
     /**
-     * 만료 상한을 DB 한도({@link #DB_MAX_EXPIRY_DAYS})로 둔 {@link #createSeller(Long, CouponTerms, int, Instant)}.
-     * 테스트 편의용이다. 운영 코드는 설정값을 넘기는 쪽을 쓴다
-     */
-    public static Coupon createSeller(Long sellerId, CouponTerms terms, Instant now) {
-        return createSeller(sellerId, terms, DB_MAX_EXPIRY_DAYS, now);
-    }
-
-    /**
      * 플랫폼 쿠폰(DRAFT). 관리자만 부른다(역할 검사는 app). 예산액이 long을 넘으면 발행 단계에서 거절한다.
      *
      * @param maxExpiryDays 만료 상한 일수(설정값). RELATIVE는 만료 일수, FIXED는 발급 종료부터 고정 만료 시각까지의 상한이다
@@ -198,14 +190,6 @@ public class Coupon {
         Coupon coupon = new Coupon(CouponType.PLATFORM, adminId, terms, maxExpiryDays, now);
         coupon.terms().budgetAmount();
         return coupon;
-    }
-
-    /**
-     * 만료 상한을 DB 한도({@link #DB_MAX_EXPIRY_DAYS})로 둔 {@link #createPlatform(Long, CouponTerms, int, Instant)}.
-     * 테스트 편의용이다. 운영 코드는 설정값을 넘기는 쪽을 쓴다
-     */
-    public static Coupon createPlatform(Long adminId, CouponTerms terms, Instant now) {
-        return createPlatform(adminId, terms, DB_MAX_EXPIRY_DAYS, now);
     }
 
     /** 이 쿠폰의 발행 조건 */
@@ -331,11 +315,6 @@ public class Coupon {
             throw new CouponDomainException(CouponDomainError.BUDGET_NOT_APPLICABLE);
         }
         return terms().budgetAmount();
-    }
-
-    /** 이 쿠폰 정책 버전의 첫 예산 예약 작업 ID. 재시도 때 같은 값이다 */
-    public String budgetReserveWorkId() {
-        return budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT);
     }
 
     /** 이 쿠폰 정책 버전의 {@code attempt}번째 예산 예약 작업 ID. 같은 시도 번호면 같은 값이다 */

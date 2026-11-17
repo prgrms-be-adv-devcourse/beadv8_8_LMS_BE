@@ -47,6 +47,7 @@ import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -296,7 +297,7 @@ class CouponOpenUseCaseTest {
 
     @Test
     void 모든_강의_대상_플랫폼_쿠폰은_강의를_조회하지_않고_연다() {
-        given(withId(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW)));
+        given(withId(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW)));
         when(promotionBudget.reserve(eq(WORK_ID), eq(COUPON_ID), eq(1), anyLong()))
                 .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-1", null));
 
@@ -372,7 +373,7 @@ class CouponOpenUseCaseTest {
     @Test
     void 고정_만료_쿠폰은_고정_만료_시각을_Redis_준비_값에_넣는다() {
         Instant fixedExpiresAt = ISSUE_END.plus(Duration.ofDays(10));
-        Coupon fixed = withId(Coupon.createSeller(SELLER_ID, lectureRate().fixed(fixedExpiresAt).build(), NOW));
+        Coupon fixed = withId(CouponFixture.createSeller(SELLER_ID, lectureRate().fixed(fixedExpiresAt).build(), NOW));
         fixed.submitReview(NOW);
         given(fixed);
 

@@ -18,7 +18,7 @@ import com.hapbang.coupon.app.dto.CouponDltLogView;
 import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
-import com.hapbang.coupon.config.CouponDltProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
@@ -39,7 +39,7 @@ class CouponOrderDltReplayUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new CouponOrderDltReplayUseCase(dltLogRepository, consumerUseCase, CouponDltProperties.defaults(),
+        useCase = new CouponOrderDltReplayUseCase(dltLogRepository, consumerUseCase, CouponTestProperties.dlt(),
                 transactionManager(), CLOCK);
         dltLog = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 1, 9L,
                 "order-item:" + ORDER_ITEM_ID), CouponDltPayload.writeOrderEvent(EVENT), "원인", NOW);

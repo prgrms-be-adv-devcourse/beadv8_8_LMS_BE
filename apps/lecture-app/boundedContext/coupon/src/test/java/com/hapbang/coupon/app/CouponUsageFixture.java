@@ -20,8 +20,9 @@ import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.app.port.ProcessedOperationRepository;
-import com.hapbang.coupon.config.CouponCalculateProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.MemberCoupon;
 
 /** 쿠폰 사용 서비스 테스트 값. 저장한 것처럼 ID를 붙인 쿠폰·발급 쿠폰과 아무것도 하지 않는 트랜잭션 대역 */
@@ -37,12 +38,12 @@ final class CouponUsageFixture {
 
     /** 특정 강의(10,000 HP) 10% 판매자 쿠폰(중첩 가능) */
     static Coupon sellerRateCoupon(long couponId) {
-        return withId(Coupon.createSeller(SELLER_ID, lectureRate().stackable(true).build(), NOW), couponId);
+        return withId(CouponFixture.createSeller(SELLER_ID, lectureRate().stackable(true).build(), NOW), couponId);
     }
 
     /** 모든 강의 1,500 HP 플랫폼 쿠폰(중첩 가능) */
     static Coupon platformAnyAmountCoupon(long couponId) {
-        return withId(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().stackable(true).build(), NOW), couponId);
+        return withId(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().stackable(true).build(), NOW), couponId);
     }
 
     static Coupon withId(Coupon coupon, long couponId) {
@@ -61,7 +62,7 @@ final class CouponUsageFixture {
     static CouponUsageSupport support(MemberCouponRepository memberCouponRepository,
                                       ProcessedOperationRepository processedOperationRepository,
                                       PlatformTransactionManager transactionManager) {
-        return new CouponUsageSupport(CouponCalculateProperties.defaults(), memberCouponRepository,
+        return new CouponUsageSupport(CouponTestProperties.calculate(), memberCouponRepository,
                 processedOperationRepository, transactionManager);
     }
 

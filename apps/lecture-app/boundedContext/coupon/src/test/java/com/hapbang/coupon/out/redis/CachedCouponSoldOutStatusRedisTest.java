@@ -8,8 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
-import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -28,7 +27,7 @@ class CachedCouponSoldOutStatusRedisTest extends CouponRedisTestSupport {
         open(control(openCouponId, EPOCH, 1));
 
         CachedCouponSoldOutStatus status = new CachedCouponSoldOutStatus(redisTemplate,
-                CouponIssueDeliveryProperties.defaults(), CouponSoldOutCacheProperties.defaults(), Clock.systemUTC(),
+                CouponTestProperties.issueDelivery(), CouponTestProperties.soldOutCache(), Clock.systemUTC(),
                 new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
 
         assertThat(status.isSoldOut(soldOutCouponId)).isTrue();

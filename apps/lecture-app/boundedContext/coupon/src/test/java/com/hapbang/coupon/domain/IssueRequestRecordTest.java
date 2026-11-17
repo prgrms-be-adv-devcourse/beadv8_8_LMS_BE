@@ -23,7 +23,7 @@ class IssueRequestRecordTest {
     void 표식이_없는_접수_기록을_읽고_같은_값으로_쓴다() {
         IssueRequestRecord record = IssueRequestRecord.parse(BASE);
 
-        assertThat(record).isEqualTo(IssueRequestRecord.accepted(7, ACCEPTED_AT, EXPIRES_AT));
+        assertThat(record).isEqualTo(new IssueRequestRecord(7, ACCEPTED_AT, EXPIRES_AT, null, false, false));
         assertThat(record.format()).isEqualTo(BASE);
     }
 
@@ -48,7 +48,7 @@ class IssueRequestRecordTest {
     void 접수_epoch가_있는_새_형식을_읽고_같은_값으로_쓴다() {
         IssueRequestRecord record = IssueRequestRecord.parse(WITH_EPOCH);
 
-        assertThat(record).isEqualTo(IssueRequestRecord.accepted(7, ACCEPTED_AT, EXPIRES_AT, 3));
+        assertThat(record).isEqualTo(new IssueRequestRecord(7, ACCEPTED_AT, EXPIRES_AT, 3L, false, false));
         assertThat(record.epoch()).isEqualTo(3L);
         assertThat(record.format()).isEqualTo(WITH_EPOCH);
     }
@@ -85,7 +85,7 @@ class IssueRequestRecordTest {
 
     @Test
     void 쓸_때는_PUBLISHED_COMPENSATED_순서다() {
-        assertThat(new IssueRequestRecord(7, ACCEPTED_AT, EXPIRES_AT, true, true).format())
+        assertThat(new IssueRequestRecord(7, ACCEPTED_AT, EXPIRES_AT, null, true, true).format())
                 .isEqualTo(BASE + "|PUBLISHED|COMPENSATED");
         assertThat(IssueRequestRecord.parse(BASE + "|COMPENSATED|PUBLISHED").format())
                 .isEqualTo(BASE + "|PUBLISHED|COMPENSATED");

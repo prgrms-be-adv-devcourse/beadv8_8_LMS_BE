@@ -15,6 +15,7 @@ import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.UsedCoupon;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -185,7 +186,7 @@ class CouponUsageRepositoryTest {
     }
 
     private MemberCoupon saveMemberCoupon(String requestId) {
-        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
+        Long couponId = couponRepository.save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
         return memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, requestId, NOW, EXPIRES_AT, NOW));
     }
 

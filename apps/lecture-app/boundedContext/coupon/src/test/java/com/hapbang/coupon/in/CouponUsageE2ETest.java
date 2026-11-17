@@ -68,6 +68,7 @@ import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponTerms;
@@ -168,7 +169,7 @@ class CouponUsageE2ETest {
         Instant now = Instant.now();
         long couponId = budgetCoupon(now, false);
         Coupon coupon = couponRepository.findById(couponId).orElseThrow();
-        String workId = coupon.budgetReserveWorkId();
+        String workId = coupon.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT);
         CountDownLatch foregroundEntered = new CountDownLatch(1);
         CountDownLatch finishForeground = new CountDownLatch(1);
         CountDownLatch batchEntered = new CountDownLatch(1);
@@ -228,7 +229,7 @@ class CouponUsageE2ETest {
         Instant now = Instant.now();
         long couponId = budgetCoupon(now, false);
         Coupon coupon = couponRepository.findById(couponId).orElseThrow();
-        String workId = coupon.budgetReserveWorkId();
+        String workId = coupon.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT);
         fundPromotion(coupon.budgetAmount());
         budgetWorkTestRepository.saveAndFlush(BudgetWork.reserve(coupon, 1, now));
         billing.dropNextResponse("/reservations");
@@ -266,7 +267,7 @@ class CouponUsageE2ETest {
                 .isInstanceOf(CouponIssueStoreUnavailableException.class);
         Coupon draft = couponRepository.findById(couponId).orElseThrow();
         assertThat(draft.getStatus()).isEqualTo(CouponStatus.DRAFT);
-        assertThat(budgetWorkRepository.findById(draft.budgetReserveWorkId()).orElseThrow().getStatus())
+        assertThat(budgetWorkRepository.findById(draft.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT)).orElseThrow().getStatus())
                 .isEqualTo(BudgetWorkStatus.DONE);
         Instant afterEnd = draft.getIssueEndAt().plusSeconds(1);
         budgetWorker(afterEnd).runDue();
@@ -393,7 +394,7 @@ class CouponUsageE2ETest {
         Instant now = Instant.now();
         long badCoupon = budgetCoupon(now, false);
         long platformCoupon = budgetCoupon(now, true);
-        long sellerCoupon = couponTestRepository.saveAndFlush(Coupon.createSeller(SELLER_ID,
+        long sellerCoupon = couponTestRepository.saveAndFlush(CouponFixture.createSeller(SELLER_ID,
                 com.hapbang.coupon.domain.CouponFixture.lectureRate()
                         .issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
         long bad = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, badCoupon, "bad-budget",
@@ -524,7 +525,7 @@ class CouponUsageE2ETest {
     }
 
     private long budgetCoupon(Instant now, boolean reserved) {
-        Coupon coupon = Coupon.createPlatform(ADMIN_ID,
+        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID,
                 com.hapbang.coupon.domain.CouponFixture.anyLectureAmount().quantity(5)
                         .issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now);
         long id = couponTestRepository.saveAndFlush(coupon).getId();
@@ -693,7 +694,7 @@ class CouponUsageE2ETest {
     private void reserveBudget(long couponId, Instant now) {
         Coupon coupon = couponRepository.findById(couponId).orElseThrow();
         fundPromotion(coupon.budgetAmount());
-        BudgetResult result = promotionBudget.reserve(coupon.budgetReserveWorkId(), couponId, coupon.getPolicyVersion(), coupon.budgetAmount());
+        BudgetResult result = promotionBudget.reserve(coupon.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT), couponId, coupon.getPolicyVersion(), coupon.budgetAmount());
         assertThat(result.outcome()).isEqualTo(Outcome.SUCCEEDED);
         new org.springframework.transaction.support.TransactionTemplate(budgetTransactionManager).executeWithoutResult(status ->
                 couponRepository.findById(couponId).orElseThrow().recordBudgetReserved(result.reservationId(), now));
@@ -726,14 +727,14 @@ class CouponUsageE2ETest {
 
     /** 특정 강의 10% 판매자 쿠폰(중첩 가능) */
     private long saveSellerCoupon() {
-        return couponRepository.save(Coupon.createSeller(SELLER_ID, terms(CouponTargetType.LECTURE, LECTURE_ID, PRICE,
+        return couponRepository.save(CouponFixture.createSeller(SELLER_ID, terms(CouponTargetType.LECTURE, LECTURE_ID, PRICE,
                 DiscountType.RATE, 10), Instant.now())).getId();
     }
 
     /** 모든 강의 1,500 HP 플랫폼 쿠폰(중첩 가능) */
     private long savePlatformCoupon() {
         Instant now = Instant.now();
-        long id = couponTestRepository.saveAndFlush(Coupon.createPlatform(ADMIN_ID, terms(CouponTargetType.ANY_LECTURE, null, null,
+        long id = couponTestRepository.saveAndFlush(CouponFixture.createPlatform(ADMIN_ID, terms(CouponTargetType.ANY_LECTURE, null, null,
                 DiscountType.AMOUNT, 1_500), now)).getId();
         reserveBudget(id, now);
         return id;

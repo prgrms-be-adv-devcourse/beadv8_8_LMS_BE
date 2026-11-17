@@ -43,11 +43,21 @@ public final class CouponFixture {
     }
 
     public static Coupon sellerCoupon() {
-        return Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW);
+        return createSeller(SELLER_ID, lectureRate().build(), NOW);
     }
 
     public static Coupon platformCoupon() {
-        return Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW);
+        return createPlatform(ADMIN_ID, lectureRate().build(), NOW);
+    }
+
+    /** 만료 상한을 DB 한도({@link Coupon#DB_MAX_EXPIRY_DAYS})로 둔 판매자 쿠폰 신청서 */
+    public static Coupon createSeller(Long sellerId, CouponTerms terms, Instant now) {
+        return Coupon.createSeller(sellerId, terms, Coupon.DB_MAX_EXPIRY_DAYS, now);
+    }
+
+    /** 만료 상한을 DB 한도({@link Coupon#DB_MAX_EXPIRY_DAYS})로 둔 플랫폼 쿠폰 */
+    public static Coupon createPlatform(Long adminId, CouponTerms terms, Instant now) {
+        return Coupon.createPlatform(adminId, terms, Coupon.DB_MAX_EXPIRY_DAYS, now);
     }
 
     public static final class TermsBuilder {

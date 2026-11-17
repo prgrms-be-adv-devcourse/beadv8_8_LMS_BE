@@ -172,7 +172,7 @@ class HttpLectureCatalogTest {
     }
 
     private static HttpLectureCatalog catalog(String baseUrl) {
-        return catalog(baseUrl, CouponLectureClientProperties.defaults());
+        return catalog(baseUrl, new CouponLectureClientProperties(null, null, null, null, null, null, null, null, null));
     }
 
     // 최근 2번 중 2번 모두 실패하면 열리고, 테스트 동안 다시 HALF_OPEN이 되지 않는 회로

@@ -18,9 +18,4 @@ public record RecoveryIssueResult(String issueRequestId, long memberId, CouponIs
         Objects.requireNonNull(result, "result");
         Objects.requireNonNull(acceptedAt, "acceptedAt");
     }
-
-    /** epoch를 읽어 오지 않은 결과 */
-    public RecoveryIssueResult(String issueRequestId, long memberId, CouponIssueResult result, Instant acceptedAt) {
-        this(issueRequestId, memberId, result, acceptedAt, null);
-    }
 }

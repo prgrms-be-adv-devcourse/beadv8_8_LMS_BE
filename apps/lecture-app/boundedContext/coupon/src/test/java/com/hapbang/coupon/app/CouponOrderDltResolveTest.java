@@ -21,8 +21,9 @@ import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
-import com.hapbang.coupon.config.CouponDltProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.CouponType;
@@ -90,7 +91,7 @@ class CouponOrderDltResolveTest {
         OrderItemPaidEvent paid = OrderItemPaidEvent.of(ORDER_ID, ORDER_ITEM_ID, MEMBER_ID,
                 List.of(new OrderItemPaidEvent.Usage(memberCouponId, 1)), now);
         assertThat(couponOrderConsumerUseCase.consume(paid)).isEqualTo(CouponOrderConsumerUseCase.Result.APPLIED);
-        Duration lease = CouponDltProperties.defaults().dltReplayLease();
+        Duration lease = CouponTestProperties.dlt().dltReplayLease();
         CouponDltLog stale = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 0, 77L,
                 "order-item:" + ORDER_ITEM_ID), CouponDltPayload.writeOrderEvent(paid), "원인", now);
         stale.claimReplay(ADMIN_ID, now.minus(lease).minusSeconds(1), lease);
@@ -113,7 +114,7 @@ class CouponOrderDltResolveTest {
 
     /** 판매자 쿠폰 한 장을 주문 항목에 예약한 상태(발급 쿠폰 RESERVED·generation 1, 사용 시도 RESERVED). 발급 쿠폰 ID */
     private long reservedUsage(Instant now) {
-        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
+        Long couponId = couponRepository.save(CouponFixture.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
         MemberCoupon memberCoupon = memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
                 now, now.plus(Duration.ofDays(30)), now));

@@ -32,10 +32,6 @@ public record CouponRecoveryProperties(Duration republishAckTimeout, Duration ka
         claimLease = positive(claimLease, Duration.ofMinutes(2), "claim-lease");
     }
 
-    /** 모두 기본값 */
-    public static CouponRecoveryProperties defaults() {
-        return new CouponRecoveryProperties(null, null, null, null, null);
-    }
 
     private static Duration positive(Duration value, Duration defaultValue, String name) {
         Duration resolved = value == null ? defaultValue : value;

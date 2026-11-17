@@ -12,7 +12,7 @@ class CouponDltPropertiesTest {
 
     @Test
     void 기본값은_lease_1분_재처리_제한_시간_25초다() {
-        CouponDltProperties defaults = CouponDltProperties.defaults();
+        CouponDltProperties defaults = new CouponDltProperties(null, null);
 
         assertThat(defaults.dltReplayLease()).isEqualTo(Duration.ofMinutes(1));
         assertThat(defaults.dltReplayTimeout()).isEqualTo(Duration.ofSeconds(25));
