@@ -20,8 +20,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.filter.ServerHttpObservationFilter;
 
 import com.hapbang.coupon.app.CouponIssueRequestUseCase;
-import com.hapbang.coupon.app.CouponSoldOutCache;
 import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.port.CouponSoldOutStatus;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 import com.hapbang.shared.member.domain.Role;
 
@@ -34,7 +34,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * 매진 빠른 경로. 발급 접수({@code POST /api/v1/coupons/{couponId}/issue-requests})가 Gateway 사용자 헤더로 발급 가능한 회원이고
- * 매진 표시 캐시({@link CouponSoldOutCache})가 매진이라고 하면, Spring Security·MVC를 거치지 않고 예외 처리기와 같은 409
+ * 매진 상태({@link CouponSoldOutStatus}, 매진 표시 메모리 캐시)가 매진이라고 하면, Spring Security·MVC를 거치지 않고 예외 처리기와 같은 409
  * {@code COUPON_SOLD_OUT}을 바로 쓴다. 선착순 오픈 직후 몰리는 매진 요청의 CPU를 줄여 접수 요청이 CPU를 쓰게 한다. 그 밖의 요청과
  * 매진이 아닌 요청은 그대로 넘긴다. 최종 판정은 지금처럼 발급 Lua다.
  * <p>
@@ -71,14 +71,14 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     private static final Pattern PATH = Pattern.compile("/api/v1/coupons/(\\d{1,18})/issue-requests");
 
     /** 필터 등록은 서블릿 컨텍스트가 뜰 때라 일반 빈보다 먼저다. 캐시(Redis 연결)·지표는 첫 요청 때 꺼내 앞당겨 만들지 않는다 */
-    private final SingletonSupplier<CouponSoldOutCache> soldOutCache;
+    private final SingletonSupplier<CouponSoldOutStatus> soldOutStatus;
     private final SingletonSupplier<Counter> soldOut;
     /** MVC가 ProblemDetail을 쓰는 변환기. 본문 직렬화를 예외 처리기 응답과 같게 한다 */
     private final SingletonSupplier<HttpMessageConverter<Object>> problemWriter;
 
-    public CouponSoldOutFastPathFilter(Supplier<CouponSoldOutCache> soldOutCache, Supplier<MeterRegistry> meterRegistry,
+    public CouponSoldOutFastPathFilter(Supplier<CouponSoldOutStatus> soldOutStatus, Supplier<MeterRegistry> meterRegistry,
                                        Supplier<List<HttpMessageConverter<?>>> mvcConverters) {
-        this.soldOutCache = SingletonSupplier.of(soldOutCache);
+        this.soldOutStatus = SingletonSupplier.of(soldOutStatus);
         this.soldOut = SingletonSupplier.of(() -> meterRegistry.get().counter(CouponIssueRequestUseCase.SOLD_OUT_METRIC));
         this.problemWriter = SingletonSupplier.of(() -> problemWriter(mvcConverters.get()));
     }
@@ -99,7 +99,7 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     /** 매진 캐시를 보다 예외가 나면 매진이 아닌 것으로 보고 정상 경로(최종 판정은 Lua)에 맡긴다. 이 필터는 보안 앞이라 예외가 새면 공통 오류 응답을 거치지 못한다 */
     private boolean isSoldOut(long couponId) {
         try {
-            return soldOutCache.obtain().isSoldOut(couponId);
+            return soldOutStatus.obtain().isSoldOut(couponId);
         } catch (RuntimeException e) {
             logger.debug("매진 캐시를 보지 못해 정상 경로로 넘긴다 couponId=" + couponId, e);
             return false;

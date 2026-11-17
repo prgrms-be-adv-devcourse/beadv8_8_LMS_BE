@@ -1,20 +1,22 @@
-package com.hapbang.coupon.app;
+package com.hapbang.coupon.out.redis;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import java.util.function.LongPredicate;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
-import com.hapbang.coupon.app.port.CouponIssueStore;
-import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.port.CouponSoldOutStatus;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
@@ -26,7 +28,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 매진 표시 메모리 캐시. 쿠폰마다 Redis sold_out을 읽은 결과를 {@code hapbang.coupon.sold-out-cache-ttl} 동안 재사용해, 매진 뒤 몰리는
+ * 매진 표시 메모리 캐시({@link CouponSoldOutStatus}의 구현). 쿠폰마다 Redis sold_out({@link CouponRedisKeys#soldOut})을 읽은 결과를 {@code hapbang.coupon.sold-out-cache-ttl} 동안 재사용해, 매진 뒤 몰리는
  * 접수를 Redis 호출 없이 거절한다. 확인 자체도 Redis GET이라 TTL이 지나면 다시 읽는다. 최종 판정은 발급 Lua다: 매진이 아니라는 값은 Lua를
  * 막지 않고, Redis에 닿지 못하면 매진이 아닌 것으로 보고 Lua에 맡긴다. TTL이 0이면 캐시를 끄고 sold_out을 읽지 않는다.
  * <p>
@@ -44,31 +46,36 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-public class CouponSoldOutCache {
+public class CachedCouponSoldOutStatus implements CouponSoldOutStatus {
 
     /** Micrometer 캐시 지표의 {@code cache} 태그 값 */
     static final String METRIC_CACHE_NAME = "coupon.issue.sold_out";
 
-    private final CouponIssueStore couponIssueStore;
+    /** Redis 매진 표시가 있는가. 실패는 {@link DataAccessException}·{@link IllegalStateException}으로 알린다 */
+    private final LongPredicate redisSoldOut;
     private final Duration ttl;
     private final Clock clock;
     /** TTL이 0이면 null이다(캐시를 쓰지 않는다) */
     private final Cache<Long, SoldOutSignal> signals;
 
     @Autowired
-    public CouponSoldOutCache(CouponIssueStore couponIssueStore, CouponIssueDeliveryProperties properties,
-                              CouponSoldOutCacheProperties cacheProperties,
-                              @Qualifier(CouponClockConfig.CLOCK) Clock clock,
-                              ObjectProvider<MeterRegistry> meterRegistry) {
-        this(couponIssueStore, properties, cacheProperties, clock, meterRegistry.getIfAvailable(SimpleMeterRegistry::new),
-                Ticker.systemTicker(), ForkJoinPool.commonPool());
+    public CachedCouponSoldOutStatus(StringRedisTemplate redisTemplate, CouponIssueDeliveryProperties properties,
+                                     CouponSoldOutCacheProperties cacheProperties,
+                                     @Qualifier(CouponClockConfig.CLOCK) Clock clock,
+                                     ObjectProvider<MeterRegistry> meterRegistry) {
+        this(couponId -> redisTemplate.opsForValue().get(CouponRedisKeys.soldOut(couponId)) != null, properties,
+                cacheProperties, clock, meterRegistry.getIfAvailable(SimpleMeterRegistry::new), Ticker.systemTicker(),
+                ForkJoinPool.commonPool());
     }
 
-    /** 테스트가 쿠폰 시계와 함께 움직이는 만료 시계를 주고, Caffeine 정리 작업을 호출한 스레드에서 바로 돌리도록 실행기를 받는다 */
-    CouponSoldOutCache(CouponIssueStore couponIssueStore, CouponIssueDeliveryProperties properties,
-                       CouponSoldOutCacheProperties cacheProperties, Clock clock, MeterRegistry meterRegistry,
-                       Ticker expiryTicker, Executor maintenanceExecutor) {
-        this.couponIssueStore = couponIssueStore;
+    /**
+     * 테스트가 Redis 읽기를 대신하고, 쿠폰 시계와 함께 움직이는 만료 시계를 주고, Caffeine 정리 작업을 호출한 스레드에서 바로 돌리도록
+     * 실행기를 받는다
+     */
+    CachedCouponSoldOutStatus(LongPredicate redisSoldOut, CouponIssueDeliveryProperties properties,
+                              CouponSoldOutCacheProperties cacheProperties, Clock clock, MeterRegistry meterRegistry,
+                              Ticker expiryTicker, Executor maintenanceExecutor) {
+        this.redisSoldOut = redisSoldOut;
         this.ttl = properties.soldOutCacheTtl();
         this.clock = clock;
         if (ttl.isZero()) {
@@ -85,7 +92,8 @@ public class CouponSoldOutCache {
         CaffeineCacheMetrics.monitor(meterRegistry, signals, METRIC_CACHE_NAME);
     }
 
-    /** 매진으로 알고 있는가. TTL 안의 값이면 Redis를 부르지 않는다 */
+    /** TTL 안의 값이면 Redis를 부르지 않는다 */
+    @Override
     public boolean isSoldOut(long couponId) {
         if (signals == null) {
             return false;
@@ -97,8 +105,8 @@ public class CouponSoldOutCache {
         }
         boolean soldOut;
         try {
-            soldOut = couponIssueStore.isSoldOut(couponId);
-        } catch (CouponIssueStoreUnavailableException e) {
+            soldOut = redisSoldOut.test(couponId);
+        } catch (DataAccessException | IllegalStateException e) {
             log.debug("매진 표시를 읽지 못해 발급 Lua에 판정을 맡긴다 couponId={}", couponId, e);
             // 실패도 TTL 동안 매진 아님으로 담는다. 담지 않으면 매진 필터와 접수 유스케이스가 한 요청에서 Redis 제한 시간을 두 번 기다린다
             soldOut = false;
@@ -107,7 +115,8 @@ public class CouponSoldOutCache {
         return soldOut;
     }
 
-    /** 발급 Lua가 매진(0)을 돌려줬다. 다음 요청부터 TTL 동안 Redis를 부르지 않는다 */
+    /** 다음 요청부터 TTL 동안 Redis를 부르지 않는다 */
+    @Override
     public void markSoldOut(long couponId) {
         if (signals != null) {
             signals.put(couponId, new SoldOutSignal(true, clock.instant()));

@@ -191,11 +191,6 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     }
 
     @Override
-    public boolean isSoldOut(long couponId) {
-        return run("매진 표시 조회", () -> redisTemplate.opsForValue().get(CouponRedisKeys.soldOut(couponId))) != null;
-    }
-
-    @Override
     public boolean hasRequests(long couponId) {
         return Boolean.TRUE.equals(run("접수 기록 확인",
                 () -> redisTemplate.hasKey(CouponRedisKeys.requests(couponId))));

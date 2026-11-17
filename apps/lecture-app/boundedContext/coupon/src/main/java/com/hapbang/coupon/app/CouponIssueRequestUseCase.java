@@ -20,6 +20,7 @@ import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueOutcome;
 import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponSoldOutStatus;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
@@ -37,7 +38,7 @@ import lombok.extern.slf4j.Slf4j;
  * 같은 요청 ID를 다시 보내면 Lua가 기존 접수 기록을 바꾸지 않고 2(ALREADY_ACCEPTED)와 최초 접수의 만료 시각을 돌려준다.
  * 발급이 중단된 뒤의 재전송은 Lua 검사 순서상 NOT_OPEN이다.
  * <p>
- * 매진: 매진 표시 메모리 캐시({@link CouponSoldOutCache})가 매진이라고 하면 Lua를 부르지 않고 409 {@code COUPON_SOLD_OUT}이다.
+ * 매진: 매진 상태({@link CouponSoldOutStatus}, 매진 표시 메모리 캐시)가 매진이라고 하면 Lua를 부르지 않고 409 {@code COUPON_SOLD_OUT}이다.
  * 그래서 매진 뒤에는 같은 요청 재전송도 ALREADY_ACCEPTED가 아니라 매진으로 응답한다(결과는 상태 조회로 확인한다).
  * <p>
  * 접수 직후 전송: Lua가 새로 접수(1)하면 {@link CouponIssueRequested}를 Kafka로 보내고 ACK를 기다리지 않고 응답한다
@@ -61,7 +62,7 @@ public class CouponIssueRequestUseCase {
 
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
-    private final CouponSoldOutCache couponSoldOutCache;
+    private final CouponSoldOutStatus couponSoldOutStatus;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
     /** 전송 실패 로그를 상태가 바뀔 때만 남긴다(broker 장애 동안 접수마다 WARN이 쌓이지 않게) */
@@ -69,19 +70,19 @@ public class CouponIssueRequestUseCase {
 
     public CouponIssueRequestUseCase(CouponIssueStore couponIssueStore,
                                      CouponIssueEventPublisher couponIssueEventPublisher,
-                                     CouponSoldOutCache couponSoldOutCache,
+                                     CouponSoldOutStatus couponSoldOutStatus,
                                      ObjectProvider<MeterRegistry> meterRegistry,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
-        this.couponSoldOutCache = couponSoldOutCache;
+        this.couponSoldOutStatus = couponSoldOutStatus;
         this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
         this.clock = clock;
     }
 
     public IssueRequestResult requestIssue(long couponId, long memberId, String issueRequestId) {
         IssueRequestIds.requireValid(issueRequestId);
-        if (couponSoldOutCache.isSoldOut(couponId)) {
+        if (couponSoldOutStatus.isSoldOut(couponId)) {
             meterRegistry.counter(SOLD_OUT_METRIC).increment();
             throw new CouponException(CouponErrorCode.COUPON_SOLD_OUT);
         }
@@ -90,7 +91,7 @@ public class CouponIssueRequestUseCase {
         IssueOutcome outcome = couponIssueStore.tryIssue(new IssueAttempt(couponId, memberId, issueRequestId, issuedAt));
         IssueResponseCode code = IssueResponseCode.fromLua(outcome.code());
         if (code == IssueResponseCode.SOLD_OUT) {
-            couponSoldOutCache.markSoldOut(couponId);
+            couponSoldOutStatus.markSoldOut(couponId);
             meterRegistry.counter(SOLD_OUT_METRIC).increment();
         }
         if (!code.isAccepted()) {

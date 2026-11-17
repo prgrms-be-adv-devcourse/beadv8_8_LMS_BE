@@ -63,9 +63,6 @@ public interface CouponIssueStore {
     /** 요청 ID의 접수 기록. 없으면 빈 값 */
     Optional<IssueReceipt> findRequest(long couponId, String issueRequestId);
 
-    /** 매진 표시(sold_out)가 있는가. 매진 메모리 캐시가 짧게 재사용한다. 최종 판정은 issue.lua다 */
-    boolean isSoldOut(long couponId);
-
     /** 접수 기록(requests)이 남아 있는가. 종료(CLOSED)된 쿠폰의 정리 전 여부를 이것으로 본다 */
     boolean hasRequests(long couponId);
 
