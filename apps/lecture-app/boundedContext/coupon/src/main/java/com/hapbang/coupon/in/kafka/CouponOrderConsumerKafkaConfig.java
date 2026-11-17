@@ -58,7 +58,7 @@ public class CouponOrderConsumerKafkaConfig {
 
     public static final String CONTAINER_FACTORY = "couponOrderKafkaListenerContainerFactory";
 
-    /** 리스너 컨테이너 ID. 테스트가 소비를 멈추고 다시 켤 때 찾는다 */
+    /** 리스너 컨테이너 ID. 리스너 레지스트리에서 이 이름으로 컨테이너를 찾는다(소비 그룹은 {@link #GROUP}을 따로 지정한다) */
     public static final String LISTENER_ID = "couponOrderConsumer";
 
     /** DLT로 보내는 producer factory 이름. Kafka producer 지표의 {@code spring_id}로 업무 발행·발급 DLT producer와 구분된다 */

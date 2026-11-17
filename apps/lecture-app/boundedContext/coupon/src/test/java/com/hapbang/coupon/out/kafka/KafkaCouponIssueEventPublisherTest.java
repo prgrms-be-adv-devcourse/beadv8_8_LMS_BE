@@ -20,7 +20,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerInterceptor;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -32,6 +36,7 @@ import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
@@ -48,8 +53,9 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 발급 요청 이벤트 전송: 실제 Kafka(Testcontainers)로 key·헤더·값과, broker가 멈췄을 때 ACK 대기 안에 시간 초과로 돌아오는지,
  * ACK를 기다리지 않는 전송이 호출자를 붙잡지 않고 결과(실패 아님)로 끝나는지 본다.
- * 운영 토픽으로 보낸다. 공유 broker라 다른 테스트의 발급 소비자도 이 메시지를 읽을 수 있으므로, 어느 테스트에도 없는 쿠폰 ID를 써서
- * 다른 테스트의 쿠폰을 바꾸지 않게 하고(없는 쿠폰은 격리된다), 읽을 때는 이 테스트만의 소비 그룹으로 처음부터 읽어 key로 고른다.
+ * 공유 broker에서 다른 테스트 컨텍스트의 발급 소비자가 이 메시지를 읽어 DLT 기록을 남기지 않도록, 운영 생성자가 받는 producer factory
+ * customizer로 테스트 쪽 interceptor를 붙여 레코드를 이 테스트만의 토픽으로 돌린다. 원래 토픽은 헤더에 남겨 운영 토픽으로 보냈는지 확인한다.
+ * 읽을 때는 이 테스트만의 소비 그룹으로 처음부터 읽어 key로 고른다.
  */
 @SpringJUnitConfig(KafkaCouponIssueEventPublisherTest.Config.class)
 class KafkaCouponIssueEventPublisherTest {
@@ -71,6 +77,7 @@ class KafkaCouponIssueEventPublisherTest {
         assertThat(publisher.publish(event, Duration.ofSeconds(10))).isEqualTo(PublishResult.ACKED);
 
         ConsumerRecord<String, String> record = consume(String.valueOf(couponId));
+        assertThat(header(record, TopicRedirect.ORIGINAL_TOPIC_HEADER)).isEqualTo(CouponEventTopic.NAME);
         assertThat(header(record, "eventType")).isEqualTo("CouponIssueRequested");
         assertThat(header(record, "eventVersion")).isEqualTo("1");
         assertThat(new JsonMapper().readValue(record.value(), CouponIssueRequested.class))
@@ -151,7 +158,7 @@ class KafkaCouponIssueEventPublisherTest {
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config, new StringDeserializer(),
                 new StringDeserializer())) {
-            consumer.subscribe(List.of(CouponEventTopic.NAME));
+            consumer.subscribe(List.of(TopicRedirect.TOPIC));
             List<ConsumerRecord<String, String>> found = new ArrayList<>();
             long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
             while (found.isEmpty() && System.nanoTime() < deadline) {
@@ -166,7 +173,7 @@ class KafkaCouponIssueEventPublisherTest {
         }
     }
 
-    /** 다른 테스트의 쿠폰 ID(작은 시퀀스 값)와 겹치지 않는 쿠폰 ID */
+    /** 다른 테스트의 쿠폰 ID(작은 시퀀스 값)와 겹치지 않는 쿠폰 ID. 돌린 레코드가 운영 토픽에 닿지 않지만 혹시 닿아도 다른 테스트의 쿠폰을 바꾸지 않는다 */
     private static long unknownCouponId() {
         return ThreadLocalRandom.current().nextLong(Long.MAX_VALUE / 2, Long.MAX_VALUE);
     }
@@ -186,6 +193,44 @@ class KafkaCouponIssueEventPublisherTest {
                 ObjectProvider<ObservationRegistry> observationRegistry) {
             return new KafkaCouponIssueEventPublisher(producerFactory, customizers, observationRegistry,
                     CouponTestProperties.issueDelivery());
+        }
+
+        @Bean
+        DefaultKafkaProducerFactoryCustomizer redirectToTestTopic() {
+            return factory -> factory.updateConfigs(
+                    Map.of(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, TopicRedirect.class.getName()));
+        }
+
+        @Bean
+        NewTopic publisherTestTopic() {
+            return TopicBuilder.name(TopicRedirect.TOPIC).partitions(1).replicas(1).build();
+        }
+    }
+
+    /** 보내는 레코드를 이 테스트만의 토픽으로 돌리고 원래 토픽을 헤더에 남긴다. key·값·나머지 헤더는 그대로 둔다 */
+    public static class TopicRedirect implements ProducerInterceptor<Object, Object> {
+
+        static final String TOPIC = "coupon-issue-publisher-test";
+        static final String ORIGINAL_TOPIC_HEADER = "test-original-topic";
+
+        @Override
+        public ProducerRecord<Object, Object> onSend(ProducerRecord<Object, Object> record) {
+            ProducerRecord<Object, Object> redirected = new ProducerRecord<>(TOPIC, null, record.timestamp(),
+                    record.key(), record.value(), record.headers());
+            redirected.headers().add(ORIGINAL_TOPIC_HEADER, record.topic().getBytes(StandardCharsets.UTF_8));
+            return redirected;
+        }
+
+        @Override
+        public void onAcknowledgement(RecordMetadata metadata, Exception exception) {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public void configure(Map<String, ?> configs) {
         }
     }
 }

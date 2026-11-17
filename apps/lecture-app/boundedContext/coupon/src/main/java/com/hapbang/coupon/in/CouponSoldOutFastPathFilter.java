@@ -50,7 +50,7 @@ public class CouponSoldOutFastPathFilter extends OncePerRequestFilter {
     static final String USER_ID = "X-User-Id";
     static final String USER_ROLE = "X-User-Role";
 
-    /** 발급 접수를 허용하는 역할. 발급 Facade의 {@code @PreAuthorize}와 같다(테스트가 둘이 같은지 본다) */
+    /** 발급 접수를 허용하는 역할. 발급 Facade의 {@code @PreAuthorize}와 같아야 한다 */
     static final Set<Role> ISSUER_ROLES = EnumSet.of(Role.USER, Role.INFLUENCER, Role.VERIFIED_INFLUENCER);
 
     /**

@@ -32,7 +32,7 @@ class CouponInboundBoundaryTest {
     }
 
     private static DescribedPredicate<JavaAccess<?>> constructsDomainObject() {
-        return DescribedPredicate.describe("도메인 생성자·정적 메서드", access -> {
+        return DescribedPredicate.describe("도메인 생성자·정적 메서드(enum 값 읽기 제외)", access -> {
             AccessTarget target = access.getTarget();
             String packageName = target.getOwner().getPackageName();
             if (!packageName.equals(DOMAIN) && !packageName.startsWith(DOMAIN + ".")) {
@@ -43,6 +43,11 @@ class CouponInboundBoundaryTest {
                 return true;
             }
             if (target instanceof AccessTarget.MethodCallTarget || target instanceof AccessTarget.MethodReferenceTarget) {
+                // enum의 values()·valueOf()는 값을 읽는 것이다(enum switch를 javac가 values()로 바꾸기도 한다)
+                if (target.getOwner().isEnum()
+                        && (target.getName().equals("values") || target.getName().equals("valueOf"))) {
+                    return false;
+                }
                 return ((AccessTarget.CodeUnitAccessTarget) target).resolveMember()
                         .map(member -> member.getModifiers().contains(JavaModifier.STATIC))
                         .orElse(false);
