@@ -1,4 +1,4 @@
-package com.hapbang.coupon.config;
+package com.hapbang.coupon.in.kafka;
 
 import java.time.Duration;
 import java.util.Map;
@@ -27,50 +27,49 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
-import com.hapbang.coupon.app.CouponOrderConsumerIsolationException;
-import com.hapbang.coupon.in.event.CouponOrderDeadLetterRecorder;
-import com.hapbang.shared.lecture.event.LectureEventTopic;
+import com.hapbang.coupon.app.CouponIssueConsumerIsolationException;
+import com.hapbang.coupon.global.kafka.CouponIssueConsumerNames;
 
 import io.micrometer.observation.ObservationRegistry;
 
 /**
- * 주문 결제·취소 완료 소비자의 Kafka 설정. 규칙은 docs/architecture/infrastructure/kafka.md의 "소비"·"재시도와 DLT"이고, 모양은 발급 확정
- * 소비자({@link CouponIssueConsumerKafkaConfig})와 같다.
+ * 발급 확정 소비자의 Kafka 설정. 규칙은 docs/architecture/infrastructure/kafka.md의 "소비"·"재시도와 DLT"다.
  * <ul>
  *     <li>쿠폰 전용 리스너 컨테이너 팩토리({@value #CONTAINER_FACTORY})를 둔다. 같은 JVM의 강의 리스너가 쓰는 Boot 기본 팩토리·오류 처리기는
- *     건드리지 않는다.</li>
- *     <li>처리에 실패하면 같은 자리에서 제한 재시도({@link CouponOrderConsumerProperties})한 뒤 격리 기록(coupon_dlt_log, 종류 ORDER)을
- *     남기고 그룹별 DLT({@value #DEAD_LETTER_TOPIC})로 보낸다. 기록 → DLT 전송 순서이고, 어느 쪽이든 실패하면 offset을 커밋하지 않고 다시
- *     시도한다. 관리자 재처리는 DLT가 아니라 격리 기록의 원문으로 한다.</li>
- *     <li>역직렬화 실패와 {@link CouponOrderConsumerIsolationException}(없는 사용 시도·회원·주문 불일치·내용 충돌)은 재시도 없이 바로
- *     격리한다.</li>
+ *     건드리지 않는다. 오류 처리기를 빈으로 두지 않는 것도 그 때문이다(빈이 둘이면 Boot가 기본 팩토리에 어느 것도 붙이지 않는다).</li>
+ *     <li>처리에 실패하면 같은 자리에서 제한 재시도({@link CouponIssueConsumerProperties})한 뒤 격리 기록(coupon_dlt_log)을 남기고 그룹별
+ *     DLT({@value #DEAD_LETTER_TOPIC})로 보낸다. 기록 → DLT 전송 순서이고, 어느 쪽이든 실패하면 offset을 커밋하지 않고 다시 시도한다.</li>
+ *     <li>역직렬화 실패와 {@link CouponIssueConsumerIsolationException}(형식 오류·없는 쿠폰·epoch 불일치·내용 충돌)은 재시도 없이 바로 격리한다.</li>
  *     <li>DLT 토픽은 실패 처리를 소유한 이 소비자가 선언한다(partition 3, 보존 7일). 원본과 같은 partition 번호로 보낸다.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(CouponOrderConsumerProperties.class)
-public class CouponOrderConsumerKafkaConfig {
+@EnableConfigurationProperties(CouponIssueConsumerProperties.class)
+public class CouponIssueConsumerKafkaConfig {
 
-    /** 소비 그룹. 이름은 {@code <앱>.<목적>}이다 */
-    public static final String GROUP = "lecture-app.coupon-order";
+    /** 소비 그룹({@link CouponIssueConsumerNames#GROUP}) */
+    public static final String GROUP = CouponIssueConsumerNames.GROUP;
 
-    /** 그룹별 DLT: {@code <토픽>.<그룹>.DLT} */
-    public static final String DEAD_LETTER_TOPIC = LectureEventTopic.NAME + "." + GROUP + ".DLT";
+    /** 그룹별 DLT({@link CouponIssueConsumerNames#DEAD_LETTER_TOPIC}) */
+    public static final String DEAD_LETTER_TOPIC = CouponIssueConsumerNames.DEAD_LETTER_TOPIC;
 
-    public static final String CONTAINER_FACTORY = "couponOrderKafkaListenerContainerFactory";
+    public static final String CONTAINER_FACTORY = "couponIssueKafkaListenerContainerFactory";
 
     /** 리스너 컨테이너 ID. 테스트가 소비를 멈추고 다시 켤 때 찾는다 */
-    public static final String LISTENER_ID = "couponOrderConsumer";
+    public static final String LISTENER_ID = "couponIssueConsumer";
 
-    /** DLT로 보내는 producer factory 이름. Kafka producer 지표의 {@code spring_id}로 업무 발행·발급 DLT producer와 구분된다 */
-    static final String DEAD_LETTER_PRODUCER_FACTORY = "couponOrderDeadLetterProducerFactory";
+    /**
+     * DLT로 보내는 producer factory 이름. Kafka producer 지표의 {@code spring_id}가 {@code <이름>.<client id>}가 되어 업무 발행 producer와
+     * 구분된다.
+     */
+    static final String DEAD_LETTER_PRODUCER_FACTORY = "couponDeadLetterProducerFactory";
 
     private static final int PARTITIONS = 3;
     private static final Duration DEAD_LETTER_RETENTION = Duration.ofDays(7);
     private static final double RETRY_MULTIPLIER = 2.0;
 
     @Bean
-    NewTopic couponOrderDeadLetterTopic() {
+    NewTopic couponIssueDeadLetterTopic() {
         return TopicBuilder.name(DEAD_LETTER_TOPIC)
                 .partitions(PARTITIONS)
                 .replicas(1)
@@ -79,17 +78,17 @@ public class CouponOrderConsumerKafkaConfig {
     }
 
     /**
-     * 주문 이벤트 소비 전용 팩토리. Boot 설정(연결·{@code spring.kafka.listener.*}·record interceptor 등)은 Boot configurer로 그대로 넣고
+     * 쿠폰 발급 소비 전용 팩토리. Boot 설정(연결·{@code spring.kafka.listener.*}·record interceptor 등)은 Boot configurer로 그대로 넣고
      * 오류 처리기만 쿠폰 것으로 바꾼다. 소비자 factory는 Boot 빈을 써서 Kafka client 지표(소비 lag 등)가 그대로 잡힌다.
      */
     @Bean(CONTAINER_FACTORY)
     @SuppressWarnings("unchecked")
-    ConcurrentKafkaListenerContainerFactory<Object, Object> couponOrderKafkaListenerContainerFactory(
+    ConcurrentKafkaListenerContainerFactory<Object, Object> couponIssueKafkaListenerContainerFactory(
             ConcurrentKafkaListenerContainerFactoryConfigurer configurer, ConsumerFactory<?, ?> consumerFactory,
             ProducerFactory<?, ?> producerFactory,
             ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
-            ObjectProvider<ObservationRegistry> observationRegistry, CouponOrderConsumerProperties properties,
-            CouponOrderDeadLetterRecorder deadLetterRecorder) {
+            ObjectProvider<ObservationRegistry> observationRegistry, CouponIssueConsumerProperties properties,
+            CouponIssueDeadLetterRecorder deadLetterRecorder) {
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         configurer.configure(factory, (ConsumerFactory<Object, Object>) consumerFactory);
         factory.setCommonErrorHandler(errorHandler(producerFactory, producerFactoryCustomizers, observationRegistry,
@@ -101,8 +100,8 @@ public class CouponOrderConsumerKafkaConfig {
 
     private static DefaultErrorHandler errorHandler(ProducerFactory<?, ?> producerFactory,
             ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
-            ObjectProvider<ObservationRegistry> observationRegistry, CouponOrderConsumerProperties properties,
-            CouponOrderDeadLetterRecorder deadLetterRecorder) {
+            ObjectProvider<ObservationRegistry> observationRegistry, CouponIssueConsumerProperties properties,
+            CouponIssueDeadLetterRecorder deadLetterRecorder) {
         // 역직렬화에 실패한 메시지는 원본 바이트로, 처리에 실패한 메시지는 받은 레코드를 JSON으로 보낸다
         Map<Class<?>, Serializer<?>> valueSerializers = Map.of(
                 byte[].class, new ByteArraySerializer(),
@@ -131,7 +130,7 @@ public class CouponOrderConsumerKafkaConfig {
             deadLetterRecorder.record(record, exception);
             deadLetterPublisher.accept(record, exception);
         }, backOff);
-        errorHandler.addNotRetryableExceptions(CouponOrderConsumerIsolationException.class);
+        errorHandler.addNotRetryableExceptions(CouponIssueConsumerIsolationException.class);
         return errorHandler;
     }
 }

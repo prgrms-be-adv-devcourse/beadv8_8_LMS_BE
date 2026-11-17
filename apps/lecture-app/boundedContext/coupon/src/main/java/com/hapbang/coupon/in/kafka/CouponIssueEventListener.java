@@ -1,11 +1,10 @@
-package com.hapbang.coupon.in.event;
+package com.hapbang.coupon.in.kafka;
 
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.CouponIssueConsumerUseCase;
-import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.shared.coupon.event.CouponEventTopic;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 

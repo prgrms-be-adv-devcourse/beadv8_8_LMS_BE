@@ -1,11 +1,10 @@
-package com.hapbang.coupon.in.event;
+package com.hapbang.coupon.in.kafka;
 
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.CouponOrderConsumerUseCase;
-import com.hapbang.coupon.config.CouponOrderConsumerKafkaConfig;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
@@ -39,7 +38,7 @@ import lombok.extern.slf4j.Slf4j;
                 // 하위 패키지까지 자동으로 허용된다고 가정하지 않고 실제 이벤트 패키지만 믿는다
                 "spring.json.trusted.packages=com.hapbang.shared.lecture.event",
                 // eventType 헤더로 타입을 정한다. 헤더가 없을 때만 __TypeId__로 찾는다
-                "spring.json.value.type.method=com.hapbang.coupon.in.event.CouponOrderEventTypeResolver.resolve",
+                "spring.json.value.type.method=com.hapbang.coupon.in.kafka.CouponOrderEventTypeResolver.resolve",
                 "auto.offset.reset=earliest",
                 // 토픽은 강의가 partition 3개로 선언한다. 소비자가 먼저 붙어도 partition 1개짜리 토픽을 만들지 않게 한다
                 "allow.auto.create.topics=false"

@@ -1,4 +1,4 @@
-package com.hapbang.coupon.in.event;
+package com.hapbang.coupon.in.kafka;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;

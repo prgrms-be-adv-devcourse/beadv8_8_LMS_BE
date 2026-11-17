@@ -21,22 +21,22 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryUnavailableException;
-import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.coupon.config.CouponRecoveryProperties;
 import com.hapbang.coupon.domain.RecoveryOffsets;
+import com.hapbang.coupon.global.kafka.CouponIssueConsumerNames;
 import com.hapbang.shared.coupon.event.CouponEventTopic;
 
 /**
  * Kafka AdminClient로 복구 경계를 읽는다. 연결 설정은 Boot가 만든 {@link KafkaAdmin}의 설정을 그대로 쓰고, 호출마다 client를 만들고 닫는다
  * (복구 단계에서만 드물게 부르므로 상시 연결을 두지 않는다).
  * <p>
- * 소비 그룹·DLT 이름은 발급 소비자 설정({@link CouponIssueConsumerKafkaConfig})의 값을 그대로 쓴다.
+ * 소비 그룹·DLT 이름은 발급 소비자 설정과 같은 값({@link CouponIssueConsumerNames})을 쓴다.
  */
 @Component
 public class KafkaCouponIssueBoundaryProbe implements CouponIssueBoundaryProbe {
 
-    private static final String CONSUMER_GROUP = CouponIssueConsumerKafkaConfig.GROUP;
-    private static final String DLT_TOPIC = CouponIssueConsumerKafkaConfig.DEAD_LETTER_TOPIC;
+    private static final String CONSUMER_GROUP = CouponIssueConsumerNames.GROUP;
+    private static final String DLT_TOPIC = CouponIssueConsumerNames.DEAD_LETTER_TOPIC;
 
     private final KafkaAdmin kafkaAdmin;
     private final Duration timeout;

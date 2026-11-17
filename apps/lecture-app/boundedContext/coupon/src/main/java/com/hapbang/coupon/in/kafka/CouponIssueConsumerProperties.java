@@ -1,4 +1,4 @@
-package com.hapbang.coupon.config;
+package com.hapbang.coupon.in.kafka;
 
 import java.time.Duration;
 
