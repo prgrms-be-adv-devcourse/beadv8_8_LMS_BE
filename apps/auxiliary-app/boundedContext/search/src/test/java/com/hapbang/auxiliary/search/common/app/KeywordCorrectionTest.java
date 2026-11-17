@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.auxiliary.search.common.app.KeywordCorrection.Outcome;
 import com.hapbang.auxiliary.search.common.app.KeywordCorrection.Result;
 
-/** 검색어 제안 규칙(#977). ES 대신 가짜 index로 규칙만 본다(실제 nori 결과는 {@code KeywordSuggesterTest}) */
+/** 검색어 제안 규칙(#977). ES 대신 가짜 index로 규칙만 본다(실제 nori 결과는 {@code EsKeywordIndexTest}) */
 class KeywordCorrectionTest {
 
     @Test

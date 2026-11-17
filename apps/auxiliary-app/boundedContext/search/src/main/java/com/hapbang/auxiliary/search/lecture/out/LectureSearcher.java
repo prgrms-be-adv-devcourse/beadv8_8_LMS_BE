@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.common.app.HangulKeys;
+import com.hapbang.auxiliary.search.common.app.KeywordIndex;
+import com.hapbang.auxiliary.search.common.out.EsKeywordIndex;
 import com.hapbang.auxiliary.search.common.out.SearchAsYouType;
 import com.hapbang.auxiliary.search.lecture.app.LectureSearchCondition;
 import com.hapbang.auxiliary.search.lecture.app.LectureSort;
@@ -87,11 +89,20 @@ public class LectureSearcher {
 
     private final ElasticsearchClient client;
     private final LectureRankingProperties ranking;
+    private final KeywordIndex keywordIndex;
 
     public LectureSearcher(@Qualifier(SearchElasticsearchConfig.CLIENT) ElasticsearchClient client,
             LectureRankingProperties ranking) {
         this.client = client;
         this.ranking = ranking;
+        this.keywordIndex = new EsKeywordIndex(client, LectureIndexDefinition.ALIAS,
+                EsKeywordIndex.withoutBoost(KEYWORD_FIELDS), EsKeywordIndex.withoutBoost(JAMO_FIELDS),
+                keyword -> visible().must(keywordQuery(keyword)).build()._toQuery());
+    }
+
+    /** 검색어 제안(#977)이 묻는 index: 본 검색의 원문 칸·자모 칸, 결과는 본 검색과 같은 쿼리(평점 가산 없이)로 센다 */
+    public KeywordIndex keywordIndex() {
+        return keywordIndex;
     }
 
     /**
