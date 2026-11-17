@@ -99,12 +99,15 @@ class MemberEventFailureRetryTest extends ChatbotIntegrationTestBase {
     @DisplayName("다시 처리가 실패하면 FAILED와 예외 클래스를 돌려주고 기록은 PENDING으로 남아 횟수와 원인이 바뀐다")
     void retryFails() {
         long id = recordFailure("6", new UserMaskedEvent(6L, Instant.parse("2026-11-09T01:00:00Z")), dbDown());
-        doThrow(new IllegalStateException("또 실패 010-1234-5678")).when(memberMasking).mask(any());
+        doThrow(new IllegalStateException("또 실패 010-1234-5678 " + "가".repeat(300))).when(memberMasking).mask(any());
 
         List<MemberEventRetryResDto> results = retryUseCase.retry(List.of(id), ADMIN);
 
+        // 응답 메시지도 기록과 같이 거르고 200자로 자른다
+        String expected = "또 실패 [전화번호] " + "가".repeat(200 - "또 실패 [전화번호] ".length());
         assertThat(results).containsExactly(new MemberEventRetryResDto(id, MemberEventRetryResult.FAILED,
-                IllegalStateException.class.getName(), "또 실패 [전화번호]"));
+                IllegalStateException.class.getName(), expected));
+        assertThat(failure(id)).containsEntry("message", expected);
         assertThat(failure(id))
                 .containsEntry("status", "PENDING")
                 .containsEntry("retry_count", 1)
@@ -114,16 +117,18 @@ class MemberEventFailureRetryTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("고르지 않으면 PENDING을 오래된 순으로 상한만큼 처리한다. 없는 ID는 NOT_FOUND, 읽을 수 없던 메시지는 NOT_REPLAYABLE")
+    @DisplayName("고르지 않으면 다시 처리할 수 있는 PENDING만 오래된 순으로 상한만큼 처리한다(앞에 쌓인 처리 불가 기록이 막지 않는다). "
+            + "없는 ID는 NOT_FOUND, 읽을 수 없던 메시지는 NOT_REPLAYABLE")
     void retryAllAndUnknown() {
+        long unreadable = recordFailure("24", null, new ListenerExecutionFailedException("읽지 못함"));
         long first = recordFailure("21", new UserMaskedEvent(21L, Instant.parse("2026-11-09T01:00:00Z")), dbDown());
         long second = recordFailure("22", new UserMaskedEvent(22L, Instant.parse("2026-11-09T01:00:00Z")), dbDown());
         long third = recordFailure("23", new UserMaskedEvent(23L, Instant.parse("2026-11-09T01:00:00Z")), dbDown());
 
         assertThat(retryUseCase.retry(List.of(), ADMIN)).extracting(MemberEventRetryResDto::id).containsExactly(first, second);
         assertThat(failure(third)).containsEntry("status", "PENDING");
+        assertThat(failure(unreadable)).containsEntry("status", "PENDING");
 
-        long unreadable = recordFailure("24", null, new ListenerExecutionFailedException("읽지 못함"));
         assertThat(retryUseCase.retry(List.of(unreadable, 999_999L), ADMIN)).extracting(MemberEventRetryResDto::result)
                 .containsExactly(MemberEventRetryResult.NOT_REPLAYABLE, MemberEventRetryResult.NOT_FOUND);
         assertThat(failure(unreadable)).containsEntry("event_type", "UNREADABLE").containsEntry("user_id", 24L);
