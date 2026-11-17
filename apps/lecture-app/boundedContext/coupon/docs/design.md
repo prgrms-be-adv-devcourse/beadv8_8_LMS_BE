@@ -52,7 +52,7 @@ hapbang-backend/
          │  │  └─ port/                      # app이 바깥에 요구하는 계약: Redis·HTTP·매진 상태(CouponSoldOutStatus) 포트, DB 저장소(XxxRepository·XxxRepositoryCustom)와 그 결과 record
          │  ├─ config/                       # app이 읽는 설정값(*Properties, CouponRedisProperties·CouponSoldOutCacheProperties 포함)과 그 등록, 시계
          │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답 처리기, 배치 켜기 애노테이션, 인증 principal 읽기, in·out이 함께 쓰는 Kafka 이름 kafka/CouponIssueConsumerNames)
-         │  ├─ in/                           # 들어오는 것: 컨트롤러·매진 빠른 경로 필터와 그 등록·리스너·배치 트리거 (lecture-app 규칙)
+         │  ├─ in/                           # 들어오는 것: 컨트롤러·매진 빠른 경로 필터와 그 등록·리스너·배치 트리거 (lecture-app 규칙). 도메인 객체를 만들지 않고 원시 값·app/dto로 넘긴다
          │  │  ├─ ApiV1CouponController.java / …Spec.java          # /api/v1/coupons/** 회원
          │  │  ├─ ApiV1CouponSellerController.java                 # 판매자 신청·중단
          │  │  ├─ ApiV1CouponAdminController.java                  # 승인·발행·중단·종료·DLT

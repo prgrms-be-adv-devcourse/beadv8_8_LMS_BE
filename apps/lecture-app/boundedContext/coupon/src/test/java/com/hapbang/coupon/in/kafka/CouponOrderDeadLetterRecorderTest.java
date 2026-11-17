@@ -15,6 +15,7 @@ import org.springframework.kafka.support.serializer.DeserializationException;
 import com.hapbang.coupon.app.CouponDltPayload;
 import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
+import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.support.CouponDltLogTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -46,6 +47,10 @@ class CouponOrderDeadLetterRecorderTest {
                 .filter(log -> "lecture.events.v1".equals(log.getSourceTopic()) && log.getSourceOffset() == 31L)
                 .findFirst().orElseThrow();
         assertThat(saved.getKind()).isEqualTo(CouponDltKind.ORDER);
+        // 메시지 위치는 레코드 값 그대로 남는다
+        assertThat(saved.getSourcePartition()).isEqualTo(2);
+        assertThat(saved.getMessageKey()).isEqualTo("order-item:1");
+        assertThat(saved.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(saved.getPayload()).isEqualTo(CouponDltPayload.BASE64_PREFIX + Base64.getEncoder().encodeToString(data));
         assertThat(CouponDltPayload.readOrderEvent(saved.getPayload())).isEmpty();
     }

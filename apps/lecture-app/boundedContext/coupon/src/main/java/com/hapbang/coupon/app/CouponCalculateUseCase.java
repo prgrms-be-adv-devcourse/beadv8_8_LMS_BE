@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
@@ -77,14 +78,17 @@ public class CouponCalculateUseCase {
      *
      * @param selections {@code null}이면 추천, 빈 목록이면 쿠폰을 쓰지 않음, 값이 있으면 그 매핑만 검증·계산한다
      */
-    public CouponCalculateResponse quote(long memberId, List<Long> lectureIds, List<Selection> selections) {
+    public CouponCalculateResponse quote(long memberId, List<Long> lectureIds,
+                                         List<CouponQuoteSelection> selections) {
         usageSupport.requireItems(lectureIds);
         List<UsageItem> items = new ArrayList<>();
         for (Long lectureId : lectureIds) {
             LectureSnapshot lecture = couponSupport.findLecture(lectureId);
             items.add(new UsageItem(null, lectureId, lecture.sellerId(), lecture.price()));
         }
-        return calculate(memberId, items, selections == null ? null : List.copyOf(selections));
+        return calculate(memberId, items, selections == null ? null : selections.stream()
+                .map(selection -> new Selection(selection.memberCouponId(), selection.lectureId()))
+                .toList());
     }
 
     private CouponCalculateResponse calculate(long memberId, List<UsageItem> items, List<Selection> selections) {

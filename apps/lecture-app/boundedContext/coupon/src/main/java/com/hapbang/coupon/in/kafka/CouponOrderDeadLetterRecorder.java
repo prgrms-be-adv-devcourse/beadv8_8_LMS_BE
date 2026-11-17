@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.CouponDltPayload;
 import com.hapbang.coupon.app.CouponDltRecordUseCase;
-import com.hapbang.coupon.domain.CouponDltLog;
+import com.hapbang.coupon.app.dto.CouponDltSource;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
@@ -31,7 +31,7 @@ public class CouponOrderDeadLetterRecorder {
 
     public void record(ConsumerRecord<?, ?> record, Exception exception) {
         String key = record.key() == null ? null : record.key().toString();
-        CouponDltLog.Source source = new CouponDltLog.Source(record.topic(), record.partition(), record.offset(), key);
+        CouponDltSource source = new CouponDltSource(record.topic(), record.partition(), record.offset(), key);
         Object value = record.value();
         String payload = value instanceof OrderItemPaidEvent || value instanceof OrderItemCancelCompletedEvent
                 ? CouponDltPayload.writeOrderEvent(value)

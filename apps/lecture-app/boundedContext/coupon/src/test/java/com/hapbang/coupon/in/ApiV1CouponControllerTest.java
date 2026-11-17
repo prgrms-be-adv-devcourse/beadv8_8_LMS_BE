@@ -38,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
@@ -54,7 +55,6 @@ import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.coupon.domain.IssueStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.global.config.CouponWebMvcConfig;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
@@ -263,7 +263,7 @@ class ApiV1CouponControllerTest {
     void 미리보기는_강의와_매핑을_Facade에_넘기고_계산_결과를_돌려준다() throws Exception {
         CouponCalculateResponse response = new CouponCalculateResponse(false, false, List.of(
                 new CouponCalculateResponse.Item(3L, 10_000, 1_000, 0, 1_000, 9_000, 9_000, List.of())), 1_000, 9_000);
-        given(couponIssueFacade.quote(MEMBER_ID, List.of(3L, 5L), List.of(new Selection(11L, 3L))))
+        given(couponIssueFacade.quote(MEMBER_ID, List.of(3L, 5L), List.of(new CouponQuoteSelection(11L, 3L))))
                 .willReturn(response);
 
         mockMvc.perform(post("/api/v1/coupons/me/quote").with(member()).with(csrf())

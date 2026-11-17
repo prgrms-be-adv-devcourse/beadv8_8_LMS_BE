@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.dto.CouponDltSource;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.CouponDltLog;
@@ -58,8 +59,9 @@ public class CouponDltRecordUseCase {
      * @param issueRequestId 읽은 메시지의 요청 ID. 역직렬화 실패면 null
      * @param payload        원문
      */
-    public void record(CouponDltLog.Source source, Long couponId, String issueRequestId, String payload,
+    public void record(CouponDltSource message, Long couponId, String issueRequestId, String payload,
                        String failureCause) {
+        CouponDltLog.Source source = sourceOf(message);
         boolean recorded;
         try {
             recorded = Boolean.TRUE.equals(transaction.execute(status -> {
@@ -89,6 +91,10 @@ public class CouponDltRecordUseCase {
         }
     }
 
+    private static CouponDltLog.Source sourceOf(CouponDltSource message) {
+        return new CouponDltLog.Source(message.topic(), message.partition(), message.offset(), message.key());
+    }
+
     private boolean alreadyRecorded(CouponDltLog.Source source, Long couponId, String issueRequestId) {
         if (couponDltLogRepository.existsBySourceTopicAndSourcePartitionAndSourceOffset(source.topic(),
                 source.partition(), source.offset())) {
@@ -103,7 +109,8 @@ public class CouponDltRecordUseCase {
      *
      * @param payload 원문(읽은 메시지는 이벤트 JSON, 역직렬화 실패면 받은 바이트)
      */
-    public void recordOrderEvent(CouponDltLog.Source source, String payload, String failureCause) {
+    public void recordOrderEvent(CouponDltSource message, String payload, String failureCause) {
+        CouponDltLog.Source source = sourceOf(message);
         boolean recorded;
         try {
             recorded = Boolean.TRUE.equals(transaction.execute(status -> {

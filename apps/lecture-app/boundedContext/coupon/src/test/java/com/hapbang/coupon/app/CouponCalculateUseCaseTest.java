@@ -13,6 +13,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.CouponIssueStore;
@@ -25,7 +26,6 @@ import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponPlatformFundingProperties;
 import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
@@ -145,7 +145,7 @@ class CouponCalculateUseCaseTest {
                         new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID)))),
                 CouponErrorCode.COUPON_NOT_USABLE, PLATFORM_COUPON);
         assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
-                List.of(new Selection(PLATFORM_COUPON, LECTURE_ID))))
+                List.of(new CouponQuoteSelection(PLATFORM_COUPON, LECTURE_ID))))
                 .hasMessage(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
     }
 
@@ -193,7 +193,7 @@ class CouponCalculateUseCaseTest {
 
         CouponCalculateResponse recommended = useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null);
         CouponCalculateResponse selected = useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
-                List.of(new Selection(SELLER_COUPON, LECTURE_ID)));
+                List.of(new CouponQuoteSelection(SELLER_COUPON, LECTURE_ID)));
 
         assertThat(recommended.recommended()).isTrue();
         assertThat(recommended.items().getFirst().price()).isEqualTo(PRICE);
