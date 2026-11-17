@@ -12,8 +12,6 @@ import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -22,7 +20,6 @@ import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
 import com.hapbang.coupon.config.CouponTestProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 // 매진 캐시가 TTL이 지나면 Redis를 다시 읽고, 읽지 못하면 TTL 동안 매진 아님으로 담고, TTL 0이면 끄고, 항목 수 상한과 만료 제거로 크기를 제한하고, hit·miss를 지표로 남긴다.
@@ -107,7 +104,7 @@ class CachedCouponSoldOutStatusTest {
     void TTL이_0이면_매진_표시를_읽지_않고_Lua에_맡긴다() {
         CachedCouponSoldOutStatus cache = new CachedCouponSoldOutStatus(redisTemplate,
                 new CouponIssueDeliveryProperties(null, null, Duration.ZERO, null, null),
-                CouponTestProperties.soldOutCache(), clock, registry());
+                CouponTestProperties.soldOutCache(), clock, meterRegistry);
         cache.markSoldOut(COUPON_ID);
 
         assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
@@ -179,13 +176,7 @@ class CachedCouponSoldOutStatusTest {
 
     private CachedCouponSoldOutStatus cache(CouponIssueDeliveryProperties properties, Integer maxEntries, Clock clock) {
         return new CachedCouponSoldOutStatus(redisTemplate, properties, new CouponSoldOutCacheProperties(maxEntries),
-                clock, registry());
-    }
-
-    private ObjectProvider<MeterRegistry> registry() {
-        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("meterRegistry", meterRegistry);
-        return beanFactory.getBeanProvider(MeterRegistry.class);
+                clock, meterRegistry);
     }
 
     private static String soldOutKey(long couponId) {

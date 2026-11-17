@@ -16,7 +16,6 @@ import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +34,8 @@ import com.hapbang.coupon.support.IssueCapacityReservationTestRepository;
 import com.hapbang.coupon.support.IssueCapacityTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 
 // 용량 예약 합계의 조건부 UPSERT·UPDATE와 쿠폰별 예약 행(고아 해제의 시각 조건 포함)이 실제 DB에서 상한을 지키는지 본다
 @RepositoryTest
@@ -170,6 +170,6 @@ class IssueCapacityRepositoryTest {
     }
 
     private static CouponReconciliationMetrics metrics() {
-        return new CouponReconciliationMetrics(new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+        return new CouponReconciliationMetrics(new SimpleMeterRegistry());
     }
 }

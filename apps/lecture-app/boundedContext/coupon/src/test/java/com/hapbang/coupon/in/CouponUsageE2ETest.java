@@ -404,11 +404,9 @@ class CouponUsageE2ETest {
         long platform = memberCouponRepository.saveAndFlush(MemberCoupon.issue(MEMBER_A, platformCoupon, "good-platform",
                 now.minusSeconds(60), now.minusSeconds(10), now)).getId();
         var meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        var metrics = new org.springframework.beans.factory.support.StaticListableBeanFactory();
-        metrics.addBean("meterRegistry", meterRegistry);
         var expiry = new com.hapbang.coupon.app.MemberCouponExpiryUseCase(budgetReleaseRecorder, memberCouponRepository,
                 new com.hapbang.coupon.config.CouponExpiryProperties(null, 2),
-                metrics.getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), budgetTransactionManager,
+                meterRegistry, budgetTransactionManager,
                 java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
         // 만료 지표는 누적이다
         var expired = meterRegistry.counter("coupon.expiry.expired");

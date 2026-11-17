@@ -6,11 +6,11 @@ import java.time.Clock;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import com.hapbang.coupon.config.CouponTestProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 
 // 운영 생성자가 실제 Redis의 매진 표시(sold_out)를 읽는다. TTL 0이면 Redis를 읽지 않으므로 기본 TTL(1초)로 만든다
 class CachedCouponSoldOutStatusRedisTest extends CouponRedisTestSupport {
@@ -28,7 +28,7 @@ class CachedCouponSoldOutStatusRedisTest extends CouponRedisTestSupport {
 
         CachedCouponSoldOutStatus status = new CachedCouponSoldOutStatus(redisTemplate,
                 CouponTestProperties.issueDelivery(), CouponTestProperties.soldOutCache(), Clock.systemUTC(),
-                new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+                new SimpleMeterRegistry());
 
         assertThat(status.isSoldOut(soldOutCouponId)).isTrue();
         assertThat(status.isSoldOut(openCouponId)).isFalse();

@@ -3,7 +3,6 @@ package com.hapbang.coupon.app;
 import java.time.Clock;
 import java.util.List;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -15,7 +14,6 @@ import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -46,12 +44,12 @@ public class CouponRedisProcessCheckUseCase {
 
     public CouponRedisProcessCheckUseCase(CouponRepository couponRepository,
                                           CouponRecoveryStore recoveryStore, CouponRedisProperties redisProperties,
-                                          ObjectProvider<MeterRegistry> meterRegistry,
+                                          MeterRegistry meterRegistry,
                                           @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponRepository = couponRepository;
         this.recoveryStore = recoveryStore;
         this.redisProperties = redisProperties;
-        this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.clock = clock;
     }
 

@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessResourceException;
@@ -20,7 +19,6 @@ import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponExpiryProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -53,13 +51,13 @@ public class MemberCouponExpiryUseCase {
 
     public MemberCouponExpiryUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
                                      MemberCouponRepository memberCouponRepository, CouponExpiryProperties properties,
-                                     ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                     MeterRegistry meterRegistry,
                                      PlatformTransactionManager transactionManager,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.memberCouponRepository = memberCouponRepository;
         this.properties = properties;
-        this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }

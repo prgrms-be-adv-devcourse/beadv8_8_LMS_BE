@@ -8,7 +8,6 @@ import static org.mockito.Mockito.*;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
@@ -16,7 +15,6 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.ProcessCheck;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.config.CouponRedisProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 // 점검 대상마다 Redis 점검을 부르고 결과를 지표로 남기는지, 한 쿠폰의 실패가 회차를 멈추지 않는지 본다. 판정 자체는 RecoveryLuaTest가 본다
@@ -27,12 +25,9 @@ class CouponRedisProcessCheckUseCaseTest {
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final CouponRedisProcessCheckUseCase useCase;
 
-    @SuppressWarnings("unchecked")
     CouponRedisProcessCheckUseCaseTest() {
-        ObjectProvider<MeterRegistry> provider = mock();
-        when(provider.getIfAvailable(any())).thenReturn(meterRegistry);
         useCase = new CouponRedisProcessCheckUseCase(couponRepository, recoveryStore, new CouponRedisProperties(null),
-                provider, CLOCK);
+                meterRegistry, CLOCK);
     }
 
     private double count(String result) {

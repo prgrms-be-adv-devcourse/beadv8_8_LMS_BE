@@ -1,7 +1,6 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.app.CouponAppFixture.*;
-import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -61,7 +60,7 @@ class CouponReconciliationUseCaseTest {
     private final CouponCapacitySupport capacitySupport = mock();
     private final PlatformTransactionManager transactionManager = mock();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final CouponReconciliationMetrics metrics = new CouponReconciliationMetrics(providerOf(meterRegistry));
+    private final CouponReconciliationMetrics metrics = new CouponReconciliationMetrics(meterRegistry);
 
     private final Map<String, String> requests = new HashMap<>();
     private final Set<Long> users = new HashSet<>();

@@ -1,6 +1,5 @@
 package com.hapbang.coupon.app;
 
-import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -18,7 +17,7 @@ class CouponDltMetricsTest {
 
     @Test
     void 미처리_지표는_PENDING과_REPLAYING을_함께_세고_세지_못하면_NaN이다() {
-        new CouponDltMetrics(providerOf(meterRegistry), dltLogRepository);
+        new CouponDltMetrics(meterRegistry, dltLogRepository);
         when(dltLogRepository.countUnresolved()).thenReturn(3L).thenThrow(new IllegalStateException("db"));
 
         assertThat(meterRegistry.get(CouponDltMetrics.PENDING).gauge().value()).isEqualTo(3.0);

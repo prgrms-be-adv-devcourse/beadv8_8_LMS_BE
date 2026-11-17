@@ -1,6 +1,5 @@
 package com.hapbang.coupon.app;
 
-import static com.hapbang.coupon.app.CouponIssueRequestUseCaseTest.registry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -66,7 +65,7 @@ class CouponRepublishUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new CouponRepublishUseCase(couponRepository, issueRequestRepository, dltLogRepository, issueStore, publisher,
-                CouponTestProperties.issueDelivery(), new CouponRedisProperties(null), registry(meterRegistry),
+                CouponTestProperties.issueDelivery(), new CouponRedisProperties(null), meterRegistry,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
         when(issueStore.findIssueControl(anyLong())).thenReturn(Optional.of(new IssueControlState(true, "OPEN", EPOCH, null)));

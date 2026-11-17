@@ -54,7 +54,7 @@ class CouponIssueConsumerUseCaseTest {
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
-        CouponIssueConsumerMetrics metrics = new CouponIssueConsumerMetrics(providerOf(meterRegistry));
+        CouponIssueConsumerMetrics metrics = new CouponIssueConsumerMetrics(meterRegistry);
         useCase = new CouponIssueConsumerUseCase(couponRepository, memberCouponRepository, issueRequestRepository,
                 processedOperationRepository, metrics, transactionManager, CLOCK);
         when(couponRepository.findById(COUPON_ID)).thenReturn(Optional.of(openSellerCoupon()));
@@ -234,12 +234,5 @@ class CouponIssueConsumerUseCaseTest {
 
         assertThatThrownBy(() -> useCase.consume(event(MEMBER_ID, 1))).isSameAs(unexpected);
         verify(issueRequestRepository, never()).save(any());
-    }
-
-    @SuppressWarnings("unchecked")
-    static <T> org.springframework.beans.factory.ObjectProvider<T> providerOf(T value) {
-        org.springframework.beans.factory.ObjectProvider<T> provider = mock(org.springframework.beans.factory.ObjectProvider.class);
-        when(provider.getIfAvailable(any())).thenReturn(value);
-        return provider;
     }
 }

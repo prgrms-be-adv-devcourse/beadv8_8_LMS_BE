@@ -16,7 +16,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
@@ -32,7 +31,8 @@ import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 
 // 소비 서비스의 흐름(멱등 확인 → 사용 시도 확인 → 전이·조건부 갱신 → 멱등 기록)과 분기(중복 eventId, 내용 충돌, 순서 역전, 없는 사용 시도,
 // 조건부 갱신 0행)를 본다. 전이 규칙 자체는 도메인 테스트가, 조건부 갱신 조건은 저장소 테스트가 본다
@@ -58,8 +58,7 @@ class CouponOrderConsumerUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(
-                new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+        CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(new SimpleMeterRegistry());
         useCase = new CouponOrderConsumerUseCase(mock(CouponBudgetReleaseRecorder.class),
                 couponUsageRepository, memberCouponRepository,
                 processedOperationRepository, metrics, transactionManager(), CLOCK);

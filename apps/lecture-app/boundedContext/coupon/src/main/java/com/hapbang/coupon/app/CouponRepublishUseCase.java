@@ -11,7 +11,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -35,7 +34,6 @@ import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -105,7 +103,7 @@ public class CouponRepublishUseCase {
                                   CouponIssueEventPublisher couponIssueEventPublisher,
                                   CouponIssueDeliveryProperties properties,
                                   CouponRedisProperties redisProperties,
-                                  ObjectProvider<MeterRegistry> meterRegistry,
+                                  MeterRegistry meterRegistry,
                                   @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponRepository = couponRepository;
         this.couponIssueRequestRepository = couponIssueRequestRepository;
@@ -114,7 +112,7 @@ public class CouponRepublishUseCase {
         this.couponIssueEventPublisher = couponIssueEventPublisher;
         this.properties = properties;
         this.redisProperties = redisProperties;
-        this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.clock = clock;
         Gauge.builder(OLDEST_AGE_METRIC, oldestAgeSeconds, AtomicLong::get).baseUnit("seconds")
                 .description("재발행 대상 중 가장 오래된 요청의 접수 뒤 경과").register(this.meterRegistry);

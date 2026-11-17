@@ -22,8 +22,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
@@ -61,7 +59,7 @@ class CouponIssueRequestUseCaseTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW_WITH_MICROS, ZoneOffset.UTC);
-        useCase = new CouponIssueRequestUseCase(issueStore, publisher, soldOutStatus, registry(meterRegistry), clock);
+        useCase = new CouponIssueRequestUseCase(issueStore, publisher, soldOutStatus, meterRegistry, clock);
         when(publisher.send(any())).thenReturn(CompletableFuture.completedFuture(PublishResult.ACKED));
     }
 
@@ -71,7 +69,7 @@ class CouponIssueRequestUseCaseTest {
 
         assertThat(constructors).hasSize(1);
         assertThat(constructors[0].getParameterTypes()).containsExactly(CouponIssueStore.class,
-                CouponIssueEventPublisher.class, CouponSoldOutStatus.class, ObjectProvider.class, Clock.class);
+                CouponIssueEventPublisher.class, CouponSoldOutStatus.class, MeterRegistry.class, Clock.class);
     }
 
     @Test
@@ -201,9 +199,4 @@ class CouponIssueRequestUseCaseTest {
         verifyNoInteractions(issueStore, soldOutStatus, publisher);
     }
 
-    static ObjectProvider<MeterRegistry> registry(MeterRegistry meterRegistry) {
-        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("meterRegistry", meterRegistry);
-        return beanFactory.getBeanProvider(MeterRegistry.class);
-    }
 }

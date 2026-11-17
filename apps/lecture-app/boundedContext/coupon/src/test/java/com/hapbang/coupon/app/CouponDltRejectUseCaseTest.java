@@ -1,7 +1,6 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.app.CouponAppFixture.*;
-import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -61,7 +60,7 @@ class CouponDltRejectUseCaseTest {
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
-        CouponDltMetrics metrics = new CouponDltMetrics(providerOf(new SimpleMeterRegistry()), dltLogRepository);
+        CouponDltMetrics metrics = new CouponDltMetrics(new SimpleMeterRegistry(), dltLogRepository);
         useCase = new CouponDltRejectUseCase(dltLogRepository, issueRequestRepository, processedOperationRepository,
                 couponRepository, compensationStore, metrics, CouponTestProperties.dlt(), transactionManager, CLOCK);
         dltLog = log(CouponDltPayload.write(EVENT));

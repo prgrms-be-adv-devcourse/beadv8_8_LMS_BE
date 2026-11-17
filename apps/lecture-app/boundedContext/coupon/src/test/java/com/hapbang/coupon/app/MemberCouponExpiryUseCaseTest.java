@@ -1,7 +1,6 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.app.CouponAppFixture.CLOCK;
-import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static com.hapbang.coupon.app.CouponUsageFixture.transactionManager;
 import static com.hapbang.coupon.domain.CouponFixture.NOW;
 import static org.assertj.core.api.Assertions.*;
@@ -32,7 +31,7 @@ class MemberCouponExpiryUseCaseTest {
     private final PlatformTransactionManager transactionManager = transactionManager();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final MemberCouponExpiryUseCase useCase = new MemberCouponExpiryUseCase(recorder, memberCouponRepository,
-            new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager,
+            new CouponExpiryProperties(null, 2), meterRegistry, transactionManager,
             CLOCK);
 
     @Test

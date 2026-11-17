@@ -8,7 +8,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -26,7 +25,6 @@ import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -71,12 +69,12 @@ public class CouponIssueRequestUseCase {
     public CouponIssueRequestUseCase(CouponIssueStore couponIssueStore,
                                      CouponIssueEventPublisher couponIssueEventPublisher,
                                      CouponSoldOutStatus couponSoldOutStatus,
-                                     ObjectProvider<MeterRegistry> meterRegistry,
+                                     MeterRegistry meterRegistry,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
         this.couponSoldOutStatus = couponSoldOutStatus;
-        this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.clock = clock;
     }
 

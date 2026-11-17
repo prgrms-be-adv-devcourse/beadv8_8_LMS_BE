@@ -3,7 +3,6 @@ package com.hapbang.coupon.out.redis;
 import java.time.Clock;
 import java.time.Duration;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,7 +19,6 @@ import com.hapbang.coupon.domain.SoldOutSignal;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -56,7 +54,7 @@ public class CachedCouponSoldOutStatus implements CouponSoldOutStatus {
     public CachedCouponSoldOutStatus(StringRedisTemplate redisTemplate, CouponIssueDeliveryProperties properties,
                                      CouponSoldOutCacheProperties cacheProperties,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock,
-                                     ObjectProvider<MeterRegistry> meterRegistry) {
+                                     MeterRegistry meterRegistry) {
         this.redisTemplate = redisTemplate;
         this.ttl = properties.soldOutCacheTtl();
         this.clock = clock;
@@ -70,8 +68,7 @@ public class CachedCouponSoldOutStatus implements CouponSoldOutStatus {
                 .ticker(Ticker.systemTicker())
                 .recordStats()
                 .build();
-        CaffeineCacheMetrics.monitor(meterRegistry.getIfAvailable(SimpleMeterRegistry::new), signals,
-                METRIC_CACHE_NAME);
+        CaffeineCacheMetrics.monitor(meterRegistry, signals, METRIC_CACHE_NAME);
     }
 
     /** TTL 안의 값이면 Redis를 부르지 않는다 */
