@@ -39,13 +39,13 @@
 | 영역 | 현재 구현 |
 | --- | --- |
 | 테이블(`chats`) | `chat_user`(회원 복제본), `chat_room`(1:1, `direct_key` 유일, `last_sequence`), `chat_room_member`(`visible_from_sequence`, `participation_version`, `last_read_sequence`), `chat_message`(`room_sequence` 유일, `client_message_id`), `chat_room_log` |
-| 전송 | STOMP `/pub/chats/{roomId}/messages` → `ChatMessageFacade.send`가 방을 `PESSIMISTIC_WRITE`로 잠그고 순번 발급·저장 → 커밋 뒤 `ChatMessageSender`가 현재 참여자에게 회원별 큐로 전달 |
+| 전송 | STOMP `/pub/chats/{roomId}/messages` → `ChatMessageFacade.send`가 방을 `PESSIMISTIC_WRITE`로 잠그고 순번 발급·저장 → 커밋 뒤 STOMP 전송 어댑터(`in/websocket/StompLocalChatSender`, 옛 이름 `ChatMessageSender`)가 현재 참여자에게 회원별 큐로 전달 |
 | 수신 | 회원별 큐 `/user/queue/chats/messages`·`/errors`(FE 구독), `/notifications`(FE 미구독). 방 topic 없음. `ChatStompInterceptor`가 자기 큐 구독과 `/pub` 전송만 허용 |
 | 브로커 | `enableSimpleBroker` 내장 브로커. 서버 1대 전제 |
 | 연결 제어 | `ChatWebSocketSessionRegistry`가 이 프로세스의 WebSocket 세션만 기억하고, 로그아웃(세션 ID)·정지·강등(회원 ID)에 닫는다. JWT 전환(#501) 뒤에는 연결 티켓으로 결합한 회원으로 로그아웃(회원 단위)·정지·강등·연결 만료에 닫는다(6장) |
 | 회원 복제 | `UserJoinedEvent`로 생성, `UserModifiedEvent`로 갱신. `ReplicaUser.memberVersion`으로 옛 이벤트를 무시한다(#262의 버전 비교는 이미 구현됨) |
 | 알림 | 출연 이벤트 2종을 1:1 방의 `NOTIFICATION` 메시지로 남긴다 |
-| DB 접근 | Spring Data JPA. PostgreSQL 전용 문장은 native `@Query`, JPQL 조회는 QueryDSL(app `XxxRepositoryCustom` → out `XxxRepositoryCustomImpl`, 2026-11-17), 쓰기·잠그는 조회·이름으로 만드는 조회는 repository 메서드다. repository 인터페이스는 app의 port로 Spring Data `Repository`만 extends한다(`JpaRepository` 상속 없음)([결정 사항](rules/decisions.md) "데이터 접근"·"JPQL 조회는 QueryDSL") |
+| DB 접근 | Spring Data JPA. PostgreSQL 전용 문장은 native `@Query`, JPQL 조회는 QueryDSL(app `XxxRepositoryCustom` → out `XxxRepositoryCustomImpl`, 2026-11-17), 쓰기·잠그는 조회·이름으로 만드는 조회는 repository 메서드다. repository 인터페이스는 app의 port로 Spring Data `Repository`만 extends하고(`JpaRepository` 상속 없음), app 클래스가 직접 쓴다(DB 위 Store·Reader 인터페이스와 out `Jpa*` 구현 없음)([결정 사항](rules/decisions.md) "데이터 접근"·"JPQL 조회는 QueryDSL") |
 | 멱등·복구 | `clientMessageId` 재전송 방지(#261, #311), `participationVersion`으로 옛 퇴장 요청 무시, 읽음은 조건부 UPDATE로 단조 증가. FE는 `appliedIds`로 중복을 거르고 `roomSequence` 간격이 보이면 이력을 다시 조회한다(`incoming.ts`), 재연결마다 채팅 데이터를 다시 부른다(`ChatConnection.tsx`) |
 
 ### 2.2 앱 분리로 끊긴 것
@@ -481,7 +481,7 @@ SUBSCRIBE는 연결별 수신 순서(설계 4.6, `ChatInboundReceiveBudget`) 안
 | `ChatWebSocketSessionRegistry` | 인증 성공 뒤 `userId → STOMP sessionId → 실제 소켓`을 매핑한다. 연결 티켓으로 정한 회원·인증 시각·만료의 결합과 제거 규칙은 6장을 따른다. 연결을 닫으면 방 구독 목록에서도 그 세션을 지운다 |
 | `ChatStompInterceptor`·방 구독 목록(방 topic 결정) | SUBSCRIBE에 `/topic/chats/rooms/{roomId}`를 더하고 참여·세대·자격을 검사해 chat-app의 방 구독 목록에 넣는다. UNSUBSCRIBE·DISCONNECT·연결 종료에 지운다. 전달 처리기가 이 목록과 방 참여 캐시로 방 topic 프레임을 세션별로 쓴다(4.2). simple broker는 `/queue`만 맡는다 |
 | 회원 이벤트의 연결 닫기 | 회원 상태·처리 기록(inbox를 둔다면)과 같은 트랜잭션에 제어 outbox를 남긴다. 발행과 로컬 회원 상태 재검사는 5.3을 따른다 |
-| 설정 | `../../../common/redis`의 `RedisConfig`는 비어 있다. `RedisMessageListenerContainer`와 채널 구독은 chat-app 안(`out/redis` 패키지)에 둔다. 키·채널 규칙은 채팅이 소유한다(공통 모듈 README 규칙) |
+| 설정 | `../../../common/redis`의 `RedisConfig`는 비어 있다. `RedisMessageListenerContainer`와 채널 구독은 chat-app 안에 둔다. 구독 설정·키 이름(`ChatRealtimeRedisConfig`·`ChatRedisKeys`)은 in·out이 함께 쓰므로 `global/redis`, 방 채널 동적 구독은 `out/redis`, 구독 진입 어댑터는 `in/redis`다. 키·채널 규칙은 채팅이 소유한다(공통 모듈 README 규칙) |
 | 관측 | 미적재 outbox 수·최장 대기, Stream 길이·그룹 lag·PEL 수/최장 idle·재회수·ACK 지연, DB 발행 미완료·재적재·실패 격리, Redis 메모리·eviction·AOF/디스크, Pub/Sub 구독 단절·제어 재검사·DB I/O/WAL을 계측한다(#343) |
 
 DB 커밋 뒤 Redis 발행 실패는 업무 저장 실패로 돌려주지 않는다. 미발행 outbox를 재시도하고, FE는 응답을 못 받은 메시지를 '실패 확정'이 아닌 결과 미확인 상태로 다룬다. 이후 이력 확인 또는 같은 `clientMessageId` 재시도로 저장 결과를 확인한다.
@@ -628,7 +628,7 @@ DB 커밋 뒤 Redis 발행 실패는 업무 저장 실패로 돌려주지 않는
 | 수신자·전달 | 불변 참여 집합 버전 참조, 방 topic(chat-app 방 구독 목록), 수신자 집합 버전으로 다시 읽는 방 참여 캐시, Redis 접속 정보, 방별 Redis 채널(동적 구독)과 늘 구독하는 서버 채널(알림 재료·제어), 회원별 큐는 전송 결과·오류·재동기화·묶은 알림만(2026-10-30 결정) | 복수 replica: 방별 채널이라 방을 연 세션이 있는 replica만 그 방 메시지를 받는다. 서버 채널의 알림 재료는 모든 replica가 받으므로 묶음을 발행 쪽으로 옮길지 정한다(Q28). 구독 회수를 제어 Stream으로 전파하고 접속 경로 라우팅을 검토한다. 알림 모듈이 생기면 안 읽은 수·알림·개인 오류를 옮기고 chat의 `/user` 경로를 없앤다. 오프라인/대규모 방은 필요 시 이력 조회 중심 모델을 검토하되 FE 계약과 공개 범위를 먼저 확정 |
 | 내구성·재시도 | outbox lease·claimToken, Stream group·PEL·ACK, DB 발행 체크포인트·유실 재구성·DEAD·안정적인 전달 ID | 입력 영속 로그 도입 후보. 접수 ACK와 메시지 저장 완료 ACK를 구분하고 원본 데이터의 기준·재생·중복·마이그레이션을 별도 설계 |
 
-`ChatCommandService`, `MessageStore`, `DeliveryAudienceResolver`, `ChatDeliveryQueue`, `RealtimeChatFanout` 등 역할 이름은 계약 예시다. 계약은 `app`, DB·Redis 기술 구현은 `out`, 조정은 `app`, 진입 어댑터는 `in`에 둔다. 순번·메시지 저장은 원자적 저장 계약 안에 두고, 각각 독립 커밋하는 인터페이스로 잘못 분리하지 않는다. 미래 분산 구현의 담당자 전환에는 epoch/fencing·재생·멱등 처리가 필요하며, 현재의 로컬 큐·mutex만으로 분산 정합성까지 해결했다고 보지 않는다.
+`ChatCommandService`, `MessageStore`, `DeliveryAudienceResolver`, `ChatDeliveryQueue`, `RealtimeChatFanout` 등 역할 이름은 계약 예시다. 계약은 `app`, Redis·HTTP·Kafka 기술 구현은 `out`, 조정은 `app`, 진입 어댑터는 `in`에 둔다. DB는 `app`의 repository port(Spring Data 구현)를 app 클래스가 직접 쓴다(2026-11-17). 순번·메시지 저장은 원자적 저장 계약 안에 두고, 각각 독립 커밋하는 인터페이스로 잘못 분리하지 않는다. 미래 분산 구현의 담당자 전환에는 epoch/fencing·재생·멱등 처리가 필요하며, 현재의 로컬 큐·mutex만으로 분산 정합성까지 해결했다고 보지 않는다.
 
 Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 있으나, 같은 방의 처리 완료 순서·재시도·재할당·파티션 변경을 따로 제어해야 한다. hot room 하나의 엄격한 전체 순서는 여전히 조정 지점이다. 현재 회원 이벤트 Kafka 전환에 채팅 명령 로그 도입을 끼워 넣지 않는다([Kafka 공식 설명](https://kafka.apache.org/intro/)). 메시지 ID·정렬 위치·동기화 커서도 구분하며 Snowflake·시간 기반 ID만으로 커밋 순서나 간격 없는 순번을 보장한다고 가정하지 않는다. Discord의 2023년 공개 사례는 채널·시간 버킷 분할과 hot partition 문제를 보여 주는 참고이며 우리 수용량의 증거가 아니다([공개 사례](https://discord.com/blog/how-discord-stores-trillions-of-messages)).
 
