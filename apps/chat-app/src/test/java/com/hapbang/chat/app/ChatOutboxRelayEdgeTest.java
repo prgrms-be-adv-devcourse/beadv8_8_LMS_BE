@@ -34,7 +34,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatOutboxStore;
 
 /**
  * Outbox 적재의 남은 경계 (테스트 기준 "Outbox 적재", 설계 9장 "메시지 outbox relay").
@@ -58,7 +57,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     private ChatPublishCheckpointRepository spiedCheckpointRepository;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
     private ChatMessageRepository chatMessageRepository;

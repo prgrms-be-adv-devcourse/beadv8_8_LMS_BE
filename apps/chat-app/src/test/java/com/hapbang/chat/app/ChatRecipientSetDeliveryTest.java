@@ -33,6 +33,7 @@ import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.domain.ChatRecipientSetMember;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
@@ -186,7 +187,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
                 .min().orElseThrow();
         for (ChatMessage message : messages) {
             ChatOutbox outbox = chatOutboxRepository.findByMessageId(message.getId()).orElseThrow();
-            List<Long> recipients = recipientSetMemberRepository.findUserIds(outbox.getRecipientSetId());
+            List<Long> recipients = recipientUserIds(outbox.getRecipientSetId());
             if (message.getMessageType() == ChatMessageType.SYSTEM) {
                 assertThat(recipients).containsExactly(HOST_ID);
             } else {
@@ -213,7 +214,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         assertThat(systemMessages).hasSize(2);
         ChatOutbox rejoinNotice = chatOutboxRepository.findByMessageId(systemMessages.getLast().getId())
                 .orElseThrow();
-        assertThat(recipientSetMemberRepository.findUserIds(rejoinNotice.getRecipientSetId()))
+        assertThat(recipientUserIds(rejoinNotice.getRecipientSetId()))
                 .containsExactly(HOST_ID);
         assertThat(recipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(
                 chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId()))
@@ -298,5 +299,12 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     @FunctionalInterface
     private interface IndexedTask<T> {
         T run(int index);
+    }
+
+    /** 수신자 집합에 든 회원 ID(회원 ID 순) */
+    private List<Long> recipientUserIds(Long recipientSetId) {
+        return recipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(recipientSetId).stream()
+                .map(ChatRecipientSetMember::getUserId)
+                .toList();
     }
 }

@@ -30,8 +30,6 @@ import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatOutboxStore;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * 재적재 상한 격리·운영 재처리의 경합과 트랜잭션 경계 (계약 tables-and-migrations "운영 재처리 감사와 누적 횟수",
@@ -47,10 +45,10 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
     }
 
     @MockitoSpyBean
-    private JpaChatOutboxStore spiedOutboxStore;
+    private ChatOutboxStore spiedOutboxStore;
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @MockitoSpyBean
     private ChatDeliveryQueue spiedQueue;

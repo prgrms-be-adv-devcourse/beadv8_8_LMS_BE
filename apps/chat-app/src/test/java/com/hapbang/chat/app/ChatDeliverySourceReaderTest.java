@@ -1,4 +1,4 @@
-package com.hapbang.chat.out;
+package com.hapbang.chat.app;
 
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
@@ -7,19 +7,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.hapbang.chat.app.ChatDeliverySourceReader;
 import com.hapbang.chat.app.ChatDeliverySourceReader.MessageSource;
-import com.hapbang.chat.app.ChatMessageUseCase;
-import com.hapbang.chat.app.ChatReadService;
-import com.hapbang.chat.app.ChatRoomUseCase;
-import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessageSender;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 실시간 전달 원본은 메시지와 발신자 복제본을 한 문장으로 읽어 발신자 표시 정보를 싣고, 일반 메시지는 전달 시점의 안 읽은 사람 수를 싣는다
 @IntegrationTest
-class JpaChatDeliverySourceReaderTest {
+class ChatDeliverySourceReaderTest {
 
     @Autowired
     private ChatDeliverySourceReader reader;

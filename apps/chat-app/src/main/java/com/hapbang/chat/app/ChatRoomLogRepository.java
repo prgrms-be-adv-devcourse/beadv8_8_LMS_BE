@@ -18,6 +18,7 @@ public interface ChatRoomLogRepository extends Repository<ChatRoomLog, Long>, Ch
     // 테스트 검증에서만 쓰는 기본 메서드
     long count();
 
+    /** 테스트 검증에서만 쓴다 */
     List<ChatRoomLog> findByChatRoom_IdOrderByIdAsc(Long chatRoomId);
 
     /** 관리자 기록 조회 첫 페이지. (일어난 시각, ID) 순서 */

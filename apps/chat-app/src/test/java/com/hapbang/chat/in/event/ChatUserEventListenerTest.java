@@ -2,6 +2,8 @@ package com.hapbang.chat.in.event;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -10,11 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.kafka.clients.admin.NewTopic;
@@ -36,11 +35,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -48,18 +45,18 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatConnectionControl;
 import com.hapbang.chat.app.ChatUserRepository;
-import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.ChatKafkaTopicConfig;
-import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserJoinedEvent;
@@ -87,8 +84,7 @@ import jakarta.persistence.EntityManager;
 @IntegrationTest
 // 이 클래스만 쓰는 토픽·그룹 설정의 컨텍스트라 끝나면 닫아 Kafka 소비자를 남기지 않는다
 @DirtiesContext
-@Import({KafkaTestcontainersConfig.class, ChatUserEventListenerTest.Topics.class,
-        ChatUserEventListenerTest.FailableConnectionControl.class, RecordedSpans.Config.class})
+@Import({KafkaTestcontainersConfig.class, ChatUserEventListenerTest.Topics.class, RecordedSpans.Config.class})
 class ChatUserEventListenerTest {
 
     private static final String SUFFIX = UUID.randomUUID().toString();
@@ -129,8 +125,8 @@ class ChatUserEventListenerTest {
     @Autowired
     private ChatMemberEventTopicVerifier topicVerifier;
 
-    @Autowired
-    private FailableConnectionControl connectionControl;
+    @MockitoSpyBean
+    private ChatConnectionControl connectionControl;
 
     @Autowired
     private RecordedSpans spans;
@@ -153,7 +149,7 @@ class ChatUserEventListenerTest {
     @AfterEach
     void tearDown() {
         producer.close(Duration.ofSeconds(5));
-        connectionControl.reset();
+        reset(connectionControlSpy());
         clearControlTables();
     }
 
@@ -224,7 +220,7 @@ class ChatUserEventListenerTest {
         assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(TOPIC);
         assertThat(exceptionClasses(deadLetter)).contains("ChatException");
         assertThat(chatUserRepository.findById(id)).isEmpty();
-        assertThat(connectionControl.calls(id)).isZero();
+        assertThat(recheckCalls(id)).isZero();
 
         // DLT로 넘긴 뒤 offset이 넘어가 다음 레코드(같은 회원의 가입)를 처리한다
         joined(id, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 0L);
@@ -279,7 +275,7 @@ class ChatUserEventListenerTest {
             assertThat(row.get("consumer_group")).isEqualTo("chat-control-v1");
             assertThat(row.get("status")).isEqualTo("PENDING");
         });
-        assertThat(connectionControl.calls(id)).isEqualTo(1);
+        assertThat(recheckCalls(id)).isEqualTo(1);
     }
 
     @Test
@@ -327,13 +323,13 @@ class ChatUserEventListenerTest {
         joined(id, "호스트", Role.INFLUENCER, UserStatus.ACTIVE, 1L);
         awaitProcessed();
         // 제어 작업을 실제로 기록한 뒤 같은 트랜잭션 안에서 실패시킨다
-        connectionControl.failAfterRecording(id);
+        failAfterRecording(id);
 
         modified(id, "호스트", Role.USER, UserStatus.ACTIVE, 2L);
 
         awaitDeadLetter(id);
         // 처음 처리와 재시도 2번 모두 기록까지 갔다가 롤백됐다
-        assertThat(connectionControl.calls(id)).isEqualTo(3);
+        assertThat(recheckCalls(id)).isEqualTo(3);
         assertThat(chatUserRepository.findById(id)).hasValueSatisfying(chatUser -> {
             assertThat(chatUser.getRole()).isEqualTo(Role.INFLUENCER);
             assertThat(chatUser.getMemberVersion()).isEqualTo(1L);
@@ -563,6 +559,30 @@ class ChatUserEventListenerTest {
         return NEXT_ID.incrementAndGet();
     }
 
+    /** 그 회원의 재검사 작업을 실제로 기록한 뒤 같은 트랜잭션 안에서 실패시킨다 */
+    private void failAfterRecording(Long userId) {
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("제어 작업 기록 뒤 실패(테스트)");
+        }).when(connectionControlSpy()).requestRecheck(eq(userId), any(), any());
+    }
+
+    /** 그 회원의 재검사 작업 기록 호출 수(기록 뒤 실패한 호출 포함) */
+    private long recheckCalls(Long userId) {
+        return mockingDetails(connectionControlSpy()).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("requestRecheck")
+                        && userId.equals(invocation.getArgument(0)))
+                .count();
+    }
+
+    /**
+     * 트랜잭션 프록시 안쪽의 spy. 주입받은 빈은 트랜잭션 프록시(MANDATORY)라 그대로 stub하면 트랜잭션 없이 실제 메서드를 부른다.
+     * spy를 stub하면 실패도 실제 호출처럼 프록시 안에서 나 회원 반영 트랜잭션을 롤백시킨다.
+     */
+    private ChatConnectionControl connectionControlSpy() {
+        return AopTestUtils.getUltimateTargetObject(connectionControl);
+    }
+
     /** 이 클래스 전용 원본 토픽. DLT는 chat-app 설정({@link ChatKafkaTopicConfig})이 만든다 */
     @TestConfiguration(proxyBeanMethods = false)
     static class Topics {
@@ -573,48 +593,4 @@ class ChatUserEventListenerTest {
         }
     }
 
-    /**
-     * 실제 제어 작업 기록({@link JpaChatConnectionControl})을 감싸 호출 수를 세고, 지정한 회원은 기록한 뒤 실패시킨다.
-     * AOP 프록시 빈을 Mockito로 감싸지 않으려고 테스트 전용 기본 빈으로 둔다.
-     */
-    @Primary
-    @TestComponent
-    static class FailableConnectionControl implements ChatConnectionControl {
-
-        private final JpaChatConnectionControl delegate;
-        private final Map<Long, AtomicInteger> calls = new ConcurrentHashMap<>();
-        private final Set<Long> failing = ConcurrentHashMap.newKeySet();
-
-        FailableConnectionControl(JpaChatConnectionControl delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public void requestRecheck(Long userId, Long memberVersion, ChatControlReason reason) {
-            calls.computeIfAbsent(userId, key -> new AtomicInteger()).incrementAndGet();
-            delegate.requestRecheck(userId, memberVersion, reason);
-            if (failing.contains(userId)) {
-                throw new IllegalStateException("제어 작업 기록 뒤 실패");
-            }
-        }
-
-        @Override
-        public void requestLogout(Long userId, java.time.Instant loggedOutAt) {
-            delegate.requestLogout(userId, loggedOutAt);
-        }
-
-        void failAfterRecording(Long userId) {
-            failing.add(userId);
-        }
-
-        int calls(Long userId) {
-            AtomicInteger count = calls.get(userId);
-            return count == null ? 0 : count.get();
-        }
-
-        void reset() {
-            calls.clear();
-            failing.clear();
-        }
-    }
 }

@@ -27,6 +27,7 @@ import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.domain.ChatRecipientSet;
+import com.hapbang.chat.domain.ChatRecipientSetMember;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -102,7 +103,7 @@ class ChatDeliveryOutboxRecordTest {
         ChatRecipientSet set = chatRecipientSetRepository.findById(room.getCurrentRecipientSetId()).orElseThrow();
         assertThat(set.getSetVersion()).isEqualTo(1);
         assertThat(set.getMemberCount()).isEqualTo(2);
-        assertThat(chatRecipientSetMemberRepository.findUserIds(set.getId())).containsExactly(HOST_ID, GUEST_ID);
+        assertThat(recipientUserIds(set.getId())).containsExactly(HOST_ID, GUEST_ID);
     }
 
     @Test
@@ -141,10 +142,10 @@ class ChatDeliveryOutboxRecordTest {
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(room.getActiveMemberCount()).isEqualTo(1);
         assertThat(room.getCurrentRecipientSetId()).isNotEqualTo(beforeSetId);
-        assertThat(chatRecipientSetMemberRepository.findUserIds(room.getCurrentRecipientSetId()))
+        assertThat(recipientUserIds(room.getCurrentRecipientSetId()))
                 .containsExactly(HOST_ID);
         // 이전 버전의 항목은 그대로다
-        assertThat(chatRecipientSetMemberRepository.findUserIds(beforeSetId)).containsExactly(HOST_ID, GUEST_ID);
+        assertThat(recipientUserIds(beforeSetId)).containsExactly(HOST_ID, GUEST_ID);
         ChatOutbox outbox = chatOutboxRepository.findByMessageId(result.leftNotice().messageId()).orElseThrow();
         assertThat(outbox.getRecipientSetId()).isEqualTo(room.getCurrentRecipientSetId());
         assertThat(outbox.getNotifyRule()).isEqualTo(ChatNotifyRule.NONE);
@@ -158,7 +159,7 @@ class ChatDeliveryOutboxRecordTest {
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(room.isEnded()).isTrue();
         assertThat(room.getActiveMemberCount()).isZero();
-        assertThat(chatRecipientSetMemberRepository.findUserIds(room.getCurrentRecipientSetId())).isEmpty();
+        assertThat(recipientUserIds(room.getCurrentRecipientSetId())).isEmpty();
         assertThat(chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).hasSize(1);
     }
 
@@ -191,8 +192,8 @@ class ChatDeliveryOutboxRecordTest {
         chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
         SentChatMessage after = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔네요", null);
 
-        assertThat(chatRecipientSetMemberRepository.findUserIds(leftNoticeSetId)).containsExactly(HOST_ID);
-        assertThat(chatRecipientSetMemberRepository.findUserIds(
+        assertThat(recipientUserIds(leftNoticeSetId)).containsExactly(HOST_ID);
+        assertThat(recipientUserIds(
                 chatOutboxRepository.findByMessageId(after.message().messageId()).orElseThrow().getRecipientSetId()))
                 .containsExactly(HOST_ID, GUEST_ID);
     }
@@ -286,5 +287,12 @@ class ChatDeliveryOutboxRecordTest {
         assertThat(context.getBeanNamesForType(ChatStreamJobProcessor.class)).isEmpty();
         assertThat(context.getBeanNamesForType(ChatDeliveryQueue.class)).isEmpty();
         assertThat(context.getBeanNamesForType(ChatDeliveryPipelineRunner.class)).isEmpty();
+    }
+
+    /** 수신자 집합에 든 회원 ID(회원 ID 순) */
+    private List<Long> recipientUserIds(Long recipientSetId) {
+        return chatRecipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(recipientSetId).stream()
+                .map(ChatRecipientSetMember::getUserId)
+                .toList();
     }
 }

@@ -31,7 +31,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * 시도·재적재 상한의 격리와 운영 재처리 감사 기록 (설계 4.5 7번, 테스트 기준 "Stream 유실·보존").
@@ -52,7 +51,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
     private ChatDeliveryReprocessAuditRepository auditRepository;
 
     @Autowired
-    private JpaChatPublishCheckpointStore checkpointStore;
+    private ChatPublishCheckpointStore checkpointStore;
 
     @Autowired
     private TransactionTemplate transactionTemplate;

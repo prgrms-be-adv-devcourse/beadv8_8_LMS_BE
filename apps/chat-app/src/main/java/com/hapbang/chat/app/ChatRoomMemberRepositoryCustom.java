@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.ChatRoomMemberRows.MemberWithUser;
 import com.hapbang.chat.domain.ChatRoomMember;
 
 /**
@@ -34,4 +35,10 @@ public interface ChatRoomMemberRepositoryCustom {
      * 방의 활성 참여자 수. 수신자 집합을 만들 때 같은 트랜잭션의 참여 행 변경을 반영해 센다.
      */
     long countActiveMembers(Long chatRoomId);
+
+    /**
+     * 방의 활성 참여 행과 그 회원 복제본. 회원 복제본이 없는 참여 행은 빠진다. 실시간 전달의 수신자 상태를 회원마다 따로 읽지 않고
+     * 한 문장으로 읽는다.
+     */
+    List<MemberWithUser> findActiveWithUser(Long roomId);
 }

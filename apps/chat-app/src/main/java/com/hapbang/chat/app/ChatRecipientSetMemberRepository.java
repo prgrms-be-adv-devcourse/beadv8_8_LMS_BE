@@ -10,11 +10,10 @@ import org.springframework.data.repository.query.Param;
 import com.hapbang.chat.domain.ChatRecipientSetMember;
 
 /**
- * 불변 수신자 집합 항목 저장소. JPQL 조회는 {@link ChatRecipientSetMemberRepositoryCustom}(QueryDSL)에 있다.
+ * 불변 수신자 집합 항목 저장소. 항목은 방을 잠근 트랜잭션에서 native 문장으로 한 번에 복사한다.
  */
 public interface ChatRecipientSetMemberRepository
-        extends Repository<ChatRecipientSetMember, ChatRecipientSetMember.Key>,
-        ChatRecipientSetMemberRepositoryCustom {
+        extends Repository<ChatRecipientSetMember, ChatRecipientSetMember.Key> {
 
     /**
      * 방의 지금 활성 참여 행을 새 수신자 집합의 항목으로 복사한다. 참여자 엔티티를 앱으로 읽지 않고 DB 안에서 한 번에 넣는다.
@@ -31,6 +30,6 @@ public interface ChatRecipientSetMemberRepository
             """)
     int copyActiveMembers(@Param("recipientSetId") Long recipientSetId, @Param("chatRoomId") Long chatRoomId);
 
-    /** 집합의 항목 전체(회원 ID 순). 커밋된 집합을 전달 payload로 펼칠 때 쓴다 */
+    /** 집합의 항목 전체(회원 ID 순). 테스트 검증에서만 쓴다 */
     List<ChatRecipientSetMember> findByRecipientSetIdOrderByUserIdAsc(Long recipientSetId);
 }

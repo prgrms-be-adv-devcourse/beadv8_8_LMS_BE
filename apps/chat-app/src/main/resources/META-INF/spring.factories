@@ -5,4 +5,4 @@ com.hapbang.chat.app.ChatRoomRepositoryCustom=com.hapbang.chat.out.ChatRoomRepos
 com.hapbang.chat.app.ChatRoomMemberRepositoryCustom=com.hapbang.chat.out.ChatRoomMemberRepositoryCustomImpl
 com.hapbang.chat.app.ChatRoomLogRepositoryCustom=com.hapbang.chat.out.ChatRoomLogRepositoryCustomImpl
 com.hapbang.chat.app.ChatRecipientSetRepositoryCustom=com.hapbang.chat.out.ChatRecipientSetRepositoryCustomImpl
-com.hapbang.chat.app.ChatRecipientSetMemberRepositoryCustom=com.hapbang.chat.out.ChatRecipientSetMemberRepositoryCustomImpl
+com.hapbang.chat.app.ChatUserRepositoryCustom=com.hapbang.chat.out.ChatUserRepositoryCustomImpl

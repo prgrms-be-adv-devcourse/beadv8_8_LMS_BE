@@ -24,4 +24,9 @@ public interface ChatRoomRepositoryCustom {
      * 트랜잭션에서 다시 확인하고 바꾼다. 부분 인덱스 {@code idx_chat_room_group_history_expiry}를 쓴다.
      */
     List<Long> findHistoryExpiryDueIds(LocalDateTime now, long afterId, Limit limit);
+
+    /**
+     * 방의 현재 수신자 집합 버전. 방이 없거나 수신자 집합이 없으면 빈 값이다.
+     */
+    Optional<Integer> findCurrentRecipientSetVersion(Long roomId);
 }

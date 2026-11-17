@@ -6,14 +6,12 @@ import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 /**
- * 채팅이 소유하는 Redis Stream·consumer group·Pub/Sub 채널·접속 정보·연결 티켓·로그아웃 표식 키 이름. 환경 namespace를 앞에 붙인다.
+ * 채팅이 소유하는 Redis Stream·Pub/Sub 채널·접속 정보·연결 티켓·로그아웃 표식 키 이름. 환경 namespace를 앞에 붙인다.
+ * consumer group 이름은 발행 체크포인트에도 저장하는 값이라 {@code app.ChatJobStream}에 둔다.
  * 계약: {@code apps/chat-app/docs/contracts/realtime-fanout.md}
  */
 @Component
 public class ChatRedisKeys {
-
-    public static final String DELIVERY_GROUP = "chat-delivery-v1";
-    public static final String CONTROL_GROUP = "chat-control-v1";
 
     private final String namespace;
 

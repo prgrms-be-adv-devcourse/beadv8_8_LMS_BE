@@ -35,7 +35,6 @@ import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * Stream 그룹 소비·Pub/Sub 발행·체크포인트·ACK·PEL 회수 (테스트 기준 "Stream 소비", "Pub/Sub·체크포인트").
@@ -54,7 +53,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;

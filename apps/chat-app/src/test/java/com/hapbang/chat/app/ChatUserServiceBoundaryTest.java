@@ -23,10 +23,13 @@ class ChatUserServiceBoundaryTest {
     @Test
     void 전환한_계약은_app_패키지의_인터페이스다() {
         for (Class<?> contract : List.of(ChatUserSyncService.class, ChatUserBackfillService.class,
-                ChatMemberSnapshotSource.class, ChatConnectionControl.class)) {
+                ChatMemberSnapshotSource.class)) {
             assertThat(contract.isInterface()).as(contract.getSimpleName()).isTrue();
             assertThat(contract.getPackageName()).isEqualTo("com.hapbang.chat.app");
         }
+        // 연결 제어 기록은 DB만 쓰므로 계약 인터페이스 없이 app 클래스가 repository port로 한다
+        assertThat(ChatConnectionControl.class.isInterface()).isFalse();
+        assertThat(ChatConnectionControl.class.getPackageName()).isEqualTo("com.hapbang.chat.app");
     }
 
     @Test

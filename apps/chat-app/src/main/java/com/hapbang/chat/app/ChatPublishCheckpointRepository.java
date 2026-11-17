@@ -15,7 +15,7 @@ import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 
 /**
- * 발행 체크포인트 저장·조회. 상태 변경은 {@code JpaChatPublishCheckpointStore}가 부르는 아래 조건부 native 문장으로만 한다.
+ * 발행 체크포인트 저장·조회. 상태 변경은 {@link ChatPublishCheckpointStore}가 부르는 아래 조건부 native 문장으로만 한다.
  * 변경 문장은 {@code @Transactional}(REQUIRED)이다. 호출한 쪽 트랜잭션이 없으면 문장마다 바로 커밋되고, 있으면 참여한다.
  * 변경 문장은 영속성 컨텍스트를 비우지 않는다. 호출한 쪽이 쓰는 엔티티를 떼어 내지 않는다.
  */
@@ -50,6 +50,7 @@ public interface ChatPublishCheckpointRepository extends Repository<ChatPublishC
         ChatPublishStatus getStatus();
     }
 
+    /** 테스트 검증에서만 쓴다 */
     Optional<ChatPublishCheckpoint> findByConsumerGroupAndJobId(String consumerGroup, UUID jobId);
 
     @Query(nativeQuery = true, value = """

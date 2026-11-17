@@ -29,8 +29,6 @@ import com.hapbang.chat.app.dto.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatOutboxStore;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -53,10 +51,10 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
     }
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
     private ObjectProvider<MeterRegistry> meterRegistry;

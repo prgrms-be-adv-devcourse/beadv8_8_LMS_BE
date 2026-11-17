@@ -115,7 +115,7 @@ public interface ChatMessageRepository extends Repository<ChatMessage, Long>, Ch
     /** 같은 출연 이벤트로 이미 알림을 남겼는지 */
     boolean existsByNotificationKindAndReferenceId(NotificationKind notificationKind, Long referenceId);
 
-    /** 방의 모든 메시지 (Soft Delete 포함, 순번 순서) */
+    /** 방의 모든 메시지 (Soft Delete 포함, 순번 순서). 테스트 검증에서만 쓴다 */
     List<ChatMessage> findByChatRoom_IdOrderByRoomSequenceAsc(Long chatRoomId);
 
     /**

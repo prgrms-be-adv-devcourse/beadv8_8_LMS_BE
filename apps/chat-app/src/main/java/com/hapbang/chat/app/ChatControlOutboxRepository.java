@@ -20,7 +20,7 @@ import com.hapbang.chat.app.ChatOutboxRows.IsolatedJobRow;
 import com.hapbang.chat.domain.ChatControlOutbox;
 
 /**
- * 연결 제어 outbox 저장·조회. 기록은 {@code JpaChatConnectionControl}, 적재 상태 변경은 {@code JpaChatOutboxStore}가
+ * 연결 제어 outbox 저장·조회. 기록은 {@link ChatConnectionControl}, 적재 상태 변경은 {@link ChatOutboxStore}가
  * 아래 native 문장으로 한다. 적재 문장은 전달 outbox({@link ChatOutboxRepository})와 테이블만 다르고 같다.
  * 적재 변경 문장의 트랜잭션·영속성 컨텍스트 규칙도 전달 outbox와 같다.
  */
@@ -28,8 +28,6 @@ public interface ChatControlOutboxRepository extends Repository<ChatControlOutbo
 
     // 테스트 검증에서만 쓰는 기본 메서드. 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     List<ChatControlOutbox> findAll();
-
-    Optional<ChatControlOutbox> findByControlId(UUID controlId);
 
     /**
      * 재검사 작업(RECHECK_USER)을 같은 (회원, 원본 버전, 종류)가 없을 때만 넣는다. 유일 인덱스는 재검사 작업에만 있다. 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해

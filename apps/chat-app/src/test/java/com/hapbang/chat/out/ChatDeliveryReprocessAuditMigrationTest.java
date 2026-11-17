@@ -109,7 +109,7 @@ class ChatDeliveryReprocessAuditMigrationTest {
                 "chat_outbox.total_attempt_count", "chat_outbox.total_requeue_count",
                 "chat_publish_checkpoint.total_attempt_count");
 
-        // 누적 컬럼을 넣지 않는 INSERT(제어 outbox는 JpaChatConnectionControl의 INSERT와 같은 컬럼)도 0으로 시작한다
+        // 누적 컬럼을 넣지 않는 INSERT(제어 outbox는 ChatConnectionControl의 INSERT와 같은 컬럼)도 0으로 시작한다
         UUID control = UUID.randomUUID();
         sql.update("""
                         insert into chats.chat_control_outbox (control_id, control_type, user_id, member_version, reason,

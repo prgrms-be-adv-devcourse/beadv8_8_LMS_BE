@@ -19,7 +19,7 @@ import com.hapbang.chat.app.ChatOutboxRows.IsolatedJobRow;
 import com.hapbang.chat.domain.ChatOutbox;
 
 /**
- * 메시지 전달 outbox 저장·조회. 적재 상태 변경은 {@code JpaChatOutboxStore}가 부르는 아래 조건부 native 문장으로만 한다.
+ * 메시지 전달 outbox 저장·조회. 적재 상태 변경은 {@link ChatOutboxStore}가 부르는 아래 조건부 native 문장으로만 한다.
  * <ul>
  *     <li>제어 outbox({@link ChatControlOutboxRepository})와 적재 공통 컬럼이 같아 테이블만 바꾼 같은 문장을 둔다.</li>
  *     <li>변경 문장은 {@code @Transactional}(REQUIRED)이다. 호출한 쪽 트랜잭션이 없으면 문장마다 바로 커밋되고, 있으면
@@ -32,10 +32,9 @@ public interface ChatOutboxRepository extends Repository<ChatOutbox, Long> {
     // 기본 메서드: 이름과 시그니처가 같아 Spring Data 기본 구현(SimpleJpaRepository)이 처리한다
     <S extends ChatOutbox> S save(S entity);
 
+    // 테스트 검증에서만 쓰는 조회
     Optional<ChatOutbox> findByDeliveryId(UUID deliveryId);
-
     List<ChatOutbox> findByChatRoomIdOrderByIdAsc(Long chatRoomId);
-
     Optional<ChatOutbox> findByMessageId(Long messageId);
 
     @Transactional

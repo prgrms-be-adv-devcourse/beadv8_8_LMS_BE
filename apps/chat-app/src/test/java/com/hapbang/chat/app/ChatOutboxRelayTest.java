@@ -28,7 +28,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
-import com.hapbang.chat.out.JpaChatOutboxStore;
 
 /**
  * DB outbox → Stream 적재 (테스트 기준 "Outbox 적재").
@@ -45,7 +44,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
