@@ -29,7 +29,7 @@ import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
 // 예약 서비스의 흐름(재검증·근거 대조 → 오름차순 조건부 갱신 → 사용 시도·작업 기록, 거절 기록, 같은 작업 ID 재응답)을 본다.
-// 실제 롤백과 동시 예약은 CouponUsageE2eTest가, 금액·근거 대조 규칙은 도메인 테스트가 본다
+// 실제 롤백과 동시 예약은 CouponUsageE2ETest가, 금액·근거 대조 규칙은 도메인 테스트가 본다
 class CouponReserveUseCaseTest {
 
     private static final String WORK_ID = "order-900:reserve:1";

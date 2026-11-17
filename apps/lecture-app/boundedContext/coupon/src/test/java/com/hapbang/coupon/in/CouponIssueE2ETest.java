@@ -1,4 +1,4 @@
-package com.hapbang.coupon;
+package com.hapbang.coupon.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,8 +54,8 @@ import com.jayway.jsonpath.JsonPath;
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.jpa.open-in-view=false")
-@Import({RedisTestcontainersConfig.class, CouponIssueE2eTest.MethodSecurityConfig.class})
-class CouponIssueE2eTest {
+@Import({RedisTestcontainersConfig.class, CouponIssueE2ETest.MethodSecurityConfig.class})
+class CouponIssueE2ETest {
 
     private static final long ADMIN_ID = 1L;
     private static final long MEMBER_A = 100L;

@@ -1,4 +1,4 @@
-package com.hapbang.coupon;
+package com.hapbang.coupon.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -75,8 +75,8 @@ import lombok.extern.slf4j.Slf4j;
         "hapbang.coupon.republish.ack-timeout=1s",
         "hapbang.coupon.recovery.boundary-grace=0s"
 })
-@Import({KafkaTestcontainersConfig.class, RedisTestcontainersConfig.class, CouponRecoveryE2eTest.MethodSecurityConfig.class})
-class CouponRecoveryE2eTest {
+@Import({KafkaTestcontainersConfig.class, RedisTestcontainersConfig.class, CouponRecoveryE2ETest.MethodSecurityConfig.class})
+class CouponRecoveryE2ETest {
 
     private static final long ADMIN_ID = 1L;
     private static final long MEMBER_A = 100L;

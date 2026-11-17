@@ -22,7 +22,7 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
 /**
  * 역직렬화에 실패한 주문 이벤트의 받은 바이트에 NUL(0x00)이 있어도 격리 기록이 저장되는지 실제 DB(text 컬럼)로 본다. 저장이 실패하면 오류
  * 처리기가 DLT로 보내지 못하고 같은 메시지를 계속 다시 시도해 그 partition 소비가 멈춘다. 원문은 {@code base64:} + Base64로 남고 재처리에서는
- * 주문 이벤트로 읽히지 않는다(영구 거절로 닫는다). 발급 쪽 recorder는 같은 helper를 쓰며 실제 Kafka로는 {@code CouponIssueDeliveryE2eTest}가 본다.
+ * 주문 이벤트로 읽히지 않는다(영구 거절로 닫는다). 발급 쪽 recorder는 같은 helper를 쓰며 실제 Kafka로는 {@code CouponIssueDeliveryE2ETest}가 본다.
  */
 @IntegrationTest
 @Import(RedisTestcontainersConfig.class)

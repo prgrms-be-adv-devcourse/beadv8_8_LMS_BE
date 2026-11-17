@@ -1,4 +1,4 @@
-package com.hapbang.coupon;
+package com.hapbang.coupon.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -104,9 +104,9 @@ import com.jayway.jsonpath.JsonPath;
 // Redis 명령 제한 시간은 운영 application.yaml과 같은 값이다(모듈 테스트는 그 파일을 읽지 않는다)
 @TestPropertySource(properties = {"spring.jpa.open-in-view=false", "hapbang.coupon.platform-funding-enabled=true",
         "spring.data.redis.timeout=2s", "spring.data.redis.connect-timeout=1s"})
-@Import({CouponUsageE2eTest.MethodSecurityConfig.class, RedisTestcontainersConfig.class})
+@Import({CouponUsageE2ETest.MethodSecurityConfig.class, RedisTestcontainersConfig.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class CouponUsageE2eTest {
+class CouponUsageE2ETest {
 
     private static final long ADMIN_ID = 1L;
     private static final long SELLER_ID = 10L;

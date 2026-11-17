@@ -1,4 +1,4 @@
-package com.hapbang.coupon;
+package com.hapbang.coupon.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -90,7 +90,7 @@ import com.jayway.jsonpath.JsonPath;
  *     <li>NUL이 든 깨진 메시지는 원문을 Base64로 남겨 격리되고, 같은 partition의 뒤 메시지가 처리된다.</li>
  * </ol>
  * 같은 소비 그룹의 다른 테스트 컨텍스트가 살아 있으면 partition을 나눠 가지므로 이 컨텍스트는 클래스가 끝나면 닫는다.
- * 보안·예산·강의 조회는 {@code CouponIssueE2eTest}와 같다(메서드 보안을 켜고, 다른 앱은 mock).
+ * 보안·예산·강의 조회는 {@code CouponIssueE2ETest}와 같다(메서드 보안을 켜고, 다른 앱은 mock).
  */
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -108,8 +108,8 @@ import com.jayway.jsonpath.JsonPath;
         "hapbang.coupon.issue-consumer.retry-max-interval=100ms"
 })
 @Import({RedisTestcontainersConfig.class, KafkaTestcontainersConfig.class,
-        CouponIssueDeliveryE2eTest.MethodSecurityConfig.class})
-class CouponIssueDeliveryE2eTest {
+        CouponIssueDeliveryE2ETest.MethodSecurityConfig.class})
+class CouponIssueDeliveryE2ETest {
 
     private static final long ADMIN_ID = 1L;
     private static final int QUANTITY = 10;

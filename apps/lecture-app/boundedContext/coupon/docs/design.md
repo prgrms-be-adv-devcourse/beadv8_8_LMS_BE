@@ -47,20 +47,22 @@ hapbang-backend/
          ├─ src/main/java/com/hapbang/coupon/
          │  ├─ package-info.java             # @ApplicationModule(displayName = "Coupon", allowedDependencies = {})
          │  ├─ domain/                       # Coupon, MemberCoupon, CouponUsage, CouponIssueRequest, 상태·금액 규칙
-         │  ├─ app/                          # 계산·예약·해제·발급·복원 UseCase, 만료·대사·재발행 배치
-         │  │  └─ port/                      # app이 바깥에 요구하는 계약: Redis·HTTP 포트, DB 저장소(XxxRepository·XxxRepositoryCustom)와 그 결과 record
-         │  ├─ config/                       # app이 읽는 설정값(*Properties, CouponRedisProperties 포함)과 그 등록, Kafka 소비자·시계·배치 설정
-         │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답, 배치 켜기 애노테이션, 인증 principal 읽기)
-         │  ├─ in/                           # 들어오는 것: 컨트롤러·리스너 (lecture-app 규칙)
+         │  ├─ app/                          # 계산·예약·해제·발급·복원·만료·대사·재발행 UseCase, 지표(…Metrics)
+         │  │  ├─ exception/                 # 오류 코드 CouponErrorCode, 업무 예외 CouponException·CouponUsageException
+         │  │  └─ port/                      # app이 바깥에 요구하는 계약: Redis·HTTP·매진 상태(CouponSoldOutStatus) 포트, DB 저장소(XxxRepository·XxxRepositoryCustom)와 그 결과 record
+         │  ├─ config/                       # app이 읽는 설정값(*Properties, CouponRedisProperties·CouponSoldOutCacheProperties 포함)과 그 등록, 시계
+         │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답 처리기, 배치 켜기 애노테이션, 인증 principal 읽기, in·out이 함께 쓰는 Kafka 이름 kafka/CouponIssueConsumerNames)
+         │  ├─ in/                           # 들어오는 것: 컨트롤러·매진 빠른 경로 필터와 그 등록·리스너·배치 트리거 (lecture-app 규칙)
          │  │  ├─ ApiV1CouponController.java / …Spec.java          # /api/v1/coupons/** 회원
          │  │  ├─ ApiV1CouponSellerController.java                 # 판매자 신청·중단
          │  │  ├─ ApiV1CouponAdminController.java                  # 승인·발행·중단·종료·DLT
          │  │  ├─ ApiV1CouponInternalController.java               # /api/v1/internal/coupons/** (강의가 호출)
          │  │  ├─ dto/
-         │  │  └─ event/                     # Kafka 소비자: OrderItemPaid·OrderItemCancelCompleted(lecture.events.v1)·CouponIssueRequested(coupon.events.v1)
+         │  │  ├─ scheduler/                 # @Scheduled 트리거(…Batch). 몸통은 UseCase 메서드 한 번 호출
+         │  │  └─ kafka/                     # Kafka 소비자와 그 소비 설정·DLT 기록·이벤트 타입 판별: OrderItemPaid·OrderItemCancelCompleted(lecture.events.v1)·CouponIssueRequested(coupon.events.v1)
          │  └─ out/                          # 나가는 것: 저장소 조각 구현·기술 어댑터. 기술 설정(토픽, @HttpExchange 클라이언트)은 그 어댑터 옆에 둔다
          │     ├─ XxxRepositoryCustomImpl.java   # app/port XxxRepositoryCustom의 QueryDSL 구현(JPAQueryFactory는 구현체 안에서 만든다)
-         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행), 발급·보상·대사·복구 저장소
+         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행), 발급·보상·대사·복구 저장소, 매진 표시 메모리 캐시(CachedCouponSoldOutStatus, Caffeine)
          │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행(접수 직후 앱이 전송, 재발행 배치가 재사용), 복구 경계 확인(AdminClient), 토픽 설정
          │     ├─ lecture/                   # 강의 조회 내부 API를 부르는 @HttpExchange 클라이언트와 그 설정
          │     └─ billing/                   # billing 내부 API를 부르는 @HttpExchange 클라이언트와 그 설정 (계약은 사용자 담당)
