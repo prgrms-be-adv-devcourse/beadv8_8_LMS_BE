@@ -62,13 +62,14 @@ spec:
             - name: elasticsearch-ca
               mountPath: /etc/hapbang/elasticsearch-ca
               readOnly: true
-          # #684 예산: -Xmx256m(kustomization.yaml) + heap 밖 약 370Mi(chat-app 실측) + 여유. 띄운 뒤 실측으로 고친다.
+          # #996: 운영 기동 8시간 pod가 working set 689Mi(704Mi의 98%)에서 멈췄다. heap committed 246(-Xmx256m 상한) + heap 외 JVM
+          # 영역 304(Metaspace 203) + native 약 130Mi다. 부하 때 heap 밖이 더 늘 자리를 두어 832Mi로 올렸다(docs/architecture/infrastructure/k3s.md).
           resources:
             requests:
               cpu: 100m
-              memory: 704Mi
+              memory: 832Mi
             limits:
-              memory: 704Mi
+              memory: 832Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:
