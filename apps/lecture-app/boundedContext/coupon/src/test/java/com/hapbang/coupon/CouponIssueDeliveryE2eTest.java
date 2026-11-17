@@ -218,9 +218,10 @@ class CouponIssueDeliveryE2eTest {
         assertThat(stock(couponId)).isEqualTo(QUANTITY - 1);
 
         // 제한 재시도 뒤 격리 기록(PENDING)과 그룹별 DLT 메시지가 남는다. 발급 결과는 없다
-        CouponDltLog isolated = await().atMost(WAIT).until(() -> couponDltLogRepository
-                .findFirstByCouponIdAndIssueRequestIdAndStatus(couponId, requestId, CouponDltStatus.PENDING)
-                .orElse(null), log -> log != null);
+        CouponDltLog isolated = await().atMost(WAIT).until(() -> couponDltLogRepository.findAll().stream()
+                .filter(log -> Long.valueOf(couponId).equals(log.getCouponId()) && requestId.equals(log.getIssueRequestId())
+                        && log.getStatus() == CouponDltStatus.PENDING)
+                .findFirst().orElse(null), log -> log != null);
         assertThat(isolated.getFailureCause()).contains("주입한 소비 실패");
         assertThat(deadLetterContains(String.valueOf(couponId), requestId)).isTrue();
         assertThat(couponIssueRequestRepository.findByCouponIdAndIssueRequestId(couponId, requestId)).isEmpty();

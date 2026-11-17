@@ -3,17 +3,21 @@ package com.hapbang.coupon.out;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.MemberCoupon;
+import com.hapbang.coupon.domain.RecoveryIssueResult;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -72,6 +76,30 @@ class CouponIssueRequestRepositoryTest {
                 .getMemberId()).isEqualTo(MEMBER_ID);
         assertThat(couponIssueRequestRepository.findByCouponIdAndIssueRequestId(couponB, "req-1").orElseThrow()
                 .getMemberId()).isEqualTo(OTHER_MEMBER_ID);
+    }
+
+    @Test
+    void 쿠폰의_확정_결과와_DB에_있는_요청_ID를_그_쿠폰_안에서만_찾는다() {
+        Long couponId = saveCoupon();
+        Long otherCouponId = saveCoupon();
+        MemberCoupon issued = memberCouponRepository.save(
+                MemberCoupon.issue(MEMBER_ID, couponId, "req-a", NOW, NOW.plusSeconds(60), NOW));
+        couponIssueRequestRepository.save(
+                CouponIssueRequest.issued("req-a", MEMBER_ID, couponId, 1L, NOW, issued.getId(), NOW));
+        couponIssueRequestRepository.save(
+                CouponIssueRequest.rejected("req-b", OTHER_MEMBER_ID, couponId, 2L, NOW, "매진", NOW));
+        couponIssueRequestRepository.save(
+                CouponIssueRequest.rejected("req-x", OTHER_MEMBER_ID, otherCouponId, 1L, NOW, "매진", NOW));
+        flushAndClear();
+
+        assertThat(couponIssueRequestRepository.findResults(couponId)).containsExactly(
+                new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, NOW, 1L),
+                new RecoveryIssueResult("req-b", OTHER_MEMBER_ID, CouponIssueResult.REJECTED, NOW, 2L));
+        assertThat(couponIssueRequestRepository.findResultRows(couponId)).containsExactlyInAnyOrder(
+                new IssueResultRow("req-a", MEMBER_ID, CouponIssueResult.ISSUED, 1L),
+                new IssueResultRow("req-b", OTHER_MEMBER_ID, CouponIssueResult.REJECTED, 2L));
+        assertThat(couponIssueRequestRepository.findExistingRequestIds(couponId,
+                List.of("req-a", "req-x", "req-none"))).containsExactly("req-a");
     }
 
     private Long saveCoupon() {

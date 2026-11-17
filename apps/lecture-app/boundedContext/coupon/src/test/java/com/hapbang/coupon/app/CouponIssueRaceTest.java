@@ -42,10 +42,10 @@ import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.coupon.out.redis.RedisCouponIssueStore;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 

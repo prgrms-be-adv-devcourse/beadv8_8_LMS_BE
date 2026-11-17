@@ -245,9 +245,9 @@ class MemberCouponRepositoryTest {
         flushAndClear();
 
         // 만료 시각(expiresAt == now) 포함, 플랫폼도 함께 고르고 미래 만료·RESERVED는 고르지 않는다
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10)))
+        assertThat(expiredIds(NOW, Limit.of(10)))
                 .containsExactly(platformExpired, earlier, atNow);
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(1))).containsExactly(platformExpired);
+        assertThat(expiredIds(NOW, Limit.of(1))).containsExactly(platformExpired);
 
         // 조건부 갱신은 넘긴 ID 중 AVAILABLE이고 기한이 지난 것만 바꾼다
         assertThat(memberCouponRepository.expire(List.of(earlier, atNow, future, reserved, platformExpired), NOW)).isEqualTo(3);
@@ -268,7 +268,7 @@ class MemberCouponRepositoryTest {
 
         // 두 번 돌아도 결과가 같다
         assertThat(memberCouponRepository.expire(List.of(earlier, atNow), NOW)).isZero();
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10))).isEmpty();
+        assertThat(expiredIds(NOW, Limit.of(10))).isEmpty();
     }
 
     @Test
@@ -535,5 +535,11 @@ class MemberCouponRepositoryTest {
     private void flushAndClear() {
         entityManager.flush();
         entityManager.clear();
+    }
+
+    /** 만료 배치 대상의 첫 페이지 ID */
+    private List<Long> expiredIds(Instant now, Limit limit) {
+        return memberCouponRepository.findExpiredCouponTargets(now, null, 0, limit).stream()
+                .map(MemberCouponExpiryTarget::id).toList();
     }
 }

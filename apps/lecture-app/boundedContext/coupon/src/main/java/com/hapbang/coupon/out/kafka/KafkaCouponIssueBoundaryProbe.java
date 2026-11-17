@@ -1,4 +1,4 @@
-package com.hapbang.coupon.out.recovery;
+package com.hapbang.coupon.out.kafka;
 
 import java.time.Duration;
 import java.util.HashMap;

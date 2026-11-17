@@ -274,6 +274,21 @@ class CouponRepositoryTest {
         assertThat(couponRepository.existsPriceRaiseBlocker(999L, NOW)).isFalse();
     }
 
+    @Test
+    void 프로세스_점검_대상은_Redis_준비를_마친_발급_중_쿠폰이고_보관_기간이_지난_쿠폰은_빠진다() {
+        Coupon open = Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW);
+        open.submitReview(NOW);
+        open.markRedisReady(NOW);
+        open.open(NOW);
+        couponRepository.save(open);
+        couponRepository.save(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW));
+        entityManager.flush();
+
+        List<CouponStatus> statuses = List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED);
+        assertThat(couponRepository.findRedisReadyIds(statuses, NOW)).containsExactly(open.getId());
+        assertThat(couponRepository.findRedisReadyIds(statuses, ISSUE_END)).isEmpty();
+    }
+
     private Long save(Coupon coupon, CouponStatus status) {
         ReflectionTestUtils.setField(coupon, "status", status);
         return couponRepository.save(coupon).getId();

@@ -17,7 +17,6 @@ public interface ProcessedOperationRepository extends Repository<ProcessedOperat
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends ProcessedOperation> S save(S entity);
-
     <S extends ProcessedOperation> S saveAndFlush(S entity);
 
     Optional<ProcessedOperation> findByOperationId(String operationId);

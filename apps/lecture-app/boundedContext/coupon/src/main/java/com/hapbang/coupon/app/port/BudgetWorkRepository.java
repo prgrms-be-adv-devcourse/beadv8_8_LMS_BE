@@ -11,7 +11,6 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.BudgetWork;
-import com.hapbang.coupon.domain.BudgetWorkKind;
 
 import jakarta.persistence.LockModeType;
 
@@ -23,17 +22,12 @@ public interface BudgetWorkRepository extends Repository<BudgetWork, String>, Bu
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends BudgetWork> S save(S entity);
-
-    <S extends BudgetWork> S saveAndFlush(S entity);
-
     Optional<BudgetWork> findById(String id);
-
     boolean existsById(String id);
 
+    // 테스트 준비·검증에서만 쓰는 기본 메서드
+    <S extends BudgetWork> S saveAndFlush(S entity);
     List<BudgetWork> findAll();
-
-    /** 쿠폰의 이 종류 작업들. 오래된 순 */
-    List<BudgetWork> findByCouponIdAndKindOrderByCreatedAtAsc(Long couponId, BudgetWorkKind kind);
 
     @Modifying(flushAutomatically = true)
     @Query("""

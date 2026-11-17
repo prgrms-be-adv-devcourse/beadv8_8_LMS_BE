@@ -15,6 +15,7 @@ import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
@@ -24,7 +25,6 @@ import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.LectureSaleRule;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
 

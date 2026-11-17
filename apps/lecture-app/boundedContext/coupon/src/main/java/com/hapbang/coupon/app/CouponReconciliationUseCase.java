@@ -14,17 +14,18 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.ReconcileHoldReleaseView;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.RepairResult;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
-import com.hapbang.coupon.app.port.IssueResultReadRepository;
 import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponLimitsProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueBacklogRule;
@@ -37,7 +38,6 @@ import com.hapbang.coupon.domain.IssueReconciliationRule.Mismatch;
 import com.hapbang.coupon.domain.IssueReconciliationRule.SoldOutRepair;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -76,7 +76,7 @@ public class CouponReconciliationUseCase {
     private final CouponBudgetReleaseRecorder budgetReleaseRecorder;
     private final IssueCapacityReservationRepository reservationRepository;
     private final CouponRepository couponRepository;
-    private final IssueResultReadRepository resultRepository;
+    private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final CouponReconciliationStore store;
     private final CouponIssueStore issueStore;
     private final CouponRedisProperties redisProperties;
@@ -90,7 +90,8 @@ public class CouponReconciliationUseCase {
 
     public CouponReconciliationUseCase(CouponBudgetReleaseRecorder budgetReleaseRecorder,
                                        IssueCapacityReservationRepository reservationRepository,
-                                       CouponRepository couponRepository, IssueResultReadRepository resultRepository,
+                                       CouponRepository couponRepository,
+                                       CouponIssueRequestRepository couponIssueRequestRepository,
                                        CouponReconciliationStore store, CouponIssueStore issueStore,
                                        CouponRedisProperties redisProperties, CouponCapacitySupport capacitySupport,
                                        CouponReconciliationMetrics metrics, CouponLimitsProperties limits,
@@ -100,7 +101,7 @@ public class CouponReconciliationUseCase {
         this.budgetReleaseRecorder = budgetReleaseRecorder;
         this.reservationRepository = reservationRepository;
         this.couponRepository = couponRepository;
-        this.resultRepository = resultRepository;
+        this.couponIssueRequestRepository = couponIssueRequestRepository;
         this.store = store;
         this.issueStore = issueStore;
         this.redisProperties = redisProperties;
@@ -237,7 +238,7 @@ public class CouponReconciliationUseCase {
                 return null;
             }
             Map<String, DbResult> results = new HashMap<>();
-            for (IssueResultRow row : resultRepository.findRowsByCouponId(couponId)) {
+            for (IssueResultRow row : couponIssueRequestRepository.findResultRows(couponId)) {
                 results.put(row.issueRequestId(), new DbResult(row.memberId(), row.result(), row.epoch()));
             }
             return new Read(coupon.getStatus(), coupon.getQuantity(), coupon.getIssueEndAt(), results, null);

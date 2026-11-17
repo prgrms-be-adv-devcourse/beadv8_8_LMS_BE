@@ -41,6 +41,7 @@ import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.config.CouponBudgetWorkProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
@@ -51,7 +52,6 @@ import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 // 발급 열기의 단계 순서와 실패 뒤 남는 상태, 재시도를 본다. 저장소는 같은 객체를 돌려주는 대역이라 트랜잭션 사이에 상태가 이어지고,
 // 커밋 때 version이 오른다(CouponVersionFake). Redis 발급 저장소는 mock이라 호출 순서·fence 인자를 본다

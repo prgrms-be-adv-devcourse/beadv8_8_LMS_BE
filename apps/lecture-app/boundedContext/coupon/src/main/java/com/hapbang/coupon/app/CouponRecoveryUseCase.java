@@ -27,6 +27,7 @@ import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryUnavailableException;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.ActivateResult;
@@ -34,11 +35,11 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.BlockResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildControl;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
-import com.hapbang.coupon.app.port.RecoveryLookupRepository;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponRecoveryProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -54,7 +55,6 @@ import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import lombok.extern.slf4j.Slf4j;
@@ -105,7 +105,7 @@ public class CouponRecoveryUseCase {
 
     private final CouponSupport couponSupport;
     private final RecoveryRunRepository recoveryRunRepository;
-    private final RecoveryLookupRepository recoveryLookupRepository;
+    private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final CouponDltLogRepository couponDltLogRepository;
     private final CouponRecoveryStore recoveryStore;
     private final CouponIssueEventPublisher eventPublisher;
@@ -117,7 +117,7 @@ public class CouponRecoveryUseCase {
     private final Clock clock;
 
     public CouponRecoveryUseCase(CouponSupport couponSupport, RecoveryRunRepository recoveryRunRepository,
-                                 RecoveryLookupRepository recoveryLookupRepository,
+                                 CouponIssueRequestRepository couponIssueRequestRepository,
                                  CouponDltLogRepository couponDltLogRepository, CouponRecoveryStore recoveryStore,
                                  CouponIssueEventPublisher eventPublisher, CouponIssueBoundaryProbe boundaryProbe,
                                  CouponRedisProperties redisProperties, CouponRecoveryProperties recoveryProperties,
@@ -126,7 +126,7 @@ public class CouponRecoveryUseCase {
                                  @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponSupport = couponSupport;
         this.recoveryRunRepository = recoveryRunRepository;
-        this.recoveryLookupRepository = recoveryLookupRepository;
+        this.couponIssueRequestRepository = couponIssueRequestRepository;
         this.couponDltLogRepository = couponDltLogRepository;
         this.recoveryStore = recoveryStore;
         this.eventPublisher = eventPublisher;
@@ -328,7 +328,7 @@ public class CouponRecoveryUseCase {
                     "발급 기록 보관 기간이 지난 쿠폰은 재구축하지 않습니다.");
         }
         RecoveryRebuildPlan plan = stepRule(() -> RecoveryRebuildPlan.of(coupon, run.getNewEpoch(),
-                recoveryLookupRepository.findResults(couponId)));
+                couponIssueRequestRepository.findResults(couponId)));
         RebuildControl control = new RebuildControl(coupon.getIssueStartAt(), coupon.getIssueEndAt(), keysExpireAt,
                 coupon.getVersion(), coupon.getExpiryType(), coupon.getExpiryDays(), coupon.getFixedExpiresAt(),
                 coupon.getStatus().name(), now);
@@ -543,7 +543,7 @@ public class CouponRecoveryUseCase {
         List<String> ids = new ArrayList<>(records.keySet());
         for (int from = 0; from < ids.size(); from += LOOKUP_CHUNK) {
             List<String> chunk = ids.subList(from, Math.min(ids.size(), from + LOOKUP_CHUNK));
-            recoveryLookupRepository.findExistingRequestIds(couponId, chunk).forEach(records::remove);
+            couponIssueRequestRepository.findExistingRequestIds(couponId, chunk).forEach(records::remove);
         }
         return new PendingRequests(records, malformed);
     }

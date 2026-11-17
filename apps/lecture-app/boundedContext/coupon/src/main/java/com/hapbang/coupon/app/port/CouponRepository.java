@@ -25,12 +25,11 @@ public interface CouponRepository extends Repository<Coupon, Long>, CouponReposi
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends Coupon> S save(S entity);
-
-    <S extends Coupon> S saveAndFlush(S entity);
-
     Optional<Coupon> findById(Long id);
-
     boolean existsById(Long id);
+
+    // 테스트 준비·검증에서만 쓰는 기본 메서드
+    <S extends Coupon> S saveAndFlush(S entity);
 
     /**
      * 쿠폰을 읽고, 상태를 바꾸지 않아도 이 트랜잭션이 커밋될 때 {@code version}을 올린다(OPTIMISTIC_FORCE_INCREMENT).

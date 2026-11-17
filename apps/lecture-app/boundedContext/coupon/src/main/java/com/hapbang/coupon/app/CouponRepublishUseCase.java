@@ -18,18 +18,19 @@ import org.springframework.stereotype.Service;
 import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
-import com.hapbang.coupon.app.port.CouponRepublishQueryRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.domain.RepublishRule;
 import com.hapbang.coupon.domain.RepublishRule.Decision;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.Gauge;
@@ -85,7 +86,8 @@ public class CouponRepublishUseCase {
     private static final List<CouponStatus> TARGET_STATUSES =
             List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED, CouponStatus.CLOSED);
 
-    private final CouponRepublishQueryRepository couponRepublishQueryRepository;
+    private final CouponRepository couponRepository;
+    private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final CouponDltLogRepository couponDltLogRepository;
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
@@ -96,7 +98,8 @@ public class CouponRepublishUseCase {
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong lastRepublishedEpochSecond = new AtomicLong();
 
-    public CouponRepublishUseCase(CouponRepublishQueryRepository couponRepublishQueryRepository,
+    public CouponRepublishUseCase(CouponRepository couponRepository,
+                                  CouponIssueRequestRepository couponIssueRequestRepository,
                                   CouponDltLogRepository couponDltLogRepository,
                                   CouponIssueStore couponIssueStore,
                                   CouponIssueEventPublisher couponIssueEventPublisher,
@@ -104,7 +107,8 @@ public class CouponRepublishUseCase {
                                   CouponRedisProperties redisProperties,
                                   ObjectProvider<MeterRegistry> meterRegistry,
                                   @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.couponRepublishQueryRepository = couponRepublishQueryRepository;
+        this.couponRepository = couponRepository;
+        this.couponIssueRequestRepository = couponIssueRequestRepository;
         this.couponDltLogRepository = couponDltLogRepository;
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
@@ -123,7 +127,7 @@ public class CouponRepublishUseCase {
         Instant now = clock.instant();
         Run run = new Run(now);
         List<CouponResult> results = new ArrayList<>();
-        for (RepublishTargetCoupon target : couponRepublishQueryRepository.findTargets(TARGET_STATUSES)) {
+        for (RepublishTargetCoupon target : couponRepository.findRepublishTargets(TARGET_STATUSES)) {
             CouponRun coupon = new CouponRun(target.couponId());
             try {
                 republishCoupon(target, run, coupon);
@@ -255,7 +259,7 @@ public class CouponRepublishUseCase {
         for (Candidate candidate : candidates) {
             candidateIds.add(candidate.issueRequestId());
         }
-        Set<String> recorded = new HashSet<>(couponRepublishQueryRepository.findRecordedIds(couponId, candidateIds));
+        Set<String> recorded = new HashSet<>(couponIssueRequestRepository.findExistingRequestIds(couponId, candidateIds));
         for (Candidate candidate : candidates) {
             Decision decision = RepublishRule.decide(candidate.record(), run.now, republishAfter, epoch,
                     recorded.contains(candidate.issueRequestId()), dltUnresolved.contains(candidate.issueRequestId()));

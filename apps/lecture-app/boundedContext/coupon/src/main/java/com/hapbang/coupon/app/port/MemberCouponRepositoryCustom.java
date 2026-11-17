@@ -36,16 +36,9 @@ public interface MemberCouponRepositoryCustom {
     Optional<MemberCouponState> findStateById(long id);
 
     /**
-     * 만료 배치 대상: 기한이 지난(expiresAt <= now) 판매자·플랫폼의 모든 AVAILABLE 발급 쿠폰.
-     * 만료 시각 → ID 순으로 {@code limit}개의 ID를 고른다. 조건은 {@code idx_member_coupon_status_expires_at}
-     * (status, expires_at)의 앞 컬럼 등호·뒤 컬럼 범위라 그 인덱스를 탈 수 있다.
-     */
-    default List<Long> findExpiredCouponIds(Instant now, Limit limit) {
-        return findExpiredCouponTargets(now, null, 0, limit).stream().map(MemberCouponExpiryTarget::id).toList();
-    }
-
-    /**
-     * 만료 배치 대상과 다음 조회 위치. {@code afterExpiresAt}이 없으면 첫 페이지다. 있으면 같은 만료 시각의 ID도 커서에 포함하여 실패한 행을
+     * 만료 배치 대상과 다음 조회 위치: 기한이 지난(expiresAt <= now) 판매자·플랫폼의 모든 AVAILABLE 발급 쿠폰을 만료 시각 → ID 순으로
+     * {@code limit}개 고른다. 조건은 {@code idx_member_coupon_status_expires_at}(status, expires_at)의 앞 컬럼 등호·뒤 컬럼 범위라 그
+     * 인덱스를 탈 수 있다. {@code afterExpiresAt}이 없으면 첫 페이지다. 있으면 같은 만료 시각의 ID도 커서에 포함하여 실패한 행을
      * 건너뛰면서 기한 순서를 유지한다. 첫 페이지는 커서 조건을 넣지 않아 NULL timestamp 매개변수의 DB 타입 추론에 의존하지 않는다.
      */
     List<MemberCouponExpiryTarget> findExpiredCouponTargets(Instant now, Instant afterExpiresAt, long afterId,

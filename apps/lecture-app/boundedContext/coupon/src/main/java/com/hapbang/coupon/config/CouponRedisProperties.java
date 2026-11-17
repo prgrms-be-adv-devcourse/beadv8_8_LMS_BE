@@ -1,4 +1,4 @@
-package com.hapbang.coupon.out.redis;
+package com.hapbang.coupon.config;
 
 import java.time.Duration;
 import java.time.Instant;

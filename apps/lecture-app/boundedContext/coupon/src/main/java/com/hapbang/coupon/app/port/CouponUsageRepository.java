@@ -23,14 +23,12 @@ public interface CouponUsageRepository extends Repository<CouponUsage, Long>, Co
     String RESERVED_ORDER_ITEM_MEMBER_COUPON_UNIQUE = "uk_coupon_usage_order_item_member_coupon_reserved";
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
-    <S extends CouponUsage> S save(S entity);
-
-    <S extends CouponUsage> S saveAndFlush(S entity);
-
     <S extends CouponUsage> List<S> saveAllAndFlush(Iterable<S> entities);
 
+    // 테스트 준비·검증에서만 쓰는 기본 메서드
+    <S extends CouponUsage> S save(S entity);
+    <S extends CouponUsage> S saveAndFlush(S entity);
     List<CouponUsage> findAll();
-
     long count();
 
     /** 예약 작업 하나가 만든 사용 시도. 주문 항목 → 적용 순서 */

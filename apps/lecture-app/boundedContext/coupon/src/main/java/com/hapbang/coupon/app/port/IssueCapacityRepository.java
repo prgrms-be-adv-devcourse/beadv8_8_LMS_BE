@@ -20,6 +20,7 @@ public interface IssueCapacityRepository extends Repository<IssueCapacity, Short
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     Optional<IssueCapacity> findById(Short id);
 
+    // 테스트 준비·검증에서만 쓰는 기본 메서드
     List<IssueCapacity> findAll();
 
     /**

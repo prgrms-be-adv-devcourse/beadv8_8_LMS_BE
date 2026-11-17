@@ -3,6 +3,9 @@ package com.hapbang.coupon.out;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.Comparator;
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -60,17 +63,25 @@ class BudgetWorkRepositoryTest {
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(coupon.getId(), BudgetWorkKind.RESERVE))
+        assertThat(works(coupon.getId(), BudgetWorkKind.RESERVE))
                 .singleElement()
                 .satisfies(work -> {
                     assertThat(work.getStatus()).isEqualTo(BudgetWorkStatus.DONE);
                     assertThat(work.getResult()).isEqualTo("reservation-1");
                     assertThat(work.getAmount()).isEqualTo(100_000L);
                 });
-        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(coupon.getId(), BudgetWorkKind.RELEASE))
+        assertThat(works(coupon.getId(), BudgetWorkKind.RELEASE))
                 .isEmpty();
         // 같은 작업 ID의 새 작업은 완료된 작업을 덮지 않고 PK 위반이다
         assertThatThrownBy(() -> budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW)))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /** 쿠폰의 이 종류 예산 작업들. 오래된 순 */
+    private List<BudgetWork> works(Long couponId, BudgetWorkKind kind) {
+        return budgetWorkRepository.findAll().stream()
+                .filter(work -> work.getCouponId().equals(couponId) && work.getKind() == kind)
+                .sorted(Comparator.comparing(BudgetWork::getCreatedAt))
+                .toList();
     }
 }

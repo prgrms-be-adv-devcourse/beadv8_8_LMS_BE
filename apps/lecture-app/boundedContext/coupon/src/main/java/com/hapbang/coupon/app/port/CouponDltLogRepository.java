@@ -23,22 +23,17 @@ public interface CouponDltLogRepository extends Repository<CouponDltLog, Long>, 
     String PENDING_REQUEST_UNIQUE = "uk_coupon_dlt_log_pending_request";
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
-    <S extends CouponDltLog> S save(S entity);
-
     <S extends CouponDltLog> S saveAndFlush(S entity);
-
     Optional<CouponDltLog> findById(Long id);
-
-    List<CouponDltLog> findAll();
-
     Page<CouponDltLog> findAll(Pageable pageable);
+
+    // 테스트 준비·검증에서만 쓰는 기본 메서드
+    <S extends CouponDltLog> S save(S entity);
+    List<CouponDltLog> findAll();
 
     /** 이 메시지 위치를 이미 격리했는가(DLT 전송이 실패해 다시 격리할 때) */
     boolean existsBySourceTopicAndSourcePartitionAndSourceOffset(String sourceTopic, int sourcePartition,
                                                                  long sourceOffset);
-
-    Optional<CouponDltLog> findFirstByCouponIdAndIssueRequestIdAndStatus(Long couponId, String issueRequestId,
-                                                                         CouponDltStatus status);
 
     /**
      * 이 발급 요청의 PENDING 격리 기록이 있는가. 재발행 전송이 실패했을 때 선점을 PENDING으로 되돌릴 수 있는지 본다(같은 요청의 PENDING은
@@ -52,6 +47,4 @@ public interface CouponDltLogRepository extends Repository<CouponDltLog, Long>, 
 
     /** 상태별 목록. 최신순 정렬은 호출자가 Pageable로 준다 */
     Page<CouponDltLog> findByStatus(CouponDltStatus status, Pageable pageable);
-
-    long countByStatus(CouponDltStatus status);
 }

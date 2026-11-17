@@ -17,7 +17,6 @@ public interface RecoveryRunRepository extends Repository<RecoveryRun, Long> {
 
     // 쓰는 기본 메서드. 구현은 Spring Data JPA 기본 구현(SimpleJpaRepository)이 맡는다
     <S extends RecoveryRun> S saveAndFlush(S entity);
-
     Optional<RecoveryRun> findById(Long id);
 
     Optional<RecoveryRun> findByIdAndCouponId(Long id, Long couponId);

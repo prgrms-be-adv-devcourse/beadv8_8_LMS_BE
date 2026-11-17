@@ -49,7 +49,7 @@ hapbang-backend/
          │  ├─ domain/                       # Coupon, MemberCoupon, CouponUsage, CouponIssueRequest, 상태·금액 규칙
          │  ├─ app/                          # 계산·예약·해제·발급·복원 UseCase, 만료·대사·재발행 배치
          │  │  └─ port/                      # app이 바깥에 요구하는 계약: Redis·HTTP 포트, DB 저장소(XxxRepository·XxxRepositoryCustom)와 그 결과 record
-         │  ├─ config/                       # Redis·Kafka·Flyway 위치·HTTP 클라이언트 설정
+         │  ├─ config/                       # app이 읽는 설정값(*Properties, CouponRedisProperties 포함)과 그 등록, Kafka 소비자·시계·배치 설정
          │  ├─ global/                       # 쿠폰 전용 공통 (오류 응답, 배치 켜기 애노테이션, 인증 principal 읽기)
          │  ├─ in/                           # 들어오는 것: 컨트롤러·리스너 (lecture-app 규칙)
          │  │  ├─ ApiV1CouponController.java / …Spec.java          # /api/v1/coupons/** 회원
@@ -58,11 +58,12 @@ hapbang-backend/
          │  │  ├─ ApiV1CouponInternalController.java               # /api/v1/internal/coupons/** (강의가 호출)
          │  │  ├─ dto/
          │  │  └─ event/                     # Kafka 소비자: OrderItemPaid·OrderItemCancelCompleted(lecture.events.v1)·CouponIssueRequested(coupon.events.v1)
-         │  └─ out/                          # 나가는 것: 저장소 조각 구현·클라이언트
+         │  └─ out/                          # 나가는 것: 저장소 조각 구현·기술 어댑터. 기술 설정(토픽, @HttpExchange 클라이언트)은 그 어댑터 옆에 둔다
          │     ├─ XxxRepositoryCustomImpl.java   # app/port XxxRepositoryCustom의 QueryDSL 구현(JPAQueryFactory는 구현체 안에서 만든다)
-         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행)
-         │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행 (접수 직후 앱이 전송, 재발행 배치가 재사용)
-         │     └─ billing/                   # billing 내부 API를 부르는 @HttpExchange 클라이언트 (계약은 사용자 담당)
+         │     ├─ redis/                     # CouponRedisKeys, Lua 실행, requests HSCAN(재발행), 발급·보상·대사·복구 저장소
+         │     ├─ kafka/                     # coupon.events.v1 CouponIssueRequested 발행(접수 직후 앱이 전송, 재발행 배치가 재사용), 복구 경계 확인(AdminClient), 토픽 설정
+         │     ├─ lecture/                   # 강의 조회 내부 API를 부르는 @HttpExchange 클라이언트와 그 설정
+         │     └─ billing/                   # billing 내부 API를 부르는 @HttpExchange 클라이언트와 그 설정 (계약은 사용자 담당)
          ├─ src/main/resources/
          │  ├─ META-INF/spring.factories      # 저장소 조각 등록: app/port XxxRepositoryCustom=out XxxRepositoryCustomImpl
          │  ├─ lua/                          # issue.lua, compensate.lua, cache-single-flight-swr.lua, release-lock.lua
@@ -121,8 +122,9 @@ hapbang-backend/
    └ XxxRepositoryCustomImpl              ← QueryDSL(JPAQueryFactory) 구현
   ```
 
-- `XxxRepository`는 Spring Data Commons `Repository`만 상속하고 `JpaRepository`는 상속하지 않는다. 쓰는 기본 메서드만 기본 구현과 같은 시그니처(`<S extends E> S save(S entity)`, `Optional<E> findById(ID id)`, `saveAndFlush`·`saveAllAndFlush`·`existsById`·`findAll`·`count` 등)로 선언하며, Spring Data JPA가 기본 구현(`SimpleJpaRepository`)으로 보낸다. 메서드 시그니처에는 JPA 타입을 쓰지 않는다(`@Lock`의 `LockModeType` 같은 어노테이션 값은 허용). `@Query`·`@Modifying`·`@Lock`은 port에 둔다(Spring·JPA 어노테이션까지 허용). 엔티티가 `@Entity`라 Redis 저장소 모듈이 함께 있는 strict 모드에서도 13개 모두 JPA 저장소로 잡힌다.
-- QueryDSL 조각(`XxxRepositoryCustom`, 9개)은 메서드를 직접 선언하고 다른 계약을 상속하지 않는다. 조각이 있는 `XxxRepository`는 `Repository<…>`와 `XxxRepositoryCustom`을 함께 extends한다(조각이 없는 4개는 `Repository<…>`만). 읽기만 하는 `IssueResultReadRepository`·`CouponRepublishQueryRepository`·`RecoveryLookupRepository`도 같은 구조다(`Repository<CouponIssueRequest, Long>` + Custom).
+- `XxxRepository`는 Spring Data Commons `Repository`만 상속하고 `JpaRepository`는 상속하지 않는다. 쓰는 기본 메서드만 기본 구현과 같은 시그니처(`<S extends E> S save(S entity)`, `Optional<E> findById(ID id)`, `saveAndFlush`·`saveAllAndFlush`·`existsById`·`findAll`·`count` 등)로 선언하며, Spring Data JPA가 기본 구현(`SimpleJpaRepository`)으로 보낸다. 메서드 시그니처에는 JPA 타입을 쓰지 않는다(`@Lock`의 `LockModeType` 같은 어노테이션 값은 허용). `@Query`·`@Modifying`·`@Lock`은 port에 둔다(Spring·JPA 어노테이션까지 허용). 엔티티가 `@Entity`라 Redis 저장소 모듈이 함께 있는 strict 모드에서도 10개 모두 JPA 저장소로 잡힌다.
+- 저장소는 엔티티마다 하나다(10개). QueryDSL 조각(`XxxRepositoryCustom`, 7개)은 메서드를 직접 선언하고 다른 계약을 상속하지 않는다. 조각이 있는 `XxxRepository`는 `Repository<…>`와 `XxxRepositoryCustom`을 함께 extends한다(조각이 없는 3개는 `Repository<…>`만). 조회는 결과의 엔티티를 따라 둔다: 쿠폰 정책을 읽는 조회(재발행 대상, Redis 점검 대상)는 `CouponRepositoryCustom`, 발급 요청 결과를 읽는 조회(재발행·복구가 함께 쓰는 DB에 있는 요청 ID, 복구 재구축 입력, 대사 행)는 `CouponIssueRequestRepositoryCustom`이다.
+- 테스트만 쓰는 기본 메서드(`findAll`·`count`, 테스트 준비용 `save`·`saveAndFlush`)는 "테스트 준비·검증에서만 쓰는 기본 메서드" 주석 아래 따로 둔다. 테스트만 쓰는 이름 쿼리·default 메서드는 main에 두지 않고 테스트가 기본 메서드로 읽는다.
 - Spring Data(Commons 4.x)는 조각 구현체를 조각 인터페이스와 같은 패키지(하위 포함)에서만 찾는다. 구현체를 `out`에 두므로 `:coupon`의 `META-INF/spring.factories`에 `app/port XxxRepositoryCustom=out XxxRepositoryCustomImpl`을 적어 Spring Data의 조각 등록(spring.factories)으로 잇는다. 조각을 더하면 이 파일에도 한 줄을 더한다.
 - app 서비스는 `XxxRepository` 하나를 주입받아 조회·저장·상태 변경을 모두 부른다. 별도 조회 계약(`XxxReader`)과 `@Primary`는 두지 않는다. 저장소가 돌려주는 record(`OwnedCoupon`·`MemberCouponState` 등)는 `app/port`에 둔다.
 - insert·update·delete(`@Modifying` JPQL의 조건부 갱신·CAS)는 QueryDSL로 옮기지 않고 저장소 메서드로 둔다. native SQL(`ON CONFLICT`·`issued_count` 증가)과 `@Lock` 조회, 이름으로 만드는 메서드도 그대로다.

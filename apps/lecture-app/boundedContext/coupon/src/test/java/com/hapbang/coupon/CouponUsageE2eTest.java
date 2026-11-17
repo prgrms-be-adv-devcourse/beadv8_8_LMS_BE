@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,6 +60,7 @@ import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.out.billing.HttpPromotionBudget;
 import com.hapbang.testsupport.billing.RealBillingTestFixture;
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
@@ -75,7 +77,6 @@ import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.testsupport.IntegrationTest;
@@ -230,7 +231,7 @@ class CouponUsageE2eTest {
         Coupon expiredDraft = couponRepository.findById(couponId).orElseThrow();
         assertThat(expiredDraft.getStatus()).isEqualTo(CouponStatus.DRAFT);
         assertThat(expiredDraft.getBudgetReservationId()).matches("PB-[1-9][0-9]*");
-        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
+        assertThat(works(couponId, BudgetWorkKind.RELEASE))
                 .singleElement().satisfies(release -> {
                     assertThat(release.getWorkId()).isEqualTo("coupon-" + couponId + "-release-unissued-v1");
                     assertThat(release.getStatus()).isEqualTo(BudgetWorkStatus.PENDING);
@@ -241,7 +242,7 @@ class CouponUsageE2eTest {
         budgetWorker(afterEnd).runDue();
         budgetWorker(afterEnd.plusSeconds(1)).runDue();
         assertThat(reservation(expiredDraft.getBudgetReservationId()).releasedHp()).isEqualTo(7_500);
-        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE)).hasSize(1);
+        assertThat(works(couponId, BudgetWorkKind.RELEASE)).hasSize(1);
     }
 
     @Test
@@ -261,7 +262,7 @@ class CouponUsageE2eTest {
         budgetWorker(afterEnd).runDue();
         budgetWorker(afterEnd.plusSeconds(1)).runDue();
         assertThat(reservation(draft.getBudgetReservationId()).releasedHp()).isEqualTo(7_500);
-        assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(couponId, BudgetWorkKind.RELEASE))
+        assertThat(works(couponId, BudgetWorkKind.RELEASE))
                 .singleElement().satisfies(release -> {
                     assertThat(release.getWorkId()).isEqualTo("coupon-" + couponId + "-release-unissued-v1");
                     assertThat(release.getAmount()).isEqualTo(7_500);
@@ -826,5 +827,13 @@ class CouponUsageE2eTest {
     @TestConfiguration(proxyBeanMethods = false)
     @EnableMethodSecurity
     static class MethodSecurityConfig {
+    }
+
+    /** 쿠폰의 이 종류 예산 작업들. 오래된 순 */
+    private List<BudgetWork> works(Long couponId, BudgetWorkKind kind) {
+        return budgetWorkRepository.findAll().stream()
+                .filter(work -> work.getCouponId().equals(couponId) && work.getKind() == kind)
+                .sorted(Comparator.comparing(BudgetWork::getCreatedAt))
+                .toList();
     }
 }

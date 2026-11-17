@@ -1,11 +1,13 @@
 package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponStatus;
 
 /**
  * 쿠폰 정책 조회. 목록은 모두 최신순(같은 시각이면 ID 역순)이다
@@ -34,4 +36,13 @@ public interface CouponRepositoryCustom {
      * 만료 전(expiresAt > now) AVAILABLE인 것이 있다. 판매자 쿠폰은 보지 않는다. 중단(SUSPENDED) 쿠폰은 OPEN으로 치지 않는다.
      */
     boolean existsPriceRaiseBlocker(long lectureId, Instant now);
+
+    /** 재발행 대상: Redis 발급 준비를 마친 쿠폰 중 상태가 {@code statuses}인 것. 쿠폰 ID 순서다 */
+    List<RepublishTargetCoupon> findRepublishTargets(Collection<CouponStatus> statuses);
+
+    /**
+     * Redis 발급 준비를 마친 쿠폰 중 이 상태들이고 발급 종료가 {@code endedAfter}보다 뒤인 쿠폰 ID(Redis 프로세스 점검 대상).
+     * {@code endedAfter}에 "지금 − key 보관 여유"를 넘기면 Redis key가 만료됐을 쿠폰은 빠진다
+     */
+    List<Long> findRedisReadyIds(Collection<CouponStatus> statuses, Instant endedAfter);
 }

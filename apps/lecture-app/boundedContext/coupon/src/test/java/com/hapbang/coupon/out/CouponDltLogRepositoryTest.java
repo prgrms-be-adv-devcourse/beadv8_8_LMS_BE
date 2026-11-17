@@ -65,7 +65,8 @@ class CouponDltLogRepositoryTest {
         couponDltLogRepository.saveAndFlush(replayed);
         couponDltLogRepository.saveAndFlush(isolate(3, 42L, "req-1"));
 
-        assertThat(couponDltLogRepository.countByStatus(CouponDltStatus.PENDING)).isEqualTo(1);
+        assertThat(couponDltLogRepository.findByStatus(CouponDltStatus.PENDING, PageRequest.of(0, 10))
+                .getTotalElements()).isEqualTo(1);
         assertThat(couponDltLogRepository.findByStatus(CouponDltStatus.REPLAYED, PageRequest.of(0, 10)))
                 .extracting(CouponDltLog::getSourceOffset).containsExactly(1L);
         // 위반 뒤에는 트랜잭션이 중단되므로 마지막에 본다

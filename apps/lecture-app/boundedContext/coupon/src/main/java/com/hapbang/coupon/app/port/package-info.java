@@ -1,5 +1,6 @@
 /**
- * 쿠폰 app이 바깥(Redis 발급 저장소, 강의 조회 내부 API, 프로모션 예산, DB)에 요구하는 계약. 구현은 {@code out}에 둔다.
+ * 쿠폰 app이 바깥(Redis 발급 저장소, Kafka, 강의 조회 내부 API, 프로모션 예산, DB)에 요구하는 계약. 기술 port의 구현은 {@code out}에
+ * 두고, {@code XxxRepository}의 구현은 Spring Data가 만든다.
  * <p>
  * DB 계약은 {@code XxxRepository}다. Spring Data Commons {@code Repository}만 상속하고(JpaRepository를 상속하지 않는다), 쓰는 기본
  * 메서드(save·findById 등)와 메서드 이름 쿼리, {@code @Query}(JPQL·native)·{@code @Modifying}·{@code @Lock}을 여기에 선언한다. 구현은

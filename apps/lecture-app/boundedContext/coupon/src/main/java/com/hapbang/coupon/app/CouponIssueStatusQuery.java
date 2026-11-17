@@ -15,6 +15,7 @@ import com.hapbang.coupon.app.port.CouponRecoveryStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -23,7 +24,6 @@ import com.hapbang.coupon.domain.IssueStatusRule;
 import com.hapbang.coupon.domain.IssueStatusRule.DbRecord;
 import com.hapbang.coupon.domain.IssueStatusRule.RedisLookup;
 import com.hapbang.coupon.domain.RecoveryRun;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
 

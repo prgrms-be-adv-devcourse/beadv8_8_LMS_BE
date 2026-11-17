@@ -24,15 +24,16 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
-import com.hapbang.coupon.app.port.IssueResultReadRepository;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponLimitsProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueHoldReason;
@@ -41,7 +42,6 @@ import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.app.port.IssueResultRow;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -55,7 +55,7 @@ class CouponReconciliationUseCaseTest {
 
     private final IssueCapacityReservationRepository reservationRepository = mock();
     private final CouponRepository couponRepository = mock();
-    private final IssueResultReadRepository resultRepository = mock();
+    private final CouponIssueRequestRepository issueRequestRepository = mock();
     private final CouponReconciliationStore store = mock();
     private final CouponIssueStore issueStore = mock();
     private final CouponCapacitySupport capacitySupport = mock();
@@ -76,7 +76,7 @@ class CouponReconciliationUseCaseTest {
         when(store.cleanUp(anyLong())).thenReturn(true);
         when(capacitySupport.release(anyLong())).thenReturn(true);
         // 재발행 대기 임계치 1건
-        useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, resultRepository, store,
+        useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, issueRequestRepository, store,
                 issueStore, new CouponRedisProperties(null), capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
                 CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
     }
@@ -444,7 +444,7 @@ class CouponReconciliationUseCaseTest {
     }
 
     private void givenDb(IssueResultRow... rows) {
-        when(resultRepository.findRowsByCouponId(COUPON_ID)).thenReturn(List.of(rows));
+        when(issueRequestRepository.findResultRows(COUPON_ID)).thenReturn(List.of(rows));
     }
 
     private void givenRedis(IssueHoldReason hold, Long stock) {
