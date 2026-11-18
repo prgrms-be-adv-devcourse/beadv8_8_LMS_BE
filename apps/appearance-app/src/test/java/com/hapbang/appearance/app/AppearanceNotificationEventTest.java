@@ -2,7 +2,6 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -446,7 +445,7 @@ class AppearanceNotificationEventTest {
         }
 
         @Test
-        @DisplayName("D+7 자동 확인 배치: 출연마다 확인(AUTO)과 출처 제목(요청서·모집글 출처가 섞여도 각자의 제목). 제목은 출연마다가 아니라 한 번에 읽는다")
+        @DisplayName("D+7 자동 확인 배치: 출연마다 확인(AUTO)과 출처 제목(요청서·모집글 출처가 섞여도 각자의 제목). 제목은 출연마다가 아니라 대상 조회에서 함께 읽는다")
         void confirmedAutomatically() {
             Long fromRequest = establishFromRequest();
             Long recruitId = postRecruit();
@@ -456,8 +455,7 @@ class AppearanceNotificationEventTest {
 
             assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(2);
 
-            // 제목은 회차 시작에 대상 전체를 한 번에 읽는다. 출연마다 출처를 읽는 길(titleOf)은 타지 않는다
-            verify(appearanceTitleSupport).titlesByAppearanceIds(anyCollection());
+            // 제목은 대상을 읽는 쿼리에서 함께 읽는다(#1002). 출연마다 출처를 읽는 길(titleOf)은 타지 않는다
             verify(appearanceTitleSupport, never()).titleOf(any());
 
             List<AppearanceConfirmedEvent> events = applicationEvents.stream(AppearanceConfirmedEvent.class).toList();

@@ -145,18 +145,6 @@ public class AppearanceRecruitSupport {
         return recruits;
     }
 
-    /** 모집글 ID별 제목 (출연 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
-    public Map<Long, String> findTitles(Collection<Long> recruitIds) {
-        Map<Long, String> titles = new HashMap<>();
-        if (recruitIds.isEmpty()) {
-            return titles;
-        }
-        for (AppearanceRecruit recruit : appearanceRecruitRepository.findAllById(recruitIds)) {
-            titles.put(recruit.getId(), recruit.getTitle());
-        }
-        return titles;
-    }
-
     /** 호스트가 올린 모집글 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
     public long countByHost(Long hostId, AppearanceRecruitStatus status) {
         return appearanceRecruitRepository.countByHostIdAndStatus(hostId, status);

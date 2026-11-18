@@ -10,7 +10,6 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +17,9 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.out.AppearanceAutoConfirmTarget;
 import com.hapbang.appearance.out.AppearanceRepository;
+import com.hapbang.appearance.out.AppearanceTitledRow;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,9 +29,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class AppearanceSupport {
-
-    /** 목록은 최신순 고정. 클라이언트의 sort 값은 쓰지 않는다 */
-    private static final Sort LATEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt", "id");
 
     private final AppearanceRepository appearanceRepository;
 
@@ -69,11 +67,6 @@ public class AppearanceSupport {
         return found(appearanceRepository.findById(appearanceId));
     }
 
-    /** 여러 출연을 한 번에 읽는다 (잠그지 않는다). 없는 ID는 빠진다 */
-    public List<Appearance> findAllByIds(Collection<Long> appearanceIds) {
-        return appearanceRepository.findAllById(appearanceIds);
-    }
-
     /**
      * 출연을 배타 잠금으로 읽는다. 같은 출연의 취소 요청·응답·자동 거절이 차례로 처리돼, 나중 처리는 바뀐 상태를 본다.
      *
@@ -109,18 +102,20 @@ public class AppearanceSupport {
         }
     }
 
-    /** 내가 호스트인 출연 목록. 최신순 */
-    public Page<Appearance> findByHost(Long hostId, Collection<AppearanceStatus> statuses, Pageable pageable) {
-        return appearanceRepository.findByHostIdAndStatusIn(hostId, statuses, latestFirst(pageable));
+    /** 내가 호스트인 출연 목록과 출처 제목. 최신순 고정(쿼리에 있다), 클라이언트의 sort 값은 쓰지 않는다 */
+    public Page<AppearanceTitledRow> findByHost(Long hostId, Collection<AppearanceStatus> statuses,
+                                                Pageable pageable) {
+        return appearanceRepository.findTitledByHost(hostId, statuses, unsorted(pageable));
     }
 
-    /** 내가 게스트인 출연 목록. 최신순 */
-    public Page<Appearance> findByGuest(Long guestId, Collection<AppearanceStatus> statuses, Pageable pageable) {
-        return appearanceRepository.findByGuestIdAndStatusIn(guestId, statuses, latestFirst(pageable));
+    /** 내가 게스트인 출연 목록과 출처 제목. 최신순 고정(쿼리에 있다), 클라이언트의 sort 값은 쓰지 않는다 */
+    public Page<AppearanceTitledRow> findByGuest(Long guestId, Collection<AppearanceStatus> statuses,
+                                                 Pageable pageable) {
+        return appearanceRepository.findTitledByGuest(guestId, statuses, unsorted(pageable));
     }
 
-    private Pageable latestFirst(Pageable pageable) {
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST_FIRST);
+    private Pageable unsorted(Pageable pageable) {
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
     }
 
     private Appearance found(Optional<Appearance> appearance) {
@@ -131,12 +126,12 @@ public class AppearanceSupport {
     }
 
     /**
-     * 자동 확인 대상 출연 ID (최대 {@code limit}건, #282). 성립 상태이고 방송 예정 일시가 기준 시각 이전인 출연.
+     * 자동 확인 대상 출연 ID와 출처 제목 (최대 {@code limit}건, #282, #1002). 성립 상태이고 방송 예정 일시가 기준 시각 이전인 출연.
      *
      * @param scheduledCutoff 지금 − 확인 기간. 방송 예정 일시가 이 시각 이전이면 확인 기간이 끝났다
      */
-    public List<Long> findAutoConfirmDueIds(LocalDateTime scheduledCutoff, int limit) {
-        return appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, scheduledCutoff,
+    public List<AppearanceAutoConfirmTarget> findAutoConfirmTargets(LocalDateTime scheduledCutoff, int limit) {
+        return appearanceRepository.findAutoConfirmTargets(AppearanceStatus.ESTABLISHED, scheduledCutoff,
                 PageRequest.of(0, limit));
     }
 

@@ -2,6 +2,7 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
 
 import java.time.LocalDateTime;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -534,7 +536,7 @@ class AppearanceCancelRequestFlowTest {
     class Query {
 
         @Test
-        @DisplayName("내 출연 목록: 호스트·게스트별, 최신순, 상태 필터, 제목은 출처(요청서·모집글) 제목. 상세는 호스트·게스트만")
+        @DisplayName("내 출연 목록: 호스트·게스트별, 최신순, 상태 필터, 제목은 출처(요청서·모집글) 제목(게스트 목록은 한 건씩 넘겨도 같음). 상세는 호스트·게스트만")
         void mine() {
             Long fromRequest = establishFromRequest(GUEST).appearanceId();
             RecruitAppearance fromRecruit = establishFromRecruit(1);
@@ -547,6 +549,18 @@ class AppearanceCancelRequestFlowTest {
             assertThat(hosting).extracting(AppearanceSummaryResDto::title)
                     .containsExactly(AppearanceRecruitFixture.content(now()).title(),
                             AppearanceRequestFixture.content(now()).title());
+            // 게스트 목록도 출처가 섞여도 각자의 제목, 한 건씩 넘겨도 순서·전체 건수가 같다 (#1002)
+            assertThat(appearanceFacade.getMine(GUEST, AppearanceRole.GUEST, null, FIRST_PAGE).getContent())
+                    .extracting(AppearanceSummaryResDto::id, AppearanceSummaryResDto::title)
+                    .containsExactly(tuple(fromRecruit.appearanceId(), AppearanceRecruitFixture.content(now()).title()),
+                            tuple(fromRequest, AppearanceRequestFixture.content(now()).title()));
+            Page<AppearanceSummaryResDto> guestFirst = appearanceFacade.getMine(GUEST, AppearanceRole.GUEST, null,
+                    PageRequest.of(0, 1));
+            Page<AppearanceSummaryResDto> guestSecond = appearanceFacade.getMine(GUEST, AppearanceRole.GUEST, null,
+                    PageRequest.of(1, 1));
+            assertThat(guestFirst.getTotalElements()).isEqualTo(2);
+            assertThat(List.of(guestFirst.getContent().getFirst().id(), guestSecond.getContent().getFirst().id()))
+                    .containsExactly(fromRecruit.appearanceId(), fromRequest);
             assertThat(appearanceFacade.getMine(GUEST, AppearanceRole.GUEST,
                     List.of(AppearanceStatus.CANCEL_REQUESTED), FIRST_PAGE).getContent())
                     .extracting(AppearanceSummaryResDto::id).containsExactly(fromRequest);

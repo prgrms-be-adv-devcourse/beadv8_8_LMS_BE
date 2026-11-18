@@ -30,6 +30,15 @@ public final class NotificationFixtures {
                 sourceId, payload, occurredAt);
     }
 
+    /** 다른 회원 닉네임이 없는 초안(실시간 전달의 잠금 없는 묶음 경로, ND-205) */
+    public static NotificationDraft draftWithoutMention(long receiverId, String sourceId, Instant occurredAt) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("v", 1);
+        payload.put("title", "강의 " + sourceId);
+        return new NotificationDraft(receiverId, TestNotificationTemplate.KIND, "TestEvent", sourceId, "LECTURE",
+                sourceId, payload, occurredAt);
+    }
+
     /** 문구의 주인공(actor) 말고도 다른 회원(other)의 닉네임을 값에 함께 담은 초안 */
     public static NotificationDraft draftMentioning(long receiverId, String sourceId, long actorId, String actorName,
             long otherId, String otherName) {

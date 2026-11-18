@@ -68,8 +68,8 @@ class AppearanceRepositoryTest {
     }
 
     @Test
-    @DisplayName("자동 확인 대상 ID (#282): 성립 상태이고 방송 예정 일시가 기준 시각 이하, 방송 예정 일시가 오래된 순, 건수 제한")
-    void findAutoConfirmDueIds() {
+    @DisplayName("자동 확인 대상 ID와 출처 제목 (#282, #1002): 성립 상태이고 방송 예정 일시가 기준 시각 이하, 방송 예정 일시가 오래된 순, 건수 제한")
+    void findAutoConfirmTargets() {
         LocalDateTime cutoff = NOW.plusDays(1);
         Appearance older = establishedAt(cutoff.minusDays(1));
         Appearance atCutoff = establishedAt(cutoff);
@@ -78,10 +78,13 @@ class AppearanceRepositoryTest {
         confirmed.confirmByHost(1L, POLICY, cutoff.minusDays(2));
         appearanceRepository.saveAndFlush(confirmed);
 
-        assertThat(appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, cutoff,
-                PageRequest.of(0, 100))).containsExactly(older.getId(), atCutoff.getId());
-        assertThat(appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, cutoff,
-                PageRequest.of(0, 1))).containsExactly(older.getId());
+        String title = AppearanceRequestFixture.content(NOW).title();
+        assertThat(appearanceRepository.findAutoConfirmTargets(AppearanceStatus.ESTABLISHED, cutoff,
+                PageRequest.of(0, 100))).containsExactly(new AppearanceAutoConfirmTarget(older.getId(), title),
+                new AppearanceAutoConfirmTarget(atCutoff.getId(), title));
+        assertThat(appearanceRepository.findAutoConfirmTargets(AppearanceStatus.ESTABLISHED, cutoff,
+                PageRequest.of(0, 1))).extracting(AppearanceAutoConfirmTarget::appearanceId)
+                .containsExactly(older.getId());
     }
 
     /** 방송 예정 일시를 정해 성립한 출연을 저장한다 */

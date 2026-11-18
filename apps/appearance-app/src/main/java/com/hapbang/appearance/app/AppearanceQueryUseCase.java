@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Page;
@@ -23,6 +22,7 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceReview;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.out.AppearanceTitledRow;
 
 import lombok.RequiredArgsConstructor;
 
@@ -59,14 +59,13 @@ public class AppearanceQueryUseCase {
                                                  Pageable pageable) {
         appearanceUserSupport.getParticipant(userId);
         List<AppearanceStatus> filter = orAll(statuses);
-        Page<Appearance> appearances;
+        Page<AppearanceTitledRow> rows;
         if (role == AppearanceRole.HOST) {
-            appearances = appearanceSupport.findByHost(userId, filter, pageable);
+            rows = appearanceSupport.findByHost(userId, filter, pageable);
         } else {
-            appearances = appearanceSupport.findByGuest(userId, filter, pageable);
+            rows = appearanceSupport.findByGuest(userId, filter, pageable);
         }
-        Map<Long, String> titles = appearanceTitleSupport.titlesOf(appearances.getContent());
-        return appearances.map(appearance -> AppearanceSummaryResDto.from(appearance, titles.get(appearance.getId())));
+        return rows.map(row -> AppearanceSummaryResDto.from(row.appearance(), row.title()));
     }
 
     /**
