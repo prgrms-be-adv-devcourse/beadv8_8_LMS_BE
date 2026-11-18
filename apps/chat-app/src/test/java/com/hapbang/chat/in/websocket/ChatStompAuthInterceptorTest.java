@@ -13,8 +13,8 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -25,7 +25,6 @@ import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -38,16 +37,22 @@ import com.hapbang.shared.member.domain.Role;
  */
 class ChatStompAuthInterceptorTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-02T01:00:00Z");
+    /** 실제 시각보다 한참 뒤라 연결 목록의 만료 예약·주기 대조가 시험 중에 돌지 않는다. 시각은 시계로 움직인다 */
+    private static final Instant NOW = Instant.parse("2100-11-02T01:00:00Z");
     private static final Instant EXPIRES_AT = NOW.plus(Duration.ofMinutes(15));
     private static final String SESSION_ID = "session-1";
 
     private final MutableClock clock = new MutableClock();
-    private final ChatWebSocketSessionRegistry registry = new ChatWebSocketSessionRegistry(absent(), absent(),
-            idleScheduler(), clock, Duration.ofSeconds(30));
+    private final ChatWebSocketSessionRegistry registry = new ChatWebSocketSessionRegistry(absent(), absent(), clock,
+            Duration.ofSeconds(30), 1, 10);
     private final ChatStompAuthInterceptor interceptor = new ChatStompAuthInterceptor(registry, clock);
     private final MessageChannel channel = mock(MessageChannel.class);
     private final WebSocketHandler handler = registry.decorate(mock(WebSocketHandler.class));
+
+    @AfterEach
+    void tearDown() {
+        registry.destroy();
+    }
 
     @ParameterizedTest
     @EnumSource(value = StompCommand.class, names = {"CONNECT", "STOMP"})
@@ -184,15 +189,6 @@ class ChatStompAuthInterceptorTest {
 
     private static Message<byte[]> message(StompHeaderAccessor accessor) {
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
-    }
-
-    private static TaskScheduler idleScheduler() {
-        TaskScheduler scheduler = mock(TaskScheduler.class);
-        when(scheduler.schedule(any(Runnable.class), any(Instant.class)))
-                .thenAnswer(invocation -> mock(ScheduledFuture.class));
-        when(scheduler.scheduleAtFixedRate(any(Runnable.class), any(Instant.class), any(Duration.class)))
-                .thenAnswer(invocation -> mock(ScheduledFuture.class));
-        return scheduler;
     }
 
     @SuppressWarnings("unchecked")

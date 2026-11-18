@@ -29,7 +29,7 @@ class BudgetWorkTest {
         BudgetWork work = BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW);
         BudgetWork retry = BudgetWork.reserve(coupon, 2, NOW);
 
-        assertThat(work.getWorkId()).isEqualTo("coupon-42-reserve-v1").isEqualTo(coupon.budgetReserveWorkId());
+        assertThat(work.getWorkId()).isEqualTo("coupon-42-reserve-v1").isEqualTo(coupon.budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT));
         assertThat(retry.getWorkId()).isEqualTo("coupon-42-reserve-v1-a2").isEqualTo(coupon.budgetReserveWorkId(2));
         assertThat(work.getCouponId()).isEqualTo(42L);
         assertThat(work.getKind()).isEqualTo(BudgetWorkKind.RESERVE);

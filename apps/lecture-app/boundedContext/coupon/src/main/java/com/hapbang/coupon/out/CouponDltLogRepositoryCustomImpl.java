@@ -4,6 +4,7 @@ import static com.hapbang.coupon.out.CouponQuerydslSupport.literal;
 
 import java.util.List;
 
+import com.hapbang.coupon.app.port.CouponDltLogRepositoryCustom;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.QCouponDltLog;
 import com.querydsl.core.types.dsl.BooleanExpression;

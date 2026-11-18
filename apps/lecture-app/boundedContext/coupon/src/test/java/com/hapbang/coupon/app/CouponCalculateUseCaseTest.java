@@ -13,18 +13,19 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.CouponIssueStore;
-import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponPlatformFundingProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.domain.usage.Selection;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponUsageException;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
@@ -144,7 +145,7 @@ class CouponCalculateUseCaseTest {
                         new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID)))),
                 CouponErrorCode.COUPON_NOT_USABLE, PLATFORM_COUPON);
         assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
-                List.of(new Selection(PLATFORM_COUPON, LECTURE_ID))))
+                List.of(new CouponQuoteSelection(PLATFORM_COUPON, LECTURE_ID))))
                 .hasMessage(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
     }
 
@@ -162,7 +163,7 @@ class CouponCalculateUseCaseTest {
 
     @Test
     void 플랫폼_재원이_켜져_있으면_플랫폼_쿠폰도_추천하고_직접_고를_수_있다() {
-        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponPlatformFundingProperties.defaults(),
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponTestProperties.platformFunding(),
                 CLOCK);
         givenSellerAndPlatformAvailable();
         givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));
@@ -192,7 +193,7 @@ class CouponCalculateUseCaseTest {
 
         CouponCalculateResponse recommended = useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null);
         CouponCalculateResponse selected = useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
-                List.of(new Selection(SELLER_COUPON, LECTURE_ID)));
+                List.of(new CouponQuoteSelection(SELLER_COUPON, LECTURE_ID)));
 
         assertThat(recommended.recommended()).isTrue();
         assertThat(recommended.items().getFirst().price()).isEqualTo(PRICE);

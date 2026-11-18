@@ -12,6 +12,7 @@ import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatNotifyRule;

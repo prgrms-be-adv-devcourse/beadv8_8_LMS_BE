@@ -22,26 +22,23 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
-import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
-import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueOutcome;
-import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
-import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
+import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponSoldOutStatus;
 import com.hapbang.coupon.domain.IssueResponseCode;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-// 접수 입력(시각)과 Lua 결과의 응답 변환, 접수 직후 전송(ACK를 기다리지 않음), 매진 캐시 분기를 본다. 결과 해석(fromLua)·캐시 TTL 판정은 도메인 테스트,
-// 판정·만료 계산은 Lua 테스트가 본다. 접수 경로는 DB를 읽지 않는다: 의존은 Redis 발급 저장소·Kafka 전송·매진 캐시·지표·시계뿐이다
+// 접수 입력(시각)과 Lua 결과의 응답 변환, 접수 직후 전송(ACK를 기다리지 않음), 매진 상태 분기를 본다. 결과 해석(fromLua)·캐시 TTL 판정은 도메인 테스트,
+// 매진 표시를 담아 두고 다시 읽는 규칙은 CachedCouponSoldOutStatusTest, 판정·만료 계산은 Lua 테스트가 본다. 접수 경로는 DB를 읽지 않는다:
+// 의존은 Redis 발급 저장소·Kafka 전송·매진 상태·지표·시계뿐이다
 class CouponIssueRequestUseCaseTest {
 
     private static final String REQUEST_ID = "req-1";
@@ -54,6 +51,7 @@ class CouponIssueRequestUseCaseTest {
             new CouponIssueRequested(REQUEST_ID, COUPON_ID, MEMBER_ID, EPOCH, ISSUED_AT, EXPIRES_AT);
 
     private final CouponIssueStore issueStore = mock();
+    private final CouponSoldOutStatus soldOutStatus = mock();
     private final CouponIssueEventPublisher publisher = mock();
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
     private CouponIssueRequestUseCase useCase;
@@ -61,11 +59,7 @@ class CouponIssueRequestUseCaseTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW_WITH_MICROS, ZoneOffset.UTC);
-        CouponIssueDeliveryProperties properties = CouponIssueDeliveryProperties.defaults();
-        // 고정 시계에 맞춰 매진 캐시의 만료 시계도 멈춘다
-        useCase = new CouponIssueRequestUseCase(issueStore, publisher,
-                new CouponSoldOutCache(issueStore, properties, CouponSoldOutCacheProperties.defaults(), clock, meterRegistry,
-                        () -> 0L, Runnable::run), registry(meterRegistry), clock);
+        useCase = new CouponIssueRequestUseCase(issueStore, publisher, soldOutStatus, meterRegistry, clock);
         when(publisher.send(any())).thenReturn(CompletableFuture.completedFuture(PublishResult.ACKED));
     }
 
@@ -75,7 +69,7 @@ class CouponIssueRequestUseCaseTest {
 
         assertThat(constructors).hasSize(1);
         assertThat(constructors[0].getParameterTypes()).containsExactly(CouponIssueStore.class,
-                CouponIssueEventPublisher.class, CouponSoldOutCache.class, ObjectProvider.class, Clock.class);
+                CouponIssueEventPublisher.class, CouponSoldOutStatus.class, MeterRegistry.class, Clock.class);
     }
 
     @Test
@@ -110,7 +104,8 @@ class CouponIssueRequestUseCaseTest {
 
         assertThat(result.result()).isEqualTo(IssueResponseCode.ACCEPTED);
         // 저장소 호출은 매진 확인과 접수뿐이다: 전송 결과로 재고를 되돌리거나 기록을 쓰는 호출이 없다
-        verify(issueStore).isSoldOut(COUPON_ID);
+        verify(soldOutStatus).isSoldOut(COUPON_ID);
+        verifyNoMoreInteractions(soldOutStatus);
         verify(issueStore).tryIssue(any());
         verifyNoMoreInteractions(issueStore);
         assertThat(meterRegistry.get(CouponIssueRequestUseCase.PUBLISH_FAILURE_METRIC)
@@ -155,22 +150,26 @@ class CouponIssueRequestUseCaseTest {
     }
 
     @Test
-    void 매진_표시가_있으면_Lua를_부르지_않고_매진이며_TTL_안에서는_다시_읽지_않는다() {
-        when(issueStore.isSoldOut(COUPON_ID)).thenReturn(true);
+    void 매진_상태가_매진이면_Lua를_부르지_않고_매진이다() {
+        // TTL 안에서 Redis를 다시 읽지 않는 것은 CachedCouponSoldOutStatusTest가 본다
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenReturn(true);
 
         assertCouponError(() -> useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID), CouponErrorCode.COUPON_SOLD_OUT);
         assertCouponError(() -> useCase.requestIssue(COUPON_ID, OTHER_MEMBER_ID, "req-2"),
                 CouponErrorCode.COUPON_SOLD_OUT);
 
-        verify(issueStore, times(1)).isSoldOut(COUPON_ID);
+        verify(soldOutStatus, times(2)).isSoldOut(COUPON_ID);
         verify(issueStore, never()).tryIssue(any());
         assertThat(meterRegistry.get(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter().count()).isEqualTo(2);
     }
 
     @Test
-    void Lua가_매진을_돌려주면_다음_요청은_Redis를_부르지_않고_매진이다() {
+    void Lua가_매진을_돌려주면_매진_상태에_알리고_다음_요청은_Lua를_부르지_않고_매진이다() {
+        // 알린 뒤 Redis를 부르지 않고 매진으로 답하는 것은 CachedCouponSoldOutStatusTest가 본다
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenReturn(false, true);
         when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(0, null, 0));
         assertCouponError(() -> useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID), CouponErrorCode.COUPON_SOLD_OUT);
+        verify(soldOutStatus).markSoldOut(COUPON_ID);
 
         assertCouponError(() -> useCase.requestIssue(COUPON_ID, OTHER_MEMBER_ID, "req-2"),
                 CouponErrorCode.COUPON_SOLD_OUT);
@@ -181,8 +180,9 @@ class CouponIssueRequestUseCaseTest {
     }
 
     @Test
-    void 매진_표시를_읽지_못하면_Lua가_판정한다() {
-        when(issueStore.isSoldOut(COUPON_ID)).thenThrow(new CouponIssueStoreUnavailableException("redis", null));
+    void 매진_상태가_매진이_아니면_Lua가_판정한다() {
+        // 매진 표시를 읽지 못해도 매진 상태는 매진 아님(false)이다(CachedCouponSoldOutStatusTest)
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenReturn(false);
         when(issueStore.tryIssue(any())).thenReturn(new IssueOutcome(1, EXPIRES_AT, EPOCH));
 
         assertThat(useCase.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID).result()).isEqualTo(IssueResponseCode.ACCEPTED);
@@ -196,12 +196,7 @@ class CouponIssueRequestUseCaseTest {
         assertCouponError(() -> useCase.requestIssue(COUPON_ID, MEMBER_ID, issueRequestId),
                 CouponErrorCode.INVALID_ISSUE_REQUEST_ID);
 
-        verifyNoInteractions(issueStore, publisher);
+        verifyNoInteractions(issueStore, soldOutStatus, publisher);
     }
 
-    static ObjectProvider<MeterRegistry> registry(MeterRegistry meterRegistry) {
-        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("meterRegistry", meterRegistry);
-        return beanFactory.getBeanProvider(MeterRegistry.class);
-    }
 }

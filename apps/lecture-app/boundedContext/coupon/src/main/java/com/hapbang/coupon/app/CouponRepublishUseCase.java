@@ -11,30 +11,29 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.coupon.app.port.CouponDltLogReader;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
-import com.hapbang.coupon.app.port.CouponRepublishReader;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.domain.RepublishRule;
 import com.hapbang.coupon.domain.RepublishRule.Decision;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -85,8 +84,9 @@ public class CouponRepublishUseCase {
     private static final List<CouponStatus> TARGET_STATUSES =
             List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED, CouponStatus.CLOSED);
 
-    private final CouponRepublishReader republishReader;
-    private final CouponDltLogReader couponDltLogReader;
+    private final CouponRepository couponRepository;
+    private final CouponIssueRequestRepository couponIssueRequestRepository;
+    private final CouponDltLogRepository couponDltLogRepository;
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
     private final CouponIssueDeliveryProperties properties;
@@ -96,21 +96,23 @@ public class CouponRepublishUseCase {
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong lastRepublishedEpochSecond = new AtomicLong();
 
-    public CouponRepublishUseCase(CouponRepublishReader republishReader,
-                                  CouponDltLogReader couponDltLogReader,
+    public CouponRepublishUseCase(CouponRepository couponRepository,
+                                  CouponIssueRequestRepository couponIssueRequestRepository,
+                                  CouponDltLogRepository couponDltLogRepository,
                                   CouponIssueStore couponIssueStore,
                                   CouponIssueEventPublisher couponIssueEventPublisher,
                                   CouponIssueDeliveryProperties properties,
                                   CouponRedisProperties redisProperties,
-                                  ObjectProvider<MeterRegistry> meterRegistry,
+                                  MeterRegistry meterRegistry,
                                   @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.republishReader = republishReader;
-        this.couponDltLogReader = couponDltLogReader;
+        this.couponRepository = couponRepository;
+        this.couponIssueRequestRepository = couponIssueRequestRepository;
+        this.couponDltLogRepository = couponDltLogRepository;
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
         this.properties = properties;
         this.redisProperties = redisProperties;
-        this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.clock = clock;
         Gauge.builder(OLDEST_AGE_METRIC, oldestAgeSeconds, AtomicLong::get).baseUnit("seconds")
                 .description("재발행 대상 중 가장 오래된 요청의 접수 뒤 경과").register(this.meterRegistry);
@@ -123,7 +125,7 @@ public class CouponRepublishUseCase {
         Instant now = clock.instant();
         Run run = new Run(now);
         List<CouponResult> results = new ArrayList<>();
-        for (RepublishTargetCoupon target : republishReader.findTargets(TARGET_STATUSES)) {
+        for (RepublishTargetCoupon target : couponRepository.findRepublishTargets(TARGET_STATUSES)) {
             CouponRun coupon = new CouponRun(target.couponId());
             try {
                 republishCoupon(target, run, coupon);
@@ -167,7 +169,7 @@ public class CouponRepublishUseCase {
                     couponId, state.ready(), state.epoch(), target.epoch());
             return;
         }
-        Set<String> dltUnresolved = new HashSet<>(couponDltLogReader.findUnresolvedRequestIds(couponId));
+        Set<String> dltUnresolved = new HashSet<>(couponDltLogRepository.findUnresolvedRequestIds(couponId));
         try {
             couponIssueStore.scanRequests(couponId, properties.republish().scanCount(),
                     page -> republishPage(couponId, state.epoch(), page, dltUnresolved, run, coupon));
@@ -255,7 +257,7 @@ public class CouponRepublishUseCase {
         for (Candidate candidate : candidates) {
             candidateIds.add(candidate.issueRequestId());
         }
-        Set<String> recorded = new HashSet<>(republishReader.findRecordedIds(couponId, candidateIds));
+        Set<String> recorded = new HashSet<>(couponIssueRequestRepository.findExistingRequestIds(couponId, candidateIds));
         for (Candidate candidate : candidates) {
             Decision decision = RepublishRule.decide(candidate.record(), run.now, republishAfter, epoch,
                     recorded.contains(candidate.issueRequestId()), dltUnresolved.contains(candidate.issueRequestId()));
@@ -346,11 +348,6 @@ public class CouponRepublishUseCase {
      * @param ending 훑기를 어떻게 끝냈는가
      */
     public record CouponResult(long couponId, int sent, int acked, int failed, Ending ending) {
-
-        /** 끝까지 훑지 못했는가(멈춤·오류) */
-        public boolean stopped() {
-            return ending != Ending.COMPLETED;
-        }
     }
 
     /** 한 쿠폰의 훑기를 끝낸 방식 */

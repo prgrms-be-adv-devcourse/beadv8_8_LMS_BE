@@ -7,21 +7,25 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.port.ChatRoomMemberRepositoryCustom;
+import com.hapbang.chat.app.port.ChatRoomMemberRows.MemberWithUser;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomType;
 import com.hapbang.chat.domain.QChatRoom;
 import com.hapbang.chat.domain.QChatRoomMember;
+import com.hapbang.chat.domain.QChatUser;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatRoomMemberRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatRoomMemberRepository}의 조각으로 붙인다 */
+/** {@link ChatRoomMemberRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatRoomMemberRepository}의 조각으로 붙인다 */
 class ChatRoomMemberRepositoryCustomImpl implements ChatRoomMemberRepositoryCustom {
 
     private static final QChatRoomMember member = QChatRoomMember.chatRoomMember;
     private static final QChatRoom room = QChatRoom.chatRoom;
+    private static final QChatUser user = QChatUser.chatUser;
 
     private final JPAQueryFactory queryFactory;
 
@@ -82,6 +86,17 @@ class ChatRoomMemberRepositoryCustomImpl implements ChatRoomMemberRepositoryCust
                 .where(activeIn(chatRoomId))
                 .fetchOne();
         return count;
+    }
+
+    @Override
+    public List<MemberWithUser> findActiveWithUser(Long roomId) {
+        return queryFactory.select(user, member)
+                .from(member)
+                .join(user).on(user.id.eq(member.userId))
+                .where(activeIn(roomId))
+                .fetch().stream()
+                .map(row -> new MemberWithUser(row.get(user), row.get(member)))
+                .toList();
     }
 
     /** 방의 지금 참여 중인 행(퇴장·삭제되지 않음) */

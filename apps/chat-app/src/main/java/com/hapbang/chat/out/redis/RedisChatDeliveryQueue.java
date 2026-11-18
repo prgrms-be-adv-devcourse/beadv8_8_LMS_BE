@@ -33,16 +33,17 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatDeliveryBackpressureException;
-import com.hapbang.chat.app.ChatDeliveryQueue;
-import com.hapbang.chat.app.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.ChatJobStream;
-import com.hapbang.chat.app.ChatQueueGroupMissingException;
-import com.hapbang.chat.app.ChatStreamEntries;
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
-import com.hapbang.chat.app.dto.ReclaimedJobs;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
+import com.hapbang.chat.app.port.ReclaimedJobs;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.output.NestedMultiOutput;

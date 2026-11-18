@@ -21,7 +21,8 @@ class RepublishRuleTest {
     private static final long EPOCH = 3;
 
     private static IssueRequestRecord record(boolean published, boolean compensated) {
-        return new IssueRequestRecord(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), published, compensated);
+        return new IssueRequestRecord(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), null, published,
+                compensated);
     }
 
     @ParameterizedTest(name = "PUBLISHED={0}")
@@ -93,7 +94,7 @@ class RepublishRuleTest {
     @Test
     void 이전_epoch에_접수된_요청은_대기_시간과_DB에_관계없이_보내지_않고_DB도_확인하지_않는다() {
         IssueRequestRecord stale =
-                IssueRequestRecord.accepted(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), EPOCH - 1);
+                new IssueRequestRecord(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), EPOCH - 1, false, false);
 
         assertThat(RepublishRule.decide(stale, DUE, AFTER, EPOCH, false, false)).isEqualTo(Decision.STALE_EPOCH);
         assertThat(RepublishRule.decide(stale, ACCEPTED_AT, AFTER, EPOCH, false, false))
@@ -105,8 +106,9 @@ class RepublishRuleTest {
     @Test
     void 지금_epoch에_접수됐거나_epoch가_없는_옛_형식이면_이전_epoch로_보지_않는다() {
         IssueRequestRecord current =
-                IssueRequestRecord.accepted(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), EPOCH);
-        IssueRequestRecord legacy = IssueRequestRecord.accepted(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)));
+                new IssueRequestRecord(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), EPOCH, false, false);
+        IssueRequestRecord legacy = new IssueRequestRecord(7, ACCEPTED_AT, ACCEPTED_AT.plus(Duration.ofDays(30)), null,
+                false, false);
 
         assertThat(RepublishRule.decide(current, DUE, AFTER, EPOCH, false, false)).isEqualTo(Decision.REPUBLISH);
         assertThat(RepublishRule.decide(legacy, DUE, AFTER, EPOCH, false, false)).isEqualTo(Decision.REPUBLISH);

@@ -25,16 +25,16 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
 
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomStatusReason;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;

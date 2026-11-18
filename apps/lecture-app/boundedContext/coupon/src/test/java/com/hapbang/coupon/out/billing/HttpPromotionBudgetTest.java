@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
@@ -31,7 +30,6 @@ import com.hapbang.shared.billing.out.BillingClientProperties;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -163,11 +161,17 @@ class HttpPromotionBudgetTest {
     @CsvSource({"409,PROMOTION_BALANCE_INSUFFICIENT", "409,BUDGET_RELEASE_EXCEEDS_REMAINING",
             "404,BUDGET_RESERVATION_NOT_FOUND", "409,IDEMPOTENCY_KEY_CONFLICT", "400,INVALID_POINT_AMOUNT"})
     void 업무_4xx는_거절_코드를_보존하고_회로_실패로_세지_않는다(int status, String code) {
-        HttpPromotionBudget adapter = adapter();
+        HttpPromotionBudget adapter = adapter(baseUrl(), smallWindow());
         respond(status, "{\"status\":" + status + ",\"code\":\"" + code + "\"}");
         assertThat(adapter.reserve(RESERVE, 42L, 1, 10_000L))
                 .isEqualTo(new BudgetResult(Outcome.REJECTED, null, code));
-        assertThat(adapter.circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
+        assertThat(adapter.reserve(RESERVE, 42L, 1, 10_000L))
+                .isEqualTo(new BudgetResult(Outcome.REJECTED, null, code));
+
+        // 앞의 2번이 실패로 세졌다면 회로가 열려 다음 호출이 HTTP에 닿지 않는다
+        assertThat(adapter.reserve(RESERVE, 42L, 1, 10_000L))
+                .isEqualTo(new BudgetResult(Outcome.REJECTED, null, code));
+        assertThat(requests).hasSize(3);
     }
 
     @ParameterizedTest
@@ -272,7 +276,6 @@ class HttpPromotionBudgetTest {
         respond(500, "{\"code\":\"INTERNAL_ERROR\"}");
         assertThat(adapter.reserve(RESERVE, 42L, 1, 10_000L).outcome()).isEqualTo(Outcome.UNKNOWN);
         assertThat(adapter.reserve(RESERVE, 42L, 1, 10_000L).outcome()).isEqualTo(Outcome.UNKNOWN);
-        assertThat(adapter.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.OPEN);
         int count = requests.size();
         assertThat(adapter.status(RESERVE)).isEqualTo(new BudgetResult(Outcome.UNKNOWN, null, "CIRCUIT_OPEN"));
         assertThat(requests).hasSize(count);
@@ -282,12 +285,13 @@ class HttpPromotionBudgetTest {
         return adapter(baseUrl(), defaults());
     }
 
+    /** 운영 빈과 같은 방법(설정의 주소·제한 시간·내부 API 키)으로 만든 프록시에 어댑터를 붙인다. 회로 설정은 받은 설정을 쓴다 */
     private static HttpPromotionBudget adapter(String baseUrl, BillingClientProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(TIMEOUT);
-        requestFactory.setReadTimeout(TIMEOUT);
-        return new HttpPromotionBudget(CouponBillingApiConfig.create(RestClient.builder().requestFactory(requestFactory),
-                baseUrl, API_KEY), properties);
+        BillingClientProperties withServer = new BillingClientProperties(baseUrl, TIMEOUT, TIMEOUT,
+                properties.resilience());
+        CouponBillingApiConfig config = new CouponBillingApiConfig();
+        return config.httpPromotionBudget(config.couponBillingInternalApi(RestClient.builder(), withServer, API_KEY),
+                withServer);
     }
 
     private static BillingClientProperties defaults() {

@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.concurrent.ThreadLocalRandom;
 
+import com.hapbang.chat.config.ChatDeliveryProperties;
+
 /**
  * 재시도 다음 시각. 지수 증가를 상한으로 자르고 jitter로 흔들어 같은 시각에 몰리지 않게 한다.
  */

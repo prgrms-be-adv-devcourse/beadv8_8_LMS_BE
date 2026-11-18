@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
@@ -14,7 +15,6 @@ import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -74,7 +74,8 @@ public class CouponIssueFacade {
      *
      * @param selections {@code null}이면 추천, 빈 목록이면 쿠폰 없이, 값이 있으면 그 매핑만 검증·계산한다
      */
-    public CouponCalculateResponse quote(long memberId, List<Long> lectureIds, List<Selection> selections) {
+    public CouponCalculateResponse quote(long memberId, List<Long> lectureIds,
+                                         List<CouponQuoteSelection> selections) {
         return couponCalculateUseCase.quote(memberId, lectureIds, selections);
     }
 }

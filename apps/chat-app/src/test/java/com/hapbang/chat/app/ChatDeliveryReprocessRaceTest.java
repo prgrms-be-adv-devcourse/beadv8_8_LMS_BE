@@ -25,14 +25,13 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
-import com.hapbang.chat.out.JpaChatOutboxStore;
-import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
+import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
 
 /**
  * 재적재 상한 격리·운영 재처리의 경합과 트랜잭션 경계 (계약 tables-and-migrations "운영 재처리 감사와 누적 횟수",
@@ -48,16 +47,16 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
     }
 
     @MockitoSpyBean
-    private JpaChatOutboxStore spiedOutboxStore;
+    private ChatOutboxStore spiedOutboxStore;
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @MockitoSpyBean
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private ChatDeliveryReprocessAuditRepository auditRepository;
+    private ChatDeliveryReprocessAuditTestRepository auditRepository;
 
     @Test
     void 재적재_상한_격리는_대조_때_읽은_세대로만_기록해_그_사이_운영_재처리된_새_세대를_격리하지_않는다() {
@@ -76,7 +75,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             stale.set(candidates);
             assertThat(spiedCheckpointStore.markDead(group, deliveryId, 0, ChatDeadReason.SOURCE_MISSING, null,
                     "다른 경로의 격리", ChatDeliveryClock.now())).isTrue();
-            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
             return candidates;
         }).doCallRealMethod().when(spiedOutboxStore)
                 .findRequeueCandidates(eq(ChatJobStream.DELIVERY), anyLong(), any(), any(), anyInt());
@@ -123,7 +122,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             for (int i = 0; i < threads; i++) {
                 Callable<Boolean> task = () -> {
                     start.await();
-                    return reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId);
+                    return reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null);
                 };
                 futures.add(executor.submit(task));
             }
@@ -161,7 +160,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
         doThrow(new IllegalStateException("초기화 실패")).when(spiedOutboxStore)
                 .resetRequeueForReprocess(eq(ChatJobStream.DELIVERY), eq(deliveryId), any());
 
-        assertThatThrownBy(() -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId))
+        assertThatThrownBy(() -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null))
                 .hasMessageContaining("초기화 실패");
 
         assertThat(auditRepository.findByConsumerGroupAndJobIdOrderByIdAsc(group, deliveryId)).isEmpty();
@@ -196,7 +195,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
             return invocation.callRealMethod();
         }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
 
         assertThat(inTransaction.get()).isFalse();
         assertThat(committedAudits.get()).isEqualTo(1);

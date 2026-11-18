@@ -22,10 +22,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
-import com.hapbang.chat.app.ChatDeliveryBackpressureException;
-import com.hapbang.chat.app.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.ChatJobStream;
-import com.hapbang.chat.app.ChatQueueGroupMissingException;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 /**
  * 실제 Redis·Lettuce·Spring Data Redis가 만든 예외 사슬로 연결 불가와 명령 오류의 분류를 확인한다 (재검증).
@@ -109,7 +110,7 @@ class RedisChatDeliveryQueueClassificationTest {
         assertThat(wrongArity).isNotNull();
         assertThat(RedisFailures.hasMessage(wrongArity, "ERR")).isTrue();
         assertThat(RedisFailures.isConnectivityFailure(wrongArity)).isFalse();
-        assertThat(RedisFailures.isMemoryFull(wrongArity)).isFalse();
+        assertThat(RedisFailures.isWriteRejected(wrongArity)).isFalse();
 
         Throwable noScript = catchThrowable(() -> redis.execute((RedisCallback<Object>) connection ->
                 connection.scriptingCommands().evalSha("ffffffffffffffffffffffffffffffffffffffff", ReturnType.STATUS,
@@ -137,7 +138,7 @@ class RedisChatDeliveryQueueClassificationTest {
     }
 
     /**
-     * {@link com.hapbang.chat.app.ChatDeliveryQueue} 계약: 큐에 연결할 수 없으면 모든 메서드가
+     * {@link com.hapbang.chat.app.port.ChatDeliveryQueue} 계약: 큐에 연결할 수 없으면 모든 메서드가
      * {@link ChatDeliveryUnavailableException}을 던진다. 연결이 한 번도 맺어지지 않은 상태(예: Redis가 내려간 채 기동)에서
      * 확인한다.
      */

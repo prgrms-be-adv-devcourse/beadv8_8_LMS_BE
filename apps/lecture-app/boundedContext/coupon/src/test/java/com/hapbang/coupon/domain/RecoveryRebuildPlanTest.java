@@ -15,7 +15,7 @@ class RecoveryRebuildPlanTest {
     private static final Instant ACCEPTED = Instant.parse("2026-11-06T04:00:00.123Z");
 
     private static Coupon couponWithIssued(int quantity, int issued) {
-        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureAmount().quantity(quantity).build(), NOW);
+        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().quantity(quantity).build(), NOW);
         ReflectionTestUtils.setField(coupon, "issuedCount", issued);
         return coupon;
     }
@@ -59,7 +59,7 @@ class RecoveryRebuildPlanTest {
     @Test
     void DB_epoch를_읽어_오지_않은_결과는_접수_epoch_없이_쓴다() {
         RecoveryRebuildPlan plan = RecoveryRebuildPlan.of(couponWithIssued(10, 1), 2L,
-                List.of(new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, ACCEPTED)));
+                List.of(new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, ACCEPTED, null)));
 
         assertThat(IssueRequestRecord.parse(plan.requests().get("req-a")).epoch()).isNull();
     }
@@ -67,7 +67,7 @@ class RecoveryRebuildPlanTest {
     @Test
     void 고정_만료_쿠폰은_고정_만료_시각을_쓴다() {
         Instant fixed = ISSUE_END.plus(Duration.ofDays(10));
-        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureAmount().quantity(5).fixed(fixed).build(), NOW);
+        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().quantity(5).fixed(fixed).build(), NOW);
         ReflectionTestUtils.setField(coupon, "issuedCount", 1);
 
         RecoveryRebuildPlan plan = RecoveryRebuildPlan.of(coupon, 2L, List.of(issued("req-a", MEMBER_ID)));

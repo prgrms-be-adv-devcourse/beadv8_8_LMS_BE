@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 
-import com.hapbang.chat.app.ChatDeliveryProperties;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.out.redis.RedisRealtimeChatFanout;
 import com.hapbang.testsupport.IntegrationTest;
 import com.zaxxer.hikari.HikariDataSource;

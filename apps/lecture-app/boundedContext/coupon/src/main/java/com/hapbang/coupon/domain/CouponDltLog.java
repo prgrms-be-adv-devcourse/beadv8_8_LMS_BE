@@ -146,10 +146,6 @@ public class CouponDltLog {
         return new CouponDltLog(CouponDltKind.ORDER, source, null, null, payload, failureCause, now);
     }
 
-    public boolean isPending() {
-        return status == CouponDltStatus.PENDING;
-    }
-
     /**
      * 재발행·영구 거절이 이 기록을 선점할 수 있는가: PENDING이거나, REPLAYING인데 선점 뒤 {@code replayLease}가 지났다(선점한 프로세스가
      * 전송 결과를 남기지 못하고 멈춘 것으로 본다).

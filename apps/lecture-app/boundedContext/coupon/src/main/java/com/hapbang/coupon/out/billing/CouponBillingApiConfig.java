@@ -43,8 +43,7 @@ public class CouponBillingApiConfig {
         return new HttpPromotionBudget(api, properties);
     }
 
-    /** 테스트에서도 운영과 같은 프록시·오류 분류를 사용한다. */
-    public static CouponBillingInternalApi create(RestClient.Builder builder, String baseUrl, String internalApiKey) {
+    private static CouponBillingInternalApi create(RestClient.Builder builder, String baseUrl, String internalApiKey) {
         RestClient restClient = builder.baseUrl(baseUrl)
                 .defaultHeader(InternalApiHeaders.API_KEY, internalApiKey)
                 .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> {

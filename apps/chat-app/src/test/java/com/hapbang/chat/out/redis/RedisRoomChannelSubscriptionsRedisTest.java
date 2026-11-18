@@ -35,6 +35,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
+import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
+
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

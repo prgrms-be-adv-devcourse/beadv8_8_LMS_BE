@@ -178,10 +178,6 @@ public class HttpPromotionBudget implements PromotionBudget {
         return new BudgetResult(Outcome.UNKNOWN, null, reason);
     }
 
-    CircuitBreaker circuitBreaker() {
-        return circuitBreaker;
-    }
-
     private static final class BudgetUnavailable extends RuntimeException {
         BudgetUnavailable(String reason) {
             super(reason, null, false, false);

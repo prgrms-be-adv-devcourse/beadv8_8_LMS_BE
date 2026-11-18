@@ -14,6 +14,8 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.server.support.OriginHandshakeInterceptor;
 
+import com.hapbang.chat.global.config.ChatWebSocketPaths;
+
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -36,7 +38,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    public static final String ENDPOINT = "/api/v1/chats/ws";
     public static final String APP_PREFIX = "/pub";
     public static final String USER_PREFIX = "/user";
     public static final String QUEUE_PREFIX = "/queue";
@@ -81,7 +82,7 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // 허용 출처 검사를 티켓 사용보다 먼저 한다. Spring이 setAllowedOrigins로 붙이는 출처 검사는 사용자 인터셉터 뒤에 돌아서,
         // 그것만 두면 출처가 거절될 요청도 티켓을 먼저 써 버린다. 뒤에 붙는 같은 검사는 그대로 둔다(같은 결과다)
-        registry.addEndpoint(ENDPOINT)
+        registry.addEndpoint(ChatWebSocketPaths.ENDPOINT)
                 .setAllowedOrigins(allowedOrigins)
                 .setHandshakeHandler(new ChatHandshakeHandler())
                 .addInterceptors(new OriginHandshakeInterceptor(List.of(allowedOrigins)),

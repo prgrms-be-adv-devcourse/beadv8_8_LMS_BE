@@ -12,8 +12,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
+import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.domain.CouponUsageStatus;
-import com.hapbang.coupon.out.CouponUsageRepository;
 
 // 사용 이력 조회 서비스: 상태 필터를 그대로 넘기고, 요청의 정렬은 버리고(저장소 쿼리 순서로 고정) 페이지 크기는 100으로 자른다.
 // 본인 행·순서·조인·count는 저장소 테스트, 변환은 CouponUsageViewTest가 본다

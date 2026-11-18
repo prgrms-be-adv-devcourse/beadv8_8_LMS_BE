@@ -3,12 +3,13 @@ package com.hapbang.chat.out.redis;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.app.ChatDeliveryUnavailableException;
-import com.hapbang.chat.app.RealtimeChatFanout;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.RealtimeChatFanout;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

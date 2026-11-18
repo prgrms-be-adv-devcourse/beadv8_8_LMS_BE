@@ -13,13 +13,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.dto.QueuedJob;
-import com.hapbang.chat.app.dto.ReclaimedJobs;
+import com.hapbang.chat.app.ChatPublishCheckpointStore.CheckpointState;
+import com.hapbang.chat.app.ChatPublishCheckpointStore.FailureResult;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueuedJob;
+import com.hapbang.chat.app.port.RealtimeChatFanout;
+import com.hapbang.chat.app.port.ReclaimedJobs;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
-import com.hapbang.chat.app.ChatPublishCheckpointStore.CheckpointState;
-import com.hapbang.chat.app.ChatPublishCheckpointStore.FailureResult;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -185,7 +191,7 @@ public class ChatStreamJobProcessor {
     /**
      * 항목 하나를 처리한다. DB 트랜잭션 밖에서 부른다.
      */
-    public Outcome handle(ChatJobStream stream, QueuedJob job) {
+    Outcome handle(ChatJobStream stream, QueuedJob job) {
         Assert.state(!TransactionSynchronizationManager.isActualTransactionActive(),
                 "Stream 항목은 DB 트랜잭션 밖에서 처리해야 합니다.");
         String group = stream.consumerGroup();

@@ -12,10 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.coupon.app.port.BudgetWorkReader;
-import com.hapbang.coupon.app.port.CouponReader;
+import com.hapbang.coupon.app.port.BudgetWorkRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
-import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponBudgetWorkProperties;
 import com.hapbang.coupon.config.CouponClockConfig;
@@ -23,8 +23,6 @@ import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
-import com.hapbang.coupon.out.BudgetWorkRepository;
-import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.shared.billing.dto.PromotionBudgetRequests;
 
 import lombok.extern.slf4j.Slf4j;
@@ -34,26 +32,22 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponBudgetWorkUseCase {
     private final BudgetWorkRepository budgetWorkRepository;
-    private final BudgetWorkReader budgetWorkReader;
     private final CouponRepository couponRepository;
-    private final CouponReader couponReader;
-    private final MemberCouponReader memberCouponReader;
+    private final MemberCouponRepository memberCouponRepository;
     private final CouponBudgetReleaseRecorder releaseRecorder;
     private final ObjectProvider<PromotionBudget> budgetProvider;
     private final CouponBudgetWorkProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
-    public CouponBudgetWorkUseCase(BudgetWorkRepository budgetWorkRepository, BudgetWorkReader budgetWorkReader,
-            CouponRepository couponRepository, CouponReader couponReader, MemberCouponReader memberCouponReader,
+    public CouponBudgetWorkUseCase(BudgetWorkRepository budgetWorkRepository,
+            CouponRepository couponRepository, MemberCouponRepository memberCouponRepository,
             CouponBudgetReleaseRecorder releaseRecorder,
             ObjectProvider<PromotionBudget> budgetProvider, CouponBudgetWorkProperties properties,
             PlatformTransactionManager transactionManager, @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.budgetWorkRepository = budgetWorkRepository;
-        this.budgetWorkReader = budgetWorkReader;
         this.couponRepository = couponRepository;
-        this.couponReader = couponReader;
-        this.memberCouponReader = memberCouponReader;
+        this.memberCouponRepository = memberCouponRepository;
         this.releaseRecorder = releaseRecorder;
         this.budgetProvider = budgetProvider;
         this.properties = properties;
@@ -68,7 +62,7 @@ public class CouponBudgetWorkUseCase {
         if (budget == null) {
             return;
         }
-        List<String> ids = transaction.execute(status -> budgetWorkReader.findDueIds(clock.instant(),
+        List<String> ids = transaction.execute(status -> budgetWorkRepository.findDueIds(clock.instant(),
                 Limit.of(properties.batchSize())));
         for (String id : ids) {
             try {
@@ -93,7 +87,7 @@ public class CouponBudgetWorkUseCase {
         long afterId = 0;
         while (true) {
             long cursor = afterId;
-            List<Long> ids = transaction.execute(status -> couponReader.findExpiredDraftBudgetIds(now,
+            List<Long> ids = transaction.execute(status -> couponRepository.findExpiredDraftBudgetIds(now,
                     cursor, Limit.of(properties.batchSize())));
             for (Long id : ids) {
                 try {
@@ -114,7 +108,7 @@ public class CouponBudgetWorkUseCase {
         long afterCouponId = 0;
         while (true) {
             long cursor = afterCouponId;
-            List<Long> couponIds = transaction.execute(status -> couponReader.findPlatformMemberBudgetCouponIds(
+            List<Long> couponIds = transaction.execute(status -> couponRepository.findPlatformMemberBudgetCouponIds(
                     now, cursor, Limit.of(properties.batchSize())));
             for (Long couponId : couponIds) {
                 registerExpiredRemainders(couponId, now);
@@ -131,7 +125,7 @@ public class CouponBudgetWorkUseCase {
         while (true) {
             MemberCouponExpiryTarget cursor = after;
             List<MemberCouponExpiryTarget> targets = transaction.execute(status ->
-                    memberCouponReader.findExpiredPlatformBudgetTargets(couponId, now,
+                    memberCouponRepository.findExpiredPlatformBudgetTargets(couponId, now,
                             cursor == null ? null : cursor.expiresAt(), cursor == null ? 0 : cursor.id(),
                             Limit.of(properties.batchSize())));
             for (MemberCouponExpiryTarget target : targets) {

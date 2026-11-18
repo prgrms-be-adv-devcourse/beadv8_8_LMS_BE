@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.coupon.app.port.BudgetWorkRepositoryCustom;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.QBudgetWork;
 import com.querydsl.jpa.impl.JPAQueryFactory;

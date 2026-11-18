@@ -13,6 +13,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.MemberCouponStatus;
@@ -20,10 +24,6 @@ import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageContentKey;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReservationStatusResponse;
 
 // 예약 상태 조회의 네 상태와 소유 문맥, 가격 인상 제한 조회의 전달을 본다

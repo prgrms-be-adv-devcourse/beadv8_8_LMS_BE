@@ -8,6 +8,10 @@ import java.util.function.IntToLongFunction;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import io.micrometer.core.instrument.Gauge;
@@ -256,14 +260,10 @@ public class ChatDeliveryAvailability {
     }
 
     /**
-     * 발행 허락. 재확인 차례면 재확인 권한 토큰을 가진다. 결과는 {@link #published}·{@link #noSubscriber}로 알리고, 끝에서 결과와
+     * 발행 허락. 재확인 차례면 재확인 권한 토큰(0이 아닌 값)을 가진다. 결과는 {@link #published}·{@link #noSubscriber}로 알리고, 끝에서 결과와
      * 관계없이 {@link #publishEnded}로 돌려준다.
      */
     public record PublishPermit(ChatJobStream stream, boolean granted, long token) {
-
-        public boolean isProbe() {
-            return token != 0;
-        }
     }
 
     /**

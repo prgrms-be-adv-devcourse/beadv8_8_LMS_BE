@@ -15,14 +15,12 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
 import com.hapbang.chat.app.dto.ChatGroupRoomsResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidatePageResponse;
@@ -31,6 +29,14 @@ import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatGroupInviteRequestRepository;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
+import com.hapbang.chat.app.port.ChatRoomLogRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
+import com.hapbang.chat.app.port.ChatUserRepository;
+import com.hapbang.chat.config.ChatGroupProperties;
 import com.hapbang.chat.domain.ChatGroupInviteFailure;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 import com.hapbang.chat.domain.ChatGroupInviteRequest;
@@ -42,16 +48,10 @@ import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.domain.GroupHostUnavailableData;
 import com.hapbang.chat.domain.GroupMemberKickedData;
 import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.GroupRoomClosedData;
-import com.hapbang.chat.domain.GroupHostUnavailableData;
-import com.hapbang.chat.out.ChatGroupInviteRequestRepository;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
@@ -76,7 +76,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@EnableConfigurationProperties(ChatGroupProperties.class)
 public class DefaultChatGroupRoomService implements ChatGroupRoomService {
 
     private final ChatRoomRepository chatRoomRepository;
@@ -85,8 +84,6 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatGroupInviteRequestRepository chatGroupInviteRequestRepository;
-    private final ChatRoomReader chatRoomReader;
-    private final ChatRoomMemberReader chatRoomMemberReader;
     private final ChatValidationService chatValidationService;
     private final ChatRoomSupporter chatRoomSupporter;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
@@ -99,7 +96,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     @Transactional(readOnly = true)
     public Optional<Long> findCurrentRoomOf(Long requesterId, Long recruitId) {
         chatValidationService.validateCanChat(requesterId);
-        return chatRoomReader.findCurrentGroup(recruitId).map(room -> requireRecruitHost(room, requesterId));
+        return chatRoomRepository.findCurrentGroup(recruitId).map(room -> requireRecruitHost(room, requesterId));
     }
 
     @Override
@@ -115,10 +112,10 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         if (!recruit.hostId().equals(requesterId)) {
             throw new ChatException(ChatErrorCode.NOT_RECRUIT_HOST);
         }
-        Optional<ChatRoom> current = chatRoomReader.findCurrentGroup(recruit.recruitId());
+        Optional<ChatRoom> current = chatRoomRepository.findCurrentGroup(recruit.recruitId());
         if (current.isPresent()) {
             // 먼저 만든 요청이 커밋했다(동시 생성의 재시도 포함). 같은 방을 돌려준다
-            return new ChatRoomOpenResult(requireRecruitHost(current.get(), requesterId), false, List.of());
+            return new ChatRoomOpenResult(requireRecruitHost(current.get(), requesterId), false);
         }
         if (!recruit.isRecruiting()) {
             throw new ChatException(ChatErrorCode.RECRUIT_NOT_OPEN);
@@ -132,7 +129,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         chatRecipientSetRecorder.snapshot(chatRoom, now);
         log.info("단체방 생성 chatRoomId={}, recruitId={}, hostId={}", chatRoom.getId(), recruit.recruitId(),
                 requesterId);
-        return new ChatRoomOpenResult(chatRoom.getId(), true, List.of());
+        return new ChatRoomOpenResult(chatRoom.getId(), true);
     }
 
     /**
@@ -143,7 +140,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     public ChatGroupRoomsResponse getRooms(Long userId, Long recruitId) {
         chatValidationService.validateCanChat(userId);
         LocalDateTime now = LocalDateTime.now();
-        List<ChatRoomMember> memberships = chatRoomMemberReader.findActiveGroupMemberships(recruitId, userId)
+        List<ChatRoomMember> memberships = chatRoomMemberRepository.findActiveGroupMemberships(recruitId, userId)
                 .stream()
                 .filter(member -> member.getChatRoom().isViewable(now))
                 .toList();
@@ -184,7 +181,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         // 제목 컬럼만 바꾼다(방을 잠그지 않는다). 영속성 컨텍스트를 비우므로 방 값을 먼저 읽어 둔다
         chatRoomRepository.updateGroupTitle(chatRoomId, recruitTitle, LocalDateTime.now());
 
-        Set<Long> members = new HashSet<>(chatRoomMemberReader.findActiveUserIds(chatRoomId));
+        Set<Long> members = new HashSet<>(chatRoomMemberRepository.findActiveUserIds(chatRoomId));
         long after = cursor == null ? 0L : cursor;
         List<Long> candidateIds = applicantUserIds.stream()
                 .distinct()
@@ -237,7 +234,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         Optional<ChatGroupInviteRequest> stored = chatGroupInviteRequestRepository.findForUpdate(chatRoomId, requestId);
         if (stored.isPresent() && stored.get().isRetained(now, properties.inviteRequestRetention())) {
             // 같은 요청의 재시도(동시에 온 재시도 포함): 저장한 결과를 그대로 돌려주고 다시 초대하지 않는다
-            return stored.get().outcomes();
+            return ChatStoredJson.readInviteOutcomes(stored.get());
         }
         chatValidationService.validateCanChat(requesterId);
         requireManageable(chatRoom, requesterId);
@@ -275,7 +272,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         if (!joined.isEmpty()) {
             ChatRecipientSet recipientSet = chatRecipientSetRecorder.snapshot(chatRoom, now);
             ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMembersInvited(chatRoom, requesterId,
-                    GroupMembersInvitedData.of(requesterId, joined), now));
+                    ChatStoredJson.writeNotificationData(GroupMembersInvitedData.of(requesterId, joined)), now));
             chatDeliveryRecorder.recordMessage(notice, recipientSet.getId(), ChatNotifyRule.NONE, now);
             // 새 참여자는 이전 메시지를 볼 수 없어 이전 값은 그대로지만, 참여 변경은 모두 알린다(받는 앱이 참여 캐시를 맞춘다)
             chatReadCountSignals.membershipChanged(chatRoomId, recipientSet.getSetVersion());
@@ -287,7 +284,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             chatGroupInviteRequestRepository.flush();
         }
         ChatGroupInviteRequest inviteRequest = chatGroupInviteRequestRepository.save(
-                ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId, outcomes, now));
+                ChatGroupInviteRequest.record(chatRoomId, requestId, requesterId,
+                        ChatStoredJson.writeInviteOutcomes(outcomes), now));
         if (!joined.isEmpty()) {
             eventPublisher.publishEvent(new GroupMembersInvitedEvent(chatRoomId, inviteRequest.getId(),
                     chatRoom.getRecruitId(), chatRoom.getTitle(), requesterId, joined, instantOf(now)));
@@ -322,7 +320,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
                 ChatRoomEventType.MEMBER_KICKED, now));
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
         ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMemberKicked(chatRoom, requesterId,
-                GroupMemberKickedData.of(requesterId, targetUserId), now));
+                ChatStoredJson.writeNotificationData(GroupMemberKickedData.of(requesterId, targetUserId)), now));
         chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
         chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
         eventPublisher.publishEvent(new GroupMemberKickedEvent(chatRoomId, chatRoom.getRecruitId(), chatRoom.getTitle(),
@@ -348,9 +346,10 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         }
         LocalDateTime now = LocalDateTime.now();
         // 폐쇄해도 참여는 그대로라 지금 참여자가 폐쇄 시점 참여자다(호스트 포함). 회원 ID 열만 읽는다
-        List<Long> memberUserIds = chatRoomMemberReader.findActiveUserIds(chatRoomId).stream().sorted().toList();
+        List<Long> memberUserIds = chatRoomMemberRepository.findActiveUserIds(chatRoomId).stream().sorted().toList();
         ChatMessage notice = chatMessageRepository.save(
-                ChatMessage.groupRoomClosed(chatRoom, requesterId, GroupRoomClosedData.of(requesterId), now));
+                ChatMessage.groupRoomClosed(chatRoom, requesterId,
+                        ChatStoredJson.writeNotificationData(GroupRoomClosedData.of(requesterId)), now));
         if (chatRoom.getActiveMemberCount() > 0) {
             chatDeliveryRecorder.recordMessage(notice, chatRoom.getCurrentRecipientSetId(), ChatNotifyRule.NONE, now);
         }
@@ -372,7 +371,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         for (ChatRoom chatRoom : rooms) {
             // 안내를 먼저 저장한다(읽기 전용 방에는 순번을 발급하지 않는다). 연결된 참여자에게는 폐쇄와 같이 이 안내가 상태 변경을 알린다
             ChatMessage notice = chatMessageRepository.save(ChatMessage.groupHostUnavailable(chatRoom, hostUserId,
-                    GroupHostUnavailableData.of(hostUserId), now));
+                    ChatStoredJson.writeNotificationData(GroupHostUnavailableData.of(hostUserId)), now));
             if (chatRoom.getActiveMemberCount() > 0) {
                 chatDeliveryRecorder.recordMessage(notice, chatRoom.getCurrentRecipientSetId(), ChatNotifyRule.NONE,
                         now);
@@ -412,7 +411,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private Optional<List<ChatGroupInviteOutcome>> findRetained(Long chatRoomId, UUID requestId, LocalDateTime now) {
         return chatGroupInviteRequestRepository.findByChatRoomIdAndRequestId(chatRoomId, requestId)
                 .filter(request -> request.isRetained(now, properties.inviteRequestRetention()))
-                .map(ChatGroupInviteRequest::outcomes);
+                .map(ChatStoredJson::readInviteOutcomes);
     }
 
     private ChatRoom findViewableGroup(Long chatRoomId) {

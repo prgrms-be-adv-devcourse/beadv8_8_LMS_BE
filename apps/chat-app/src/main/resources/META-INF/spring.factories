@@ -1,0 +1,8 @@
+# Spring Data repository 조각 등록. 조회 계약(XxxRepositoryCustom)은 app/port에, QueryDSL 구현(XxxRepositoryCustomImpl)은 out에 있다.
+# Spring Data는 구현을 계약 인터페이스와 같은 패키지(또는 그 아래)에서만 찾으므로, 다른 패키지에 둔 구현은 여기서 이어 준다.
+com.hapbang.chat.app.port.ChatMessageRepositoryCustom=com.hapbang.chat.out.ChatMessageRepositoryCustomImpl
+com.hapbang.chat.app.port.ChatRoomRepositoryCustom=com.hapbang.chat.out.ChatRoomRepositoryCustomImpl
+com.hapbang.chat.app.port.ChatRoomMemberRepositoryCustom=com.hapbang.chat.out.ChatRoomMemberRepositoryCustomImpl
+com.hapbang.chat.app.port.ChatRoomLogRepositoryCustom=com.hapbang.chat.out.ChatRoomLogRepositoryCustomImpl
+com.hapbang.chat.app.port.ChatRecipientSetRepositoryCustom=com.hapbang.chat.out.ChatRecipientSetRepositoryCustomImpl
+com.hapbang.chat.app.port.ChatUserRepositoryCustom=com.hapbang.chat.out.ChatUserRepositoryCustomImpl

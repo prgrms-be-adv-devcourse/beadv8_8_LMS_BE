@@ -4,14 +4,12 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.domain.IssueReconciliationRule.Mismatch;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * 발급 대사·적체 차단·용량 예약 지표(Micrometer). 강의 HP 대사 지표와 같은 모양이다.
@@ -20,7 +18,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  *     <li>{@code coupon.issue.backlog_holds}: 마지막 대사 회차 뒤 적체(BACKLOG)로 신규 접수를 보류 중인 쿠폰 수</li>
  *     <li>{@code coupon.capacity.reserved}: 발급 저장소 용량 예약 합계(Redis 기록이 남은 쿠폰의 수량 합). 예약·해제·대사 때 바꾼다</li>
  * </ul>
- * 레지스트리가 없는 테스트에서는 메모리 레지스트리를 쓴다.
  */
 @Component
 public class CouponReconciliationMetrics {
@@ -33,8 +30,7 @@ public class CouponReconciliationMetrics {
     private final AtomicLong backlogHolds = new AtomicLong();
     private final AtomicLong capacityReserved = new AtomicLong();
 
-    public CouponReconciliationMetrics(ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        MeterRegistry meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
+    public CouponReconciliationMetrics(MeterRegistry meterRegistry) {
         for (Mismatch kind : Mismatch.values()) {
             AtomicLong count = new AtomicLong();
             mismatches.put(kind, count);
@@ -59,20 +55,5 @@ public class CouponReconciliationMetrics {
 
     public void updateCapacityReserved(long reservedTotal) {
         capacityReserved.set(reservedTotal);
-    }
-
-    /** 테스트·확인용 */
-    public long mismatches(Mismatch kind) {
-        return mismatches.get(kind).get();
-    }
-
-    /** 테스트·확인용 */
-    public long backlogHolds() {
-        return backlogHolds.get();
-    }
-
-    /** 테스트·확인용 */
-    public long capacityReserved() {
-        return capacityReserved.get();
     }
 }

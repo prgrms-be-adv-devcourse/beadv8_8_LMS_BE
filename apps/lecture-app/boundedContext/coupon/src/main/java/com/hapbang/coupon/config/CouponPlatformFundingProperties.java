@@ -12,9 +12,4 @@ public record CouponPlatformFundingProperties(Boolean platformFundingEnabled) {
     public CouponPlatformFundingProperties {
         platformFundingEnabled = platformFundingEnabled == null || platformFundingEnabled;
     }
-
-    /** 모두 기본값(플랫폼 재원 활성) */
-    public static CouponPlatformFundingProperties defaults() {
-        return new CouponPlatformFundingProperties(null);
-    }
 }

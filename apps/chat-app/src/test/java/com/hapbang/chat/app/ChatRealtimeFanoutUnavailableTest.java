@@ -25,7 +25,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.out.redis.RedisRealtimeChatFanout;
 
 import tools.jackson.databind.json.JsonMapper;

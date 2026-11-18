@@ -56,7 +56,7 @@ class CouponBudgetTest {
     @Test
     void 판매자_쿠폰에는_예산이_없다() {
         assertError(() -> sellerCoupon().budgetAmount(), CouponDomainError.BUDGET_NOT_APPLICABLE);
-        assertError(() -> sellerCoupon().budgetReserveWorkId(), CouponDomainError.BUDGET_NOT_APPLICABLE);
+        assertError(() -> sellerCoupon().budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT), CouponDomainError.BUDGET_NOT_APPLICABLE);
     }
 
     @Test
@@ -64,8 +64,8 @@ class CouponBudgetTest {
         CouponTerms perCouponOverflow = anyLectureRate().maxDiscountAmount(Long.MAX_VALUE).quantity(2).build();
         CouponTerms priceTimesRateOverflow = lectureRate().basePrice(Long.MAX_VALUE / 50).discountValue(100).build();
 
-        assertError(() -> Coupon.createPlatform(ADMIN_ID, perCouponOverflow, NOW), CouponDomainError.BUDGET_OVERFLOW);
-        assertError(() -> Coupon.createPlatform(ADMIN_ID, priceTimesRateOverflow, NOW),
+        assertError(() -> CouponFixture.createPlatform(ADMIN_ID, perCouponOverflow, NOW), CouponDomainError.BUDGET_OVERFLOW);
+        assertError(() -> CouponFixture.createPlatform(ADMIN_ID, priceTimesRateOverflow, NOW),
                 CouponDomainError.BUDGET_OVERFLOW);
     }
 
@@ -73,10 +73,10 @@ class CouponBudgetTest {
     void 예산액이_long_최댓값이면_발행한다() {
         CouponTerms terms = anyLectureRate().maxDiscountAmount(Long.MAX_VALUE).quantity(1).build();
 
-        assertThat(Coupon.createPlatform(ADMIN_ID, terms, NOW).budgetAmount()).isEqualTo(Long.MAX_VALUE);
+        assertThat(CouponFixture.createPlatform(ADMIN_ID, terms, NOW).budgetAmount()).isEqualTo(Long.MAX_VALUE);
     }
 
     private static Coupon platform(CouponTerms terms) {
-        return Coupon.createPlatform(ADMIN_ID, terms, NOW);
+        return CouponFixture.createPlatform(ADMIN_ID, terms, NOW);
     }
 }

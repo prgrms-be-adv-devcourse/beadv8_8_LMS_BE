@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.dto.ReadChangedFanout;
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 
 import lombok.extern.slf4j.Slf4j;
 

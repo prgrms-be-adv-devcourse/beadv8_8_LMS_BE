@@ -168,18 +168,6 @@ class RedisCouponIssueStoreTest extends CouponRedisTestSupport {
     }
 
     @Test
-    @DisplayName("isSoldOut은 마지막 1장 접수 뒤 true다")
-    void isSoldOut() {
-        long couponId = newCouponId();
-        open(control(couponId, EPOCH, 1));
-        assertThat(store.isSoldOut(couponId)).isFalse();
-
-        store.tryIssue(attempt(couponId, 7, "req-1"));
-
-        assertThat(store.isSoldOut(couponId)).isTrue();
-    }
-
-    @Test
     @DisplayName("scanRequests는 접수 기록 전부를 묶음 크기 이하로 나눠 넘기고, hasRequests는 기록이 있을 때만 true다")
     void scanRequests() {
         long couponId = newCouponId();

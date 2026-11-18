@@ -28,7 +28,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -36,9 +40,8 @@ import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 import com.hapbang.testsupport.IntegrationTest;
@@ -67,10 +70,16 @@ class CouponOrderConsumerLockTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
     private CouponUsageRepository couponUsageRepository;
+
+    @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -176,13 +185,13 @@ class CouponOrderConsumerLockTest {
 
     /** 판매자 쿠폰 한 장을 주문 항목에 예약한 상태(발급 쿠폰 RESERVED·generation 1, 사용 시도 RESERVED). 발급 쿠폰 ID */
     private long reservedUsage(Instant now) {
-        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
+        Long couponId = couponRepository.save(CouponFixture.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
-        MemberCoupon memberCoupon = memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-lock",
+        MemberCoupon memberCoupon = memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-lock",
                 now, now.plus(Duration.ofDays(30)), now));
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 memberCouponRepository.reserve(memberCoupon.getId(), MEMBER_ID, 0, ORDER_ITEM_ID, now));
-        couponUsageRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+        couponUsageTestRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
                 new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(memberCoupon.getId(), couponId, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
                 "lecture-order:" + ORDER_ID + ":reserve", now));

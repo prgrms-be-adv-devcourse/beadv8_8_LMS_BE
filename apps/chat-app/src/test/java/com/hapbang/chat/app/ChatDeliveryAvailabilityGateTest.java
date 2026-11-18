@@ -19,6 +19,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -153,7 +157,7 @@ class ChatDeliveryAvailabilityGateTest {
         assertThat(availability.redisAvailable()).isTrue();
         assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isTrue();
         assertThat(availability.tryAcquireWrite()).isEqualTo(new WritePermit(WriteGate.OPEN, 0));
-        assertThat(availability.tryAcquirePublish(ChatJobStream.CONTROL).isProbe()).isFalse();
+        assertThat(availability.tryAcquirePublish(ChatJobStream.CONTROL).token()).isZero();
     }
 
     @Test
@@ -183,7 +187,7 @@ class ChatDeliveryAvailabilityGateTest {
         PublishPermit publish = availability.tryAcquirePublish(ChatJobStream.CONTROL);
         assertThat(write.isProbe()).isTrue();
         assertThat(publish.granted()).isTrue();
-        assertThat(publish.isProbe()).isTrue();
+        assertThat(publish.token()).isNotZero();
         assertThat(write.token()).isNotEqualTo(publish.token());
         assertThat(availability.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);
         assertThat(availability.tryAcquirePublish(ChatJobStream.CONTROL).granted()).isFalse();
@@ -195,7 +199,7 @@ class ChatDeliveryAvailabilityGateTest {
         WritePermit again = availability.tryAcquireWrite();
         PublishPermit publishAgain = availability.tryAcquirePublish(ChatJobStream.CONTROL);
         assertThat(again.isProbe()).isTrue();
-        assertThat(publishAgain.isProbe()).isTrue();
+        assertThat(publishAgain.token()).isNotZero();
 
         availability.writeSucceeded(again);
         availability.writeEnded(again);
@@ -212,7 +216,7 @@ class ChatDeliveryAvailabilityGateTest {
         WritePermit lateWrite = closedLong.tryAcquireWrite();
         PublishPermit latePublish = closedLong.tryAcquirePublish(ChatJobStream.DELIVERY);
         assertThat(lateWrite.isProbe()).isFalse();
-        assertThat(latePublish.isProbe()).isFalse();
+        assertThat(latePublish.token()).isZero();
         closedLong.memoryFull(new ChatDeliveryBackpressureException("OOM", null));
         closedLong.noSubscriber(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY));
         assertThat(closedLong.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);

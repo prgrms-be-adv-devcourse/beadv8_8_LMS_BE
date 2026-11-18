@@ -50,17 +50,5 @@ public final class IssueStatusRule {
         /** Redis에 닿지 못해 확인하지 못했다 */
         record Unavailable() implements RedisLookup {
         }
-
-        static RedisLookup found(long memberId) {
-            return new Found(memberId);
-        }
-
-        static RedisLookup absent() {
-            return new Absent();
-        }
-
-        static RedisLookup unavailable() {
-            return new Unavailable();
-        }
     }
 }

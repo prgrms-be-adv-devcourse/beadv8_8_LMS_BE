@@ -142,12 +142,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
         this.maxClosedSessions = maxClosedSessions;
     }
 
-    /** 만료되지 않은 세션 종료 표식 수(관측·테스트용). 만료된 표식은 이때 지운다 */
-    public int closedSessionMarkers() {
-        purgeExpiredClosedSessions(System.nanoTime());
-        return closedSessions.size();
-    }
-
     /** 표식을 남긴다. 칸 잠금 안에서도 부르므로 이 키 하나만 쓴다(만료·상한 정리는 {@link #trimClosedSessions}) */
     private void rememberClosed(String sessionId) {
         closedSessions.put(sessionId, System.nanoTime() + closedSessionTtl.toNanos());
@@ -169,10 +163,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
                 iterator.remove();
             }
         }
-    }
-
-    /** 연결별 줄을 찾거나 만들기 직전. 테스트가 이 순간의 선점을 재현할 때만 덮어쓴다 */
-    void beforeSessionQueue(String sessionId) {
     }
 
     private boolean recentlyClosed(String sessionId) {
@@ -197,11 +187,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
         return channelExecutor;
     }
 
-    /** 처리를 시작하지 않은 작업이 남아 있는 연결 수(관측·테스트용) */
-    public int sessionsWithQueuedWork() {
-        return (int) queues.values().stream().filter(SessionQueue::hasQueued).count();
-    }
-
     private void submit(Runnable task) {
         Message<?> message = task instanceof MessageHandlingRunnable handling ? handling.getMessage() : null;
         String sessionId = message == null ? null : sessionIdOf(message);
@@ -211,10 +196,9 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
         }
         boolean disconnect = isDisconnect(message);
         MessageHandler handler = ((MessageHandlingRunnable) task).getMessageHandler();
-        beforeSessionQueue(sessionId);
         // 1차: 칸 잠금 안에서 살아 있는 줄을 찾거나 만들고, 칸 잠금을 놓은 뒤 줄 모니터 안에서 넣는다
         SessionQueue queue = queues.compute(sessionId, (id, existing) -> liveOrNew(id, existing, disconnect));
-        Offer offer = queue == null ? null : offerAfterLookup(queue, task, message, handler);
+        Offer offer = queue == null ? null : queue.offer(task, message, handler);
         if (offer == Offer.REMOVED) {
             // 찾은 뒤 넣기 전에 줄이 지워졌다. 2차: 칸 잠금 안에서 줄 모니터를 잡아 확인과 넣기를 함께 한다(잠금 순서 그대로)
             Offer[] placed = {null};
@@ -257,12 +241,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
         }
     }
 
-    /** 칸 잠금을 놓은 뒤 줄 모니터 안에서 넣는다. 테스트가 찾기와 넣기 사이의 선점을 재현하도록 그 사이에 hook을 둔다 */
-    private Offer offerAfterLookup(SessionQueue queue, Runnable task, Message<?> message, MessageHandler handler) {
-        beforeOffer(queue.sessionId);
-        return queue.offer(task, message, handler);
-    }
-
     /**
      * 칸 잠금({@code compute}) 안에서 부른다. 살아 있는 줄은 그대로, 지워졌거나 없으면 새 줄을 만든다. 지워진 줄은 언제나 세션
      * 종료 정리를 처리한 줄이므로, 그 줄을 바꾸거나 표식이 있으면 새 줄은 세션 종료를 이어받는다. 그런 연결에 세션 종료 정리가 아닌
@@ -293,10 +271,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
         rememberClosed(queue.sessionId);
         queues.remove(queue.sessionId, queue);
         trimClosedSessions(queue.sessionId);
-    }
-
-    /** 칸 잠금을 놓고 줄 모니터를 잡기 직전. 테스트가 이 순간의 선점을 재현할 때만 덮어쓴다 */
-    void beforeOffer(String sessionId) {
     }
 
     /** 닫기를 아직 맡기지 못했으면(닫기 대기열이 가득 참) 다시 맡긴다. 그래서 몫을 넘긴 연결이 열린 채 프레임만 버려지지 않는다 */
@@ -448,10 +422,6 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
                 pendingDisconnectHandlers.remove(entry.handler());
             }
             return entry;
-        }
-
-        synchronized boolean hasQueued() {
-            return !entries.isEmpty();
         }
 
         /**

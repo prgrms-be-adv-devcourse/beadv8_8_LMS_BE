@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.dto.ChatMessageSender;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatUser;
-import com.hapbang.chat.out.ChatUserRepository;
 
 import lombok.RequiredArgsConstructor;
 

@@ -2,6 +2,7 @@ package com.hapbang.chat.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -11,6 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.BeanUtils;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.io.Resource;
@@ -116,9 +118,20 @@ class ChatPollingTasksTest {
 
     @Test
     void 일분_이상_주기_배치는_trace를_만든다() throws Exception {
-        assertThat(predicate.test(SCHEDULED, new ScheduledTaskObservationContext(
-                new ChatGroupRoomBatch(null, null), ChatGroupRoomBatch.class.getDeclaredMethod("expireHistory"))))
-                .isTrue();
+        assertThat(predicate.test(SCHEDULED,
+                triggerContext("com.hapbang.chat.in.scheduler.ChatGroupRoomBatch", "expireHistory"))).isTrue();
+    }
+
+    /**
+     * {@code in/scheduler}의 트리거는 그 패키지 밖에 보이지 않아 이름으로 불러 만든다. 클래스를 옮기거나 이름을 바꾸면 여기서 실패한다.
+     * 판정은 대상 클래스만 보므로 의존성은 비워 둔다.
+     */
+    private static ScheduledTaskObservationContext triggerContext(String className, String methodName)
+            throws Exception {
+        Class<?> type = Class.forName(className);
+        Constructor<?> constructor = type.getDeclaredConstructors()[0];
+        Object target = BeanUtils.instantiateClass(constructor, new Object[constructor.getParameterCount()]);
+        return new ScheduledTaskObservationContext(target, type.getDeclaredMethod(methodName));
     }
 
     @Test

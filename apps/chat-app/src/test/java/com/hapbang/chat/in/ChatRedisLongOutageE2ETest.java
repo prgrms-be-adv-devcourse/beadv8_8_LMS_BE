@@ -34,19 +34,19 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
-import com.hapbang.chat.app.ChatDeliveryQueue;
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2EDatabaseCleanUpListener;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
-import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
+import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -107,7 +107,7 @@ class ChatRedisLongOutageE2ETest {
     private static final int REQUIRED_PROBES = 20;
     private static final String MESSAGES = "/user/queue/chats/messages";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -115,7 +115,7 @@ class ChatRedisLongOutageE2ETest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-redis-long-outage-" + UUID.randomUUID());
     }
@@ -123,6 +123,7 @@ class ChatRedisLongOutageE2ETest {
     @AfterAll
     static void stopRedis() {
         REDIS.stop();
+        DEDICATED.close();
     }
 
     @LocalServerPort

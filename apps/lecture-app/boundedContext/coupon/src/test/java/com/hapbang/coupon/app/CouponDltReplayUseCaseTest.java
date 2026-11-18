@@ -17,17 +17,18 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
-import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.RecoveryRun;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 // 재발행 분기: 전송 전 REPLAYING 선점, ACK 뒤 REPLAYED, 전송 실패 되돌림(새 PENDING이 있으면 REPLAYED로 끝냄), 선점 lease 회수,
@@ -43,8 +44,8 @@ class CouponDltReplayUseCaseTest {
     private final RecoveryRunRepository recoveryRunRepository = mock();
     private final CouponIssueEventPublisher publisher = mock();
     private final PlatformTransactionManager transactionManager = mock();
-    private final CouponIssueDeliveryProperties properties = CouponIssueDeliveryProperties.defaults();
-    private final CouponDltProperties dltProperties = CouponDltProperties.defaults();
+    private final CouponIssueDeliveryProperties properties = CouponTestProperties.issueDelivery();
+    private final CouponDltProperties dltProperties = CouponTestProperties.dlt();
     private final Duration lease = dltProperties.dltReplayLease();
 
     private CouponDltReplayUseCase useCase;
@@ -125,7 +126,7 @@ class CouponDltReplayUseCaseTest {
         assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
                 .isInstanceOf(CouponException.class)
                 .extracting("errorCode").isEqualTo(CouponErrorCode.COUPON_EVENT_PUBLISH_FAILED);
-        assertThat(dltLog.isPending()).isTrue();
+        assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(dltLog.getHandledBy()).isNull();
         assertThat(dltLog.getReplayClaimedAt()).isNull();
     }
@@ -149,7 +150,7 @@ class CouponDltReplayUseCaseTest {
         assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
                 .isInstanceOf(CouponException.class)
                 .extracting("errorCode").isEqualTo(CouponErrorCode.COUPON_RECOVERY_IN_PROGRESS);
-        assertThat(dltLog.isPending()).isTrue();
+        assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         verifyNoInteractions(publisher);
     }
 

@@ -15,7 +15,6 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
@@ -24,7 +23,6 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 // 강의 조회 내부 API를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환·circuit breaker를 가짜 HTTP 서버로 확인한다
 class HttpLectureCatalogTest {
@@ -132,7 +130,6 @@ class HttpLectureCatalogTest {
         for (int i = 0; i < 2; i++) {
             assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
         }
-        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.OPEN);
         int sent = requests.size();
 
         assertThatThrownBy(() -> catalog.findLecture(1L))
@@ -152,9 +149,11 @@ class HttpLectureCatalogTest {
         respond(401, null);
         assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
 
-        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
-        assertThat(catalog.circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
-        assertThat(requests).hasSize(3);
+        // 최근 2번이 실패로 세졌다면 회로가 열려 다음 호출이 HTTP에 닿지 않는다
+        respond(404, """
+                {"status":404,"detail":"강의를 찾을 수 없습니다.","code":"LECTURE_NOT_FOUND"}""");
+        assertThat(catalog.findLecture(99L)).isEmpty();
+        assertThat(requests).hasSize(4);
     }
 
     private void assertUnavailable() {
@@ -172,20 +171,21 @@ class HttpLectureCatalogTest {
     }
 
     private static HttpLectureCatalog catalog(String baseUrl) {
-        return catalog(baseUrl, CouponLectureClientProperties.defaults());
+        return catalog(baseUrl,
+                new CouponLectureClientProperties(READ_TIMEOUT, READ_TIMEOUT, null, null, null, null, null, null, null));
     }
 
     // 최근 2번 중 2번 모두 실패하면 열리고, 테스트 동안 다시 HALF_OPEN이 되지 않는 회로
     private static CouponLectureClientProperties smallWindow() {
-        return new CouponLectureClientProperties(null, null, 2, 2, null, null, null, Duration.ofMinutes(5), null);
+        return new CouponLectureClientProperties(READ_TIMEOUT, READ_TIMEOUT, 2, 2, null, null, null,
+                Duration.ofMinutes(5), null);
     }
 
+    /** 운영 빈과 같은 방법(설정의 제한 시간·내부 API 키)으로 만든 프록시에 어댑터를 붙인다 */
     private static HttpLectureCatalog catalog(String baseUrl, CouponLectureClientProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(READ_TIMEOUT);
-        requestFactory.setReadTimeout(READ_TIMEOUT);
-        return new HttpLectureCatalog(CouponLectureApiConfig.create(
-                RestClient.builder().requestFactory(requestFactory), baseUrl, API_KEY), properties);
+        CouponLectureInternalApi api = new CouponLectureApiConfig().couponLectureInternalApi(RestClient.builder(),
+                baseUrl, API_KEY, properties);
+        return new HttpLectureCatalog(api, properties);
     }
 
     private static void sleep(long millis) {

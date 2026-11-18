@@ -3,10 +3,13 @@ package com.hapbang.coupon.out;
 import static com.hapbang.coupon.out.CouponQuerydslSupport.literal;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.coupon.app.port.CouponRepositoryCustom;
+import com.hapbang.coupon.app.port.RepublishTargetCoupon;
 import com.hapbang.coupon.domain.BudgetWorkKind;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -16,6 +19,7 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.QBudgetWork;
 import com.hapbang.coupon.domain.QCoupon;
 import com.hapbang.coupon.domain.QMemberCoupon;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -90,5 +94,24 @@ class CouponRepositoryCustomImpl implements CouponRepositoryCustom {
                                 .exists()))
                 .fetchOne();
         return Boolean.TRUE.equals(blocked);
+    }
+
+    @Override
+    public List<RepublishTargetCoupon> findRepublishTargets(Collection<CouponStatus> statuses) {
+        QCoupon c = new QCoupon("c");
+        return query.select(Projections.constructor(RepublishTargetCoupon.class, c.id, c.status, c.epoch))
+                .from(c)
+                .where(c.redisReady.eq(Expressions.TRUE), c.status.in(statuses))
+                .orderBy(c.id.asc())
+                .fetch();
+    }
+
+    @Override
+    public List<Long> findRedisReadyIds(Collection<CouponStatus> statuses, Instant endedAfter) {
+        QCoupon c = new QCoupon("c");
+        return query.select(c.id).from(c)
+                .where(c.redisReady.eq(Expressions.TRUE), c.status.in(statuses), c.issueEndAt.gt(endedAfter))
+                .orderBy(c.id.asc())
+                .fetch();
     }
 }

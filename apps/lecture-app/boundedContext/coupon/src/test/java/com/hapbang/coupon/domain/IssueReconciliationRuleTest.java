@@ -384,7 +384,7 @@ class IssueReconciliationRuleTest {
     }
 
     private static String record(long memberId, Instant acceptedAt, boolean published, boolean compensated) {
-        return new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), published,
+        return new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), null, published,
                 compensated).format();
     }
 }

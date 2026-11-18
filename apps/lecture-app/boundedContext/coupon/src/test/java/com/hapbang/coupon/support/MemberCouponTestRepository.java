@@ -1,0 +1,17 @@
+package com.hapbang.coupon.support;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.repository.Repository;
+
+import com.hapbang.coupon.domain.MemberCoupon;
+
+/** 테스트 준비·검증용 저장소. 운영 port에는 운영 코드가 쓰는 메서드만 두므로 테스트만 쓰는 기본 메서드를 여기 둔다 */
+public interface MemberCouponTestRepository extends Repository<MemberCoupon, Long> {
+
+    <S extends MemberCoupon> S save(S entity);
+    List<MemberCoupon> findAll();
+    Optional<MemberCoupon> findById(Long id);
+    long count();
+}

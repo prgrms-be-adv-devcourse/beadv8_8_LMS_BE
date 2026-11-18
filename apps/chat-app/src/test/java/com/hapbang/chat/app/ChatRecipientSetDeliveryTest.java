@@ -26,6 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
@@ -33,11 +35,10 @@ import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.domain.ChatRecipientSetMember;
 import com.hapbang.chat.domain.ChatRoom;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRecipientSetMemberRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.support.ChatMessageTestRepository;
+import com.hapbang.chat.support.ChatRecipientSetMemberTestRepository;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
 /**
@@ -67,10 +68,10 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
-    private ChatRecipientSetMemberRepository recipientSetMemberRepository;
+    private ChatRecipientSetMemberTestRepository recipientSetMemberTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -148,15 +149,18 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         pollAll(ChatJobStream.DELIVERY, WORKER);
         fanout.reset();
 
-        var result = chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
-                GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3))).orElseThrow();
+        chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
+                GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3)));
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
-        List<ChatOutbox> outboxes = chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
+        List<ChatOutbox> outboxes = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
         ChatOutbox rejoinNotice = outboxes.get(outboxes.size() - 2);
         ChatOutbox notification = outboxes.getLast();
-        assertThat(notification.getMessageId()).isEqualTo(result.message().messageId());
+        List<ChatMessage> messages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
+        assertThat(notification.getMessageId()).isEqualTo(messages.getLast().getId());
+        assertThat(messages.getLast().getMessageType()).isEqualTo(ChatMessageType.NOTIFICATION);
+        assertThat(rejoinNotice.getMessageId()).isEqualTo(messages.get(messages.size() - 2).getId());
         assertThat(rejoinNotice.getNotifyRule()).isEqualTo(ChatNotifyRule.NONE);
         assertThat(notification.getNotifyRule()).isEqualTo(ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER);
 
@@ -183,14 +187,14 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         });
         assertThat(results).doesNotContainNull();
 
-        List<ChatMessage> messages = chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
+        List<ChatMessage> messages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId);
         long leftNoticeSequence = messages.stream()
                 .filter(message -> message.getMessageType() == ChatMessageType.SYSTEM)
                 .mapToLong(ChatMessage::getRoomSequence)
                 .min().orElseThrow();
         for (ChatMessage message : messages) {
-            ChatOutbox outbox = chatOutboxRepository.findByMessageId(message.getId()).orElseThrow();
-            List<Long> recipients = recipientSetMemberRepository.findUserIds(outbox.getRecipientSetId());
+            ChatOutbox outbox = chatOutboxTestRepository.findByMessageId(message.getId()).orElseThrow();
+            List<Long> recipients = recipientUserIds(outbox.getRecipientSetId());
             if (message.getMessageType() == ChatMessageType.SYSTEM) {
                 assertThat(recipients).containsExactly(HOST_ID);
             } else {
@@ -211,15 +215,15 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
                 ? chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID)
                 : chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID));
 
-        List<ChatMessage> systemMessages = chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)
+        List<ChatMessage> systemMessages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)
                 .stream().filter(message -> message.getMessageType() == ChatMessageType.SYSTEM).toList();
         // 퇴장 안내 1개, 재입장 안내 1개
         assertThat(systemMessages).hasSize(2);
-        ChatOutbox rejoinNotice = chatOutboxRepository.findByMessageId(systemMessages.getLast().getId())
+        ChatOutbox rejoinNotice = chatOutboxTestRepository.findByMessageId(systemMessages.getLast().getId())
                 .orElseThrow();
-        assertThat(recipientSetMemberRepository.findUserIds(rejoinNotice.getRecipientSetId()))
+        assertThat(recipientUserIds(rejoinNotice.getRecipientSetId()))
                 .containsExactly(HOST_ID);
-        assertThat(recipientSetMemberRepository.findByRecipientSetIdOrderByUserIdAsc(
+        assertThat(recipientSetMemberTestRepository.findByRecipientSetIdOrderByUserIdAsc(
                 chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId()))
                 .extracting(member -> member.getUserId() + ":" + member.getParticipationVersion())
                 .containsExactly(HOST_ID + ":1", GUEST_ID + ":2");
@@ -302,5 +306,12 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     @FunctionalInterface
     private interface IndexedTask<T> {
         T run(int index);
+    }
+
+    /** 수신자 집합에 든 회원 ID(회원 ID 순) */
+    private List<Long> recipientUserIds(Long recipientSetId) {
+        return recipientSetMemberTestRepository.findByRecipientSetIdOrderByUserIdAsc(recipientSetId).stream()
+                .map(ChatRecipientSetMember::getUserId)
+                .toList();
     }
 }

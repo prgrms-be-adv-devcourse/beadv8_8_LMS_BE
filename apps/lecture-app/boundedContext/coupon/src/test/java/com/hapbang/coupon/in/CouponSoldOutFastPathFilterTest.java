@@ -25,8 +25,8 @@ import org.springframework.web.filter.ServerHttpObservationFilter;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.CouponIssueRequestUseCase;
-import com.hapbang.coupon.app.CouponSoldOutCache;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.port.CouponSoldOutStatus;
 import com.hapbang.coupon.in.dto.IssueRequestCreateRequest;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -41,14 +41,14 @@ class CouponSoldOutFastPathFilterTest {
     private static final long COUPON_ID = 42L;
     private static final String ISSUE_PATH = "/api/v1/coupons/" + COUPON_ID + "/issue-requests";
 
-    private final CouponSoldOutCache soldOutCache = mock();
+    private final CouponSoldOutStatus soldOutStatus = mock();
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final CouponSoldOutFastPathFilter filter = new CouponSoldOutFastPathFilter(() -> soldOutCache, () -> meterRegistry,
+    private final CouponSoldOutFastPathFilter filter = new CouponSoldOutFastPathFilter(() -> soldOutStatus, () -> meterRegistry,
             () -> List.of(new JacksonJsonHttpMessageConverter()));
 
     @Test
     void 매진이면_다음_필터로_넘기지_않고_COUPON_SOLD_OUT_409를_쓰고_매진으로_세며_uri_태그를_남긴다() throws Exception {
-        when(soldOutCache.isSoldOut(COUPON_ID)).thenReturn(true);
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenReturn(true);
         MockHttpServletRequest request = issueRequest("7", "USER");
         MockHttpServletResponse response = new MockHttpServletResponse();
         var observation = new ServerRequestObservationContext(request, response);
@@ -80,13 +80,13 @@ class CouponSoldOutFastPathFilterTest {
 
         assertThat(chain.getRequest()).isNotNull();
         assertThat(response.getContentAsString()).isEmpty();
-        verify(soldOutCache).isSoldOut(COUPON_ID);
+        verify(soldOutStatus).isSoldOut(COUPON_ID);
         assertThat(meterRegistry.find(CouponIssueRequestUseCase.SOLD_OUT_METRIC).counter()).isNull();
     }
 
     @Test
     void 매진_캐시에서_예외가_나면_정상_경로로_넘긴다() throws Exception {
-        when(soldOutCache.isSoldOut(COUPON_ID)).thenThrow(new IllegalStateException("redis"));
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenThrow(new IllegalStateException("redis"));
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -113,7 +113,7 @@ class CouponSoldOutFastPathFilterTest {
     })
     void 발급_가능한_회원의_발급_접수가_아니면_매진을_묻지_않고_넘긴다(String method, String path, String userId, String role)
             throws Exception {
-        when(soldOutCache.isSoldOut(anyLong())).thenReturn(true);
+        when(soldOutStatus.isSoldOut(anyLong())).thenReturn(true);
         MockHttpServletRequest request = new MockHttpServletRequest(method, path);
         if (userId != null) {
             request.addHeader("X-User-Id", userId);
@@ -126,12 +126,12 @@ class CouponSoldOutFastPathFilterTest {
         filter.doFilter(request, new MockHttpServletResponse(), chain);
 
         assertThat(chain.getRequest()).isNotNull();
-        verify(soldOutCache, never()).isSoldOut(anyLong());
+        verify(soldOutStatus, never()).isSoldOut(anyLong());
     }
 
     @Test
     void HTTPS_요청의_매진_응답에는_Security처럼_HSTS를_붙인다() throws Exception {
-        when(soldOutCache.isSoldOut(COUPON_ID)).thenReturn(true);
+        when(soldOutStatus.isSoldOut(COUPON_ID)).thenReturn(true);
         MockHttpServletRequest request = issueRequest("7", "VERIFIED_INFLUENCER");
         request.setSecure(true);
         MockHttpServletResponse response = new MockHttpServletResponse();

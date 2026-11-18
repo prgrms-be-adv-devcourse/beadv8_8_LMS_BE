@@ -16,8 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -25,14 +27,12 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponState;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 
 // 소비 서비스의 흐름(멱등 확인 → 사용 시도 확인 → 전이·조건부 갱신 → 멱등 기록)과 분기(중복 eventId, 내용 충돌, 순서 역전, 없는 사용 시도,
 // 조건부 갱신 0행)를 본다. 전이 규칙 자체는 도메인 테스트가, 조건부 갱신 조건은 저장소 테스트가 본다
@@ -58,10 +58,9 @@ class CouponOrderConsumerUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(
-                new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+        CouponOrderConsumerMetrics metrics = new CouponOrderConsumerMetrics(new SimpleMeterRegistry());
         useCase = new CouponOrderConsumerUseCase(mock(CouponBudgetReleaseRecorder.class),
-                couponUsageRepository, memberCouponRepository, memberCouponRepository,
+                couponUsageRepository, memberCouponRepository,
                 processedOperationRepository, metrics, transactionManager(), CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
@@ -81,7 +80,7 @@ class CouponOrderConsumerUseCaseTest {
 
     private void givenCoupon(MemberCouponStatus status) {
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(
-                new MemberCouponState(MEMBER_COUPON, MEMBER_ID, status, GENERATION, EXPIRES_AT, ORDER_ITEM_ID)));
+                new MemberCouponState(MEMBER_COUPON, MEMBER_ID, status, GENERATION, EXPIRES_AT)));
     }
 
     @Test
@@ -251,7 +250,7 @@ class CouponOrderConsumerUseCaseTest {
         givenPlatformUsage(400);
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(
                 new MemberCouponState(MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED,
-                        GENERATION + 1, EXPIRES_AT, ORDER_ITEM_ID)));
+                        GENERATION + 1, EXPIRES_AT)));
 
         assertThat(useCase.consume(canceledWith(List.of(restoration(1, MEMBER_COUPON, GENERATION, 400)))))
                 .isEqualTo(CouponOrderConsumerUseCase.Result.FACT_ONLY);

@@ -14,7 +14,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
-import com.hapbang.chat.app.ChatMemberSourceException;
+import com.hapbang.chat.app.port.ChatMemberSourceException;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import tools.jackson.databind.JsonNode;
@@ -39,12 +39,6 @@ public class ChatMemberApiConfig {
     @Bean
     ChatMemberInternalApi chatMemberInternalApi(RestClient.Builder restClientBuilder,
             ChatMemberApiProperties properties, @Value("${hapbang.internal-api.key}") String internalApiKey) {
-        return create(restClientBuilder, properties, internalApiKey);
-    }
-
-    /** 빈과 같은 설정의 프록시. 테스트가 컨텍스트 없이 만들 때도 쓴다 */
-    public static ChatMemberInternalApi create(RestClient.Builder restClientBuilder, ChatMemberApiProperties properties,
-            String internalApiKey) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.connectTimeout());
         requestFactory.setReadTimeout(properties.readTimeout());

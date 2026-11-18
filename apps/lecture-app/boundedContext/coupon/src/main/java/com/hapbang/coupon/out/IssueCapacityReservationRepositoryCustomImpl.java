@@ -2,6 +2,7 @@ package com.hapbang.coupon.out;
 
 import java.util.List;
 
+import com.hapbang.coupon.app.port.IssueCapacityReservationRepositoryCustom;
 import com.hapbang.coupon.domain.QIssueCapacityReservation;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 

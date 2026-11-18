@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueDelivery;
 import com.hapbang.coupon.domain.ProcessedOperation;

@@ -15,8 +15,15 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
-import com.hapbang.coupon.config.CouponDltProperties;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.domain.CouponType;
@@ -25,12 +32,9 @@ import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
+import com.hapbang.coupon.support.CouponDltLogTestRepository;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -60,13 +64,22 @@ class CouponOrderDltResolveTest {
     private CouponDltLogRepository couponDltLogRepository;
 
     @Autowired
+    private CouponDltLogTestRepository couponDltLogTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponUsageRepository couponUsageRepository;
+
+    @Autowired
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -78,11 +91,11 @@ class CouponOrderDltResolveTest {
         OrderItemPaidEvent paid = OrderItemPaidEvent.of(ORDER_ID, ORDER_ITEM_ID, MEMBER_ID,
                 List.of(new OrderItemPaidEvent.Usage(memberCouponId, 1)), now);
         assertThat(couponOrderConsumerUseCase.consume(paid)).isEqualTo(CouponOrderConsumerUseCase.Result.APPLIED);
-        Duration lease = CouponDltProperties.defaults().dltReplayLease();
+        Duration lease = CouponTestProperties.dlt().dltReplayLease();
         CouponDltLog stale = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 0, 77L,
                 "order-item:" + ORDER_ITEM_ID), CouponDltPayload.writeOrderEvent(paid), "원인", now);
         stale.claimReplay(ADMIN_ID, now.minus(lease).minusSeconds(1), lease);
-        long dltId = couponDltLogRepository.save(stale).getId();
+        long dltId = couponDltLogTestRepository.save(stale).getId();
 
         assertThatThrownBy(() -> couponOrderDltRejectUseCase.reject(ADMIN_ID, dltId, "반영 안 된 줄 알고 거절"))
                 .isInstanceOf(CouponException.class)
@@ -101,13 +114,13 @@ class CouponOrderDltResolveTest {
 
     /** 판매자 쿠폰 한 장을 주문 항목에 예약한 상태(발급 쿠폰 RESERVED·generation 1, 사용 시도 RESERVED). 발급 쿠폰 ID */
     private long reservedUsage(Instant now) {
-        Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID,
+        Long couponId = couponRepository.save(CouponFixture.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minusSeconds(3600), now.plusSeconds(3600)).build(), now)).getId();
-        MemberCoupon memberCoupon = memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
+        MemberCoupon memberCoupon = memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-resolve",
                 now, now.plus(Duration.ofDays(30)), now));
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 memberCouponRepository.reserve(memberCoupon.getId(), MEMBER_ID, 0, ORDER_ITEM_ID, now));
-        couponUsageRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
+        couponUsageTestRepository.save(CouponUsage.reserve(MEMBER_ID, ORDER_ID,
                 new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(memberCoupon.getId(), couponId, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
                 "lecture-order:" + ORDER_ID + ":reserve", now));

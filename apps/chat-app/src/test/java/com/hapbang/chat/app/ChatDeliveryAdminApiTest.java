@@ -18,9 +18,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
+import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
@@ -43,7 +43,7 @@ class ChatDeliveryAdminApiTest extends ChatDeliveryTestSupport {
     private MockMvc mockMvc;
 
     @Autowired
-    private ChatDeliveryReprocessAuditRepository auditRepository;
+    private ChatDeliveryReprocessAuditTestRepository auditRepository;
 
     @Test
     void 관리자는_격리한_작업을_페이지로_조회한다() throws Exception {

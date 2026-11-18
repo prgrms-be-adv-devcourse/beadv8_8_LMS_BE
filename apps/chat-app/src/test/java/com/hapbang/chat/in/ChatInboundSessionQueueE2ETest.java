@@ -39,8 +39,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
@@ -356,10 +356,11 @@ class ChatInboundSessionQueueE2ETest {
     }
 
     private void awaitInboundIdle() {
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
+        // 연결별 줄에 남은 작업은 언제나 공용 실행기의 줄 비우기 작업(실행 중이거나 대기열)이 맡고 있다. 공용 실행기가 잠시 이어서
+        // 비어 있으면 처리를 기다리는 작업이 없다
+        await().during(Duration.ofMillis(200)).atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
                 .until(() -> chatInboundReceiveBudget.executor().getActiveCount() == 0
-                        && chatInboundReceiveBudget.executor().getQueueSize() == 0
-                        && chatInboundReceiveBudget.sessionsWithQueuedWork() == 0);
+                        && chatInboundReceiveBudget.executor().getQueueSize() == 0);
     }
 
     private List<String> clientMessageIds(Long chatRoomId) {

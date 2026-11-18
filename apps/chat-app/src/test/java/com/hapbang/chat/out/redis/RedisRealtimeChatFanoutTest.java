@@ -13,14 +13,15 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-import com.hapbang.chat.app.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.RedisCommandExecutionException;
 import tools.jackson.databind.json.JsonMapper;

@@ -21,13 +21,13 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 

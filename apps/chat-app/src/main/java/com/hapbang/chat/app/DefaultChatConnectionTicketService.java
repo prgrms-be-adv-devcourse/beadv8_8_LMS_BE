@@ -10,7 +10,6 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
@@ -19,6 +18,7 @@ import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatConnectionTicketStore;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.extern.slf4j.Slf4j;
@@ -56,17 +56,11 @@ public class DefaultChatConnectionTicketService implements ChatConnectionTicketS
     private final int issueLimit;
     private final Duration issueWindow;
 
-    @Autowired
     public DefaultChatConnectionTicketService(ObjectProvider<ChatConnectionTicketStore> chatConnectionTicketStore,
+            Clock clock,
             @Value("${hapbang.chat.realtime.websocket.ticket-ttl:30s}") Duration ticketTtl,
             @Value("${hapbang.chat.realtime.websocket.ticket-issue-limit:10}") int issueLimit,
             @Value("${hapbang.chat.realtime.websocket.ticket-issue-window:60s}") Duration issueWindow) {
-        this(chatConnectionTicketStore, Clock.systemUTC(), ticketTtl, issueLimit, issueWindow);
-    }
-
-    /** 시계를 직접 넘긴다(테스트) */
-    DefaultChatConnectionTicketService(ObjectProvider<ChatConnectionTicketStore> chatConnectionTicketStore,
-            Clock clock, Duration ticketTtl, int issueLimit, Duration issueWindow) {
         Assert.isTrue(ticketTtl.toSeconds() >= 1, "hapbang.chat.realtime.websocket.ticket-ttl은 1초 이상이어야 합니다.");
         Assert.isTrue(issueLimit > 0, "hapbang.chat.realtime.websocket.ticket-issue-limit는 1 이상이어야 합니다.");
         Assert.isTrue(issueWindow.isPositive(), "hapbang.chat.realtime.websocket.ticket-issue-window는 0보다 커야 합니다.");

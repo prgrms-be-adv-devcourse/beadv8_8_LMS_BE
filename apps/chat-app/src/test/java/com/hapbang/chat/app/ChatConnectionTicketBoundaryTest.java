@@ -12,6 +12,8 @@ import java.util.Arrays;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.port.ChatConnectionTicketStore;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.in.ApiV1ChatController;
 import com.hapbang.chat.in.ChatConnectionStompController;
 import com.hapbang.chat.in.websocket.ChatConnectionTicketHandshakeInterceptor;
@@ -19,8 +21,8 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 
-// 서비스 경계 규칙(decisions.md, 2026-10-29): 연결 티켓의 진입 어댑터는 Facade를 거치고, Facade는 app 인터페이스만 주입받으며,
-// 업무 구현은 저장소를 app 계약으로만 부른다
+// 서비스 경계 규칙(decisions.md, 2026-10-29): 연결 티켓의 진입 어댑터는 Facade를 거치고, Facade는 app 서비스·app/port 계약
+// 인터페이스만 주입받으며, 업무 구현은 저장소를 app/port 계약으로만 부른다
 class ChatConnectionTicketBoundaryTest {
 
     private final JavaClasses classes = new ClassFileImporter()
@@ -28,7 +30,7 @@ class ChatConnectionTicketBoundaryTest {
             .importPackages("com.hapbang.chat");
 
     @Test
-    @DisplayName("ChatConnectionTicketFacade의 생성자·필드는 app 패키지의 인터페이스 타입만 쓴다")
+    @DisplayName("ChatConnectionTicketFacade의 생성자·필드는 app 서비스·app/port 계약의 인터페이스 타입만 쓴다")
     void facadeInjectsOnlyAppInterfaces() {
         for (Constructor<?> constructor : ChatConnectionTicketFacade.class.getDeclaredConstructors()) {
             assertThat(constructor.getParameterTypes()).allSatisfy(this::assertAppInterface);
@@ -38,6 +40,8 @@ class ChatConnectionTicketBoundaryTest {
                 .map(Field::getType)
                 .toList())
                 .containsExactly(ChatConnectionTicketService.class, LocalChatConnections.class);
+        assertThat(ChatConnectionTicketStore.class.isInterface()).isTrue();
+        assertThat(ChatConnectionTicketStore.class.getPackageName()).isEqualTo("com.hapbang.chat.app.port");
     }
 
     @Test
@@ -70,8 +74,10 @@ class ChatConnectionTicketBoundaryTest {
                 .check(classes);
     }
 
+    /** 업무 서비스 계약은 app, 이 JVM의 연결 목록 같은 바깥 계약(port)은 app/port의 인터페이스다 */
     private void assertAppInterface(Class<?> type) {
         assertThat(type.isInterface()).as("%s는 인터페이스", type.getName()).isTrue();
-        assertThat(type.getPackageName()).isEqualTo("com.hapbang.chat.app");
+        assertThat(type.getPackageName()).as(type.getName())
+                .isEqualTo(type == LocalChatConnections.class ? "com.hapbang.chat.app.port" : "com.hapbang.chat.app");
     }
 }

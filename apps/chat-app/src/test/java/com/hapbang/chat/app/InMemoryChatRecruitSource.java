@@ -10,7 +10,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSource;
+import com.hapbang.chat.app.port.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRecruitSourceException;
 
 /**
  * 출연 앱 없이 단체방을 시험하는 {@link ChatRecruitSource}의 메모리 구현. 출연 내부 API 계약(A1~A3)과 같은 모양으로 답한다.

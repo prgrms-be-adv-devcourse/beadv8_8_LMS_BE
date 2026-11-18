@@ -6,8 +6,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.coupon.app.port.BudgetWorkRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
 import com.hapbang.coupon.app.port.MemberCouponBudgetState;
-import com.hapbang.coupon.app.port.MemberCouponReader;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -15,10 +18,6 @@ import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.out.BudgetWorkRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,7 +27,6 @@ import lombok.RequiredArgsConstructor;
 public class CouponBudgetReleaseRecorder {
     private final CouponRepository couponRepository;
     private final MemberCouponRepository memberCouponRepository;
-    private final MemberCouponReader memberCouponReader;
     private final CouponUsageRepository couponUsageRepository;
     private final BudgetWorkRepository budgetWorkRepository;
 
@@ -80,7 +78,7 @@ public class CouponBudgetReleaseRecorder {
     }
 
     private void recordMember(long memberCouponId, Instant now, boolean allowUsed) {
-        MemberCouponBudgetState state = memberCouponReader.findBudgetState(memberCouponId).orElseThrow();
+        MemberCouponBudgetState state = memberCouponRepository.findBudgetState(memberCouponId).orElseThrow();
         if (state.expiresAt().isAfter(now)
                 || (state.status() != MemberCouponStatus.EXPIRED
                     && (!allowUsed || state.status() != MemberCouponStatus.USED))

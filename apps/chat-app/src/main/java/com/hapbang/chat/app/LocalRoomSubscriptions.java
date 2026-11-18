@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
+import com.hapbang.chat.app.port.RoomChannelSubscriptions;
+
 import lombok.extern.slf4j.Slf4j;
 
 /**

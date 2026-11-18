@@ -5,7 +5,8 @@ import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
 
-import com.hapbang.chat.out.ChatGroupInviteRequestRepository;
+import com.hapbang.chat.app.port.ChatGroupInviteRequestRepository;
+import com.hapbang.chat.config.ChatGroupProperties;
 
 import lombok.extern.slf4j.Slf4j;
 

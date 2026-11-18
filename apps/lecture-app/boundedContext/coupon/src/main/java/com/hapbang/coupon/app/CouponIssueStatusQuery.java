@@ -7,11 +7,15 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.coupon.app.dto.IssueStatusView;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.IssueControlState;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -20,10 +24,6 @@ import com.hapbang.coupon.domain.IssueStatusRule;
 import com.hapbang.coupon.domain.IssueStatusRule.DbRecord;
 import com.hapbang.coupon.domain.IssueStatusRule.RedisLookup;
 import com.hapbang.coupon.domain.RecoveryRun;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
 

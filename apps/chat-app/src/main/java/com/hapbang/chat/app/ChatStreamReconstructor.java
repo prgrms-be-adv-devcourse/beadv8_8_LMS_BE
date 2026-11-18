@@ -13,10 +13,15 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.domain.ChatDeadReason;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.app.ChatOutboxStore.OutboxJob;
 import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.config.ChatDeliveryProperties;
+import com.hapbang.chat.domain.ChatDeadReason;
+import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,7 +94,7 @@ public class ChatStreamReconstructor {
      * @param enqueuedThreshold 적재한 지 이 시간이 지난 작업만 대상이다
      * @return 다시 적재한 작업 수
      */
-    public int reconstruct(ChatJobStream stream, Duration enqueuedThreshold) {
+    int reconstruct(ChatJobStream stream, Duration enqueuedThreshold) {
         assertNoTransaction();
         if (!availability.redisAvailable()) {
             return 0;
@@ -139,16 +144,10 @@ public class ChatStreamReconstructor {
      * 이 두 격리 외의 미완료 상태는 relay(lease 회수)·회수 루프·재구성이 스스로 진행하거나 상한에서 격리하므로 재처리 대상이
      * 아니다.
      *
-     * @return 되돌렸으면 true. 어느 쪽도 격리 상태가 아니면 false
-     */
-    public boolean reprocess(ChatJobStream stream, UUID jobId) {
-        return reprocess(stream, jobId, null);
-    }
-
-    /**
-     * 운영 재처리. {@link #reprocess(ChatJobStream, UUID)}와 같고, 요청한 관리자를 감사 기록에 남긴다.
+     * 요청한 관리자는 감사 기록에 남긴다.
      *
      * @param requestedBy 요청한 관리자 회원 ID. 없으면 null
+     * @return 되돌렸으면 true. 어느 쪽도 격리 상태가 아니면 false
      */
     public boolean reprocess(ChatJobStream stream, UUID jobId, Long requestedBy) {
         assertNoTransaction();

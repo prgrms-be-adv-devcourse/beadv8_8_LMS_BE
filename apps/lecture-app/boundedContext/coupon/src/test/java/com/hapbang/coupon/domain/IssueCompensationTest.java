@@ -11,20 +11,19 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 class IssueCompensationTest {
 
-    @ParameterizedTest(name = "Lua {0} → {1}, 재고 복구 {2}, 끝남 {3}")
+    @ParameterizedTest(name = "Lua {0} → {1}, 끝남 {2}")
     @CsvSource({
-            "1, RESTORED, true, true",
-            "2, ALREADY_COMPENSATED, false, true",
-            "3, MARKED_ONLY, false, true",
-            "0, NO_RECORD, false, false",
-            "-4, MEMBER_MISMATCH, false, false"
+            "1, RESTORED, true",
+            "2, ALREADY_COMPENSATED, true",
+            "3, MARKED_ONLY, true",
+            "0, NO_RECORD, false",
+            "-4, MEMBER_MISMATCH, false"
     })
-    void 재고는_첫_보상에서만_되돌리고_이미_보상했거나_이전_epoch면_바꾸지_않는다(long code, IssueCompensation expected,
-                                                                 boolean stockRestored, boolean settled) {
+    void Lua_반환값을_보상_결과로_해석하고_접수_기록이_없거나_회원이_다르면_끝나지_않은_것으로_본다(long code,
+                                                                    IssueCompensation expected, boolean settled) {
         IssueCompensation result = IssueCompensation.fromLua(code);
 
         assertThat(result).isEqualTo(expected);
-        assertThat(result.isStockRestored()).isEqualTo(stockRestored);
         assertThat(result.isSettled()).isEqualTo(settled);
     }
 

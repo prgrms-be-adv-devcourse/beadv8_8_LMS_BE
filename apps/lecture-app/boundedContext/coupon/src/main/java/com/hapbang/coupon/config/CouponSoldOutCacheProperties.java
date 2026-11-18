@@ -17,9 +17,4 @@ public record CouponSoldOutCacheProperties(Integer soldOutCacheMaxEntries) {
             throw new IllegalArgumentException("hapbang.coupon.sold-out-cache-max-entries는 1 이상이어야 한다");
         }
     }
-
-    /** 모두 기본값 */
-    public static CouponSoldOutCacheProperties defaults() {
-        return new CouponSoldOutCacheProperties(null);
-    }
 }

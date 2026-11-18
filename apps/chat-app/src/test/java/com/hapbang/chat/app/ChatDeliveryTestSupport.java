@@ -14,15 +14,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatOutboxRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
+import com.hapbang.chat.support.ChatOutboxTestRepository;
+import com.hapbang.chat.support.ChatPublishCheckpointTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;
@@ -90,10 +91,10 @@ abstract class ChatDeliveryTestSupport {
     ChatDeliveryAvailability availability;
 
     @Autowired
-    ChatOutboxRepository chatOutboxRepository;
+    ChatOutboxTestRepository chatOutboxTestRepository;
 
     @Autowired
-    ChatPublishCheckpointRepository checkpointRepository;
+    ChatPublishCheckpointTestRepository checkpointTestRepository;
 
     @Autowired
     ChatRedisKeys keys;
@@ -134,15 +135,15 @@ abstract class ChatDeliveryTestSupport {
     }
 
     UUID deliveryIdOf(Long messageId) {
-        return chatOutboxRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
+        return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 
     ChatOutbox outbox(UUID deliveryId) {
-        return chatOutboxRepository.findByDeliveryId(deliveryId).orElseThrow();
+        return chatOutboxTestRepository.findByDeliveryId(deliveryId).orElseThrow();
     }
 
     ChatPublishCheckpoint checkpoint(UUID deliveryId) {
-        return checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
+        return checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
                 .orElseThrow();
     }
 

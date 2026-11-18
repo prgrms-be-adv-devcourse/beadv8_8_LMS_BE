@@ -1,8 +1,9 @@
 package com.hapbang.chat.app;
 
-import java.time.Instant;
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
+import com.hapbang.chat.app.port.ChatLogoutMarkers;
 import com.hapbang.shared.member.dto.UserDto;
+import java.time.Instant;
 
 /**
  * 회원 원본 정보를 채팅 회원 복제본({@code ChatUser})에 반영한다. 메서드마다 하나의 로컬 트랜잭션에서 회원 반영과

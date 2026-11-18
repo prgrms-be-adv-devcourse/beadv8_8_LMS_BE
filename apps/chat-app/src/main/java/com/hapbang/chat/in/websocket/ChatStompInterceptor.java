@@ -23,7 +23,6 @@ import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.ChatUserFacade;
 import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 
-
 /**
  * STOMP 연결·구독·보내기를 검사한다(설계 4.2 목적지 규칙). 인증({@link ChatStompAuthInterceptor}) 다음에 돈다. 그래서 여기 오는
  * CONNECT 외 프레임은 회원을 결합한 연결의 것이고, {@link Principal}은 핸드셰이크에서 쓴 웹소켓 연결 티켓의 회원이다.

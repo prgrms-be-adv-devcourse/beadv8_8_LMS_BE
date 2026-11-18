@@ -90,9 +90,4 @@ public class HttpLectureCatalog implements LectureCatalog {
         return exception instanceof LectureCatalogUnavailableException
                 && !(exception instanceof LectureRejectedResponse);
     }
-
-    /** 테스트에서 회로 상태를 확인할 때 쓴다 */
-    CircuitBreaker circuitBreaker() {
-        return circuitBreaker;
-    }
 }

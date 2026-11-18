@@ -32,10 +32,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
@@ -47,8 +47,8 @@ import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2EDatabaseCleanUpListener;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
+import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
@@ -61,7 +61,7 @@ import jakarta.persistence.EntityManager;
  * 남으며, Redis가 돌아오면 relay가 다시 적재해 실제 STOMP 연결에 한 번씩 전달된다. 장애 전 연결은 유지된다.
  * <p>
  * 공용 Redis 컨테이너를 멈추지 않도록 이 클래스만 쓰는 Redis 컨테이너를 띄운다(운영 후보 설정 AOF·noeviction,
- * {@link com.hapbang.chat.app.ChatDeliveryRedisFailureTest}와 같다). 재시작 뒤 같은 주소로 다시 붙도록 호스트 포트를 고정한다.
+ * {@link com.hapbang.chat.app.ChatDeliveryRedisFailureTest}와 같다). 재시작 뒤 같은 주소로 다시 붙도록 JVM이 쥔 고정 중계 포트({@link com.hapbang.chat.fixture.FixedPortRedis})로 붙는다.
  * {@code @ChatE2ETest}는 공용 Redis 설정을 Import하므로 같은 설정을 이 클래스에 직접 적고 Redis 주소만 바꾼다.
  */
 @SpringBootTest(classes = ModuleTestConfiguration.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -96,7 +96,7 @@ class ChatRedisOutageE2ETest {
     private static final Duration WAIT = Duration.ofSeconds(30);
     private static final String MESSAGES = "/user/queue/chats/messages";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -104,7 +104,7 @@ class ChatRedisOutageE2ETest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-redis-outage-" + UUID.randomUUID());
     }
@@ -112,6 +112,7 @@ class ChatRedisOutageE2ETest {
     @AfterAll
     static void stopRedis() {
         REDIS.stop();
+        DEDICATED.close();
     }
 
     @LocalServerPort

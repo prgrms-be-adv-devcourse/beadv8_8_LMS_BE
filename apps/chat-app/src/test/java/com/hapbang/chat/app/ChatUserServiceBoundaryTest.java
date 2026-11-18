@@ -9,9 +9,11 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.port.ChatMemberSnapshotSource;
+
 /**
  * 회원 이벤트·백필 전환의 서비스 경계(테스트 기준 "서비스 경계", 결정 "서비스 경계 규칙")를 리플렉션으로 확인한다.
- * Facade와 업무 서비스 구현이 {@code app} 계약(인터페이스)에만 의존하고 Kafka·Redis·HTTP Client·out 구현체를 직접 쓰지 않는다.
+ * Facade와 업무 서비스 구현이 {@code app} 서비스 계약과 {@code app/port} 바깥 계약(인터페이스)에만 의존하고 Kafka·Redis·HTTP Client·out 구현체를 직접 쓰지 않는다.
  */
 class ChatUserServiceBoundaryTest {
 
@@ -21,12 +23,16 @@ class ChatUserServiceBoundaryTest {
             "org.springframework.web.client");
 
     @Test
-    void 전환한_계약은_app_패키지의_인터페이스다() {
-        for (Class<?> contract : List.of(ChatUserSyncService.class, ChatUserBackfillService.class,
-                ChatMemberSnapshotSource.class, ChatConnectionControl.class)) {
+    void 전환한_서비스_계약은_app_회원_조회_계약은_app_port의_인터페이스다() {
+        for (Class<?> contract : List.of(ChatUserSyncService.class, ChatUserBackfillService.class)) {
             assertThat(contract.isInterface()).as(contract.getSimpleName()).isTrue();
             assertThat(contract.getPackageName()).isEqualTo("com.hapbang.chat.app");
         }
+        assertThat(ChatMemberSnapshotSource.class.isInterface()).isTrue();
+        assertThat(ChatMemberSnapshotSource.class.getPackageName()).isEqualTo("com.hapbang.chat.app.port");
+        // 연결 제어 기록은 DB만 쓰므로 계약 인터페이스 없이 app 클래스가 repository port로 한다
+        assertThat(ChatConnectionControl.class.isInterface()).isFalse();
+        assertThat(ChatConnectionControl.class.getPackageName()).isEqualTo("com.hapbang.chat.app");
     }
 
     @Test

@@ -18,18 +18,23 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueBoundaryProbe;
-import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
-import com.hapbang.coupon.app.port.CouponRecoveryStore;
+import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
+import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.ActivateResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.BlockResult;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildControl;
-import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
-import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.RebuildResult;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
-import com.hapbang.coupon.config.CouponRecoveryProperties;
+import com.hapbang.coupon.app.port.CouponRecoveryStore.Snapshot;
+import com.hapbang.coupon.app.port.CouponRecoveryStore;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
+import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueRequestRecord;
@@ -41,12 +46,6 @@ import com.hapbang.coupon.domain.RecoveryRedisState;
 import com.hapbang.coupon.domain.RecoveryRun;
 import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.RecoveryLookupRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 // 복구 UseCase의 단계별 전제 조건과 저장소 호출. 단계 순서 규칙 자체는 RecoveryRunTest가 본다
@@ -57,15 +56,15 @@ class CouponRecoveryUseCaseTest {
 
     private final CouponSupport couponSupport = mock();
     private final RecoveryRunRepository runRepository = mock();
-    private final RecoveryLookupRepository lookupRepository = mock();
+    private final CouponIssueRequestRepository issueRequestRepository = mock();
     private final CouponDltLogRepository dltLogRepository = mock();
     private final CouponRecoveryStore recoveryStore = mock();
     private final CouponIssueEventPublisher publisher = mock();
     private final CouponIssueBoundaryProbe probe = mock();
     private final PlatformTransactionManager transactionManager = mock();
     private final CouponRecoveryUseCase useCase = new CouponRecoveryUseCase(couponSupport, runRepository,
-            lookupRepository, dltLogRepository, recoveryStore, publisher, probe, new CouponRedisProperties(null),
-            CouponRecoveryProperties.defaults(), CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
+            issueRequestRepository, dltLogRepository, recoveryStore, publisher, probe, new CouponRedisProperties(null),
+            CouponTestProperties.recovery(), CouponTestProperties.issueDelivery(), transactionManager, CLOCK);
     /** 기본값의 경계 대기: 전송 준비 1초 + max(전송 수명 5초, 재발행 ACK 3초) + 여유 2초 */
     private static final Duration SETTLE = Duration.ofSeconds(8);
     /** 재구축·재개 선점 lease 기본값 */
@@ -125,12 +124,12 @@ class CouponRecoveryUseCaseTest {
     private RecoveryRun resultsCheckedRun() {
         RecoveryRun run = blockedRun();
         run.recordBoundary(new RecoveryBoundary(0, false, KAFKA_BOUNDARY, ""), NOW);
-        run.recordResults(RecoveryUnresolved.none(), NOW);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         return run;
     }
 
     private static String record(long memberId, boolean compensated) {
-        return new IssueRequestRecord(memberId, NOW, NOW.plus(Duration.ofDays(30)), true, compensated).format();
+        return new IssueRequestRecord(memberId, NOW, NOW.plus(Duration.ofDays(30)), null, true, compensated).format();
     }
 
     private void givenSnapshot(Long stock, Map<String, String> requests) {
@@ -188,7 +187,7 @@ class CouponRecoveryUseCaseTest {
         when(recoveryStore.block(eq(COUPON_ID), anyLong())).thenReturn(new BlockResult(true, false, false));
         givenSnapshot(7L, Map.of("req-done", record(1L, false), "req-pending", record(2L, false),
                 "req-compensated", record(3L, true), "req-dlt", record(4L, false)));
-        when(lookupRepository.findExistingRequestIds(eq(COUPON_ID), anyCollection())).thenReturn(List.of("req-done"));
+        when(issueRequestRepository.findExistingRequestIds(eq(COUPON_ID), anyCollection())).thenReturn(List.of("req-done"));
         when(dltLogRepository.findUnresolvedRequestIds(COUPON_ID)).thenReturn(List.of("req-dlt"));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
 
@@ -208,8 +207,8 @@ class CouponRecoveryUseCaseTest {
     void 경계_재발행은_접수_기록의_epoch를_싣는다() {
         blockedRun();
         when(recoveryStore.block(eq(COUPON_ID), anyLong())).thenReturn(new BlockResult(true, false, false));
-        givenSnapshot(9L, Map.of("req-new", IssueRequestRecord.accepted(2L, NOW, NOW.plus(Duration.ofDays(30)), 3L)
-                .format()));
+        givenSnapshot(9L, Map.of("req-new", new IssueRequestRecord(2L, NOW, NOW.plus(Duration.ofDays(30)), 3L, false,
+                false).format()));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
 
         useCase.fixBoundary(ADMIN_ID, COUPON_ID, RECOVERY_ID);
@@ -372,8 +371,8 @@ class CouponRecoveryUseCaseTest {
         RecoveryRun run = resultsCheckedRun();
         ReflectionTestUtils.setField(coupon, "issuedCount", 1);
         givenSnapshot(null, Map.of());
-        when(lookupRepository.findResults(COUPON_ID)).thenReturn(List.of(
-                new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, NOW)));
+        when(issueRequestRepository.findResults(COUPON_ID)).thenReturn(List.of(
+                new RecoveryIssueResult("req-a", MEMBER_ID, CouponIssueResult.ISSUED, NOW, null)));
         when(recoveryStore.rebuild(anyLong(), anyLong(), any(), any())).thenAnswer(invocation -> {
             // Redis를 바꾸기 전에 선점이 커밋돼 있다
             assertThat(run.getStep()).isEqualTo(RecoveryStep.REBUILDING);
@@ -734,7 +733,7 @@ class CouponRecoveryUseCaseTest {
     void 끝까지_재개한_복구_뒤의_새_복구는_유실_의심을_이어받지_않는다() {
         RecoveryRun resumed = withRunId(RecoveryRun.start(COUPON_ID, coupon.getEpoch(), ADMIN_ID, true, NOW));
         resumed.recordBoundary(new RecoveryBoundary(0, true, KAFKA_BOUNDARY, ""), NOW);
-        resumed.recordResults(RecoveryUnresolved.none(), NOW);
+        resumed.recordResults(new RecoveryUnresolved(0, 0, 0), NOW);
         rebuilt(resumed);
         resumed(resumed);
         when(runRepository.findFirstByCouponIdAndStepNotIn(COUPON_ID, RecoveryStep.finished())).thenReturn(Optional.empty());

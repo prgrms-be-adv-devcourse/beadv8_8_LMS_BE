@@ -27,28 +27,41 @@ class ChatEventRepublisherTest {
 
     private static final Instant NOW = Instant.parse("2026-11-12T03:00:00Z");
 
+    private static final Duration GRACE = ChatExternalEvents.REPUBLISH_PENDING_GRACE;
+    private static final int BATCH_SIZE = ChatExternalEvents.REPUBLISH_BATCH_SIZE;
+
     private final IncompleteEventPublications incompleteEventPublications = mock(IncompleteEventPublications.class);
     private final ChatEventRepublisher republisher = new ChatEventRepublisher(incompleteEventPublications,
-            Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofMinutes(1), 2);
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void 대기_시간이_지난_채팅_이벤트만_오래된_것부터_batchSize건_고른다() {
-        EventPublication first = publication(kicked(1L), 10);
+        List<EventPublication> incomplete = new ArrayList<>();
+        List<EventPublication> due = new ArrayList<>();
         // 채팅이 받기만 하는 다른 컨텍스트의 shared 이벤트는 다시 보내지 않는다
-        EventPublication received = publication(new UserMaskedEvent(9L, NOW), 9);
-        EventPublication second = publication(new GroupRoomClosedEvent(2L, 70L, "모집", 1L, List.of(1L), NOW), 8);
-        EventPublication overLimit = publication(kicked(3L), 7);
-        // 발행한 지 1분이 안 된 기록은 커밋 직후 보내는 중일 수 있어 고르지 않는다
-        EventPublication justPublished = publication(kicked(4L), 0);
-        List<EventPublication> selected = resubmitted(List.of(first, received, second, overLimit, justPublished));
+        incomplete.add(publication(new UserMaskedEvent(9L, NOW), GRACE.plusHours(1)));
+        EventPublication closed = publication(new GroupRoomClosedEvent(2L, 70L, "모집", 1L, List.of(1L), NOW),
+                GRACE.plusMinutes(30));
+        incomplete.add(closed);
+        due.add(closed);
+        // 대기 시간이 지난 기록이 한 번에 보낼 수보다 많으면 오래된 것부터 그 수만 보내고 나머지는 다음 주기로 넘긴다
+        for (long i = 0; i < BATCH_SIZE; i++) {
+            EventPublication kicked = publication(kicked(100L + i), GRACE.plusSeconds(BATCH_SIZE - i));
+            incomplete.add(kicked);
+            due.add(kicked);
+        }
+        // 발행한 지 대기 시간이 안 된 기록은 커밋 직후 보내는 중일 수 있어 고르지 않는다
+        incomplete.add(publication(kicked(4L), GRACE.minusSeconds(1)));
+        List<EventPublication> selected = resubmitted(incomplete);
 
-        assertThat(republisher.republishDue()).isEqualTo(2);
-        assertThat(selected).containsExactly(first, second);
+        assertThat(republisher.republishDue()).isEqualTo(BATCH_SIZE);
+        assertThat(selected).containsExactlyElementsOf(due.subList(0, BATCH_SIZE));
     }
 
     @Test
-    void 고를_기록이_없으면_0이다() {
-        List<EventPublication> selected = resubmitted(List.of(publication(kicked(1L), 0)));
+    void 발행한_지_대기_시간이_지나지_않은_기록만_있으면_0이다() {
+        List<EventPublication> selected = resubmitted(List.of(publication(kicked(1L), GRACE),
+                publication(kicked(2L), GRACE.minusSeconds(1))));
 
         assertThat(republisher.republishDue()).isZero();
         assertThat(selected).isEmpty();
@@ -76,10 +89,10 @@ class ChatEventRepublisherTest {
         return selected;
     }
 
-    private static EventPublication publication(Object event, long minutesAgo) {
+    private static EventPublication publication(Object event, Duration age) {
         EventPublication publication = mock(EventPublication.class);
         when(publication.getEvent()).thenReturn(event);
-        when(publication.getPublicationDate()).thenReturn(NOW.minus(Duration.ofMinutes(minutesAgo)));
+        when(publication.getPublicationDate()).thenReturn(NOW.minus(age));
         return publication;
     }
 }

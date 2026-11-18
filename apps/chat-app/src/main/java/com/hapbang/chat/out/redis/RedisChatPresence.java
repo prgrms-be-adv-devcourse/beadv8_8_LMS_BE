@@ -18,8 +18,9 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatPresence;
+import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.extern.slf4j.Slf4j;
 

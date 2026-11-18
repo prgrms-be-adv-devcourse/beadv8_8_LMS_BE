@@ -1,11 +1,11 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.app.CouponAppFixture.CLOCK;
-import static com.hapbang.coupon.app.CouponIssueConsumerUseCaseTest.providerOf;
 import static com.hapbang.coupon.app.CouponUsageFixture.transactionManager;
 import static com.hapbang.coupon.domain.CouponFixture.NOW;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 import java.util.List;
@@ -16,8 +16,8 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.CannotCreateTransactionException;
 
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.config.CouponExpiryProperties;
-import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,7 +31,7 @@ class MemberCouponExpiryUseCaseTest {
     private final PlatformTransactionManager transactionManager = transactionManager();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final MemberCouponExpiryUseCase useCase = new MemberCouponExpiryUseCase(recorder, memberCouponRepository,
-            memberCouponRepository, new CouponExpiryProperties(null, 2), providerOf(meterRegistry), transactionManager,
+            new CouponExpiryProperties(null, 2), meterRegistry, transactionManager,
             CLOCK);
 
     @Test
@@ -43,11 +43,10 @@ class MemberCouponExpiryUseCaseTest {
         when(memberCouponRepository.expire(List.of(3L, 4L), NOW)).thenReturn(1);
         when(memberCouponRepository.expire(List.of(5L), NOW)).thenReturn(1);
 
-        MemberCouponExpiryUseCase.ExpiryRun run = useCase.expireDue();
+        useCase.expireDue();
 
-        assertThat(run.expired()).isEqualTo(4);
-        assertThat(run.batches()).isEqualTo(3);
-        assertThat(meterRegistry.counter(MemberCouponExpiryUseCase.EXPIRED_METRIC).count()).isEqualTo(4);
+        assertThat(expiredCount()).isEqualTo(4);
+        verify(memberCouponRepository, times(3)).findExpiredCouponTargets(any(), any(), anyLong(), any());
         // 조회와 만료·해제 등록을 각각 짧은 트랜잭션으로 실행한다.
         verify(transactionManager, times(6)).commit(any());
     }
@@ -56,10 +55,10 @@ class MemberCouponExpiryUseCaseTest {
     void 대상이_없으면_갱신하지_않고_한_묶음으로_끝낸다() {
         page(0);
 
-        MemberCouponExpiryUseCase.ExpiryRun run = useCase.expireDue();
+        useCase.expireDue();
 
-        assertThat(run.expired()).isZero();
-        assertThat(run.batches()).isEqualTo(1);
+        assertThat(expiredCount()).isZero();
+        verify(memberCouponRepository, times(1)).findExpiredCouponTargets(any(), any(), anyLong(), any());
         verify(memberCouponRepository, never()).expire(any(), any());
     }
 
@@ -69,7 +68,9 @@ class MemberCouponExpiryUseCaseTest {
         page(2);
         when(memberCouponRepository.expire(List.of(1L, 2L), NOW)).thenReturn(0);
 
-        assertThat(useCase.expireDue().batches()).isEqualTo(2);
+        useCase.expireDue();
+
+        verify(memberCouponRepository, times(2)).findExpiredCouponTargets(any(), any(), anyLong(), any());
         verify(memberCouponRepository).findExpiredCouponTargets(NOW, NOW, 2, Limit.of(2));
     }
 
@@ -83,10 +84,10 @@ class MemberCouponExpiryUseCaseTest {
         when(memberCouponRepository.expire(List.of(3L), NOW)).thenReturn(1);
         doThrow(new IllegalArgumentException("예약 ID 누락")).when(recorder).recordExpired(1, NOW);
 
-        MemberCouponExpiryUseCase.ExpiryRun run = useCase.expireDue();
+        useCase.expireDue();
 
-        assertThat(run.expired()).isEqualTo(2);
-        assertThat(run.batches()).isEqualTo(2);
+        assertThat(expiredCount()).isEqualTo(2);
+        verify(memberCouponRepository, times(2)).findExpiredCouponTargets(any(), any(), anyLong(), any());
         verify(transactionManager, times(2)).rollback(any());
         verify(recorder).recordExpired(2, NOW);
         verify(recorder).recordExpired(3, NOW);
@@ -112,6 +113,10 @@ class MemberCouponExpiryUseCaseTest {
         assertThatThrownBy(useCase::expireDue).isInstanceOf(CannotCreateTransactionException.class);
 
         verifyNoInteractions(memberCouponRepository, recorder);
+    }
+
+    private double expiredCount() {
+        return meterRegistry.counter(MemberCouponExpiryUseCase.EXPIRED_METRIC).count();
     }
 
     private void page(long afterId, long... ids) {

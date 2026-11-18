@@ -20,14 +20,15 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.support.ChatRoomLogTestRepository;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -51,10 +52,13 @@ class ChatRoomConcurrencyTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     /** Facade의 @PreAuthorize를 통과할 로그인 상태. 스레드마다 따로라 작업 스레드에도 넣는다 */
     private static final Authentication INFLUENCER = new TestingAuthenticationToken("test", null, "ROLE_INFLUENCER");
@@ -77,20 +81,20 @@ class ChatRoomConcurrencyTest {
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
 
         assertThat(roomIds).hasSize(THREADS).containsOnly(roomIds.getFirst());
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
     void 두_사람이_동시에_나가면_방은_한_번만_종료된다() throws Exception {
         Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
 
-        List<Boolean> ended = runConcurrently(2, index -> chatRoomUseCase
-                .leave(chatRoomId, index == 0 ? HOST_ID : GUEST_ID, null).roomEnded());
+        List<Boolean> left = runConcurrently(2, index -> chatRoomUseCase
+                .leave(chatRoomId, index == 0 ? HOST_ID : GUEST_ID, null).left());
 
-        assertThat(ended).containsExactlyInAnyOrder(true, false);
+        assertThat(left).containsExactly(true, true);
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getStatus())
                 .isEqualTo(ChatRoomStatus.ENDED);
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType)
                 .filteredOn(type -> type == ChatRoomEventType.ROOM_ENDED)
                 .hasSize(1);
@@ -102,11 +106,11 @@ class ChatRoomConcurrencyTest {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         List<Long> results = runConcurrently(2, index -> index == 0
-                ? chatRoomUseCase.leave(chatRoomId, HOST_ID, null).roomEnded() ? -1L : 0L
+                ? chatRoomUseCase.leave(chatRoomId, HOST_ID, null).left() ? -1L : 0L
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
         Long startedRoomId = results.stream().filter(id -> id > 0).findFirst().orElseThrow();
 
-        List<ChatRoom> activeRooms = chatRoomRepository.findAll().stream()
+        List<ChatRoom> activeRooms = chatRoomTestRepository.findAll().stream()
                 .filter(room -> room.getStatus() == ChatRoomStatus.ACTIVE)
                 .toList();
         assertThat(activeRooms).extracting(ChatRoom::getId).containsExactly(startedRoomId);

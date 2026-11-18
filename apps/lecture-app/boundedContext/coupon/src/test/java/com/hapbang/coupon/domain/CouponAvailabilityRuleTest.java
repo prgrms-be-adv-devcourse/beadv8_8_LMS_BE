@@ -22,11 +22,11 @@ class CouponAvailabilityRuleTest {
     }
 
     private static Coupon openLectureCoupon() {
-        return withStatus(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.OPEN);
+        return withStatus(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.OPEN);
     }
 
     private static Coupon openAnyLectureCoupon() {
-        return withStatus(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW), CouponStatus.OPEN);
+        return withStatus(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW), CouponStatus.OPEN);
     }
 
     @Test

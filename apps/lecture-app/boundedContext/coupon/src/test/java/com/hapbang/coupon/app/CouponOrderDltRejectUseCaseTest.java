@@ -13,12 +13,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
-import com.hapbang.coupon.config.CouponDltProperties;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
 
 // 주문 이벤트 DLT 영구 거절: 기록만 REJECTED(사유·관리자)로 닫고 보상 결과는 남기지 않는다(이 UseCase는 Redis·쿠폰 사용 저장소를 받지 않는다).
 // 이미 다시 처리한 기록은 409다. 선점 lease·동시 처리 규칙은 발급 DLT와 같은 도메인(CouponDltLog) 테스트가 본다
@@ -34,7 +34,7 @@ class CouponOrderDltRejectUseCaseTest {
     void setUp() {
         // 원문 "{}"는 주문 이벤트로 읽히지 않아 반영 여부를 묻지 않는다. 이미 반영된 이벤트의 거절은 CouponOrderDltResolveTest가 실제 DB로 본다
         useCase = new CouponOrderDltRejectUseCase(dltLogRepository, mock(CouponOrderConsumerUseCase.class),
-                CouponDltProperties.defaults(), transactionManager(), CLOCK);
+                CouponTestProperties.dlt(), transactionManager(), CLOCK);
         dltLog = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 2, 11L,
                 "order-item:901"), "{}", "원인", NOW);
         when(dltLogRepository.findById(DLT_ID)).thenReturn(Optional.of(dltLog));
@@ -54,7 +54,7 @@ class CouponOrderDltRejectUseCaseTest {
 
     @Test
     void 이미_다시_처리한_기록은_영구_거절할_수_없다() {
-        dltLog.claimReplay(ADMIN_ID, NOW, CouponDltProperties.defaults().dltReplayLease());
+        dltLog.claimReplay(ADMIN_ID, NOW, CouponTestProperties.dlt().dltReplayLease());
         dltLog.completeReplay(NOW);
 
         assertThatThrownBy(() -> useCase.reject(ADMIN_ID, DLT_ID, "사유"))

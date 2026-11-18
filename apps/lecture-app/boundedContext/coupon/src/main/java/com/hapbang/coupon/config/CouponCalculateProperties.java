@@ -25,9 +25,4 @@ public record CouponCalculateProperties(Integer maxSearchNodes, Integer maxItems
             throw new IllegalArgumentException("hapbang.coupon.calculate.max-items는 1 이상이어야 한다");
         }
     }
-
-    /** 모두 기본값 */
-    public static CouponCalculateProperties defaults() {
-        return new CouponCalculateProperties(null, null);
-    }
 }

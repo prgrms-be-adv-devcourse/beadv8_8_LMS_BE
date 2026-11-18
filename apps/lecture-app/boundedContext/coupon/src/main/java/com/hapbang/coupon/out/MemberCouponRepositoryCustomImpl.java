@@ -11,6 +11,7 @@ import org.springframework.data.domain.Limit;
 
 import com.hapbang.coupon.app.port.MemberCouponBudgetState;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponRepositoryCustom;
 import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.domain.CouponTargetType;
@@ -78,7 +79,7 @@ class MemberCouponRepositoryCustomImpl implements MemberCouponRepositoryCustom {
     public Optional<MemberCouponState> findStateById(long id) {
         QMemberCoupon mc = new QMemberCoupon("mc");
         return Optional.ofNullable(query.select(Projections.constructor(MemberCouponState.class, mc.id, mc.memberId,
-                        mc.status, mc.generation, mc.expiresAt, mc.currentOrderItemId))
+                        mc.status, mc.generation, mc.expiresAt))
                 .from(mc)
                 .where(mc.id.eq(id))
                 .fetchOne());

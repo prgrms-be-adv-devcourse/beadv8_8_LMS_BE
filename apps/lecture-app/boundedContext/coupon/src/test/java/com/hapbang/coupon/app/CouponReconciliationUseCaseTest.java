@@ -20,30 +20,29 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
-import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.app.port.CouponReconciliationStore;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
+import com.hapbang.coupon.app.port.IssueResultRow;
 import com.hapbang.coupon.config.CouponLimitsProperties;
+import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueHoldReason;
 import com.hapbang.coupon.domain.IssueReconciliationRule.Mismatch;
 import com.hapbang.coupon.domain.IssueRequestRecord;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.IssueCapacityReservationRepository;
-import com.hapbang.coupon.out.IssueResultReadRepository;
-import com.hapbang.coupon.app.port.IssueResultRow;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 // 대사 회차의 분기: 일치(정리·적체 보류·해제), 재확인 뒤 불일치(보류만), 전체 정리(용량 해제), 고아 예약, 복구 중 건너뛰기, 관리자 보류 해제,
 // DB 미확정 기록이 남은 쿠폰의 key 만료 연장.
@@ -55,13 +54,13 @@ class CouponReconciliationUseCaseTest {
 
     private final IssueCapacityReservationRepository reservationRepository = mock();
     private final CouponRepository couponRepository = mock();
-    private final IssueResultReadRepository resultRepository = mock();
+    private final CouponIssueRequestRepository issueRequestRepository = mock();
     private final CouponReconciliationStore store = mock();
     private final CouponIssueStore issueStore = mock();
     private final CouponCapacitySupport capacitySupport = mock();
     private final PlatformTransactionManager transactionManager = mock();
-    private final CouponReconciliationMetrics metrics =
-            new CouponReconciliationMetrics(new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final CouponReconciliationMetrics metrics = new CouponReconciliationMetrics(meterRegistry);
 
     private final Map<String, String> requests = new HashMap<>();
     private final Set<Long> users = new HashSet<>();
@@ -76,9 +75,9 @@ class CouponReconciliationUseCaseTest {
         when(store.cleanUp(anyLong())).thenReturn(true);
         when(capacitySupport.release(anyLong())).thenReturn(true);
         // 재발행 대기 임계치 1건
-        useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, resultRepository, store,
+        useCase = new CouponReconciliationUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), reservationRepository, couponRepository, issueRequestRepository, store,
                 issueStore, new CouponRedisProperties(null), capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
-                CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
+                CouponTestProperties.issueDelivery(), transactionManager, CLOCK);
     }
 
     @Test
@@ -97,7 +96,7 @@ class CouponReconciliationUseCaseTest {
         verify(store, never()).hold(COUPON_ID, IssueHoldReason.RECONCILE);
         verify(capacitySupport, never()).release(anyLong());
         assertThat(summary.backlogHolds()).isEqualTo(1);
-        assertThat(metrics.backlogHolds()).isEqualTo(1);
+        assertThat(backlogHolds()).isEqualTo(1);
     }
 
     @Test
@@ -111,7 +110,7 @@ class CouponReconciliationUseCaseTest {
         useCase.runScheduled();
 
         verify(store).releaseHold(COUPON_ID, IssueHoldReason.BACKLOG);
-        assertThat(metrics.backlogHolds()).isZero();
+        assertThat(backlogHolds()).isZero();
     }
 
     @Test
@@ -298,7 +297,7 @@ class CouponReconciliationUseCaseTest {
         verify(store, never()).repair(anyLong(), any(), anyList());
         verify(store, never()).cleanUp(anyLong());
         assertThat(summary.mismatched()).isEqualTo(1);
-        assertThat(metrics.mismatches(Mismatch.UNEXPLAINED)).isEqualTo(1);
+        assertThat(mismatches(Mismatch.UNEXPLAINED)).isEqualTo(1);
     }
 
     @Test
@@ -314,7 +313,7 @@ class CouponReconciliationUseCaseTest {
 
         verify(store, never()).hold(COUPON_ID, IssueHoldReason.RECONCILE);
         assertThat(summary.mismatched()).isZero();
-        assertThat(metrics.mismatches(Mismatch.UNEXPLAINED)).isZero();
+        assertThat(mismatches(Mismatch.UNEXPLAINED)).isZero();
     }
 
     @Test
@@ -444,7 +443,7 @@ class CouponReconciliationUseCaseTest {
     }
 
     private void givenDb(IssueResultRow... rows) {
-        when(resultRepository.findRowsByCouponId(COUPON_ID)).thenReturn(List.of(rows));
+        when(issueRequestRepository.findResultRows(COUPON_ID)).thenReturn(List.of(rows));
     }
 
     private void givenRedis(IssueHoldReason hold, Long stock) {
@@ -460,13 +459,21 @@ class CouponReconciliationUseCaseTest {
     }
 
     private static String record(long memberId, long epoch) {
-        return IssueRequestRecord.accepted(memberId, NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)), epoch)
-                .format();
+        return new IssueRequestRecord(memberId, NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)), epoch, false,
+                false).format();
     }
 
     private void accepted(String requestId, long memberId, Instant acceptedAt) {
-        requests.put(requestId, IssueRequestRecord.accepted(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)))
-                .format());
+        requests.put(requestId, new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), null,
+                false, false).format());
         users.add(memberId);
+    }
+
+    private double backlogHolds() {
+        return meterRegistry.get(CouponReconciliationMetrics.BACKLOG_HOLDS).gauge().value();
+    }
+
+    private double mismatches(Mismatch kind) {
+        return meterRegistry.get(CouponReconciliationMetrics.MISMATCHES).tag("kind", kind.name()).gauge().value();
     }
 }

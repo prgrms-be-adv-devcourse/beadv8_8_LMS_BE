@@ -21,6 +21,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.exception.CouponUsageException;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;

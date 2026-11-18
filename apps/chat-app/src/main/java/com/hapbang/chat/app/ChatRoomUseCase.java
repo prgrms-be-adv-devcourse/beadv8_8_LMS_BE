@@ -8,11 +8,14 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.dto.ChatMessageResponse;
-import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
+import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRoomLogRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatRecipientSet;
@@ -21,10 +24,6 @@ import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.GroupMemberLeftData;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,7 +55,7 @@ public class ChatRoomUseCase {
      */
     public ChatRoomOpenResult createOrGet(Long requesterId, Long targetUserId) {
         OpenedRoom opened = openDirectRoom(requesterId, targetUserId, LocalDateTime.now());
-        return new ChatRoomOpenResult(opened.chatRoom().getId(), opened.created(), opened.rejoinNotices());
+        return new ChatRoomOpenResult(opened.chatRoom().getId(), opened.created());
     }
 
     /**
@@ -91,7 +90,8 @@ public class ChatRoomUseCase {
                 chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoom.getId(), userId)
                         .ifPresent(members::add);
             }
-            return new OpenedRoom(chatRoom, false, rejoinLeftMembers(chatRoom, members, now));
+            rejoinLeftMembers(chatRoom, members, now);
+            return new OpenedRoom(chatRoom, false);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -103,7 +103,7 @@ public class ChatRoomUseCase {
         chatRecipientSetRecorder.snapshot(chatRoom, now);
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
-        return new OpenedRoom(chatRoom, true, List.of());
+        return new OpenedRoom(chatRoom, true);
     }
 
     /**
@@ -155,8 +155,7 @@ public class ChatRoomUseCase {
             chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.ROOM_ENDED, now));
         }
         log.info("채팅방 퇴장 chatRoomId={}, userId={}, roomEnded={}", chatRoomId, userId, roomEnded);
-        return new ChatRoomLeaveResult(true, ChatMessageResponse.from(leftNotice), roomEnded,
-                member.getParticipationVersion());
+        return new ChatRoomLeaveResult(true, member.getParticipationVersion());
     }
 
     /**
@@ -180,38 +179,31 @@ public class ChatRoomUseCase {
         member.leave(now);
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
-        ChatMessageResponse leftNotice = null;
         if (chatRoom.isCurrentGroup()) {
             ChatMessage notice = chatMessageRepository.save(
-                    ChatMessage.groupMemberLeft(chatRoom, userId, GroupMemberLeftData.of(userId), now));
+                    ChatMessage.groupMemberLeft(chatRoom, userId,
+                            ChatStoredJson.writeNotificationData(GroupMemberLeftData.of(userId)), now));
             if (remaining.getMemberCount() > 0) {
                 chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
             }
-            leftNotice = ChatMessageResponse.from(notice);
         }
         chatReadCountSignals.membershipChanged(chatRoom.getId(), remaining.getSetVersion());
         log.info("단체방 퇴장 chatRoomId={}, userId={}, status={}", chatRoom.getId(), userId, chatRoom.getStatus());
-        return new ChatRoomLeaveResult(true, leftNotice, false, member.getParticipationVersion());
+        return new ChatRoomLeaveResult(true, member.getParticipationVersion());
     }
 
     /**
-     * 연 방. 기존 방이면 잠긴 상태다.
-     *
-     * @param rejoinNotices 나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보일 재입장 안내. 전달은 outbox가 맡는다
+     * 연 방. 기존 방이면 잠긴 상태다. 나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보일 재입장 안내의 전달은 outbox가 맡는다.
      */
-    public record OpenedRoom(ChatRoom chatRoom, boolean created, List<ChatMessageResponse> rejoinNotices) {
+    public record OpenedRoom(ChatRoom chatRoom, boolean created) {
     }
 
     /**
      * 퇴장했던 회원을 재입장시킨다. 재입장 안내를 먼저 저장한 뒤 재입장시켜서, 안내는 남아 있던 회원에게만 보이고
      * 재입장한 회원의 조회 범위(안내 다음 순번부터)에는 들어가지 않는다.
      * 안내의 전달 작업은 재입장 전 집합(남아 있던 회원)을 알림 없이 참조하고, 재입장 뒤에는 새 집합을 만든다.
-     *
-     * @return 남아 있던 회원에게 보낼 재입장 안내. 재입장한 회원이 없으면 빈 목록
      */
-    private List<ChatMessageResponse> rejoinLeftMembers(ChatRoom chatRoom, List<ChatRoomMember> members,
-            LocalDateTime now) {
-        List<ChatMessageResponse> rejoinNotices = new ArrayList<>();
+    private void rejoinLeftMembers(ChatRoom chatRoom, List<ChatRoomMember> members, LocalDateTime now) {
         for (ChatRoomMember member : members) {
             if (!member.isActive()) {
                 // 이전 참여에서 쓴 전송 ID는 무효다. 재입장 뒤 같은 ID로 보내면 새 메시지로 저장한다
@@ -226,12 +218,10 @@ public class ChatRoomUseCase {
                 chatRecipientSetRecorder.snapshot(chatRoom, now);
                 chatRoomLogRepository.save(
                         ChatRoomLog.record(chatRoom, member.getUserId(), ChatRoomEventType.MEMBER_REJOINED, now));
-                rejoinNotices.add(ChatMessageResponse.from(rejoinNotice));
                 log.info("채팅방 재입장 chatRoomId={}, userId={}, visibleFromSequence={}", chatRoom.getId(),
                         member.getUserId(), member.getVisibleFromSequence());
             }
         }
-        return rejoinNotices;
     }
 
 }

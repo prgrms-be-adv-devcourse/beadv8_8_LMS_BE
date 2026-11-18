@@ -1,8 +1,8 @@
 package com.hapbang.chat.in.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 
 /**
  * 방 topic 구독 하나에 쓰는 거절·회수 프레임(헤더 {@code chat-frame-type}과 같은 {@code type}). resync-frame.md
