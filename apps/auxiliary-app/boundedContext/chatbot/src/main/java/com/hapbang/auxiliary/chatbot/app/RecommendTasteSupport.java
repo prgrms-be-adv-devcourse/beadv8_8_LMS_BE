@@ -9,7 +9,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties.Taste;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 
 import lombok.RequiredArgsConstructor;
@@ -42,7 +42,7 @@ public class RecommendTasteSupport {
         if (profile == null || profile.masked() || !profile.isInfluencer()) {
             return RecommendTaste.of(interest, List.of(), null);
         }
-        String bio = profile.bio() == null ? null : TextCut.head(profile.bio(), properties.rerank().descriptionMaxLength());
+        String bio = profile.bio() == null ? null : TextCutUtil.head(profile.bio(), properties.rerank().descriptionMaxLength());
         return RecommendTaste.of(interest, categoryNames.namesOf(profile.categories()), bio);
     }
 }

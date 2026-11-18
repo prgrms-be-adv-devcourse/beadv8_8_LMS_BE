@@ -12,7 +12,7 @@ import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureListing;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 
 /**
  * 챗봇 "강의 추천받기" 버튼 경로 (#718, #720). 쿼리 확장(관심사가 있을 때) → 맞춤 후보 풀 → LLM 리랭킹 + 이유 → 인기순 채우기
@@ -45,7 +45,7 @@ public class LectureRecommendExplainUseCase {
     }
 
     /**
-     * @param interest 관심사 원문({@link RecommendInterest#normalize}를 거친 값). 없으면 null
+     * @param interest 관심사 원문({@link RecommendInterestUtil#normalize}를 거친 값). 없으면 null
      */
     public Explained recommend(long memberId, @Nullable String interest) {
         RecommendExplainFlow.Steps<LectureRecommendUseCase.Pool, LectureRecommendation> steps = new RecommendExplainFlow.Steps<>(
@@ -71,7 +71,7 @@ public class LectureRecommendExplainUseCase {
             LectureListing lecture = lectures.get(ranked.lectureId());
             String title = lecture == null ? "" : lecture.title();
             String description = lecture == null || lecture.description() == null ? ""
-                    : TextCut.head(lecture.description(), descriptionMax).replace('\n', ' ');
+                    : TextCutUtil.head(lecture.description(), descriptionMax).replace('\n', ' ');
             lines.add("제목: " + title + " | 소개: " + description + " | 추천 근거: "
                     + pool.reasons().get(ranked.lectureId()).reason().getDescription());
         }

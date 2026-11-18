@@ -16,7 +16,7 @@ import jakarta.validation.ValidatorFactory;
 import jakarta.validation.constraints.Size;
 
 /**
- * 대화 요청 메시지의 글자 수는 코드 포인트로 센다 (#835). 이전 대화 검사({@code ChatHistory})·글 자르기({@code TextCut})와 같은 기준이다.
+ * 대화 요청 메시지의 글자 수는 코드 포인트로 센다 (#835). 이전 대화 검사({@code ChatHistory})·글 자르기({@code TextCutUtil})와 같은 기준이다.
  * 이모지(서로게이트 쌍)는 한 글자다. 넘었을 때의 오류 메시지는 {@code @Size}와 같다.
  */
 class ChatReqDtoLengthTest {

@@ -5,9 +5,9 @@ package com.hapbang.auxiliary.chatbot.domain;
  * 반으로 자르지 않는다(짝 잃은 서로게이트는 임베딩·LLM 요청이나 JSON 응답에서 오류가 될 수 있다).
  * 엔티티(싱크 회차 오류)와 Store도 쓰므로 domain에 둔다.
  */
-public final class TextCut {
+public final class TextCutUtil {
 
-    private TextCut() {
+    private TextCutUtil() {
     }
 
     /** 앞에서부터 코드포인트 {@code max}개까지. 짧으면 그대로 */

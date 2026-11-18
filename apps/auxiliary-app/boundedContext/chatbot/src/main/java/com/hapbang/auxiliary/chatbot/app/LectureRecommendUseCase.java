@@ -71,7 +71,7 @@ public class LectureRecommendUseCase {
     /**
      * 위젯·Tool 경로: 맞춤 후보를 추천 수만큼 고르고 모자라면 인기순으로 채운다.
      *
-     * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterest#normalize}를 거친 값). 없으면 null(저장하지 않는다)
+     * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterestUtil#normalize}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
         Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize());
@@ -103,7 +103,7 @@ public class LectureRecommendUseCase {
         Pool pool;
         try {
             pool = personalized(memberId, interest, signals, excluded, size);
-        } catch (VectorCall.Failure e) {
+        } catch (VectorCallUtil.Failure e) {
             if (failing.compareAndSet(false, true)) {
                 log.warn("강의 추천 색인·임베딩 호출이 실패하기 시작했다. 회복될 때까지 인기순으로 답한다", e.getCause());
             }
@@ -144,8 +144,8 @@ public class LectureRecommendUseCase {
     private Pool personalized(long memberId, @Nullable List<String> interest, List<LectureSignals.Signal> signals,
             Set<Long> excluded, int size) {
         Map<Long, float[]> signalVectors =
-                VectorCall.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
-        float[] interestVector = interest == null ? null : VectorCall.run(() -> embedder.embedInterest(interest));
+                VectorCallUtil.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
+        float[] interestVector = interest == null ? null : VectorCallUtil.run(() -> embedder.embedInterest(interest));
         LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
         float[] query = taste.query(properties.interestWeight());
         if (query == null) {
@@ -153,7 +153,7 @@ public class LectureRecommendUseCase {
             return Pool.popularNeedingInterest(memberId, excluded);
         }
 
-        List<RecommendVectorIndex.ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
+        List<RecommendVectorIndex.ScoredId> hits = VectorCallUtil.run(() -> index.knn(IndexType.LECTURE, query, properties.knnK(),
                 properties.numCandidates(), LectureIndexDocument.RECOMMENDABLE));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (RecommendVectorIndex.ScoredId hit : hits) {
@@ -238,7 +238,7 @@ public class LectureRecommendUseCase {
     // 고른 강의(인기순 채움 제외)마다 이유
     private Map<Long, LectureTaste.Reasoned> reasons(List<LectureRanker.Ranked> ranked, LectureTaste taste) {
         List<Long> ids = ranked.stream().map(LectureRanker.Ranked::lectureId).toList();
-        Map<Long, float[]> itemVectors = VectorCall.run(() -> vectors(ids));
+        Map<Long, float[]> itemVectors = VectorCallUtil.run(() -> vectors(ids));
         Map<Long, LectureTaste.Reasoned> reasons = new HashMap<>();
         for (Long id : ids) {
             reasons.put(id, taste.reason(itemVectors.get(id)));

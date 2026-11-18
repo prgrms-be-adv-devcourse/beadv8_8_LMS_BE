@@ -6,9 +6,9 @@ import java.util.function.Supplier;
  * 추천의 벡터 호출(ES 검색·임베딩)만 감싼다. 실패를 {@link Failure}로 바꿔 DB 오류·코드 오류와 구분한다.
  * 추천은 {@link Failure}만 "검색 장애"로 보고 인기순으로 답한다. 그 밖의 예외는 그대로 올라간다.
  */
-final class VectorCall {
+final class VectorCallUtil {
 
-    private VectorCall() {
+    private VectorCallUtil() {
     }
 
     static <T> T run(Supplier<T> call) {
