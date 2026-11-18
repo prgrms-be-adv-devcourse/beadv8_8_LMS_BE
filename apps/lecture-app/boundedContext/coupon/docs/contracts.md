@@ -37,7 +37,7 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 상태 조회는 DB 최종 결과를 우선하고 없으면 Redis 접수 기록을 확인한다. 장애로 결과를 확인할 수 없으면 UNKNOWN이다. 요청 자체가 없다고 확인되는 경우만 NOT_FOUND다. 요청 ID만 안다고 다른 회원 결과를 조회할 수 없다.
 
-사용자용 REST는 `/api/v1/coupons`, `/api/v1/coupons/{couponId}/issue-requests`, `/api/v1/coupons/{couponId}/issue-requests/{requestId}`, `/api/v1/coupons/me`, `/api/v1/coupons/admin/...`를 기준으로 한다. 계산·예약·해제·reservationStatus·priceRaiseBlocked는 `/api/v1/internal/coupons/...` 내부 API로만 열고 외부 사용자에게 노출하지 않는다. 내부 API의 base URL은 `hapbang.coupon.base-url`(기본 같은 서버)이다.
+사용자용 REST는 `/api/v1/coupons`, `/api/v1/coupons/{couponId}/issue-requests`, `/api/v1/coupons/{couponId}/issue-requests/{requestId}`, `/api/v1/coupons/me`, `/api/v1/coupons/admin/...`를 기준으로 한다. 받을 수 있는 쿠폰 목록 `GET /api/v1/coupons[?lectureId=]`(회원)은 발급 중(OPEN)이고 발급 기간 안(`issueStartAt <= now < issueEndAt`)인 쿠폰을 최신순(`createdAt desc, id desc`) 최대 100건, 매진(`soldOut`)·이미 받음(`issued`) 표시와 함께 준다. `lectureId`가 있으면 그 강의 대상과 모든 강의 대상만(강의 상세), 없으면 대상을 가리지 않는다(쿠폰 받기 화면, 2026-11-18). 강의 제목은 싣지 않는다(쿠폰 모듈은 강의 정보를 갖지 않으므로 FE가 `lectureId`로 강의를 조회한다). 계산·예약·해제·reservationStatus·priceRaiseBlocked는 `/api/v1/internal/coupons/...` 내부 API로만 열고 외부 사용자에게 노출하지 않는다. 내부 API의 base URL은 `hapbang.coupon.base-url`(기본 같은 서버)이다.
 
 ## 이벤트
 
