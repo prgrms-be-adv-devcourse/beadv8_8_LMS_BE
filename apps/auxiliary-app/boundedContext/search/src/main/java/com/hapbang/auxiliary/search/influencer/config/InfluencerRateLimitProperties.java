@@ -11,9 +11,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 /**
- * 인플루언서 검색 호출 제한({@code hapbang.search.influencer-rate-limit.*}, #1012). 처음 값은 분당 60회다. #993 운영 부하 측정에서 초당
- * 50건까지 p95 500ms 안이었고 초당 100건에서 공용 node CPU가 차서 넘었다. 회원 한 명이 초당 1건이면 50명이 동시에 최대로 불러야 그 선을
- * 넘는다. 429 지표를 보고 고친다. 로그인 전용이라 비회원 한도는 없다.
+ * 인플루언서 검색 호출 제한({@code hapbang.search.influencer-rate-limit.*}, #1012). 처음 값은 분당 60회(평균 초당 1건)다. #993 운영 부하
+ * 측정에서 초당 50건까지 p95 500ms 안이었고 초당 100건에서 공용 node CPU가 차서 넘었다. 한 회원이 계속 불러 그 선에 닿지 못하게 한다. 1분 단위
+ * 고정 창이라 한 창 안에서는 몰아서 보낼 수 있다({@code KeyedRateLimiter}, 강의와 같다). 429 지표를 보고 고친다. 로그인 전용이라 비회원
+ * 한도는 없다.
  *
  * @param member 회원 한 명(회원 ID)의 한도
  */
