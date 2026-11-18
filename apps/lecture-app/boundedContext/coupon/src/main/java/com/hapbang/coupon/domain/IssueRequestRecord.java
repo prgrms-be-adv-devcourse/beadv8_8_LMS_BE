@@ -48,22 +48,6 @@ public record IssueRequestRecord(long memberId, Instant acceptedAt, Instant expi
         }
     }
 
-    /** epoch 필드가 없는 옛 형식 기록 */
-    public IssueRequestRecord(long memberId, Instant acceptedAt, Instant expiresAt, boolean published,
-                              boolean compensated) {
-        this(memberId, acceptedAt, expiresAt, null, published, compensated);
-    }
-
-    /** 새 접수 기록(표식 없음) */
-    public static IssueRequestRecord accepted(long memberId, Instant acceptedAt, Instant expiresAt, long epoch) {
-        return new IssueRequestRecord(memberId, acceptedAt, expiresAt, epoch, false, false);
-    }
-
-    /** 옛 형식 접수 기록(epoch 없음, 표식 없음) */
-    public static IssueRequestRecord accepted(long memberId, Instant acceptedAt, Instant expiresAt) {
-        return new IssueRequestRecord(memberId, acceptedAt, expiresAt, null, false, false);
-    }
-
     /** 이벤트에 실을 epoch. 기록에 epoch가 없으면(옛 형식) {@code controlEpoch}다 */
     public long epochOr(long controlEpoch) {
         return epoch != null ? epoch : controlEpoch;

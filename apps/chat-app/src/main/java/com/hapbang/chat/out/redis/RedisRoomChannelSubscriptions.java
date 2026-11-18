@@ -26,8 +26,10 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.RoomChannelSubscriptions;
+import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
+import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -80,8 +82,6 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
      * 이 객체의 잠금으로 지킨다
      */
     private final Set<Long> idle = new LinkedHashSet<>();
-    /** 정리가 들여다본 방 수(누적). 정리가 유예 중인 방만 도는지 테스트가 본다. 이 객체의 잠금으로 지킨다 */
-    private long reapVisits;
     /** 맞추기가 실행기에 걸려 있는 방. 한 방에 하나만 건다. 이 객체의 잠금으로 지킨다 */
     private final Set<Long> pending = new HashSet<>();
     /** 놓았지만 컨테이너에서 아직 빼지 못한 방(해제 대기). 이 객체의 잠금으로 지킨다 */
@@ -171,18 +171,13 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
         }
     }
 
-    /** 구독 중인 방 채널 수(유예 중 포함) */
-    public synchronized int subscribedChannels() {
+    /** 구독 중인 방 채널 수(유예 중 포함). {@value #SUBSCRIBED_METRIC} 게이지가 읽는다 */
+    private synchronized int subscribedChannels() {
         return channels.size();
     }
 
-    /** 정리가 지금까지 들여다본 방 수 */
-    synchronized long reapVisits() {
-        return reapVisits;
-    }
-
     /** 유예가 지난 방 채널을 뺀다. 주기 작업이므로 실패해도 예외를 밖으로 내지 않는다(내면 다음 주기가 멈춘다) */
-    void reapIdle() {
+    private void reapIdle() {
         try {
             synchronized (this) {
                 reap(System.nanoTime(), false);
@@ -192,17 +187,11 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
         }
     }
 
-    /** {@code now} 시각 기준의 주기 정리. 테스트가 유예 경계를 시각으로 정한다 */
-    synchronized void reapIdleAt(long now) {
-        reap(now, false);
-    }
-
     /** 유예 중인 방을 뺀다. {@code ignoreGrace}면 모두, 아니면 유예가 지난 방만 뺀다. 잠금 안에서 부른다 */
     private void reap(long now, boolean ignoreGrace) {
         Iterator<Long> iterator = idle.iterator();
         while (iterator.hasNext()) {
             long roomId = iterator.next();
-            reapVisits++;
             if (!ignoreGrace && now - channels.get(roomId).idleSince < graceNanos) {
                 // 뒤의 방은 더 늦게 유예를 시작했다
                 return;

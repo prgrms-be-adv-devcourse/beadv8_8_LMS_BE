@@ -25,12 +25,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
 import com.hapbang.chat.app.dto.MessageFanout;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatOutboxStore;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -53,10 +52,10 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
     }
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
     private ObjectProvider<MeterRegistry> meterRegistry;
@@ -90,7 +89,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
         doAnswer(invocation -> {
             assertThat(spiedCheckpointStore.markDead(group, deliveryId, 0, ChatDeadReason.PUBLISH_RETRY_EXHAUSTED,
                     job.entryId(), "다른 worker의 격리", ChatDeliveryClock.now())).isTrue();
-            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+            assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
             return invocation.callRealMethod();
         }).doCallRealMethod().when(spiedCheckpointStore)
                 .markPublished(anyString(), any(), anyInt(), anyLong(), any());
@@ -174,13 +173,13 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.NOT_ACKED);
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isEqualTo(1);
-        assertThat(checkpointRepository.findAll()).isEmpty();
+        assertThat(checkpointTestRepository.findAll()).isEmpty();
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.ISOLATED);
 
         UUID syntheticId = UUID.nameUUIDFromBytes((ChatJobStream.DELIVERY.consumerGroup() + ":" + job.entryId())
                 .getBytes(StandardCharsets.UTF_8));
-        ChatPublishCheckpoint dead = checkpointRepository
+        ChatPublishCheckpoint dead = checkpointTestRepository
                 .findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), syntheticId).orElseThrow();
         assertThat(dead.getStatus()).isEqualTo(ChatPublishStatus.DEAD);
         assertThat(dead.getDeadReason()).isEqualTo(ChatDeadReason.MALFORMED_ENTRY);

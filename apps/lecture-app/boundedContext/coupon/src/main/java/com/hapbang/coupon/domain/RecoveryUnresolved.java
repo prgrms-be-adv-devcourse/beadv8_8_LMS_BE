@@ -15,10 +15,6 @@ public record RecoveryUnresolved(long pendingRequests, long kafkaLag, long dltUn
         }
     }
 
-    public static RecoveryUnresolved none() {
-        return new RecoveryUnresolved(0, 0, 0);
-    }
-
     public long total() {
         return pendingRequests + kafkaLag + dltUnresolved;
     }

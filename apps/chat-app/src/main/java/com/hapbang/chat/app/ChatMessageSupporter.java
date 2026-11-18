@@ -13,11 +13,12 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatMessage;
-import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.ChatRoomMember;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.domain.ChatUser;
 
 import lombok.RequiredArgsConstructor;
 
@@ -29,7 +30,7 @@ public class ChatMessageSupporter {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
-    private final ChatMessageReader chatMessageReader;
+    private final ChatMessageRepository chatMessageRepository;
     private final ChatValidationService chatValidationService;
     private final ChatMessageSenders chatMessageSenders;
     private final ChatUnreadMemberCounter chatUnreadMemberCounter;
@@ -51,7 +52,7 @@ public class ChatMessageSupporter {
         chatValidationService.validateCanChat(userId);
 
         long beforeSequence = cursor == null ? Long.MAX_VALUE : cursor;
-        List<ChatMessage> found = chatMessageReader
+        List<ChatMessage> found = chatMessageRepository
                 .findVisible(chatRoomId, member.getVisibleFromSequence(), beforeSequence, Limit.of(size + 1));
         List<ChatMessage> page = found.size() <= size ? found : found.subList(0, size);
         // 발신자 복제본은 페이지마다 한 번에 읽는다. 조회 시점의 닉네임이라 바뀐 닉네임이 지난 메시지에도 보인다

@@ -1,0 +1,16 @@
+# Spring Data 저장소 조각(QueryDSL 조회) 등록: app/port의 XxxRepositoryCustom=out의 구현체.
+# Spring Data는 조각 구현체를 조각 인터페이스와 같은 패키지(하위 포함)에서만 찾는다. 구현체를 out에 두므로 여기서 이어 준다.
+com.hapbang.coupon.app.port.BudgetWorkRepositoryCustom=\
+com.hapbang.coupon.out.BudgetWorkRepositoryCustomImpl
+com.hapbang.coupon.app.port.CouponDltLogRepositoryCustom=\
+com.hapbang.coupon.out.CouponDltLogRepositoryCustomImpl
+com.hapbang.coupon.app.port.CouponIssueRequestRepositoryCustom=\
+com.hapbang.coupon.out.CouponIssueRequestRepositoryCustomImpl
+com.hapbang.coupon.app.port.CouponRepositoryCustom=\
+com.hapbang.coupon.out.CouponRepositoryCustomImpl
+com.hapbang.coupon.app.port.CouponUsageRepositoryCustom=\
+com.hapbang.coupon.out.CouponUsageRepositoryCustomImpl
+com.hapbang.coupon.app.port.IssueCapacityReservationRepositoryCustom=\
+com.hapbang.coupon.out.IssueCapacityReservationRepositoryCustomImpl
+com.hapbang.coupon.app.port.MemberCouponRepositoryCustom=\
+com.hapbang.coupon.out.MemberCouponRepositoryCustomImpl

@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.chat.app.dto.ReadChangedFanout;
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 
 /**
  * 안 읽은 사람 수 변경 신호(설계 Q36): 트랜잭션 안이면 커밋 뒤에만 내고 롤백이면 내지 않는다. 발행은 전용 실행기에서 해 커밋한

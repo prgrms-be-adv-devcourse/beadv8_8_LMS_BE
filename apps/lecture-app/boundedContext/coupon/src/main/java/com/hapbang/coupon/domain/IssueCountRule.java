@@ -13,11 +13,6 @@ public final class IssueCountRule {
     private IssueCountRule() {
     }
 
-    /** 지금 확정 발급 수에서 한 장 더 확정할 수 있는가(확정 발급 수 &lt; 총수량) */
-    public static boolean canIncrement(int issuedCount, int quantity) {
-        return issuedCount < quantity;
-    }
-
     /**
      * 조건부 UPDATE가 바꾼 행 수를 해석한다.
      *

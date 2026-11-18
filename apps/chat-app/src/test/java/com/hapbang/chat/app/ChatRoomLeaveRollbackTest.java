@@ -10,14 +10,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.chat.app.port.ChatMessageRepository;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
+import com.hapbang.chat.support.ChatMessageTestRepository;
+import com.hapbang.chat.support.ChatRoomLogTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -36,7 +37,10 @@ class ChatRoomLeaveRollbackTest {
     private ChatMessageRepository chatMessageRepository;
 
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
+
+    @Autowired
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -60,9 +64,9 @@ class ChatRoomLeaveRollbackTest {
 
         assertThat(chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, GUEST_ID))
                 .hasValueSatisfying(member -> assertThat(member.isActive()).isTrue());
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType)
                 .doesNotContain(ChatRoomEventType.MEMBER_LEFT);
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
     }
 }

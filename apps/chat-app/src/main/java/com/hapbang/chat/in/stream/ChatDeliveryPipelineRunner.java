@@ -11,14 +11,9 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.app.ChatDeliveryAvailability;
-import com.hapbang.chat.app.ChatDeliveryProperties;
-import com.hapbang.chat.app.ChatDeliveryQueue;
+import com.hapbang.chat.app.ChatDeliveryPipelineService;
 import com.hapbang.chat.app.ChatJobStream;
-import com.hapbang.chat.app.ChatOutboxRelay;
-import com.hapbang.chat.app.ChatStreamJobProcessor;
-import com.hapbang.chat.app.ChatStreamReconstructor;
-import com.hapbang.chat.app.ChatStreamTrimmer;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 
@@ -33,12 +28,12 @@ import lombok.extern.slf4j.Slf4j;
  *     스케줄러마다 주기 작업 수만큼 스레드를 둔다. 고정 지연 작업은 자기 자신과 겹치지 않으므로, 한 작업이 Redis·DB 지연으로
  *     멈춰도 같은 큐의 다른 작업이나 다른 큐의 작업이 스레드를 기다리지 않는다(설계 4.6: 제어·복구가 전송 폭주에 굶지 않게).
  *     다른 배치({@code taskScheduler})와도 실행 예산을 나눈다.</li>
- *     <li>처리는 모두 {@code app}의 서비스가 하고, 여기서는 반복·예외 격리만 한다.</li>
+ *     <li>처리는 모두 {@link ChatDeliveryPipelineService}(app)가 하고, 여기서는 스레드·반복·멈춤과 예외 격리만 한다.</li>
  *     <li>시작할 때마다 새 실행 세대를 만들고 worker는 자기 세대의 플래그만 본다. 멈출 때 세대를 끄고 worker를 인터럽트한 뒤
  *     {@code shutdown-await} 안에 실제로 끝났는지 확인한다. 끝나지 않은 worker·주기 작업이 남아 있으면 오류를 남기고, 그것들이
  *     끝날 때까지 다시 시작하지 않는다(옛 worker가 같은 consumer 이름으로 새 worker와 함께 도는 일을 막는다).</li>
- *     <li>Redis 연결 불가·자기 구독 단절 동안의 멈춤과 재확인은 {@link ChatDeliveryAvailability}가 판단한다. 멈춘 worker는
- *     인터럽트로 바로 깨어나 종료한다.</li>
+ *     <li>Redis 연결 불가·자기 구독 단절 동안의 멈춤과 재확인은 app의 전달 가용성 판단이 한다. 멈춘 worker는 인터럽트로 바로
+ *     깨어나 종료한다.</li>
  * </ul>
  */
 @Slf4j
@@ -54,13 +49,8 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
     /** worker가 예상하지 못한 예외로 멈췄을 때 다시 읽기 전 대기 */
     private static final Duration WORKER_ERROR_PAUSE = Duration.ofSeconds(1);
 
-    private final ChatOutboxRelay relay;
-    private final ChatStreamJobProcessor processor;
-    private final ChatStreamReconstructor reconstructor;
-    private final ChatStreamTrimmer trimmer;
-    private final ChatDeliveryQueue queue;
+    private final ChatDeliveryPipelineService pipeline;
     private final ChatDeliveryProperties properties;
-    private final ChatDeliveryAvailability availability;
 
     /** 지금 세대와, 아직 끝나지 않은 옛 세대의 worker */
     private final List<Worker> workers = new ArrayList<>();
@@ -71,16 +61,9 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
     /** 지금 실행 세대. 멈춰 있으면 null */
     private Generation generation;
 
-    public ChatDeliveryPipelineRunner(ChatOutboxRelay relay, ChatStreamJobProcessor processor,
-            ChatStreamReconstructor reconstructor, ChatStreamTrimmer trimmer, ChatDeliveryQueue queue,
-            ChatDeliveryProperties properties, ChatDeliveryAvailability availability) {
-        this.relay = relay;
-        this.processor = processor;
-        this.reconstructor = reconstructor;
-        this.trimmer = trimmer;
-        this.queue = queue;
+    public ChatDeliveryPipelineRunner(ChatDeliveryPipelineService pipeline, ChatDeliveryProperties properties) {
+        this.pipeline = pipeline;
         this.properties = properties;
-        this.availability = availability;
     }
 
     /**
@@ -96,11 +79,11 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
             throw new IllegalStateException("이전 실행이 아직 끝나지 않아 전달 파이프라인을 다시 시작할 수 없습니다: worker "
                     + workerNames() + ", 주기 작업 스케줄러 " + lingeringSchedulers.size() + "개");
         }
-        availability.reset();
+        pipeline.resetAvailability();
         Generation started = new Generation();
         generation = started;
         for (ChatJobStream stream : ChatJobStream.values()) {
-            runSafely("consumer group 확인 " + stream, () -> queue.ensureGroup(stream));
+            runSafely("consumer group 확인 " + stream, () -> pipeline.ensureGroup(stream));
         }
         String instanceId = properties.resolvedInstanceId();
         for (ChatJobStream stream : ChatJobStream.values()) {
@@ -162,23 +145,6 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
         return generation != null;
     }
 
-    /**
-     * 멈췄고, 이전 실행의 worker 스레드와 주기 작업 스케줄러가 모두 끝났는지. 실행 중이면 false.
-     * {@link #stop()}이 {@code shutdown-await} 안에 끝나지 않은 작업을 남기고 돌아온 경우를 확인할 때 쓴다.
-     */
-    public synchronized boolean isFullyStopped() {
-        if (generation != null) {
-            return false;
-        }
-        reapFinished();
-        return workers.isEmpty() && lingeringSchedulers.isEmpty();
-    }
-
-    /** 살아 있는 worker 스레드 수(이전 세대 포함) */
-    synchronized int aliveWorkerCount() {
-        return (int) workers.stream().filter(worker -> worker.thread().isAlive()).count();
-    }
-
     /** 큐 하나의 주기 작업을 그 큐 전용 스케줄러에 하나씩 등록한다 */
     private void schedulePeriodicTasks(ChatJobStream stream, String instanceId) {
         String name = stream.name().toLowerCase(Locale.ROOT);
@@ -194,15 +160,15 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
                 ? properties.reclaim().deliveryBudget()
                 : properties.reclaim().controlBudget();
         String reclaimer = consumerName(instanceId, stream, "reclaim");
-        scheduler.scheduleWithFixedDelay(() -> runSafely("relay " + stream, () -> relay.relayBatch(stream)),
+        scheduler.scheduleWithFixedDelay(() -> runSafely("relay " + stream, () -> pipeline.relayBatch(stream)),
                 properties.relay().pollInterval());
         scheduler.scheduleWithFixedDelay(
-                () -> runSafely("회수 " + stream, () -> processor.reclaim(stream, reclaimer, reclaimBudget)),
+                () -> runSafely("회수 " + stream, () -> pipeline.reclaim(stream, reclaimer, reclaimBudget)),
                 properties.reclaim().interval());
         scheduler.scheduleWithFixedDelay(
-                () -> runSafely("재구성 " + stream, () -> reconstructor.reconstructIfDue(stream)),
+                () -> runSafely("재구성 " + stream, () -> pipeline.reconstructIfDue(stream)),
                 RECONSTRUCT_CHECK_INTERVAL);
-        scheduler.scheduleWithFixedDelay(() -> runSafely("정리 " + stream, () -> trimmer.trim(stream)),
+        scheduler.scheduleWithFixedDelay(() -> runSafely("정리 " + stream, () -> pipeline.trim(stream)),
                 properties.trim().interval());
     }
 
@@ -220,7 +186,7 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
         try {
             while (owner.active) {
                 try {
-                    processor.pollNew(stream, consumer);
+                    pipeline.pollNew(stream, consumer);
                 } catch (RuntimeException e) {
                     if (!owner.active) {
                         break;
@@ -231,7 +197,7 @@ public class ChatDeliveryPipelineRunner implements SmartLifecycle {
             }
         } finally {
             try {
-                queue.releaseConsumer(consumer);
+                pipeline.releaseConsumer(consumer);
             } catch (RuntimeException e) {
                 log.debug("consumer 자원 해제 실패 consumer={}", consumer, e);
             }

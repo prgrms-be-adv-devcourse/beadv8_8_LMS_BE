@@ -14,7 +14,7 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // 기존 회원 백필의 회원 내부 API 호출(shared MemberApiClient가 RestClient.Builder를 쓴다, 설계 문서 5.4)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-    // 방 참여 캐시(ChatRoomMembershipCache)의 크기 상한·퇴출과 방별 단일 조회
+    // 방 참여 캐시(out/cache/CachedChatRoomMemberships)의 크기 상한·퇴출과 방별 단일 조회
     implementation(libs.caffeine)
     // 알림용 단체방 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")

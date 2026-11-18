@@ -3,6 +3,7 @@ package com.hapbang.chat.app.dto;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+import com.hapbang.chat.app.ChatStoredJson;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
@@ -68,25 +69,19 @@ public record ChatMessageResponse(
         return new ChatMessageResponse(message.getId(), message.getChatRoom().getId(), message.getRoomSequence(),
                 message.getSenderUserId(), message.getMessageType(), message.getContent(), message.getSentAt(), null,
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
-                message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted(),
-                message.readGroupMembersInvited(), message.readGroupMemberKicked(), message.readGroupMemberLeft(),
-                message.readGroupRoomClosed(), message.readGroupHostUnavailable(), null, null, null);
+                ChatStoredJson.readAppearanceRequestSent(message), ChatStoredJson.readAppearanceApplicationSubmitted(message),
+                ChatStoredJson.readGroupMembersInvited(message), ChatStoredJson.readGroupMemberKicked(message),
+                ChatStoredJson.readGroupMemberLeft(message), ChatStoredJson.readGroupRoomClosed(message),
+                ChatStoredJson.readGroupHostUnavailable(message), null, null, null);
     }
 
-    /** 발신자 정보를 함께 담은 응답. 일반 메시지가 아니면 발신자 정보는 null이다 */
-    public static ChatMessageResponse from(ChatMessage message, Map<Long, ChatUser> users) {
-        return from(message).withSender(ChatMessageSender.forMessage(message, users));
-    }
-
-    /** 조회한 회원 기준 응답. 본인이 보낸 메시지에만 전송 ID를 담는다 */
-    public static ChatMessageResponse of(ChatMessage message, Long viewerUserId) {
-        ChatMessageResponse response = from(message);
-        return message.isSentBy(viewerUserId) ? response.withClientMessageId(message.getClientMessageId()) : response;
-    }
-
-    /** 조회한 회원 기준 응답에 미리 묶어 읽은 회원 복제본으로 발신자 정보를 담는다 */
+    /**
+     * 조회한 회원 기준 응답. 본인이 보낸 메시지에만 전송 ID를 담고, 미리 묶어 읽은 회원 복제본으로 발신자 정보를 담는다(일반 메시지가 아니면
+     * 발신자 정보는 null이다)
+     */
     public static ChatMessageResponse of(ChatMessage message, Long viewerUserId, Map<Long, ChatUser> users) {
-        return of(message, viewerUserId).withSender(ChatMessageSender.forMessage(message, users));
+        ChatMessageResponse response = from(message).withSender(ChatMessageSender.forMessage(message, users));
+        return message.isSentBy(viewerUserId) ? response.withClientMessageId(message.getClientMessageId()) : response;
     }
 
     public ChatMessageResponse withSender(ChatMessageSender sender) {

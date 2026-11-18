@@ -16,20 +16,26 @@ import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.coupon.app.CouponCapacitySupport;
 import com.hapbang.coupon.app.CouponReconciliationMetrics;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.IssueCapacityRepository;
+import com.hapbang.coupon.app.port.IssueCapacityReservationRepository;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.domain.Coupon;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
+import com.hapbang.coupon.domain.CouponFixture;
+import com.hapbang.coupon.support.CouponTestRepository;
+import com.hapbang.coupon.support.IssueCapacityReservationTestRepository;
+import com.hapbang.coupon.support.IssueCapacityTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 
 // 용량 예약 합계의 조건부 UPSERT·UPDATE와 쿠폰별 예약 행(고아 해제의 시각 조건 포함)이 실제 DB에서 상한을 지키는지 본다
 @RepositoryTest
@@ -41,10 +47,16 @@ class IssueCapacityRepositoryTest {
     private IssueCapacityRepository capacityRepository;
 
     @Autowired
+    private IssueCapacityTestRepository capacityTestRepository;
+
+    @Autowired
     private IssueCapacityReservationRepository reservationRepository;
 
     @Autowired
-    private CouponRepository couponRepository;
+    private IssueCapacityReservationTestRepository reservationTestRepository;
+
+    @Autowired
+    private CouponTestRepository couponTestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -66,12 +78,12 @@ class IssueCapacityRepositoryTest {
     @Test
     void 처음_예약도_상한을_넘으면_행을_만들지_않는다() {
         assertThat(capacityRepository.reserve(LIMIT + 1, LIMIT, NOW)).isZero();
-        assertThat(capacityRepository.findAll()).isEmpty();
+        assertThat(capacityTestRepository.findAll()).isEmpty();
     }
 
     @Test
     void 쿠폰별_예약_행은_한_번만_만들고_한_번만_지운다() {
-        long couponId = couponRepository.saveAndFlush(sellerCoupon()).getId();
+        long couponId = couponTestRepository.saveAndFlush(sellerCoupon()).getId();
 
         assertThat(reservationRepository.insertIfAbsent(couponId, 10, NOW)).isEqualTo(1);
         assertThat(reservationRepository.insertIfAbsent(couponId, 10, NOW)).isZero();
@@ -83,7 +95,7 @@ class IssueCapacityRepositoryTest {
 
     @Test
     void 고아_예약_해제는_기준_시각_이전_예약만_지우고_열기_재시도가_시각을_바꾸면_지우지_않는다() {
-        long couponId = couponRepository.saveAndFlush(sellerCoupon()).getId();
+        long couponId = couponTestRepository.saveAndFlush(sellerCoupon()).getId();
         reservationRepository.insertIfAbsent(couponId, 10, NOW);
 
         assertThat(reservationRepository.deleteByCouponIdReservedAtOrBefore(couponId, NOW.minusSeconds(1))).isZero();
@@ -96,8 +108,8 @@ class IssueCapacityRepositoryTest {
 
     @Test
     void 열기_재시도는_예약을_다시_쓰며_합계를_늘리지_않고_예약_시각만_바꾼다() {
-        Coupon coupon = couponRepository.saveAndFlush(
-                Coupon.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW));
+        Coupon coupon = couponTestRepository.saveAndFlush(
+                CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW));
         Instant retryAt = NOW.plusSeconds(600);
 
         capacity(Clock.fixed(NOW, ZoneOffset.UTC)).reserve(coupon);
@@ -115,8 +127,8 @@ class IssueCapacityRepositoryTest {
         // 쿠폰 하나 30장, 상한 100장이면 셋만 들어간다
         List<Coupon> coupons = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
-            coupons.add(couponRepository.saveAndFlush(
-                    Coupon.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW)));
+            coupons.add(couponTestRepository.saveAndFlush(
+                    CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(30).build(), NOW)));
         }
         CouponCapacitySupport capacity = new CouponCapacitySupport(capacityRepository, reservationRepository,
                 new CouponLimitsProperties(30, LIMIT, null, null, null), metrics(), transactionManager, Clock.systemUTC());
@@ -146,7 +158,7 @@ class IssueCapacityRepositoryTest {
 
             assertThat(reserved).isEqualTo(3);
             assertThat(capacityRepository.reservedTotal()).isEqualTo(90);
-            assertThat(reservationRepository.count()).isEqualTo(3);
+            assertThat(reservationTestRepository.count()).isEqualTo(3);
         } finally {
             executor.shutdownNow();
         }
@@ -158,6 +170,6 @@ class IssueCapacityRepositoryTest {
     }
 
     private static CouponReconciliationMetrics metrics() {
-        return new CouponReconciliationMetrics(new DefaultListableBeanFactory().getBeanProvider(MeterRegistry.class));
+        return new CouponReconciliationMetrics(new SimpleMeterRegistry());
     }
 }

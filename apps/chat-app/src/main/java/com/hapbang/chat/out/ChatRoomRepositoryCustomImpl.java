@@ -8,18 +8,21 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
+import com.hapbang.chat.app.port.ChatRoomRepositoryCustom;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomType;
+import com.hapbang.chat.domain.QChatRecipientSet;
 import com.hapbang.chat.domain.QChatRoom;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatRoomRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatRoomRepository}의 조각으로 붙인다 */
+/** {@link ChatRoomRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatRoomRepository}의 조각으로 붙인다 */
 class ChatRoomRepositoryCustomImpl implements ChatRoomRepositoryCustom {
 
     private static final QChatRoom room = QChatRoom.chatRoom;
+    private static final QChatRecipientSet recipientSet = QChatRecipientSet.chatRecipientSet;
 
     private final JPAQueryFactory queryFactory;
 
@@ -45,5 +48,14 @@ class ChatRoomRepositoryCustomImpl implements ChatRoomRepositoryCustom {
                                 room.historyExpiresAt.loe(now), room.id.gt(afterId), room.deletedAt.isNull())
                         .orderBy(room.id.asc()), limit)
                 .fetch();
+    }
+
+    @Override
+    public Optional<Integer> findCurrentRecipientSetVersion(Long roomId) {
+        return queryFactory.select(recipientSet.setVersion)
+                .from(room, recipientSet)
+                .where(room.id.eq(roomId), recipientSet.id.eq(room.currentRecipientSetId))
+                .fetch().stream()
+                .findFirst();
     }
 }

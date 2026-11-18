@@ -10,6 +10,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
@@ -20,10 +24,6 @@ import com.hapbang.coupon.domain.IssueEpochRule;
 import com.hapbang.coupon.domain.IssueRejectReason;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.ProcessedOperation;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import lombok.extern.slf4j.Slf4j;

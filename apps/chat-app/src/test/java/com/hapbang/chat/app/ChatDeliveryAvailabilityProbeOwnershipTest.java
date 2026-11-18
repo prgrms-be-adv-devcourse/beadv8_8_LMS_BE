@@ -12,6 +12,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
+import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -33,7 +36,7 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
         // A: 게이트가 열려 있을 때 발행을 시작했다가 늦어진다
         PublishPermit late = availability.tryAcquirePublish(ChatJobStream.DELIVERY);
         assertThat(late.granted()).isTrue();
-        assertThat(late.isProbe()).isFalse();
+        assertThat(late.token()).isZero();
         // B: 구독자 0명을 받아 큐를 멈춘다
         availability.noSubscriber(availability.tryAcquirePublish(ChatJobStream.DELIVERY));
         assertThat(availability.tryAcquirePublish(ChatJobStream.DELIVERY).granted()).isFalse();
@@ -117,7 +120,7 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
         Duration waited = Duration.ofNanos(System.nanoTime() - lostAt);
 
         assertThat(lossCount(registry)).as("새 단절 카운터").isEqualTo(2);
-        assertThat(probe[0].isProbe()).isTrue();
+        assertThat(probe[0].token()).isNotZero();
         assertThat(waited).isGreaterThanOrEqualTo(PROBE_INITIAL).isLessThan(PROBE_INITIAL.multipliedBy(2));
         counted.publishEnded(probe[0]);
     }
@@ -148,7 +151,7 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
             }
             return false;
         });
-        assertThat(acquired[0].isProbe()).isTrue();
+        assertThat(acquired[0].token()).isNotZero();
         return acquired[0];
     }
 

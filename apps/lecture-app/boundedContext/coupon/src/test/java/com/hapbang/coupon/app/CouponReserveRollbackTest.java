@@ -22,18 +22,20 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponTerms;
 import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
+import com.hapbang.coupon.support.CouponUsageTestRepository;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -59,10 +61,13 @@ class CouponReserveRollbackTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
-    private CouponUsageRepository couponUsageRepository;
+    private CouponUsageTestRepository couponUsageTestRepository;
 
     @Autowired
     private ProcessedOperationRepository processedOperationRepository;
@@ -72,9 +77,9 @@ class CouponReserveRollbackTest {
 
     @Test
     void 앞_장을_예약한_뒤_뒤_장의_조건부_갱신이_0행이면_앞_장도_되돌리고_거절을_기록한다() {
-        long sellerCoupon = issue(couponRepository.save(Coupon.createSeller(SELLER_ID,
+        long sellerCoupon = issue(couponRepository.save(CouponFixture.createSeller(SELLER_ID,
                 terms(CouponTargetType.LECTURE, LECTURE_ID, PRICE, DiscountType.RATE, 10), Instant.now())).getId());
-        long platformCoupon = issue(couponRepository.save(Coupon.createPlatform(ADMIN_ID,
+        long platformCoupon = issue(couponRepository.save(CouponFixture.createPlatform(ADMIN_ID,
                 terms(CouponTargetType.ANY_LECTURE, null, null, DiscountType.AMOUNT, 1_500), Instant.now())).getId());
         assertThat(sellerCoupon).isLessThan(platformCoupon);
         AtomicInteger firstUpdated = interleaveReservationOf(platformCoupon);
@@ -90,17 +95,17 @@ class CouponReserveRollbackTest {
         // 판매자 쿠폰의 조건부 갱신은 실제로 한 행을 바꿨다(그 뒤 롤백)
         assertThat(firstUpdated.get()).isEqualTo(1);
         // 먼저 갱신한 판매자 쿠폰은 롤백돼 AVAILABLE·세대 0 그대로다
-        assertThat(memberCouponRepository.findStateById(sellerCoupon).orElseThrow()).satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.generation()).isZero();
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(memberCouponTestRepository.findById(sellerCoupon).orElseThrow()).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getGeneration()).isZero();
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         // 플랫폼 쿠폰은 끼어든 다른 주문의 예약만 남는다
-        assertThat(memberCouponRepository.findStateById(platformCoupon).orElseThrow()).satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
-            assertThat(state.currentOrderItemId()).isEqualTo(OTHER_ORDER_ITEM_ID);
+        assertThat(memberCouponTestRepository.findById(platformCoupon).orElseThrow()).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(coupon.getCurrentOrderItemId()).isEqualTo(OTHER_ORDER_ITEM_ID);
         });
-        assertThat(couponUsageRepository.count()).isZero();
+        assertThat(couponUsageTestRepository.count()).isZero();
         assertThat(processedOperationRepository.findByOperationId("coupon-reserve:" + WORK_ID)).get()
                 .satisfies(operation -> {
                     assertThat(operation.getResult()).isEqualTo("REJECTED");
@@ -134,7 +139,7 @@ class CouponReserveRollbackTest {
 
     private long issue(long couponId) {
         Instant now = Instant.now();
-        return memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-" + couponId, now,
+        return memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, "req-" + couponId, now,
                 now.plus(Duration.ofDays(30)), now)).getId();
     }
 

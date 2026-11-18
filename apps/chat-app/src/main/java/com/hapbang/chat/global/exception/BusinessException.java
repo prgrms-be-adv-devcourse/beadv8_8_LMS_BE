@@ -30,19 +30,11 @@ public class BusinessException extends RuntimeException {
     private final Map<String, Object> properties = new LinkedHashMap<>();
 
     public BusinessException(BaseErrorCode errorCode) {
-        this(errorCode, null, null);
+        this(errorCode, null);
     }
 
     public BusinessException(BaseErrorCode errorCode, String detail) {
-        this(errorCode, detail, null);
-    }
-
-    public BusinessException(BaseErrorCode errorCode, Throwable cause) {
-        this(errorCode, null, cause);
-    }
-
-    public BusinessException(BaseErrorCode errorCode, String detail, Throwable cause) {
-        super(detail != null ? detail : errorCode.getMessage(), cause);
+        super(detail != null ? detail : errorCode.getMessage());
         this.errorCode = errorCode;
     }
 

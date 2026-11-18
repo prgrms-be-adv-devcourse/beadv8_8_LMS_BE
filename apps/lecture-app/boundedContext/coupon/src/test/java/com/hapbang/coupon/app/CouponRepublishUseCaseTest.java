@@ -1,6 +1,5 @@
 package com.hapbang.coupon.app;
 
-import static com.hapbang.coupon.app.CouponIssueRequestUseCaseTest.registry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -20,8 +19,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
@@ -29,13 +30,12 @@ import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.CouponRepublishUseCase.CouponResult;
 import com.hapbang.coupon.app.CouponRepublishUseCase.Ending;
 import com.hapbang.coupon.app.CouponRepublishUseCase.RepublishSummary;
-import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.config.CouponRedisProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.CouponRepublishQueryRepository;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -54,7 +54,8 @@ class CouponRepublishUseCaseTest {
     /** 지금 + key 만료 여유(기본 7일) */
     private static final Instant RETAIN_UNTIL = NOW.plus(Duration.ofDays(7));
 
-    private final CouponRepublishQueryRepository queryRepository = mock();
+    private final CouponRepository couponRepository = mock();
+    private final CouponIssueRequestRepository issueRequestRepository = mock();
     private final CouponDltLogRepository dltLogRepository = mock();
     private final CouponIssueStore issueStore = mock();
     private final CouponIssueEventPublisher publisher = mock();
@@ -63,13 +64,13 @@ class CouponRepublishUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new CouponRepublishUseCase(queryRepository, dltLogRepository, issueStore, publisher,
-                CouponIssueDeliveryProperties.defaults(), new CouponRedisProperties(null), registry(meterRegistry),
+        useCase = new CouponRepublishUseCase(couponRepository, issueRequestRepository, dltLogRepository, issueStore, publisher,
+                CouponTestProperties.issueDelivery(), new CouponRedisProperties(null), meterRegistry,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
         when(issueStore.findIssueControl(anyLong())).thenReturn(Optional.of(new IssueControlState(true, "OPEN", EPOCH, null)));
         when(issueStore.hasRequests(anyLong())).thenReturn(true);
-        when(queryRepository.findRecordedIds(anyLong(), any())).thenReturn(List.of());
+        when(issueRequestRepository.findExistingRequestIds(anyLong(), any())).thenReturn(List.of());
         when(dltLogRepository.findUnresolvedRequestIds(anyLong())).thenReturn(List.of());
     }
 
@@ -79,7 +80,7 @@ class CouponRepublishUseCaseTest {
         requests(Map.of(
                 "req-missing", accepted(7, OLD) + "|PUBLISHED",
                 "req-recorded", accepted(8, OLD)));
-        when(queryRepository.findRecordedIds(eq(COUPON_ID), any())).thenReturn(List.of("req-recorded"));
+        when(issueRequestRepository.findExistingRequestIds(eq(COUPON_ID), any())).thenReturn(List.of("req-recorded"));
 
         var summary = useCase.republishDue();
 
@@ -98,9 +99,9 @@ class CouponRepublishUseCaseTest {
     void 접수_기록에_접수_epoch가_있으면_그_epoch를_싣고_옛_형식이면_지금_epoch를_싣고_이전_epoch_기록은_보내지_않고_센다() {
         target(CouponStatus.OPEN);
         requests(Map.of(
-                "req-new", IssueRequestRecord.accepted(7, OLD, EXPIRES_AT, EPOCH).format() + "|PUBLISHED",
+                "req-new", new IssueRequestRecord(7, OLD, EXPIRES_AT, EPOCH, false, false).format() + "|PUBLISHED",
                 "req-old", accepted(8, OLD),
-                "req-stale", IssueRequestRecord.accepted(9, OLD, EXPIRES_AT, EPOCH - 1).format()));
+                "req-stale", new IssueRequestRecord(9, OLD, EXPIRES_AT, EPOCH - 1, false, false).format()));
 
         useCase.republishDue();
 
@@ -128,7 +129,7 @@ class CouponRepublishUseCaseTest {
         verifyNoInteractions(publisher);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<String>> checked = ArgumentCaptor.forClass(Collection.class);
-        verify(queryRepository).findRecordedIds(eq(COUPON_ID), checked.capture());
+        verify(issueRequestRepository).findExistingRequestIds(eq(COUPON_ID), checked.capture());
         assertThat(checked.getValue()).containsExactly("req-dlt");
         assertThat(meterRegistry.get(CouponRepublishUseCase.OLDEST_AGE_METRIC).gauge().value()).isZero();
     }
@@ -167,7 +168,7 @@ class CouponRepublishUseCaseTest {
 
     @Test
     void 정리된_CLOSED_쿠폰은_훑지_않고_정리_전이면_훑는다() {
-        when(queryRepository.findTargets(any())).thenReturn(List.of(
+        when(couponRepository.findRepublishTargets(any())).thenReturn(List.of(
                 new RepublishTargetCoupon(1L, CouponStatus.CLOSED, EPOCH),
                 new RepublishTargetCoupon(2L, CouponStatus.CLOSED, EPOCH)));
         when(issueStore.hasRequests(1L)).thenReturn(false);
@@ -181,7 +182,7 @@ class CouponRepublishUseCaseTest {
 
     @Test
     void 복구_중이거나_epoch가_DB와_다르거나_issue_control이_없으면_그_쿠폰을_훑지_않는다() {
-        when(queryRepository.findTargets(any())).thenReturn(List.of(
+        when(couponRepository.findRepublishTargets(any())).thenReturn(List.of(
                 new RepublishTargetCoupon(1L, CouponStatus.OPEN, EPOCH),
                 new RepublishTargetCoupon(2L, CouponStatus.OPEN, EPOCH),
                 new RepublishTargetCoupon(3L, CouponStatus.OPEN, EPOCH)));
@@ -223,7 +224,7 @@ class CouponRepublishUseCaseTest {
 
     @Test
     void 한_쿠폰의_오류는_그_쿠폰만_건너뛰고_다음_쿠폰을_계속한다() {
-        when(queryRepository.findTargets(any())).thenReturn(List.of(
+        when(couponRepository.findRepublishTargets(any())).thenReturn(List.of(
                 new RepublishTargetCoupon(1L, CouponStatus.OPEN, EPOCH),
                 new RepublishTargetCoupon(COUPON_ID, CouponStatus.OPEN, EPOCH)));
         when(issueStore.findIssueControl(1L)).thenThrow(new CouponIssueStoreUnavailableException("redis", null));
@@ -236,7 +237,7 @@ class CouponRepublishUseCaseTest {
 
     @Test
     void 한_쿠폰에서_연속_실패가_상한에_닿으면_그_쿠폰의_남은_전송을_멈추고_다음_쿠폰을_계속한다() {
-        when(queryRepository.findTargets(any())).thenReturn(List.of(
+        when(couponRepository.findRepublishTargets(any())).thenReturn(List.of(
                 new RepublishTargetCoupon(COUPON_ID, CouponStatus.OPEN, EPOCH),
                 new RepublishTargetCoupon(2L, CouponStatus.OPEN, EPOCH)));
         requestPages(COUPON_ID, List.of(
@@ -296,7 +297,7 @@ class CouponRepublishUseCaseTest {
         requests(Map.of(
                 "req-recorded", accepted(7, OLD),
                 "req-fresh", accepted(8, NOW.minusSeconds(10))));
-        when(queryRepository.findRecordedIds(eq(COUPON_ID), any())).thenReturn(List.of("req-recorded"));
+        when(issueRequestRepository.findExistingRequestIds(eq(COUPON_ID), any())).thenReturn(List.of("req-recorded"));
 
         useCase.republishDue();
 
@@ -319,7 +320,7 @@ class CouponRepublishUseCaseTest {
     }
 
     private void target(CouponStatus status) {
-        when(queryRepository.findTargets(any())).thenReturn(List.of(new RepublishTargetCoupon(COUPON_ID, status, EPOCH)));
+        when(couponRepository.findRepublishTargets(any())).thenReturn(List.of(new RepublishTargetCoupon(COUPON_ID, status, EPOCH)));
     }
 
     @SuppressWarnings("unchecked")
@@ -350,6 +351,7 @@ class CouponRepublishUseCaseTest {
     }
 
     private static String accepted(long memberId, Instant acceptedAt) {
-        return IssueRequestRecord.accepted(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30))).format();
+        return new IssueRequestRecord(memberId, acceptedAt, acceptedAt.plus(Duration.ofDays(30)), null, false, false)
+                .format();
     }
 }

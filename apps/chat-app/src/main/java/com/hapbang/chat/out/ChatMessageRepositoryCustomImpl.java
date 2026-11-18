@@ -5,22 +5,24 @@ import static com.hapbang.chat.out.ChatQuerydslSupport.after;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
-import com.hapbang.chat.app.ChatRoomUnreadCount;
+import com.hapbang.chat.app.port.ChatMessageRepositoryCustom;
+import com.hapbang.chat.app.port.ChatMessageRows.MessageWithSender;
+import com.hapbang.chat.app.port.ChatRoomUnreadCount;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.QChatMessage;
 import com.hapbang.chat.domain.QChatRoomMember;
 import com.hapbang.chat.domain.QChatUser;
-import com.querydsl.core.Tuple;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
 
-/** {@link ChatMessageRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@link ChatMessageRepository}의 조각으로 붙인다 */
+/** {@link ChatMessageRepositoryCustom}의 QueryDSL 구현. Spring Data가 {@code ChatMessageRepository}의 조각으로 붙인다 */
 class ChatMessageRepositoryCustomImpl implements ChatMessageRepositoryCustom {
 
     private static final QChatMessage message = QChatMessage.chatMessage;
@@ -34,14 +36,14 @@ class ChatMessageRepositoryCustomImpl implements ChatMessageRepositoryCustom {
     }
 
     @Override
-    public List<Object[]> findWithSender(long messageId) {
+    public Optional<MessageWithSender> findWithSender(long messageId) {
         return queryFactory.select(message, sender)
                 .from(message)
                 .leftJoin(sender).on(sender.id.eq(message.senderUserId))
                 .where(message.id.eq(messageId))
                 .fetch().stream()
-                .map(Tuple::toArray)
-                .toList();
+                .findFirst()
+                .map(row -> new MessageWithSender(row.get(message), row.get(sender)));
     }
 
     @Override

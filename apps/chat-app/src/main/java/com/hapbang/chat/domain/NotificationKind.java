@@ -27,9 +27,5 @@ public enum NotificationKind {
      * 호스트가 방을 운영할 수 없게 됨(탈퇴·자격 상실, 세부 사유는 남기지 않는다). 방이 읽기 전용으로 바뀐다. 보낸 사람 = 호스트.
      * 값은 {@link GroupHostUnavailableData}
      */
-    GROUP_HOST_UNAVAILABLE,
-    /** 단체방 일시 중지. 전환 기능이 생길 때 남기기 시작한다 */
-    GROUP_ROOM_SUSPENDED,
-    /** 단체방 재개. 전환 기능이 생길 때 남기기 시작한다 */
-    GROUP_ROOM_RESUMED
+    GROUP_HOST_UNAVAILABLE
 }

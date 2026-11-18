@@ -52,8 +52,7 @@ public class CouponLectureApiConfig {
         return create(restClientBuilder.clone().requestFactory(requestFactory), baseUrl, internalApiKey);
     }
 
-    /** 빈과 같은 설정의 프록시. 테스트가 컨텍스트 없이 만들 때도 쓴다(제한 시간은 넘긴 Builder의 request factory를 따른다) */
-    public static CouponLectureInternalApi create(RestClient.Builder restClientBuilder, String baseUrl,
+    private static CouponLectureInternalApi create(RestClient.Builder restClientBuilder, String baseUrl,
             String internalApiKey) {
         RestClient restClient = restClientBuilder
                 .baseUrl(baseUrl)

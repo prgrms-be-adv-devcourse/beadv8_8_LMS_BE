@@ -22,14 +22,15 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatOutboxStore.ClaimedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.domain.ChatControlOutbox;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
-import com.hapbang.chat.out.ChatControlOutboxRepository;
-import com.hapbang.chat.out.JpaChatOutboxStore;
+import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 
 /**
  * DB outbox → Stream 적재 (테스트 기준 "Outbox 적재").
@@ -46,13 +47,13 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
 
     @Autowired
-    private ChatControlOutboxRepository controlOutboxRepository;
+    private ChatControlOutboxTestRepository controlOutboxTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -200,7 +201,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
 
         relayAll(ChatJobStream.CONTROL);
 
-        ChatControlOutbox control = controlOutboxRepository.findAll().getFirst();
+        ChatControlOutbox control = controlOutboxTestRepository.findAll().getFirst();
         assertThat(control.getStatus()).isEqualTo(ChatOutboxStatus.ENQUEUED);
         List<MapRecord<String, Object, Object>> entries = redis.opsForStream().range(keys.controlStream(),
                 Range.unbounded());

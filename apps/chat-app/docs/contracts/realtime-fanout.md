@@ -7,7 +7,7 @@ Stream consumer(#418)가 커밋된 작업을 Pub/Sub으로 내보내는 계약�
 ## 인터페이스
 
 ```java
-package com.hapbang.chat.app;
+package com.hapbang.chat.app.port;
 
 public interface RealtimeChatFanout {
 
@@ -87,9 +87,9 @@ public interface RealtimeChatFanout {
 
 - `MessageFanout`·`ControlFanout`·`ChatNotifyRule`은 공통 골격이다. 바꿀 때 이 계약과 [병렬 작업 계약](parallel-work.md)을 먼저 고친다.
 
-## 이름 (`ChatRedisKeys`)
+## 이름 (`global/redis/ChatRedisKeys`)
 
-`hapbang.chat.redis.namespace`(기본 `local`) 뒤에 붙인다. 테스트는 고유한 namespace를 쓴다.
+`hapbang.chat.redis.namespace`(기본 `local`) 뒤에 붙인다. 테스트는 고유한 namespace를 쓴다. consumer group 이름은 발행 체크포인트의 `consumer_group`에도 저장하는 값이라 `app/ChatJobStream`이 소유한다(namespace를 붙이지 않는다).
 
 | 종류 | 이름 |
 | --- | --- |

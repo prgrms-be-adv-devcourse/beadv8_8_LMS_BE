@@ -19,15 +19,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.app.dto.CouponSummaryView;
-import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueSnapshot;
+import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
 
 // DB·Redis 값을 매진·받음 표시로 옮기는지와 Redis 장애 대체, 상세의 상태 제한을 본다. 판정 규칙 자체는 CouponAvailabilityRuleTest가 본다
 class CouponSummaryQueryTest {
@@ -42,7 +43,7 @@ class CouponSummaryQueryTest {
             Clock.fixed(ISSUE_START.plusSeconds(1), ZoneOffset.UTC));
 
     private static Coupon openCoupon(long id, int issuedCount) {
-        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureAmount().quantity(10).build(), NOW);
+        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().quantity(10).build(), NOW);
         ReflectionTestUtils.setField(coupon, "id", id);
         ReflectionTestUtils.setField(coupon, "status", CouponStatus.OPEN);
         ReflectionTestUtils.setField(coupon, "issuedCount", issuedCount);

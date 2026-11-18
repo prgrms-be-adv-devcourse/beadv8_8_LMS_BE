@@ -13,6 +13,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponState;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.CouponUsageStatus;
@@ -20,11 +25,6 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
 import com.hapbang.coupon.domain.usage.UsageItem;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.app.port.MemberCouponState;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
 import com.hapbang.shared.coupon.api.CouponReleaseResponse;
 
@@ -45,7 +45,7 @@ class CouponReleaseUseCaseTest {
     void setUp() {
         var transactionManager = transactionManager();
         useCase = new CouponReleaseUseCase(org.mockito.Mockito.mock(CouponBudgetReleaseRecorder.class), support(memberCouponRepository, processedOperationRepository,
-                transactionManager), memberCouponRepository, memberCouponRepository, couponUsageRepository, processedOperationRepository,
+                transactionManager), memberCouponRepository, couponUsageRepository, processedOperationRepository,
                 transactionManager, CLOCK);
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
@@ -104,7 +104,7 @@ class CouponReleaseUseCaseTest {
     void 발급_쿠폰이_그_사용_시도로_예약된_상태가_아니면_USED처럼_해제할_수_없다() {
         when(memberCouponRepository.release(MEMBER_COUPON, 1, NOW)).thenReturn(0);
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.USED, 1, EXPIRES_AT, ORDER_ITEM_ID)));
+                MEMBER_COUPON, MEMBER_ID, MemberCouponStatus.USED, 1, EXPIRES_AT)));
 
         assertUsageError(() -> useCase.release(request(ORDER_ID)), CouponErrorCode.COUPON_RELEASE_NOT_ALLOWED,
                 MEMBER_COUPON);
@@ -120,7 +120,7 @@ class CouponReleaseUseCaseTest {
 
     private void givenStateAfterRelease(MemberCouponStatus status) {
         when(memberCouponRepository.findStateById(MEMBER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                MEMBER_COUPON, MEMBER_ID, status, 1, EXPIRES_AT, null)));
+                MEMBER_COUPON, MEMBER_ID, status, 1, EXPIRES_AT)));
     }
 
     private static CouponReleaseRequest request(long orderId) {

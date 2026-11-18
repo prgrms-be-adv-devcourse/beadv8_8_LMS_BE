@@ -27,17 +27,18 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.dto.MessageFanout;
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
-import com.hapbang.chat.out.ChatOutboxRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
+import com.hapbang.chat.support.ChatOutboxTestRepository;
+import com.hapbang.chat.support.ChatPublishCheckpointTestRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;
@@ -47,7 +48,7 @@ import jakarta.persistence.EntityManager;
  * <p>
  * 공용 Redis 컨테이너를 멈추거나 설정을 바꾸지 않도록 이 클래스만 쓰는 별도 Redis 컨테이너를 띄운다.
  * 운영 후보 설정을 명시한다: AOF({@code appendonly yes}, {@code appendfsync always}), {@code maxmemory-policy noeviction}.
- * 재시작 뒤 같은 주소로 다시 붙도록 호스트 포트를 고정한다. 프로세스 강제 종료는 {@code docker kill}(SIGKILL)이다.
+ * 재시작 뒤 같은 주소로 다시 붙도록 JVM이 쥔 고정 중계 포트({@link com.hapbang.chat.fixture.FixedPortRedis})로 붙는다. 프로세스 강제 종료는 {@code docker kill}(SIGKILL)이다.
  * 운영 Redis의 실제 배포 설정·fsync 정책·메모리 상한 수치는 Q12 확정 대상이라 여기서 확정하지 않는다.
  */
 @IntegrationTest
@@ -79,7 +80,7 @@ class ChatDeliveryRedisFailureTest {
     private static final String WORKER = "test:delivery:1";
     private static final String RECLAIMER = "test:delivery:reclaim";
 
-    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 호스트 포트를 고정한다(포트 충돌이면 새 포트로 다시 띄운다) */
+    /** 장애 시험 전용 Redis. 죽였다 다시 띄워도 같은 주소로 붙도록 JVM이 쥔 고정 중계 포트로 붙는다 */
     private static final FixedPortRedis DEDICATED = FixedPortRedis.start("redis-server", "--appendonly", "yes",
             "--appendfsync", "always", "--maxmemory-policy", "noeviction");
     private static final GenericContainer<?> REDIS = DEDICATED.container();
@@ -96,7 +97,7 @@ class ChatDeliveryRedisFailureTest {
 
     @DynamicPropertySource
     static void dedicatedRedis(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.host", DEDICATED::host);
         registry.add("spring.data.redis.port", () -> HOST_PORT);
         registry.add("hapbang.chat.redis.namespace", () -> "test-" + UUID.randomUUID());
     }
@@ -104,6 +105,7 @@ class ChatDeliveryRedisFailureTest {
     @AfterAll
     static void stopRedis() {
         REDIS.stop();
+        DEDICATED.close();
     }
 
     @Autowired
@@ -134,10 +136,10 @@ class ChatDeliveryRedisFailureTest {
     private ChatDeliveryAvailability availability;
 
     @Autowired
-    private ChatOutboxRepository chatOutboxRepository;
+    private ChatOutboxTestRepository chatOutboxTestRepository;
 
     @Autowired
-    private ChatPublishCheckpointRepository checkpointRepository;
+    private ChatPublishCheckpointTestRepository checkpointTestRepository;
 
     @Autowired
     private ChatRedisKeys keys;
@@ -315,11 +317,11 @@ class ChatDeliveryRedisFailureTest {
 
     private UUID send(String content) {
         Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
-        return chatOutboxRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
+        return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 
     private ChatOutbox outbox(UUID deliveryId) {
-        return chatOutboxRepository.findByDeliveryId(deliveryId).orElseThrow();
+        return chatOutboxTestRepository.findByDeliveryId(deliveryId).orElseThrow();
     }
 
     private String entryIdOf(UUID deliveryId) {
@@ -327,7 +329,7 @@ class ChatDeliveryRedisFailureTest {
     }
 
     private ChatPublishStatus checkpointStatus(UUID deliveryId) {
-        return checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
+        return checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), deliveryId)
                 .orElseThrow().getStatus();
     }
 

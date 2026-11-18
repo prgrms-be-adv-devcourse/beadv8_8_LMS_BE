@@ -30,11 +30,6 @@ public enum RecoveryStep {
 
     private static final Set<RecoveryStep> FINISHED = EnumSet.of(RESUMED, ABORTED);
 
-    /** 아직 끝나지 않은 복구인가. 끝나지 않은 복구가 있는 쿠폰은 새 복구를 시작하지 않는다 */
-    public boolean isActive() {
-        return !FINISHED.contains(this);
-    }
-
     /** 끝난 단계(재개·취소). 끝나지 않은 복구를 찾는 조회에 넘긴다 */
     public static Set<RecoveryStep> finished() {
         return EnumSet.copyOf(FINISHED);

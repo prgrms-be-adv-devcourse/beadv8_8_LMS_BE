@@ -23,11 +23,6 @@ public final class IssueEpochRule {
         return requestEpoch < couponEpoch ? Verdict.STALE : Verdict.AHEAD;
     }
 
-    /** 이 epoch로 온 요청이 지금 재고·발급 수를 바꿀 수 있는가(지금 세대만) */
-    public static boolean mayChangeStock(long requestEpoch, long couponEpoch) {
-        return judge(requestEpoch, couponEpoch) == Verdict.CURRENT;
-    }
-
     /** 복구가 활성화할 다음 epoch */
     public static long next(long currentEpoch) {
         if (currentEpoch < Coupon.INITIAL_EPOCH) {

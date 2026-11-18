@@ -102,14 +102,14 @@ FE 처리: 방 목록과 열어 둔 방의 이력을 자기 확인 위치부터 
 | (없음) `MESSAGE` | `ChatMessageResponse`. 헤더 `participation-version` = 그 구독의 세대. `clientMessageId`는 **보낸 사람 회원의 세션에 쓰는 프레임에만** 싣고 다른 참여자 프레임에는 null이다(R1, Q24) | `messageId` 중복 제거, `roomSequence` 정렬, 아래 "프레임의 참여 세대" 규칙을 따른다. 자기 메시지는 `clientMessageId`로 보내는 중 항목과 맞춘다(내용으로 맞추지 않는다) |
 | `READ_COUNTS` (#615) | `{type, roomId, readCountVersion, fromSequence, toSequence, counts: [{roomSequence, unreadMemberCount}]}`. 헤더 `participation-version` = 그 구독의 세대. [`fromSequence`, `toSequence`] 안의 일반 메시지 중 `counts`에 없는 순번은 0이다 | 세대 헤더가 현재 세대와 다르면 버린다. 구간 안의 메시지마다 가진 값과 비교해 작은 값을 남긴다(값은 줄기만 한다). 읽음·참여 변경을 방별 최대 1초로 묶은 최선 노력 갱신이라 유실은 이력 재조회로 보정한다. [안 읽은 사람 수 계약](unread-count.md) |
 | `SUBSCRIPTION_REJECTED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `NOT_MEMBER`·`STALE_PARTICIPATION`·`ROOM_NOT_FOUND`·`CHAT_NOT_ALLOWED`·`TOO_MANY_SUBSCRIPTIONS`·`SERVER_BUSY`(서버의 방 채널 수 상한, 설계 문서 Q30. 구독 확인 조회 실패도 이 사유다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는 선택 필드로 자기 현재 세대다(남의 정보가 아니다) | 서버는 구독을 등록하지 않았다. 연결은 유지된다(Q18). 아래 "거절·회수 사유별 FE 처리" |
-| `SUBSCRIPTION_REVOKED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `LEFT`·`REMOVED`·`STALE_PARTICIPATION`·`ROOM_CLOSED`(`REMOVED`는 단체방 강퇴 뒤 쓴다(#584). `ROOM_CLOSED`는 아직 쓰지 않는다: 폐쇄한 단체방은 읽기 전용으로 조회 만료 전까지 구독할 수 있다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는다 | 서버가 구독을 지웠다. 바로 UNSUBSCRIBE하고 그 방의 실시간 반영을 멈춘다. 이후 그 구독으로 온 메시지는 적용하지 않는다. 아래 "거절·회수 사유별 FE 처리" |
+| `SUBSCRIPTION_REVOKED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `LEFT`·`REMOVED`·`STALE_PARTICIPATION`(`REMOVED`는 단체방 강퇴 뒤 쓴다(#584). 방 폐쇄는 회수 사유가 아니다: 폐쇄한 단체방은 읽기 전용으로 조회 만료 전까지 구독할 수 있다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는다 | 서버가 구독을 지웠다. 바로 UNSUBSCRIBE하고 그 방의 실시간 반영을 멈춘다. 이후 그 구독으로 온 메시지는 적용하지 않는다. 아래 "거절·회수 사유별 FE 처리" |
 
 **거절·회수 사유별 FE 처리(FE 합의 내용)**
 
 | 사유 | FE |
 | --- | --- |
 | `STALE_PARTICIPATION` | 방 목록(또는 `currentParticipationVersion`)이 더 높은 세대를 보여 줄 때만 그 세대로 **한 번** 다시 구독한다. 아니면 다시 구독하지 않고 방 목록·이력을 다시 받는다 |
-| `NOT_MEMBER`·`ROOM_NOT_FOUND`·`CHAT_NOT_ALLOWED`·`LEFT`·`REMOVED`·`ROOM_CLOSED` | 다시 구독하지 않는다. 방 목록·이력을 다시 받는다 |
+| `NOT_MEMBER`·`ROOM_NOT_FOUND`·`CHAT_NOT_ALLOWED`·`LEFT`·`REMOVED` | 다시 구독하지 않는다. 방 목록·이력을 다시 받는다 |
 | `TOO_MANY_SUBSCRIPTIONS` | 열려 있지 않은 방의 구독을 정리한 뒤 **한 번** 다시 구독한다 |
 | `SERVER_BUSY` | 그 방은 실시간 없이 `ROOM_ACTIVITY`·이력으로 쓰고, 일정 시간(초기값 Q12) 뒤 **한 번** 다시 구독한다 |
 

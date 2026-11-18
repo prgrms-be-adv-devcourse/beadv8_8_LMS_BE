@@ -2,6 +2,7 @@ package com.hapbang.chat.in.websocket;
 
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -17,51 +18,44 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
-import com.hapbang.chat.app.ChatPresence;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
-import com.hapbang.chat.app.dto.ChatReauthResult;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
-import com.hapbang.shared.member.domain.Role;
+import com.hapbang.chat.app.dto.ChatReauthResult;
+import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.chat.in.websocket.ChatWebSocketSessionRegistry.BindResult;
+import com.hapbang.shared.member.domain.Role;
 
 /**
  * 연결 목록과 연결별 인증 회원 결합(설계 문서 6장)을 검증한다. 실시간 전달·재검사·연결 제어가 쓰는 회원별 로컬 연결 목록
- * ({@link com.hapbang.chat.app.LocalChatConnections})은 회원을 결합한 연결만 가리킨다.
+ * ({@link com.hapbang.chat.app.port.LocalChatConnections})은 회원을 결합한 연결만 가리킨다.
  */
 class ChatWebSocketSessionRegistryTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-02T01:00:00Z");
+    /**
+     * 실제 시각보다 한참 뒤라, 이 시각 기준으로 건 만료 예약·주기 대조는 시험 중에 돌지 않는다. 시각을 움직이는 시험은 시계로 움직이고,
+     * 예약이 실제로 도는 시험은 실제 시각에 가까운 시계를 쓴다
+     */
+    private static final Instant NOW = Instant.parse("2100-11-02T01:00:00Z");
     private static final Instant LATER = NOW.plus(Duration.ofMinutes(15));
 
-    private final TaskScheduler scheduler = idleScheduler();
-    private final ChatWebSocketSessionRegistry registry = registry(scheduler, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final List<ChatWebSocketSessionRegistry> registries = new ArrayList<>();
+    private final ChatWebSocketSessionRegistry registry = registry(Clock.fixed(NOW, ZoneOffset.UTC));
     private final WebSocketHandler delegate = mock(WebSocketHandler.class);
     private final WebSocketHandler handler = registry.decorate(delegate);
-    private ThreadPoolTaskScheduler realScheduler;
-    private ThreadPoolTaskExecutor closer;
 
     @AfterEach
     void shutdown() {
-        if (realScheduler != null) {
-            realScheduler.shutdown();
-        }
-        if (closer != null) {
-            closer.shutdown();
-        }
+        registries.forEach(ChatWebSocketSessionRegistry::destroy);
     }
 
     @Test
@@ -78,7 +72,6 @@ class ChatWebSocketSessionRegistryTest {
         assertThat(registry.connectedUserIds()).containsExactly(HOST_ID);
         assertThat(registry.sessionIdsOf(HOST_ID)).containsExactly("s-1");
         assertThat(registry.authenticatedUntil("s-1")).isEqualTo(LATER);
-        verify(scheduler).schedule(any(Runnable.class), eq(LATER));
     }
 
     @Test
@@ -151,7 +144,6 @@ class ChatWebSocketSessionRegistryTest {
         assertThat(registry.authenticatedUntil("s-1")).isEqualTo(LATER);
         assertThat(registry.userIdOf("s-2")).isNull();
         assertThat(registry.connectedUserIds()).containsExactly(HOST_ID);
-        verify(scheduler).schedule(any(Runnable.class), eq(LATER));
     }
 
     @Test
@@ -170,8 +162,9 @@ class ChatWebSocketSessionRegistryTest {
         assertThat(registry.closeLoggedOutBefore(java.util.Map.of(HOST_ID, marker))).isEqualTo(1);
         assertThat(registry.closeLoggedOutBefore(java.util.Map.of())).isZero();
 
-        verify(before).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
-        verify(after, never()).close(any());
+        // 닫기는 닫기 실행기가 한다
+        verify(before, timeout(3000)).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
+        verify(after, after(200).never()).close(any());
         verify(other, never()).close(any());
     }
 
@@ -217,7 +210,6 @@ class ChatWebSocketSessionRegistryTest {
 
         assertThat(registry.authenticatedUntil("s-1")).isEqualTo(LATER);
         assertThat(registry.connectedUserIds()).containsExactly(HOST_ID);
-        verify(scheduler, times(1)).schedule(any(Runnable.class), any(Instant.class));
     }
 
     @Test
@@ -244,16 +236,6 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     @Test
-    void 연결이_닫히면_만료_예약을_취소한다() throws Exception {
-        WebSocketSession host = connected("s-1", HOST_ID);
-        assertThat(registry.expiryTimerCount()).isEqualTo(1);
-
-        handler.afterConnectionClosed(host, CloseStatus.NORMAL);
-
-        assertThat(registry.expiryTimerCount()).isZero();
-    }
-
-    @Test
     void 결합_도중_연결이_닫혀도_결합이_남지_않는다() throws Exception {
         WebSocketSession host = session("s-1");
         handler.afterConnectionEstablished(host);
@@ -267,14 +249,11 @@ class ChatWebSocketSessionRegistryTest {
 
         assertThat(registry.connectedUserIds()).isEmpty();
         assertThat(registry.authenticatedUntil("s-1")).isNull();
-        assertThat(registry.expiryTimerCount()).isZero();
     }
 
     @Test
     void 연결_만료_시각이_되면_그_연결만_4401_TOKEN_EXPIRED로_닫는다() throws Exception {
-        realScheduler = new ThreadPoolTaskScheduler();
-        realScheduler.initialize();
-        ChatWebSocketSessionRegistry timed = registry(realScheduler, Clock.systemUTC());
+        ChatWebSocketSessionRegistry timed = registry(Clock.systemUTC());
         WebSocketHandler timedHandler = timed.decorate(mock(WebSocketHandler.class));
         WebSocketSession expiring = session("s-1");
         WebSocketSession other = session("s-2");
@@ -292,38 +271,37 @@ class ChatWebSocketSessionRegistryTest {
 
     /**
      * 닫기는 Tomcat처럼 같은 스레드에서 닫힘 처리를 부르고, 그 안의 Redis 접속 정보 정리가 멈출 수 있다. 한 연결의 정리가 멈춰도
-     * 만료 예약 스레드는 막히지 않아 다른 연결의 예약 종료와 주기 대조(예약이 빠진 연결)가 제때 돈다.
+     * 만료 예약 스레드는 막히지 않아 다른 연결의 예약 종료와 주기 대조(예약이 아직 돌지 않은 연결)가 제때 돈다. 주기 대조만 닫을 수
+     * 있는 연결은 만료를 한 시간 뒤로 두고 시계를 그만큼 앞당겨 만든다.
      */
     @Test
     void 한_연결의_닫힘_정리가_멈춰도_다른_연결의_만료_종료와_주기_대조는_제때_돈다() throws Exception {
-        realScheduler = new DroppingScheduler(2);
-        realScheduler.initialize();
-        closer = new ThreadPoolTaskExecutor();
-        closer.setCorePoolSize(2);
-        closer.setMaxPoolSize(2);
-        closer.setQueueCapacity(10);
-        closer.initialize();
         CountDownLatch release = new CountDownLatch(1);
         ChatPresence presence = mock(ChatPresence.class);
         doAnswer(invocation -> release.await(10, TimeUnit.SECONDS)).when(presence).disconnected(eq(HOST_ID), any());
         ObjectProvider<ChatPresence> presenceProvider = absent();
         when(presenceProvider.getIfAvailable()).thenReturn(presence);
-        ChatWebSocketSessionRegistry timed = new ChatWebSocketSessionRegistry(presenceProvider, absent(),
-                realScheduler, closer, Clock.systemUTC(), Duration.ofMillis(200));
+        OffsetClock clock = new OffsetClock();
+        ChatWebSocketSessionRegistry timed = track(new ChatWebSocketSessionRegistry(presenceProvider, absent(), clock,
+                Duration.ofMillis(200), 2, 10));
         WebSocketHandler timedHandler = timed.decorate(mock(WebSocketHandler.class));
         WebSocketSession blocked = closingSession("s-1", timedHandler);
         WebSocketSession scheduled = closingSession("s-2", timedHandler);
         WebSocketSession swept = closingSession("s-3", timedHandler);
 
         try {
-            timed.bind("s-1", HOST_ID, NOW, Instant.now().plusMillis(100));
-            timed.bind("s-2", GUEST_ID, NOW, Instant.now().plusMillis(400));
-            // 세 번째 예약은 스케줄러가 버린다. 주기 대조만이 닫을 수 있다
-            timed.bind("s-3", ADMIN_ID, NOW, Instant.now().plusMillis(300));
+            Instant start = clock.instant();
+            timed.bind("s-1", HOST_ID, start, start.plusMillis(100));
+            timed.bind("s-2", GUEST_ID, start, start.plusMillis(400));
+            // 이 연결의 만료 예약은 한 시간 뒤에 돈다
+            timed.bind("s-3", ADMIN_ID, start, start.plus(Duration.ofHours(1)));
 
             verify(blocked, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
             verify(presence, timeout(3000)).disconnected(eq(HOST_ID), eq("s-1"));
             verify(scheduled, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+            verify(swept, after(300).never()).close(any());
+            // 시계가 만료를 지나면 주기 대조만이 닫는다
+            clock.advance(Duration.ofHours(1));
             verify(swept, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
             assertThat(timed.connectedUserIds()).doesNotContain(GUEST_ID, ADMIN_ID);
         } finally {
@@ -332,26 +310,25 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     @Test
-    void 만료_예약이_빠져도_주기_대조가_만료가_지난_연결만_닫는다() throws Exception {
-        MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry swept = registry(scheduler, clock);
+    void 만료_예약이_돌지_않아도_주기_대조가_만료가_지난_연결만_닫는다() throws Exception {
+        OffsetClock clock = new OffsetClock();
+        ChatWebSocketSessionRegistry swept = track(new ChatWebSocketSessionRegistry(absent(), absent(), clock,
+                Duration.ofMillis(100), 4, 10_000));
         WebSocketHandler sweptHandler = swept.decorate(mock(WebSocketHandler.class));
-        WebSocketSession expired = session("s-1");
-        WebSocketSession valid = session("s-2");
-        sweptHandler.afterConnectionEstablished(expired);
-        sweptHandler.afterConnectionEstablished(valid);
-        swept.bind("s-1", HOST_ID, NOW, NOW.plusSeconds(60));
-        swept.bind("s-2", GUEST_ID, NOW, NOW.plusSeconds(600));
+        WebSocketSession expired = closingSession("s-1", sweptHandler);
+        WebSocketSession valid = closingSession("s-2", sweptHandler);
+        Instant start = clock.instant();
+        // 두 연결의 만료 예약은 한 시간·열 시간 뒤에 돈다
+        swept.bind("s-1", HOST_ID, start, start.plus(Duration.ofHours(1)));
+        swept.bind("s-2", GUEST_ID, start, start.plus(Duration.ofHours(10)));
 
         assertThat(swept.closeExpired()).isZero();
-        clock.now = NOW.plusSeconds(60);
+        verify(expired, after(300).never()).close(any());
+        clock.advance(Duration.ofHours(1));
 
-        assertThat(swept.closeExpired()).isEqualTo(1);
-        verify(expired).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
-        verify(valid, never()).close(any());
         // 주기 대조는 생성할 때 예약한다
-        verify(scheduler, atLeastOnce()).scheduleAtFixedRate(any(Runnable.class), any(Instant.class),
-                eq(Duration.ofSeconds(30)));
+        verify(expired, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        verify(valid, after(300).never()).close(any());
     }
 
     /**
@@ -365,7 +342,7 @@ class ChatWebSocketSessionRegistryTest {
         ExecutorService executor = Executors.newFixedThreadPool(8);
         try {
             for (int round = 0; round < rounds; round++) {
-                ChatWebSocketSessionRegistry roundRegistry = registry(idleScheduler(), Clock.systemUTC());
+                ChatWebSocketSessionRegistry roundRegistry = registry(Clock.fixed(NOW, ZoneOffset.UTC));
                 WebSocketHandler roundHandler = roundRegistry.decorate(mock(WebSocketHandler.class));
                 List<WebSocketSession> remaining = new ArrayList<>();
                 List<Callable<Void>> tasks = new ArrayList<>();
@@ -407,13 +384,11 @@ class ChatWebSocketSessionRegistryTest {
 
                 assertThat(roundRegistry.connectedUserIds()).containsExactly(HOST_ID);
                 assertThat(roundRegistry.sessionIdsOf(HOST_ID)).hasSize(remaining.size());
-                assertThat(roundRegistry.expiryTimerCount()).isEqualTo(remaining.size());
 
                 for (WebSocketSession session : remaining) {
                     roundHandler.afterConnectionClosed(session, CloseStatus.NORMAL);
                 }
                 assertThat(roundRegistry.connectedUserIds()).isEmpty();
-                assertThat(roundRegistry.expiryTimerCount()).isZero();
                 assertThat(roundRegistry.closeNotAllowed(HOST_ID)).isZero();
             }
         } finally {
@@ -423,9 +398,8 @@ class ChatWebSocketSessionRegistryTest {
 
     @Test
     void 재인증에_성공하면_만료를_새_값으로_바꾸고_옛_예약을_취소해_새_만료에_다시_예약한다() throws Exception {
-        CapturingScheduler timers = new CapturingScheduler();
         MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry reauth = registry(timers.scheduler(), clock);
+        ChatWebSocketSessionRegistry reauth = registry(clock);
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
@@ -437,21 +411,19 @@ class ChatWebSocketSessionRegistryTest {
 
         assertThat(result).isEqualTo(ChatReauthResult.reauthenticated(renewed));
         assertThat(reauth.authenticatedUntil("s-1")).isEqualTo(renewed);
-        verify(timers.at(NOW.plusSeconds(60)).future()).cancel(false);
-        assertThat(timers.at(renewed)).isNotNull();
-        assertThat(reauth.expiryTimerCount()).isEqualTo(1);
-        // 하트비트·주기 대조도 새 만료로 본다
+        // 프레임 검사·주기 대조도 새 만료로 본다
         clock.now = NOW.plusSeconds(61);
+        assertThat(reauth.closeIfExpired("s-1")).isFalse();
         assertThat(reauth.closeExpired()).isZero();
         clock.now = renewed;
         assertThat(reauth.closeExpired()).isEqualTo(1);
-        verify(host).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
     }
 
     @Test
     void 다른_회원의_티켓이거나_티켓의_만료가_지났으면_재인증하지_않고_기존_만료에_닫는다() throws Exception {
         MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry reauth = registry(scheduler, clock);
+        ChatWebSocketSessionRegistry reauth = registry(clock);
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
@@ -468,51 +440,44 @@ class ChatWebSocketSessionRegistryTest {
         verify(host, never()).close(any());
         clock.now = NOW.plusSeconds(60);
         assertThat(reauth.closeExpired()).isEqualTo(1);
-        verify(host).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
     }
 
     @Test
     void 만료_예약이_먼저_돌면_연결이_닫히고_그_뒤의_재인증은_거절된다() throws Exception {
-        CapturingScheduler timers = new CapturingScheduler();
-        MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry reauth = registry(timers.scheduler(), clock);
+        ChatWebSocketSessionRegistry reauth = registry(Clock.systemUTC());
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
-        Instant expiresAt = NOW.plusSeconds(60);
-        reauth.bind("s-1", HOST_ID, NOW, expiresAt);
+        Instant expiresAt = Instant.now().plusMillis(200);
+        reauth.bind("s-1", HOST_ID, Instant.now(), expiresAt);
 
-        clock.now = expiresAt;
-        timers.at(expiresAt).task().run();
-
-        verify(host).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
-        assertThat(reauth.reauthenticate("s-1", HOST_ID, LATER).outcome()).isEqualTo(Outcome.CONNECTION_CLOSING);
+        verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        assertThat(reauth.reauthenticate("s-1", HOST_ID, Instant.now().plus(Duration.ofMinutes(15))).outcome())
+                .isEqualTo(Outcome.CONNECTION_CLOSING);
         assertThat(reauth.authenticatedUntil("s-1")).isEqualTo(expiresAt);
     }
 
     @Test
-    void 재인증이_먼저면_옛_만료_예약이_늦게_돌아도_닫지_않고_새_만료에_닫는다() throws Exception {
-        CapturingScheduler timers = new CapturingScheduler();
-        MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry reauth = registry(timers.scheduler(), clock);
+    void 재인증이_먼저면_옛_만료가_지나도_닫지_않고_새_만료에_닫는다() throws Exception {
+        ChatWebSocketSessionRegistry reauth = registry(Clock.systemUTC());
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
-        Instant expiresAt = NOW.plusSeconds(60);
-        Instant renewed = NOW.plus(Duration.ofMinutes(15));
-        reauth.bind("s-1", HOST_ID, NOW, expiresAt);
-        clock.now = expiresAt.minusMillis(1);
+        Instant start = Instant.now();
+        Instant expiresAt = start.plusMillis(300);
+        // 옛 만료 확인(0.5초 무렵)과 새 만료 사이에 2.5초 여유를 둔다
+        Instant renewed = start.plusSeconds(3);
+        reauth.bind("s-1", HOST_ID, start, expiresAt);
         assertThat(reauth.reauthenticate("s-1", HOST_ID, renewed).succeeded()).isTrue();
 
-        // 취소가 늦어 옛 예약이 이미 돌기 시작한 경우
-        clock.now = expiresAt;
-        timers.at(expiresAt).task().run();
-
+        // 옛 만료가 지나도 예약·프레임 검사가 닫지 않는다
+        await().atMost(Duration.ofSeconds(2)).until(() -> Instant.now().isAfter(expiresAt.plusMillis(200)));
+        assertThat(reauth.closeIfExpired("s-1")).isFalse();
         verify(host, never()).close(any());
-        assertThat(reauth.expiryTimerCount()).isEqualTo(1);
-        clock.now = renewed;
-        timers.at(renewed).task().run();
-        verify(host).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        // 새 만료에 다시 건 예약이 닫는다
+        verify(host, timeout(6_000)).close(ChatWebSocketSessionRegistry.TOKEN_EXPIRED);
+        assertThat(Instant.now()).isAfterOrEqualTo(renewed);
     }
 
     /**
@@ -525,8 +490,7 @@ class ChatWebSocketSessionRegistryTest {
         CountDownLatch reauthChecked = new CountDownLatch(1);
         CountDownLatch resumeReauth = new CountDownLatch(1);
         PausingClock clock = new PausingClock(NOW, "reauth", reauthChecked, resumeReauth);
-        CapturingScheduler timers = new CapturingScheduler();
-        ChatWebSocketSessionRegistry reauth = registry(timers.scheduler(), clock);
+        ChatWebSocketSessionRegistry reauth = registry(clock);
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
@@ -539,9 +503,9 @@ class ChatWebSocketSessionRegistryTest {
             Future<ChatReauthResult> result = threads.submit(
                     () -> reauth.reauthenticate("s-1", HOST_ID, LATER.plusSeconds(60)));
             assertThat(reauthChecked.await(5, TimeUnit.SECONDS)).isTrue();
-            // 그 사이 만료 시각이 되어 옛 예약이 돈다
+            // 그 사이 만료 시각이 되어 만료 확인이 돈다(프레임 검사. 만료 예약·주기 대조와 같은 닫기 표시를 지난다)
             clock.now = expiresAt;
-            Future<?> timer = timerThread.submit(timers.at(expiresAt).task());
+            Future<?> timer = timerThread.submit(() -> reauth.closeIfExpired("s-1"));
             try {
                 timer.get(500, TimeUnit.MILLISECONDS);
             } catch (java.util.concurrent.TimeoutException blocked) {
@@ -568,7 +532,7 @@ class ChatWebSocketSessionRegistryTest {
     @Test
     void 재인증해도_인증_시각은_처음_연결의_티켓_발급_시각이라_연결한_뒤의_로그아웃_표식이_닫는다() throws Exception {
         MutableClock clock = new MutableClock(NOW);
-        ChatWebSocketSessionRegistry reauth = registry(scheduler, clock);
+        ChatWebSocketSessionRegistry reauth = registry(clock);
         WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
@@ -579,37 +543,33 @@ class ChatWebSocketSessionRegistryTest {
 
         assertThat(reauth.closeLoggedOutBefore(java.util.Map.of(HOST_ID, loggedOutAt))).isEqualTo(1);
 
-        verify(host).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
+        verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
     }
 
     @Test
     void 로그아웃_표식으로_닫기를_맡긴_연결은_재인증하지_않는다() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
-        ExecutorService closing = Executors.newSingleThreadExecutor();
+        CountDownLatch closing = new CountDownLatch(1);
         try {
-            ChatWebSocketSessionRegistry reauth = new ChatWebSocketSessionRegistry(absent(), absent(), scheduler,
-                    task -> closing.execute(() -> {
-                        try {
-                            release.await(5, TimeUnit.SECONDS);
-                        } catch (InterruptedException exception) {
-                            Thread.currentThread().interrupt();
-                        }
-                        task.run();
-                    }), Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30));
-            WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
             WebSocketSession host = session("s-1");
-            reauthHandler.afterConnectionEstablished(host);
-            reauth.bind("s-1", HOST_ID, NOW.minusSeconds(1), LATER);
-            assertThat(reauth.closeLoggedOutBefore(java.util.Map.of(HOST_ID, NOW))).isEqualTo(1);
+            // 닫기 실행기의 닫기가 끝나지 않은 채 머문다
+            doAnswer(invocation -> {
+                closing.countDown();
+                release.await(5, TimeUnit.SECONDS);
+                return null;
+            }).when(host).close(any(CloseStatus.class));
+            handler.afterConnectionEstablished(host);
+            registry.bind("s-1", HOST_ID, NOW.minusSeconds(1), LATER);
+            assertThat(registry.closeLoggedOutBefore(java.util.Map.of(HOST_ID, NOW))).isEqualTo(1);
+            assertThat(closing.await(3, TimeUnit.SECONDS)).isTrue();
 
-            assertThat(reauth.reauthenticate("s-1", HOST_ID, LATER.plusSeconds(60)))
+            assertThat(registry.reauthenticate("s-1", HOST_ID, LATER.plusSeconds(60)))
                     .isEqualTo(ChatReauthResult.failed(Outcome.CONNECTION_CLOSING, LATER));
 
             release.countDown();
             verify(host, timeout(3000)).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
         } finally {
             release.countDown();
-            closing.shutdownNow();
         }
     }
 
@@ -633,64 +593,13 @@ class ChatWebSocketSessionRegistryTest {
         return session;
     }
 
-    /** 앞의 {@code keep}개 일회 예약만 실제로 걸고 나머지는 버리는 스케줄러(만료 예약이 빠진 상황). 주기 예약은 그대로 건다 */
-    private static final class DroppingScheduler extends ThreadPoolTaskScheduler {
-
-        private final java.util.concurrent.atomic.AtomicInteger remaining;
-
-        private DroppingScheduler(int keep) {
-            this.remaining = new java.util.concurrent.atomic.AtomicInteger(keep);
-        }
-
-        @Override
-        public ScheduledFuture<?> schedule(Runnable task, Instant startTime) {
-            if (remaining.getAndDecrement() > 0) {
-                return super.schedule(task, startTime);
-            }
-            return mock(ScheduledFuture.class);
-        }
+    private ChatWebSocketSessionRegistry registry(Clock clock) {
+        return track(new ChatWebSocketSessionRegistry(absent(), absent(), clock, Duration.ofSeconds(30), 4, 10_000));
     }
 
-    /** 일회 예약을 실행하지 않고 기억해 두는 스케줄러. 테스트가 예약을 원하는 순서로 직접 돌린다 */
-    private static final class CapturingScheduler {
-
-        private final List<Timer> timers = new java.util.concurrent.CopyOnWriteArrayList<>();
-        private final TaskScheduler scheduler = idleScheduler();
-
-        private CapturingScheduler() {
-            when(scheduler.schedule(any(Runnable.class), any(Instant.class))).thenAnswer(invocation -> {
-                ScheduledFuture<?> future = mock(ScheduledFuture.class);
-                timers.add(new Timer(invocation.getArgument(0), invocation.getArgument(1), future));
-                return future;
-            });
-        }
-
-        TaskScheduler scheduler() {
-            return scheduler;
-        }
-
-        /** 이 시각에 건 예약 */
-        Timer at(Instant startTime) {
-            return timers.stream().filter(timer -> timer.startTime().equals(startTime)).findFirst()
-                    .orElseThrow(() -> new AssertionError("예약이 없습니다: " + startTime));
-        }
-
-        private record Timer(Runnable task, Instant startTime, ScheduledFuture<?> future) {
-        }
-    }
-
-    private static ChatWebSocketSessionRegistry registry(TaskScheduler scheduler, Clock clock) {
-        return new ChatWebSocketSessionRegistry(absent(), absent(), scheduler, clock, Duration.ofSeconds(30));
-    }
-
-    /** 예약은 받지만 실행하지 않는 스케줄러(만료 예약이 빠진 상황) */
-    private static TaskScheduler idleScheduler() {
-        TaskScheduler scheduler = mock(TaskScheduler.class);
-        when(scheduler.schedule(any(Runnable.class), any(Instant.class)))
-                .thenAnswer(invocation -> mock(ScheduledFuture.class));
-        when(scheduler.scheduleAtFixedRate(any(Runnable.class), any(Instant.class), any(Duration.class)))
-                .thenAnswer(invocation -> mock(ScheduledFuture.class));
-        return scheduler;
+    private ChatWebSocketSessionRegistry track(ChatWebSocketSessionRegistry created) {
+        registries.add(created);
+        return created;
     }
 
     private static WebSocketSession switchableSession(String id, AtomicBoolean open) {
@@ -740,6 +649,31 @@ class ChatWebSocketSessionRegistryTest {
                 }
             }
             return read;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+    }
+
+    /** 실제 시각에 앞당긴 만큼을 더하는 시계. 실제로 도는 예약과 시계로 움직이는 시각을 함께 쓴다 */
+    private static final class OffsetClock extends Clock {
+
+        private volatile Duration offset = Duration.ZERO;
+
+        void advance(Duration amount) {
+            offset = offset.plus(amount);
+        }
+
+        @Override
+        public Instant instant() {
+            return Instant.now().plus(offset);
         }
 
         @Override

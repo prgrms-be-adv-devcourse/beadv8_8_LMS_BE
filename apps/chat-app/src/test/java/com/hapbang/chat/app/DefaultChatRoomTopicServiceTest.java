@@ -10,10 +10,12 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.QueryTimeoutException;
 
 import com.hapbang.chat.app.ChatRecipientStateReader.SubscriptionCheck;
-import com.hapbang.chat.app.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
+import com.hapbang.chat.app.port.LocalChatSender;
 
 /**
  * 방 topic 구독 허가: 거절 사유, 거절해도 연결은 닫지 않음(프레임만), 허가 중 닫힌 연결, 퇴장 뒤 회수.

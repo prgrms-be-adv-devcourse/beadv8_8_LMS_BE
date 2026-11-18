@@ -3,12 +3,14 @@ package com.hapbang.chat.app;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatRecipientStateReader.SubscriptionCheck;
-import com.hapbang.chat.app.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Registered;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
+import com.hapbang.chat.app.port.LocalChatSender;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

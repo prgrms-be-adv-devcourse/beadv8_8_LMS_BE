@@ -6,12 +6,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
 import com.hapbang.chat.app.dto.ChatGroupRoomsResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidatePageResponse;
 import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.ChatRecruitSource.ChatRecruit;
+import com.hapbang.chat.app.port.ChatRecruitSource;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 
 /**

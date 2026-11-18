@@ -29,15 +29,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
+import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatControlOutboxRepository;
-import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatPublishCheckpointRepository;
-import com.hapbang.chat.out.JpaChatOutboxStore;
+import com.hapbang.chat.support.ChatControlOutboxTestRepository;
+import com.hapbang.chat.support.ChatMessageTestRepository;
 
 /**
  * Outbox 적재의 남은 경계 (테스트 기준 "Outbox 적재", 설계 9장 "메시지 outbox relay").
@@ -61,16 +62,16 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     private ChatPublishCheckpointRepository spiedCheckpointRepository;
 
     @Autowired
-    private JpaChatOutboxStore outboxStore;
+    private ChatOutboxStore outboxStore;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMessageTestRepository chatMessageTestRepository;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
 
     @Autowired
-    private ChatControlOutboxRepository controlOutboxRepository;
+    private ChatControlOutboxTestRepository controlOutboxTestRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -161,7 +162,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.PENDING);
         reset(spiedQueue);
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
@@ -179,8 +180,8 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(IllegalStateException.class);
 
-        assertThat(chatMessageRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
-        assertThat(chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).isEmpty();
+        assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
+        assertThat(chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).isEmpty();
         assertThat(relay.relayBatch(ChatJobStream.DELIVERY)).isZero();
     }
 
@@ -194,10 +195,10 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
             assertThat(status.isRollbackOnly()).isFalse();
         });
 
-        assertThat(controlOutboxRepository.findAll())
+        assertThat(controlOutboxTestRepository.findAll())
                 .extracting(control -> String.valueOf(control.getMemberVersion()))
                 .containsExactlyInAnyOrder("5", "null");
-        assertThat(checkpointRepository.findAll())
+        assertThat(checkpointTestRepository.findAll())
                 .filteredOn(checkpoint -> checkpoint.getConsumerGroup().equals(ChatJobStream.CONTROL.consumerGroup()))
                 .hasSize(2);
         assertThatThrownBy(() -> chatConnectionControl.requestRecheck(GUEST_ID, 6L,
@@ -212,8 +213,8 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
             throw new IllegalStateException("회원 반영 실패");
         })).isInstanceOf(IllegalStateException.class);
 
-        assertThat(controlOutboxRepository.findAll()).isEmpty();
-        assertThat(checkpointRepository.findAll()).isEmpty();
+        assertThat(controlOutboxTestRepository.findAll()).isEmpty();
+        assertThat(checkpointTestRepository.findAll()).isEmpty();
         assertThat(relay.relayBatch(ChatJobStream.CONTROL)).isZero();
     }
 

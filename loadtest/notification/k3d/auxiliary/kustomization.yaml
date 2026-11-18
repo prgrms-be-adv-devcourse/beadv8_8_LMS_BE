@@ -1,5 +1,5 @@
 # B0 격리 환경의 auxiliary-app(N13, ND-155). local overlay(로컬 이미지·가짜 Secret) 위에 B0 전용 값만 더한다.
-# - 운영과 같게 둔다: limit 704Mi, JAVA_TOOL_OPTIONS -Xmx256m, replicas 1, prod 프로필.
+# - 운영과 같게 둔다: limit 832Mi(#996. N13·N15 측정 때는 704Mi), JAVA_TOOL_OPTIONS -Xmx256m, replicas 1, prod 프로필.
 # - 회원 앱이 없으므로 첫 Backfill 없이 알림 소비자를 바로 시작한다(user-backfill.on-startup=false).
 # - 알림 시작 시각을 고정한다(첫 기동 기록에 기대지 않음, ND-095).
 # - Gateway CRD(Envoy)와 Alloy가 없으므로 HTTPRoute·SecurityPolicy·BackendTrafficPolicy를 빼고 trace 전송을 끈다.

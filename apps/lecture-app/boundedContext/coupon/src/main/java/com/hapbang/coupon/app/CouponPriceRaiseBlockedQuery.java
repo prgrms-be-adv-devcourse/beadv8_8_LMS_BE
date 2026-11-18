@@ -5,7 +5,7 @@ import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.coupon.app.port.CouponReader;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
 
@@ -16,17 +16,17 @@ import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
 @Service
 public class CouponPriceRaiseBlockedQuery {
 
-    private final CouponReader couponReader;
+    private final CouponRepository couponRepository;
     private final Clock clock;
 
-    public CouponPriceRaiseBlockedQuery(CouponReader couponReader,
+    public CouponPriceRaiseBlockedQuery(CouponRepository couponRepository,
                                         @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.couponReader = couponReader;
+        this.couponRepository = couponRepository;
         this.clock = clock;
     }
 
     public CouponPriceRaiseBlockedResponse blocked(long lectureId) {
         return new CouponPriceRaiseBlockedResponse(lectureId,
-                couponReader.existsPriceRaiseBlocker(lectureId, clock.instant()));
+                couponRepository.existsPriceRaiseBlocker(lectureId, clock.instant()));
     }
 }

@@ -52,9 +52,4 @@ public record CouponLimitsProperties(Integer maxQuantityPerCoupon, Long maxTotal
     public long backlogReleaseAt() {
         return (long) Math.floor(backlogThreshold * backlogReleaseRatio);
     }
-
-    /** 모두 기본값 */
-    public static CouponLimitsProperties defaults() {
-        return new CouponLimitsProperties(null, null, null, null, null);
-    }
 }

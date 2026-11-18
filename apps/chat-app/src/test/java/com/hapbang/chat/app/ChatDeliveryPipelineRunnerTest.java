@@ -23,6 +23,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;

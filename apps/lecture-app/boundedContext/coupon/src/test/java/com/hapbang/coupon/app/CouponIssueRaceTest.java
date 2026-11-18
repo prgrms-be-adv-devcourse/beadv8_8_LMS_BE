@@ -35,17 +35,18 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.coupon.app.port.BudgetWorkRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.out.BudgetWorkRepository;
-import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.coupon.out.redis.RedisCouponIssueStore;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
@@ -88,7 +89,7 @@ class CouponIssueRaceTest {
 
         Instant now = clock.instant();
         couponId = ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE);
-        coupon = Coupon.createSeller(SELLER_ID,
+        coupon = CouponFixture.createSeller(SELLER_ID,
                 lectureRate().issuePeriod(now.minus(Duration.ofHours(1)), now.plus(Duration.ofHours(1))).build(), now);
         ReflectionTestUtils.setField(coupon, "id", couponId);
         coupon.submitReview(now);

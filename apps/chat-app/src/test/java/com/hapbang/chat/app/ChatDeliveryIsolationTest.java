@@ -24,15 +24,15 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatDeliveryReprocessAudit;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
+import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
 
 /**
  * 시도·재적재 상한의 격리와 운영 재처리 감사 기록 (설계 4.5 7번, 테스트 기준 "Stream 유실·보존").
@@ -50,10 +50,10 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private ChatDeliveryReprocessAuditRepository auditRepository;
+    private ChatDeliveryReprocessAuditTestRepository auditRepository;
 
     @Autowired
-    private JpaChatPublishCheckpointStore checkpointStore;
+    private ChatPublishCheckpointStore checkpointStore;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -79,7 +79,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
         // 격리한 작업은 자동 재구성 대상이 아니다
         assertThat(reconstructor.reconstruct(ChatJobStream.DELIVERY, Duration.ZERO)).isZero();
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         ChatPublishCheckpoint published = checkpoint(deliveryId);
@@ -152,12 +152,12 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
 
         isolateByPublishFailures(deliveryId);
         String firstDeadEntryId = checkpoint(deliveryId).getDeadStreamEntryId();
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         assertThat(checkpoint(deliveryId).getLastError()).isNull();
 
         isolateByPublishFailures(deliveryId);
         String secondDeadEntryId = checkpoint(deliveryId).getDeadStreamEntryId();
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         ChatPublishCheckpoint checkpoint = checkpoint(deliveryId);
@@ -189,7 +189,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
         UUID deliveryId = send("안녕하세요");
         isolateOutboxByEnqueueFailures(deliveryId);
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
@@ -215,7 +215,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
         UUID deliveryId = send("안녕하세요");
         relayAll(ChatJobStream.DELIVERY);
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isFalse();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isFalse();
 
         assertThat(auditRepository.count()).isZero();
         assertThat(checkpoint(deliveryId).getGeneration()).isZero();
@@ -239,7 +239,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
             }));
             assertThat(deadWritten.await(5, TimeUnit.SECONDS)).isTrue();
             Future<Boolean> reprocessing = executor.submit(
-                    () -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId));
+                    () -> reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null));
             // 재처리는 체크포인트 행 잠금을 기다린다
             Awaitility.await().atMost(Duration.ofSeconds(5))
                     .until(() -> lockWaiters() > 0 && !reprocessing.isDone());

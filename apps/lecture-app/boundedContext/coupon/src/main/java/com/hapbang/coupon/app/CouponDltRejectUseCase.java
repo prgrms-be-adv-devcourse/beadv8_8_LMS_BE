@@ -13,7 +13,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.CouponCompensationStore;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponDltProperties;
 import com.hapbang.coupon.domain.CouponDltLog;
@@ -23,12 +29,6 @@ import com.hapbang.coupon.domain.CouponIssueResult;
 import com.hapbang.coupon.domain.IssueCompensation;
 import com.hapbang.coupon.domain.IssueDelivery;
 import com.hapbang.coupon.domain.ProcessedOperation;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 
 import lombok.extern.slf4j.Slf4j;
 

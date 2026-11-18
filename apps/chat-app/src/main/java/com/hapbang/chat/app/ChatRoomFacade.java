@@ -79,13 +79,12 @@ public class ChatRoomFacade {
      * 이 회수가 늦게 실행돼도 재입장한 새 세대의 구독은 남는다. 퇴장 뒤 저장된 메시지를 막는 보장은 전달할 때의 버전 확인 규칙이
      * 한다).
      */
-    public ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion) {
+    public void leave(Long chatRoomId, Long userId, Integer participationVersion) {
         ChatRoomLeaveResult result = chatRoomUseCase.leave(chatRoomId, userId, participationVersion);
         if (result.left()) {
             chatRoomTopicService.revokeMember(chatRoomId, userId, result.leftParticipationVersion(),
                     ChatSubscriptionReason.LEFT);
         }
-        return result;
     }
 
     /**

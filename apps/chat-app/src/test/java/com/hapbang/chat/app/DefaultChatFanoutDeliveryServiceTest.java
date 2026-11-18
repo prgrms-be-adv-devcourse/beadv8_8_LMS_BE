@@ -17,9 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.QueryTimeoutException;
 
-import com.hapbang.chat.app.ChatRecipientStateReader.RoomMembership;
-import com.hapbang.chat.app.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
@@ -27,8 +24,17 @@ import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
+import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
+import com.hapbang.chat.app.port.ChatRoomMemberships;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
+import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
+import com.hapbang.chat.app.port.LocalChatSender;
+import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -40,12 +46,12 @@ class DefaultChatFanoutDeliveryServiceTest {
     private static final Long ROOM_ID = 10L;
 
     private final LocalChatConnections connections = mock(LocalChatConnections.class);
-    private final ChatRecipientStateReader reader = mock(ChatRecipientStateReader.class);
+    private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<RoomChannelSubscriptions> noChannels = mock(ObjectProvider.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels, 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+    private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final DefaultChatFanoutDeliveryService service = new DefaultChatFanoutDeliveryService(connections,
             subscriptions, cache, sender);
@@ -63,7 +69,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     void 구독한_세션에만_쓰고_보낸_사람_세션의_프레임에만_전송_ID를_싣는다() {
         subscribe("s-host", HOST_ID, 1);
         subscribe("s-guest", GUEST_ID, 2);
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1), member(GUEST_ID, 2)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1), member(GUEST_ID, 2)));
 
         service.deliver(fanout(1, "c-1"));
 
@@ -75,7 +81,7 @@ class DefaultChatFanoutDeliveryServiceTest {
 
     @Test
     void 전송_결과_확인은_방_구독과_관계없이_보낸_사람의_로컬_연결에_세대_헤더와_함께_보낸다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 3)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 3)));
         when(connections.sessionIdsOf(HOST_ID)).thenReturn(Set.of("s-host"));
 
         service.confirmToSender(RoomActivityFanout.from(fanout(1, "c-1")));
@@ -85,7 +91,7 @@ class DefaultChatFanoutDeliveryServiceTest {
 
     @Test
     void 전송_ID_없이_보낸_일반_메시지도_전송_ID_없는_결과_확인을_보낸다() {
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 3)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 3)));
         when(connections.sessionIdsOf(HOST_ID)).thenReturn(Set.of("s-host"));
 
         service.confirmToSender(RoomActivityFanout.from(fanout(1, null)));
@@ -104,19 +110,19 @@ class DefaultChatFanoutDeliveryServiceTest {
                     ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, HOST_ID, notice, null));
         }
 
-        verifyNoInteractions(reader, sender);
+        verifyNoInteractions(loader, sender);
     }
 
     @Test
     void 참여가_바뀌지_않는_동안은_메시지마다_DB를_읽지_않는다() {
         subscribe("s-guest", GUEST_ID, 1);
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(3, member(GUEST_ID, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(3, member(GUEST_ID, 1)));
 
         for (int i = 0; i < 5; i++) {
             service.deliver(fanout(3, null));
         }
 
-        verify(reader, times(1)).findRoomMembership(ROOM_ID);
+        verify(loader, times(1)).load(ROOM_ID);
         verify(sender, times(5)).sendRoomMessage(eq(ROOM_ID), any(), any());
     }
 
@@ -124,11 +130,11 @@ class DefaultChatFanoutDeliveryServiceTest {
     void 퇴장_뒤_저장된_메시지는_구독이_남아_있어도_쓰지_않고_구독을_회수한다() {
         subscribe("s-guest", GUEST_ID, 1);
         // 버전 1에서 읽은 캐시: 아직 참여 중
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1), member(GUEST_ID, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(1, member(HOST_ID, 1), member(GUEST_ID, 1)));
         service.deliver(fanout(1, null));
         clearInvocations(sender);
         // 버전 2의 퇴장 뒤 저장된 메시지: 캐시가 버전 2보다 낮으므로 다시 읽어 퇴장을 본다
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(2, member(HOST_ID, 1)));
 
         service.deliver(fanout(2, null));
 
@@ -142,7 +148,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     void 늦게_등록된_구독도_방_캐시의_버전으로_판단해_퇴장을_놓치지_않는다() {
         // 다른 구독의 재조회로 방 캐시는 이미 버전 10(그 회원은 버전 9에서 퇴장)
         subscribe("s-host", HOST_ID, 1);
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(10, member(HOST_ID, 1)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(10, member(HOST_ID, 1)));
         service.deliver(fanout(10, null));
         // 느린 SUBSCRIBE가 버전 8의 상태(참여 중)로 허가된 뒤 늦게 등록된다
         subscribe("s-guest", GUEST_ID, 1);
@@ -158,7 +164,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     @Test
     void 재입장으로_세대가_바뀌면_옛_세대_구독에_쓰지_않고_현재_세대를_알려_회수한다() {
         subscribe("s-guest", GUEST_ID, 1);
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(membership(3, member(GUEST_ID, 2)));
+        when(loader.load(ROOM_ID)).thenReturn(membership(3, member(GUEST_ID, 2)));
 
         service.deliver(fanout(3, null));
 
@@ -175,7 +181,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     @Test
     void 캐시가_재입장_전에_읽혔어도_재입장한_새_세대의_구독을_회수하지_않는다() {
         subscribe("s-host", HOST_ID, 1);
-        when(reader.findRoomMembership(ROOM_ID))
+        when(loader.load(ROOM_ID))
                 .thenReturn(membership(2, member(HOST_ID, 1)))
                 .thenReturn(membership(3, member(HOST_ID, 1), new ChatRecipientState(GUEST_ID, true, true, 2, 9)));
         service.deliver(fanout(2, null));
@@ -196,7 +202,7 @@ class DefaultChatFanoutDeliveryServiceTest {
         Map<Long, ChatRecipientState> members = new HashMap<>();
         members.put(GUEST_ID, new ChatRecipientState(GUEST_ID, true, true, 1, 6));
         members.put(ADMIN_ID, new ChatRecipientState(ADMIN_ID, false, true, 1, 1));
-        when(reader.findRoomMembership(ROOM_ID)).thenReturn(new RoomMembership(1, members));
+        when(loader.load(ROOM_ID)).thenReturn(new RoomMembership(1, members));
 
         service.deliver(fanout(1, null));
 
@@ -208,7 +214,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     @Test
     void 참여_상태_조회에_실패하면_아무에게도_쓰지_않고_구독_회원에게_재동기화를_알린다() {
         subscribe("s-guest", GUEST_ID, 1);
-        when(reader.findRoomMembership(ROOM_ID)).thenThrow(new QueryTimeoutException("timeout"));
+        when(loader.load(ROOM_ID)).thenThrow(new QueryTimeoutException("timeout"));
 
         service.deliver(fanout(1, null));
 
@@ -220,7 +226,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     void 방_구독이_없으면_DB를_읽지_않는다() {
         service.deliver(fanout(1, "c-1"));
 
-        verifyNoInteractions(reader, sender);
+        verifyNoInteractions(loader, sender);
     }
 
     @Test
@@ -230,7 +236,7 @@ class DefaultChatFanoutDeliveryServiceTest {
         service.deliver(new MessageFanout(UUID.randomUUID(), MessageFanout.Type.MESSAGE, 99L, 1, message,
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, null));
 
-        verifyNoInteractions(reader, sender);
+        verifyNoInteractions(loader, sender);
     }
 
     @Test

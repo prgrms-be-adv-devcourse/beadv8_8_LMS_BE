@@ -26,11 +26,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatNotificationFacade;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;
@@ -39,9 +39,9 @@ import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.chat.in.support.RealtimeStompClient.RoomSubscription;
+import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.member.domain.Role;
 
@@ -77,7 +77,6 @@ class ChatPipelineDeliveryE2ETest {
 
     @Autowired
     private ChatNotificationFacade chatNotificationFacade;
-
 
     private RestTestClient client;
     private RealtimeStompClient stomp;

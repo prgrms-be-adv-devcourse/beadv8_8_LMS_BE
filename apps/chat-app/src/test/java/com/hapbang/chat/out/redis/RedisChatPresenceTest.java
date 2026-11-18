@@ -22,6 +22,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
+import com.hapbang.chat.global.redis.ChatRedisKeys;
+
 /**
  * Redis 접속 정보(설계 Q21)를 실제 Redis로 확인한다: 연결·끊김(마지막 연결만 지움), 만료로 정리, 다른 앱의 연결,
  * 1000명 중 접속 회원을 한 번에 찾기, 회원 연결의 만료된 원소 정리. 다른 테스트와 나누지 않도록 전용 컨테이너를 쓴다.

@@ -72,8 +72,8 @@ class ChatInboundSessionQueueTest {
         inbound.send(disconnect("s-leak"));
         release.countDown();
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> budget.sessionsWithQueuedWork() == 0
-                && budget.executor().getActiveCount() == 0 && budget.executor().getQueueSize() == 0);
+        await().during(Duration.ofMillis(100)).atMost(Duration.ofSeconds(5))
+                .until(() -> budget.executor().getActiveCount() == 0 && budget.executor().getQueueSize() == 0);
         assertThat(queues(budget)).doesNotContainKey("s-leak");
     }
 
@@ -89,8 +89,8 @@ class ChatInboundSessionQueueTest {
         inbound.send(disconnect("s-ok"));
         release.countDown();
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> budget.sessionsWithQueuedWork() == 0
-                && budget.executor().getActiveCount() == 0 && budget.executor().getQueueSize() == 0);
+        await().during(Duration.ofMillis(100)).atMost(Duration.ofSeconds(5))
+                .until(() -> budget.executor().getActiveCount() == 0 && budget.executor().getQueueSize() == 0);
         // s-block은 세션 종료 정리를 보내지 않았으므로 남는다
         await().atMost(Duration.ofSeconds(1)).until(() -> !queues(budget).containsKey("s-ok"));
     }
@@ -164,7 +164,6 @@ class ChatInboundSessionQueueTest {
         assertThat(overlapped.get()).as("한 연결의 작업이 동시에 처리된 횟수").isZero();
         // DISCONNECT 메시지의 payload는 "<세션>:<프레임 수>"로 순서 검사에 포함된다
         assertThat(outOfOrder.get()).as("연결 안에서 순서가 바뀐 횟수").isZero();
-        assertThat(budget.sessionsWithQueuedWork()).isZero();
         assertThat(meterRegistry.counter(ChatInboundReceiveBudget.REJECTED_METRIC).count()).isZero();
         verify(registry, never()).closeSession(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any());

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.DiscountType;
@@ -22,7 +23,7 @@ class UsableCouponTest {
     private static final Instant EXPIRES_AT = NOW.plusSeconds(3_600);
 
     private static Coupon platformCouponWithId(long id) {
-        Coupon coupon = Coupon.createPlatform(ADMIN_ID, anyLectureRate().stackable(true).build(), NOW);
+        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID, anyLectureRate().stackable(true).build(), NOW);
         ReflectionTestUtils.setField(coupon, "id", id);
         return coupon;
     }

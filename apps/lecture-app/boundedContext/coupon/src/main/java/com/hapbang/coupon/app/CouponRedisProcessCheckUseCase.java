@@ -3,19 +3,17 @@ package com.hapbang.coupon.app;
 import java.time.Clock;
 import java.util.List;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.ProcessCheck;
-import com.hapbang.coupon.app.port.RecoveryLookup;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.config.CouponClockConfig;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.CouponStatus;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -38,26 +36,26 @@ public class CouponRedisProcessCheckUseCase {
     /** alert 표식: Redis 프로세스 변경·issue-control 유실로 접수를 막았다. 관리자 복구가 필요하다 */
     static final String RECOVERY_REQUIRED_LOG_TAG = "[COUPON_RECOVERY_REQUIRED]";
 
-    private final RecoveryLookup recoveryLookup;
+    private final CouponRepository couponRepository;
     private final CouponRecoveryStore recoveryStore;
     private final CouponRedisProperties redisProperties;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
 
-    public CouponRedisProcessCheckUseCase(RecoveryLookup recoveryLookup,
+    public CouponRedisProcessCheckUseCase(CouponRepository couponRepository,
                                           CouponRecoveryStore recoveryStore, CouponRedisProperties redisProperties,
-                                          ObjectProvider<MeterRegistry> meterRegistry,
+                                          MeterRegistry meterRegistry,
                                           @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.recoveryLookup = recoveryLookup;
+        this.couponRepository = couponRepository;
         this.recoveryStore = recoveryStore;
         this.redisProperties = redisProperties;
-        this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
+        this.meterRegistry = meterRegistry;
         this.clock = clock;
     }
 
     /** 한 회차. 막은 쿠폰 수를 돌려준다 */
     public int checkAll() {
-        List<Long> couponIds = recoveryLookup.findRedisReadyCouponIds(
+        List<Long> couponIds = couponRepository.findRedisReadyIds(
                 List.of(CouponStatus.OPEN, CouponStatus.SUSPENDED),
                 clock.instant().minus(redisProperties.keysExpireMargin()));
         int blocked = 0;

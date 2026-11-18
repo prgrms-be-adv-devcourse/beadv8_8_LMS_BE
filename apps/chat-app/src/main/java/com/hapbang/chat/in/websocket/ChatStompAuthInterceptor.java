@@ -4,7 +4,6 @@ import java.security.Principal;
 import java.time.Clock;
 import java.time.Instant;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
@@ -37,13 +36,7 @@ public class ChatStompAuthInterceptor implements ChannelInterceptor {
     private final ChatWebSocketSessionRegistry chatWebSocketSessionRegistry;
     private final Clock clock;
 
-    @Autowired
-    public ChatStompAuthInterceptor(ChatWebSocketSessionRegistry chatWebSocketSessionRegistry) {
-        this(chatWebSocketSessionRegistry, Clock.systemUTC());
-    }
-
-    /** 시계를 직접 넘긴다(테스트) */
-    ChatStompAuthInterceptor(ChatWebSocketSessionRegistry chatWebSocketSessionRegistry, Clock clock) {
+    public ChatStompAuthInterceptor(ChatWebSocketSessionRegistry chatWebSocketSessionRegistry, Clock clock) {
         this.chatWebSocketSessionRegistry = chatWebSocketSessionRegistry;
         this.clock = clock;
     }

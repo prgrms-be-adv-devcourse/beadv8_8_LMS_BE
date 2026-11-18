@@ -27,7 +27,6 @@ public record CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration
                                             Duration soldOutCacheTtl, Republish republish,
                                             Duration producerDeliveryTimeout) {
 
-    /** 설정 바인딩은 이 생성자로 한다(아래 4인자 생성자는 기존 호출 호환용) */
     @ConstructorBinding
     public CouponIssueDeliveryProperties {
         publishAckTimeout = positive(publishAckTimeout, Duration.ofSeconds(1), "publish-ack-timeout");
@@ -40,16 +39,6 @@ public record CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration
         republish = republish == null ? new Republish(null, null, null, null) : republish;
     }
 
-    /** 생산자 전송 수명은 기본값 */
-    public CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration republishAfter, Duration soldOutCacheTtl,
-                                         Republish republish) {
-        this(publishAckTimeout, republishAfter, soldOutCacheTtl, republish, null);
-    }
-
-    /** 모두 기본값 */
-    public static CouponIssueDeliveryProperties defaults() {
-        return new CouponIssueDeliveryProperties(null, null, null, null, null);
-    }
 
     /**
      * 쿠폰 producer로 시작한 전송 하나가 끝나기까지의 최대 시간: 전송 준비 대기({@code max.block.ms} = {@link #publishAckTimeout}) +

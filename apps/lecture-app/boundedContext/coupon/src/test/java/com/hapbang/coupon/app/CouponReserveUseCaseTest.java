@@ -17,19 +17,19 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.port.CouponUsageRepository;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
+import com.hapbang.coupon.app.port.MemberCouponState;
+import com.hapbang.coupon.app.port.ProcessedOperationRepository;
 import com.hapbang.coupon.domain.CouponUsage;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponUsageRepository;
-import com.hapbang.coupon.out.MemberCouponRepository;
-import com.hapbang.coupon.app.port.MemberCouponState;
-import com.hapbang.coupon.out.ProcessedOperationRepository;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
 // 예약 서비스의 흐름(재검증·근거 대조 → 오름차순 조건부 갱신 → 사용 시도·작업 기록, 거절 기록, 같은 작업 ID 재응답)을 본다.
-// 실제 롤백과 동시 예약은 CouponUsageE2eTest가, 금액·근거 대조 규칙은 도메인 테스트가 본다
+// 실제 롤백과 동시 예약은 CouponUsageE2ETest가, 금액·근거 대조 규칙은 도메인 테스트가 본다
 class CouponReserveUseCaseTest {
 
     private static final String WORK_ID = "order-900:reserve:1";
@@ -46,7 +46,7 @@ class CouponReserveUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new CouponReserveUseCase(support(memberCouponRepository, processedOperationRepository,
-                transactionManager), memberCouponRepository, memberCouponRepository, couponUsageRepository, processedOperationRepository,
+                transactionManager), memberCouponRepository, couponUsageRepository, processedOperationRepository,
                 transactionManager, CLOCK);
         givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)),
                 owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));
@@ -91,7 +91,7 @@ class CouponReserveUseCaseTest {
     void 한_장의_조건부_갱신이_0행이면_사용_시도를_쓰지_않고_롤백한_뒤_거절_코드와_발급_쿠폰을_기록한다() {
         when(memberCouponRepository.reserve(eq(SELLER_COUPON), anyLong(), anyLong(), anyLong(), any())).thenReturn(0);
         when(memberCouponRepository.findStateById(SELLER_COUPON)).thenReturn(Optional.of(new MemberCouponState(
-                SELLER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED, 1, EXPIRES_AT, 777L)));
+                SELLER_COUPON, MEMBER_ID, MemberCouponStatus.RESERVED, 1, EXPIRES_AT)));
 
         assertUsageError(() -> useCase.reserve(request(sellerBasis(1_000), platformBasis())),
                 CouponErrorCode.COUPON_NOT_USABLE, SELLER_COUPON);

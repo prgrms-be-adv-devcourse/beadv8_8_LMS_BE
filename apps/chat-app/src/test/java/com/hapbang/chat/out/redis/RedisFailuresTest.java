@@ -36,12 +36,12 @@ class RedisFailuresTest {
     }
 
     @Test
-    void OOM_응답은_연결_불가가_아니라_메모리_상한이다() {
+    void OOM_응답은_연결_불가가_아니라_쓰기_거절이다() {
         RedisSystemException oom = new RedisSystemException("Error in execution",
                 new RedisCommandExecutionException("OOM command not allowed when used memory > 'maxmemory'."));
-        assertThat(RedisFailures.isMemoryFull(oom)).isTrue();
+        assertThat(RedisFailures.isWriteRejected(oom)).isTrue();
         assertThat(RedisFailures.isConnectivityFailure(oom)).isFalse();
-        assertThat(RedisFailures.isMemoryFull(new RedisSystemException("Error in execution",
+        assertThat(RedisFailures.isWriteRejected(new RedisSystemException("Error in execution",
                 new RedisCommandExecutionException("WRONGTYPE Operation against a key")))).isFalse();
     }
 
@@ -87,7 +87,6 @@ class RedisFailuresTest {
                 new RedisCommandExecutionException("MISCONF Redis is configured to save RDB snapshots, but it's "
                         + "currently unable to persist to disk."));
         assertThat(RedisFailures.isWriteRejected(misconf)).isTrue();
-        assertThat(RedisFailures.isMemoryFull(misconf)).isFalse();
         assertThat(RedisFailures.isConnectivityFailure(misconf)).isFalse();
     }
 

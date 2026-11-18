@@ -17,8 +17,9 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import com.hapbang.chat.app.dto.QueueGroupState;
-import com.hapbang.chat.app.dto.QueuedJob;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishStatus;
@@ -121,7 +122,7 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         }
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.DEAD);
 
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isTrue();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         var checkpoint = checkpoint(deliveryId);
@@ -131,7 +132,7 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         assertThat(checkpoint.getTotalAttemptCount()).isEqualTo(3);
         assertThat(fanout.messages()).singleElement()
                 .satisfies(payload -> assertThat(payload.deliveryId()).isEqualTo(deliveryId));
-        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId)).isFalse();
+        assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isFalse();
     }
 
     @Test

@@ -18,9 +18,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**

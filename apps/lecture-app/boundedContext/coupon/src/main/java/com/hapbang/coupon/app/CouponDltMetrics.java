@@ -2,15 +2,13 @@ package com.hapbang.coupon.app;
 
 import java.util.Locale;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.coupon.app.port.CouponDltLogReader;
+import com.hapbang.coupon.app.port.CouponDltLogRepository;
 import com.hapbang.coupon.domain.IssueCompensation;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -23,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>{@code coupon.issue.compensations{result=restored|already_compensated|marked_only|no_record|member_mismatch}}:
  *     영구 거절 보상 결과별 횟수. no_record·member_mismatch는 사람이 확인한다</li>
  * </ul>
- * 레지스트리가 없는 테스트에서는 메모리 레지스트리를 쓴다.
  */
 @Slf4j
 @Component
@@ -35,12 +32,12 @@ public class CouponDltMetrics {
     static final String COMPENSATIONS = "coupon.issue.compensations";
 
     private final MeterRegistry meterRegistry;
-    private final CouponDltLogReader couponDltLogReader;
+    private final CouponDltLogRepository couponDltLogRepository;
 
-    public CouponDltMetrics(ObjectProvider<MeterRegistry> meterRegistryProvider,
-                            CouponDltLogReader couponDltLogReader) {
-        this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
-        this.couponDltLogReader = couponDltLogReader;
+    public CouponDltMetrics(MeterRegistry meterRegistry,
+                            CouponDltLogRepository couponDltLogRepository) {
+        this.meterRegistry = meterRegistry;
+        this.couponDltLogRepository = couponDltLogRepository;
         Gauge.builder(PENDING, this, CouponDltMetrics::countPending)
                 .description("처리되지 않은 쿠폰 DLT 격리 기록 수(발급 요청·주문 이벤트, PENDING·REPLAYING, 수집 때마다 셈, "
                         + "세지 못하면 NaN)")
@@ -61,7 +58,7 @@ public class CouponDltMetrics {
 
     double countPending() {
         try {
-            return couponDltLogReader.countUnresolved();
+            return couponDltLogRepository.countUnresolved();
         } catch (RuntimeException e) {
             log.warn("쿠폰 발급 DLT 격리 기록 수를 세지 못했다", e);
             return Double.NaN;

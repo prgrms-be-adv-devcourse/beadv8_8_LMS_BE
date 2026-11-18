@@ -8,11 +8,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.port.ChatRoomLogRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
+import com.hapbang.chat.config.ChatGroupProperties;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -32,16 +33,14 @@ import lombok.extern.slf4j.Slf4j;
 public class ChatGroupHistoryExpiryService {
 
     private final ChatRoomRepository chatRoomRepository;
-    private final ChatRoomReader chatRoomReader;
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final TransactionTemplate roomTransaction;
     private final int batchSize;
 
-    public ChatGroupHistoryExpiryService(ChatRoomRepository chatRoomRepository, ChatRoomReader chatRoomReader,
+    public ChatGroupHistoryExpiryService(ChatRoomRepository chatRoomRepository,
             ChatRoomLogRepository chatRoomLogRepository, PlatformTransactionManager transactionManager,
             ChatGroupProperties properties) {
         this.chatRoomRepository = chatRoomRepository;
-        this.chatRoomReader = chatRoomReader;
         this.chatRoomLogRepository = chatRoomLogRepository;
         this.roomTransaction = new TransactionTemplate(transactionManager);
         this.batchSize = properties.historyExpiryBatchSize();
@@ -56,7 +55,7 @@ public class ChatGroupHistoryExpiryService {
         int failed = 0;
         long afterId = 0L;
         while (true) {
-            List<Long> roomIds = chatRoomReader.findHistoryExpiryDueIds(now, afterId, Limit.of(batchSize));
+            List<Long> roomIds = chatRoomRepository.findHistoryExpiryDueIds(now, afterId, Limit.of(batchSize));
             for (Long roomId : roomIds) {
                 try {
                     if (Boolean.TRUE.equals(roomTransaction.execute(status -> expire(roomId, now)))) {

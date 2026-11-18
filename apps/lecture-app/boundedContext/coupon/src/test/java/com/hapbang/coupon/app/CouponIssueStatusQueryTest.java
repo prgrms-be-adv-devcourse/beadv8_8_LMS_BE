@@ -15,21 +15,21 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.coupon.app.port.CouponIssueRequestRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueReceipt;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRecoveryStore;
 import com.hapbang.coupon.app.port.CouponRecoveryStore.IssueControlState;
+import com.hapbang.coupon.app.port.CouponRepository;
+import com.hapbang.coupon.app.port.RecoveryRunRepository;
+import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponIssueRequest;
 import com.hapbang.coupon.domain.IssueStatus;
 import com.hapbang.coupon.domain.RecoveryBoundary;
 import com.hapbang.coupon.domain.RecoveryRun;
 import com.hapbang.coupon.domain.RecoveryUnresolved;
-import com.hapbang.coupon.out.CouponIssueRequestRepository;
-import com.hapbang.coupon.out.CouponRepository;
-import com.hapbang.coupon.out.RecoveryRunRepository;
-import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 // (쿠폰, 요청 ID)로 DB → Redis 순서로 읽는지와 Redis 장애·유실 처리를 본다. 회원 대조 규칙은 IssueStatusRuleTest가 본다
 class CouponIssueStatusQueryTest {
@@ -46,7 +46,7 @@ class CouponIssueStatusQueryTest {
     private final CouponIssueStatusQuery query = new CouponIssueStatusQuery(requestRepository, issueStore,
             couponRepository, recoveryStore, recoveryRunRepository, new CouponRedisProperties(KEYS_EXPIRE_MARGIN), CLOCK);
 
-    private static final IssueControlState READY = new IssueControlState(true, true, null);
+    private static final IssueControlState READY = new IssueControlState(true, true, null, null);
 
     @BeforeEach
     void setUp() {
@@ -147,11 +147,11 @@ class CouponIssueStatusQueryTest {
     void 복구_실행이_없어도_issue_control에_복구_차단이_있으면_UNKNOWN이고_다른_사유의_보류면_NOT_FOUND다() {
         when(couponRepository.findById(COUPON_ID)).thenReturn(Optional.of(openSellerCoupon()));
         when(issueStore.findRequest(COUPON_ID, REQUEST_ID)).thenReturn(Optional.empty());
-        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, false, "RECOVERY"));
+        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, false, "RECOVERY", null));
 
         assertThat(statusOf(MEMBER_ID)).isEqualTo(IssueStatus.UNKNOWN);
 
-        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, true, "BACKLOG"));
+        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, true, "BACKLOG", null));
         assertThat(statusOf(MEMBER_ID)).isEqualTo(IssueStatus.NOT_FOUND);
     }
 
@@ -165,7 +165,7 @@ class CouponIssueStatusQueryTest {
         when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(IssueControlState.missing());
         assertThat(statusOf(MEMBER_ID)).isEqualTo(IssueStatus.UNKNOWN);
 
-        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, false, null));
+        when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(new IssueControlState(true, false, null, null));
         assertThat(statusOf(MEMBER_ID)).isEqualTo(IssueStatus.UNKNOWN);
 
         when(recoveryStore.issueControlState(COUPON_ID)).thenReturn(READY);
@@ -252,7 +252,7 @@ class CouponIssueStatusQueryTest {
     private static RecoveryRun resumedLostRecovery(Instant resumedAt) {
         RecoveryRun run = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, true, resumedAt);
         run.recordBoundary(new RecoveryBoundary(0, true, "", ""), resumedAt);
-        run.recordResults(RecoveryUnresolved.none(), resumedAt);
+        run.recordResults(new RecoveryUnresolved(0, 0, 0), resumedAt);
         run.markRebuilt(run.claimRebuild(resumedAt, Duration.ofMinutes(2)), resumedAt);
         run.markResumed(run.claimResume("확인함", resumedAt, Duration.ofMinutes(2)), "확인함", "evidence", resumedAt);
         return run;

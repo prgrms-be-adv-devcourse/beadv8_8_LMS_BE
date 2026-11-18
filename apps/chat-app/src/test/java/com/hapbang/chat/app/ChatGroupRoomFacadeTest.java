@@ -28,23 +28,24 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.ChatRecruitSourceException.Reason;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
 import com.hapbang.chat.app.dto.ChatGroupRoomsResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidatePageResponse;
 import com.hapbang.chat.app.dto.ChatInviteCandidateResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
-import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRecruitSourceException.Reason;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatGroupInviteFailure;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
 import com.hapbang.chat.domain.ChatMessageType;
@@ -54,13 +55,12 @@ import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomStatusReason;
 import com.hapbang.chat.domain.ChatRoomType;
-import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
@@ -127,6 +127,9 @@ class ChatGroupRoomFacadeTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
 
     @Autowired
@@ -186,7 +189,7 @@ class ChatGroupRoomFacadeTest {
     @Test
     void 모집글의_호스트가_아니면_만들_수_없다() {
         assertError(() -> chatGroupRoomFacade.createRoom(GUEST_ID, RECRUIT_ID), ChatErrorCode.NOT_RECRUIT_HOST);
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
     }
 
     @ParameterizedTest
@@ -195,7 +198,7 @@ class ChatGroupRoomFacadeTest {
         recruits.putRecruit(RECRUIT_ID, HOST_ID, "주말 합방 모집", status);
 
         assertError(() -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID), ChatErrorCode.RECRUIT_NOT_OPEN);
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
     }
 
     @Test
@@ -213,7 +216,7 @@ class ChatGroupRoomFacadeTest {
         assertThat(again.room().chatRoomId()).isEqualTo(roomId);
         assertThat(recruits.recruitCalls()).isEqualTo(1);
         assertError(() -> chatGroupRoomFacade.createRoom(GUEST_ID, RECRUIT_ID), ChatErrorCode.NOT_RECRUIT_HOST);
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -243,7 +246,7 @@ class ChatGroupRoomFacadeTest {
                 index -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID).room().chatRoomId());
 
         assertThat(roomIds).hasSize(8).containsOnly(roomIds.getFirst());
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -264,7 +267,7 @@ class ChatGroupRoomFacadeTest {
         recruits.failWith(Reason.REJECTED);
         assertError(() -> chatGroupRoomFacade.createRoom(HOST_ID, RECRUIT_ID), ChatErrorCode.APPEARANCE_UNAVAILABLE);
 
-        assertThat(chatRoomRepository.count()).isZero();
+        assertThat(chatRoomTestRepository.count()).isZero();
         assertThat(sql.single("select count(*) from chats.chat_room_log", Long.class)).isZero();
     }
 
@@ -538,13 +541,14 @@ class ChatGroupRoomFacadeTest {
 
         assertError(() -> chatRoomFacade.leave(roomId, HOST_ID, null), ChatErrorCode.HOST_CANNOT_LEAVE);
 
-        ChatRoomLeaveResult left = chatRoomFacade.leave(roomId, GUEST_ID, null);
+        chatRoomFacade.leave(roomId, GUEST_ID, null);
 
-        assertThat(left.left()).isTrue();
-        assertThat(left.roomEnded()).isFalse();
-        assertThat(left.leftNotice().notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_LEFT);
-        assertThat(left.leftNotice().groupMemberLeft().leftUserId()).isEqualTo(GUEST_ID);
-        assertThat(left.leftNotice().content()).isEmpty();
+        assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
+        ChatMessageResponse leftNotice = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 30).messages()
+                .getFirst();
+        assertThat(leftNotice.notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_LEFT);
+        assertThat(leftNotice.groupMemberLeft().leftUserId()).isEqualTo(GUEST_ID);
+        assertThat(leftNotice.content()).isEmpty();
         assertThat(chatRoomRepository.findById(roomId).orElseThrow().getStatus()).isEqualTo(ChatRoomStatus.ACTIVE);
     }
 
@@ -588,8 +592,10 @@ class ChatGroupRoomFacadeTest {
         });
 
         // 읽기 전용 방에서 나가면 안내를 남기지 않는다(폐쇄 안내가 마지막 메시지다). 폐쇄한 호스트도 나갈 수 있다
-        assertThat(chatRoomFacade.leave(roomId, GUEST_ID, 1).leftNotice()).isNull();
-        assertThat(chatRoomFacade.leave(roomId, HOST_ID, 1).left()).isTrue();
+        chatRoomFacade.leave(roomId, GUEST_ID, 1);
+        chatRoomFacade.leave(roomId, HOST_ID, 1);
+        assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
+        assertThat(memberOf(roomId, HOST_ID).isActive()).isFalse();
         assertThat(chatRoomRepository.findById(roomId).orElseThrow().getLastSequence()).isEqualTo(lastSequence);
     }
 

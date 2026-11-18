@@ -26,10 +26,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import com.hapbang.coupon.app.CouponRecoveryAdminFacade;
 import com.hapbang.coupon.app.CouponRecoveryUseCase;
 import com.hapbang.coupon.app.dto.RecoveryRunView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.domain.RecoveryStep;
 import com.hapbang.coupon.global.config.CouponWebMvcConfig;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 

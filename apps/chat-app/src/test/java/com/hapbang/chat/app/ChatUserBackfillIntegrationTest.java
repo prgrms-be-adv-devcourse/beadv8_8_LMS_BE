@@ -40,9 +40,10 @@ import com.hapbang.chat.app.dto.ChatUserBackfillResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
-import com.hapbang.chat.out.ChatUserRepository;
+import com.hapbang.chat.support.ChatUserTestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -95,6 +96,9 @@ class ChatUserBackfillIntegrationTest {
 
     @MockitoSpyBean
     private ChatUserRepository chatUserRepository;
+
+    @Autowired
+    private ChatUserTestRepository chatUserTestRepository;
 
     private ChatNativeSql sql;
 
@@ -224,7 +228,7 @@ class ChatUserBackfillIntegrationTest {
         assertThat(retried).extracting(ChatUserBackfillResult::created, ChatUserBackfillResult::skippedStale,
                         ChatUserBackfillResult::failed, ChatUserBackfillResult::completed)
                 .containsExactly(1L, 1L, 0L, true);
-        assertThat(chatUserRepository.count()).isEqualTo(3L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(3L);
     }
 
     @Test
@@ -238,19 +242,18 @@ class ChatUserBackfillIntegrationTest {
         assertThatThrownBy(() -> backfillService.backfill(0, MAX_LIMIT))
                 .isInstanceOfSatisfying(ChatUserBackfillException.class, e -> {
                     assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.MEMBER_SOURCE_UNAVAILABLE);
-                    assertThat(e.getProgress()).extracting(ChatUserBackfillResult::created,
-                                    ChatUserBackfillResult::nextAfterId, ChatUserBackfillResult::completed)
-                            .containsExactly(2L, 2L, false);
-                    assertThat(e.getProperties()).containsEntry("resumeAfterId", 2L);
+                    assertThat(e.getProperties()).containsEntry("created", 2L)
+                            .containsEntry("lastProcessedId", 2L)
+                            .containsEntry("resumeAfterId", 2L);
                 });
-        assertThat(chatUserRepository.count()).isEqualTo(2L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(2L);
 
         failOnRequest = 0;
         ChatUserBackfillResult resumed = backfillService.backfill(2, MAX_LIMIT);
 
         assertThat(resumed).extracting(ChatUserBackfillResult::created, ChatUserBackfillResult::completed)
                 .containsExactly(2L, true);
-        assertThat(chatUserRepository.count()).isEqualTo(4L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(4L);
     }
 
     @Test
@@ -265,7 +268,7 @@ class ChatUserBackfillIntegrationTest {
                         ChatUserBackfillResult::reachedEnd, ChatUserBackfillResult::completed)
                 .containsExactly(2L, 2L, false, false);
         assertThat(backfillService.backfill(first.nextAfterId(), 2).completed()).isTrue();
-        assertThat(chatUserRepository.count()).isEqualTo(3L);
+        assertThat(chatUserTestRepository.count()).isEqualTo(3L);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -334,7 +337,7 @@ class ChatUserBackfillIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_SOURCE_REJECTED"))
                 .andExpect(jsonPath("$.resumeAfterId").value(0))
                 .andExpect(jsonPath("$.scanned").value(0));
-        assertThat(chatUserRepository.count()).isZero();
+        assertThat(chatUserTestRepository.count()).isZero();
     }
 
     @Test

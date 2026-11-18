@@ -21,7 +21,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.RestClient;
 
-import com.hapbang.chat.out.member.ChatMemberApiConfig;
+import com.hapbang.chat.out.member.ChatMemberApiTestClients;
 import com.hapbang.chat.out.member.ChatMemberApiProperties;
 import com.hapbang.chat.out.member.ChatMemberInternalApi;
 import com.hapbang.testsupport.IntegrationTest;
@@ -135,7 +135,7 @@ class ChatTracingTest {
         try (StubServer stub = StubServer.respondingWith("""
                 {"statusCode":200,"message":"","data":{"items":[],"nextAfterId":null}}""")) {
             // 앱의 실제 Client처럼 Boot가 주입하는 RestClient.Builder로 만든다
-            ChatMemberInternalApi client = ChatMemberApiConfig.create(restClientBuilder,
+            ChatMemberInternalApi client = ChatMemberApiTestClients.create(restClientBuilder,
                     new ChatMemberApiProperties(stub.baseUrl(), null, null), "test");
             Observation.createNotStarted("tracing-test", observationRegistry).observe(() -> client.getMembers(10, null));
 

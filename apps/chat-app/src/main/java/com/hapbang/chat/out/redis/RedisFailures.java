@@ -67,11 +67,6 @@ final class RedisFailures {
         return anyInChain(error, current -> startsWithAny(current.getMessage(), WRITE_REJECTED_REPLIES));
     }
 
-    /** {@link #isWriteRejected} 중 메모리 상한(OOM)인지 */
-    static boolean isMemoryFull(Throwable error) {
-        return anyInChain(error, current -> startsWithAny(current.getMessage(), new String[] {"OOM "}));
-    }
-
     static boolean hasMessage(Throwable error, String token) {
         return anyInChain(error, current -> current.getMessage() != null && current.getMessage().contains(token));
     }

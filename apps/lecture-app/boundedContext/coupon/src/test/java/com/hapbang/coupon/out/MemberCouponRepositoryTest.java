@@ -19,12 +19,16 @@ import org.springframework.data.domain.Limit;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponExpiryTarget;
+import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.MemberCouponState;
 import com.hapbang.coupon.app.port.OwnedCoupon;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponFixture;
 import com.hapbang.coupon.domain.MemberCoupon;
 import com.hapbang.coupon.domain.MemberCouponStatus;
+import com.hapbang.coupon.support.MemberCouponTestRepository;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -46,6 +50,9 @@ class MemberCouponRepositoryTest {
     private MemberCouponRepository memberCouponRepository;
 
     @Autowired
+    private MemberCouponTestRepository memberCouponTestRepository;
+
+    @Autowired
     private CouponRepository couponRepository;
 
     @Autowired
@@ -56,7 +63,7 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 같은_회원이_같은_쿠폰을_두_장_가질_수_없다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
         memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-1", NOW));
 
         assertThatThrownBy(() -> memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-2", NOW)))
@@ -66,7 +73,7 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 같은_쿠폰의_같은_발급_요청으로_두_장을_만들_수_없다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
         memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-1", NOW));
 
         assertThatThrownBy(() -> memberCouponRepository.saveAndFlush(issue(OTHER_MEMBER_ID, couponId, "req-1", NOW)))
@@ -76,26 +83,26 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 발급_요청_ID는_쿠폰_안에서만_유일해_다른_쿠폰은_같은_요청_ID를_쓸_수_있다() {
-        Long couponA = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long couponB = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponA = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponB = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
         memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponA, "req-1", NOW));
 
         memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponB, "req-1", NOW));
 
-        assertThat(memberCouponRepository.count()).isEqualTo(2);
+        assertThat(memberCouponTestRepository.count()).isEqualTo(2);
     }
 
     @Test
     void 내_쿠폰은_발급_최신순이고_상태로_거를_수_있다() {
-        Long couponA = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long couponB = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long couponC = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        MemberCoupon older = memberCouponRepository.save(issue(MEMBER_ID, couponA, "req-a", NOW));
-        MemberCoupon newer = memberCouponRepository.save(issue(MEMBER_ID, couponB, "req-b", NOW.plusSeconds(10)));
+        Long couponA = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponB = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponC = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        MemberCoupon older = memberCouponTestRepository.save(issue(MEMBER_ID, couponA, "req-a", NOW));
+        MemberCoupon newer = memberCouponTestRepository.save(issue(MEMBER_ID, couponB, "req-b", NOW.plusSeconds(10)));
         MemberCoupon used = issue(MEMBER_ID, couponC, "req-c", NOW.plusSeconds(5));
         ReflectionTestUtils.setField(used, "status", MemberCouponStatus.USED);
-        memberCouponRepository.save(used);
-        memberCouponRepository.save(issue(OTHER_MEMBER_ID, couponA, "req-other", NOW));
+        memberCouponTestRepository.save(used);
+        memberCouponTestRepository.save(issue(OTHER_MEMBER_ID, couponA, "req-other", NOW));
         flushAndClear();
 
         assertThat(memberCouponIds(memberCouponRepository.findMyCoupons(MEMBER_ID, null)))
@@ -108,23 +115,23 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 강의에_쓸_수_있는_쿠폰은_그_강의_대상_또는_모든_강의_대상의_만료_전_AVAILABLE이다() {
-        Long thisLecture = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long anyLecture = saveCoupon(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW));
+        Long thisLecture = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long anyLecture = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW));
         Long otherLecture = saveCoupon(
-                Coupon.createSeller(SELLER_ID, lectureRate().lectureId(OTHER_LECTURE_ID).build(), NOW));
-        Long expiredCoupon = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long usedCoupon = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long othersCoupon = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+                CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(OTHER_LECTURE_ID).build(), NOW));
+        Long expiredCoupon = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long usedCoupon = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long othersCoupon = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
 
-        MemberCoupon usable = memberCouponRepository.save(issue(MEMBER_ID, thisLecture, "req-1", NOW));
-        MemberCoupon usableAny = memberCouponRepository.save(issue(MEMBER_ID, anyLecture, "req-2", NOW));
-        memberCouponRepository.save(issue(MEMBER_ID, otherLecture, "req-3", NOW));
+        MemberCoupon usable = memberCouponTestRepository.save(issue(MEMBER_ID, thisLecture, "req-1", NOW));
+        MemberCoupon usableAny = memberCouponTestRepository.save(issue(MEMBER_ID, anyLecture, "req-2", NOW));
+        memberCouponTestRepository.save(issue(MEMBER_ID, otherLecture, "req-3", NOW));
         // 만료 시각이 지금과 같으면 쓸 수 없다(expiresAt > now)
-        memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, expiredCoupon, "req-4", NOW, NOW, NOW));
+        memberCouponTestRepository.save(MemberCoupon.issue(MEMBER_ID, expiredCoupon, "req-4", NOW, NOW, NOW));
         MemberCoupon used = issue(MEMBER_ID, usedCoupon, "req-5", NOW);
         ReflectionTestUtils.setField(used, "status", MemberCouponStatus.USED);
-        memberCouponRepository.save(used);
-        memberCouponRepository.save(issue(OTHER_MEMBER_ID, othersCoupon, "req-6", NOW));
+        memberCouponTestRepository.save(used);
+        memberCouponTestRepository.save(issue(OTHER_MEMBER_ID, othersCoupon, "req-6", NOW));
         flushAndClear();
 
         List<OwnedCoupon> found = memberCouponRepository.findUsableFor(MEMBER_ID, LECTURE_ID, NOW);
@@ -134,7 +141,7 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 회원_중복_위반_뒤_회원과_쿠폰으로_찾은_한_장의_요청_ID로_같은_요청인지_가른다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
         memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-1", NOW));
         entityManager.clear();
 
@@ -149,9 +156,9 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 예약_조건부_갱신은_본인_AVAILABLE_기대_세대_만료_전일_때만_한_행을_바꾸고_세대를_올린다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
-        Long expiringId = memberCouponRepository.save(MemberCoupon.issue(OTHER_MEMBER_ID, couponId, "req-2", NOW,
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponTestRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long expiringId = memberCouponTestRepository.save(MemberCoupon.issue(OTHER_MEMBER_ID, couponId, "req-2", NOW,
                 NOW, NOW)).getId();
         flushAndClear();
 
@@ -161,10 +168,10 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.reserve(expiringId, OTHER_MEMBER_ID, 0, 500L, NOW)).isZero();
 
         assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
-            assertThat(state.generation()).isEqualTo(1);
-            assertThat(state.currentOrderItemId()).isEqualTo(500L);
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(coupon.getGeneration()).isEqualTo(1);
+            assertThat(coupon.getCurrentOrderItemId()).isEqualTo(500L);
         });
         // 이미 RESERVED면 같은 기대 세대로 다시 예약하지 못한다
         assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 501L, NOW)).isZero();
@@ -172,9 +179,9 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 해제_조건부_갱신은_RESERVED이고_세대가_같을_때만_만료_전이면_AVAILABLE_뒤면_EXPIRED로_바꾼다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
-        Long otherId = memberCouponRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponTestRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long otherId = memberCouponTestRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
         memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW);
         memberCouponRepository.reserve(otherId, OTHER_MEMBER_ID, 0, 501L, NOW);
 
@@ -182,10 +189,10 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.release(id, 0, NOW)).isZero();
 
         assertThat(memberCouponRepository.release(id, 1, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.generation()).isEqualTo(1);
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getGeneration()).isEqualTo(1);
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         // 이미 해제했으면(RESERVED가 아니면) 0행이다
         assertThat(memberCouponRepository.release(id, 1, NOW)).isZero();
@@ -198,9 +205,9 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 결제_완료는_RESERVED_같은_세대만_USED로_바꾸고_취소_완료는_RESERVED_USED_같은_세대만_돌린다() {
-        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
-        Long reservedId = memberCouponRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
+        Long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponTestRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long reservedId = memberCouponTestRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
         memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW);
         memberCouponRepository.reserve(reservedId, OTHER_MEMBER_ID, 0, 501L, NOW);
 
@@ -214,9 +221,9 @@ class MemberCouponRepositoryTest {
         // 취소 완료: USED는 만료 전이면 AVAILABLE, 다른 세대는 0행, 이미 돌렸으면 0행
         assertThat(memberCouponRepository.restore(id, 0, NOW)).isZero();
         assertThat(memberCouponRepository.restore(id, 1, NOW)).isEqualTo(1);
-        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
-            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
-            assertThat(state.currentOrderItemId()).isNull();
+        assertThat(reread(id)).satisfies(coupon -> {
+            assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(coupon.getCurrentOrderItemId()).isNull();
         });
         assertThat(memberCouponRepository.restore(id, 1, NOW)).isZero();
 
@@ -228,24 +235,24 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 만료_대상은_기한이_지난_AVAILABLE_쿠폰을_유형과_관계없이_고른다() {
-        Long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        Long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        Long atNow = memberCouponRepository.save(MemberCoupon.issue(1L, seller, "req-1", NOW, NOW, NOW)).getId();
-        Long earlier = memberCouponRepository.save(MemberCoupon.issue(2L, seller, "req-2", NOW,
+        Long seller = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long platform = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        Long atNow = memberCouponTestRepository.save(MemberCoupon.issue(1L, seller, "req-1", NOW, NOW, NOW)).getId();
+        Long earlier = memberCouponTestRepository.save(MemberCoupon.issue(2L, seller, "req-2", NOW,
                 NOW.minusSeconds(10), NOW)).getId();
-        Long future = memberCouponRepository.save(MemberCoupon.issue(3L, seller, "req-3", NOW,
+        Long future = memberCouponTestRepository.save(MemberCoupon.issue(3L, seller, "req-3", NOW,
                 NOW.plusSeconds(1), NOW)).getId();
-        Long reserved = memberCouponRepository.save(MemberCoupon.issue(4L, seller, "req-4", NOW,
+        Long reserved = memberCouponTestRepository.save(MemberCoupon.issue(4L, seller, "req-4", NOW,
                 NOW.minusSeconds(10), NOW)).getId();
-        Long platformExpired = memberCouponRepository.save(MemberCoupon.issue(5L, platform, "req-5", NOW,
+        Long platformExpired = memberCouponTestRepository.save(MemberCoupon.issue(5L, platform, "req-5", NOW,
                 NOW.minusSeconds(20), NOW)).getId();
         memberCouponRepository.reserve(reserved, 4L, 0, 500L, NOW.minusSeconds(100));
         flushAndClear();
 
         // 만료 시각(expiresAt == now) 포함, 플랫폼도 함께 고르고 미래 만료·RESERVED는 고르지 않는다
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10)))
+        assertThat(expiredIds(NOW, Limit.of(10)))
                 .containsExactly(platformExpired, earlier, atNow);
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(1))).containsExactly(platformExpired);
+        assertThat(expiredIds(NOW, Limit.of(1))).containsExactly(platformExpired);
 
         // 조건부 갱신은 넘긴 ID 중 AVAILABLE이고 기한이 지난 것만 바꾼다
         assertThat(memberCouponRepository.expire(List.of(earlier, atNow, future, reserved, platformExpired), NOW)).isEqualTo(3);
@@ -266,15 +273,15 @@ class MemberCouponRepositoryTest {
 
         // 두 번 돌아도 결과가 같다
         assertThat(memberCouponRepository.expire(List.of(earlier, atNow), NOW)).isZero();
-        assertThat(memberCouponRepository.findExpiredCouponIds(NOW, Limit.of(10))).isEmpty();
+        assertThat(expiredIds(NOW, Limit.of(10))).isEmpty();
     }
 
     @Test
     void 만료_cursor는_같은_기한의_실패_AVAILABLE이_남아도_마지막_ID_다음부터_고른다() {
-        long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        long first = memberCouponRepository.save(MemberCoupon.issue(1L, couponId, "cursor-1", NOW, NOW, NOW)).getId();
-        long second = memberCouponRepository.save(MemberCoupon.issue(2L, couponId, "cursor-2", NOW, NOW, NOW)).getId();
-        long third = memberCouponRepository.save(MemberCoupon.issue(3L, couponId, "cursor-3", NOW, NOW, NOW)).getId();
+        long couponId = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        long first = memberCouponTestRepository.save(MemberCoupon.issue(1L, couponId, "cursor-1", NOW, NOW, NOW)).getId();
+        long second = memberCouponTestRepository.save(MemberCoupon.issue(2L, couponId, "cursor-2", NOW, NOW, NOW)).getId();
+        long third = memberCouponTestRepository.save(MemberCoupon.issue(3L, couponId, "cursor-3", NOW, NOW, NOW)).getId();
         flushAndClear();
 
         assertThat(memberCouponRepository.findExpiredCouponTargets(NOW, null, 0, Limit.of(2)))
@@ -287,9 +294,9 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 예산_등록_완료는_0원도_현재상태로_표시하고_상태가_바뀌면_재선택한다() {
-        long couponId = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        long used = memberCouponRepository.save(MemberCoupon.issue(1L, couponId, "checked-used", NOW, NOW, NOW)).getId();
-        long expired = memberCouponRepository.save(MemberCoupon.issue(2L, couponId, "checked-expired", NOW, NOW, NOW)).getId();
+        long couponId = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long used = memberCouponTestRepository.save(MemberCoupon.issue(1L, couponId, "checked-used", NOW, NOW, NOW)).getId();
+        long expired = memberCouponTestRepository.save(MemberCoupon.issue(2L, couponId, "checked-expired", NOW, NOW, NOW)).getId();
         memberCouponRepository.reserve(used, 1L, 0, 500L, NOW.minusSeconds(1));
         memberCouponRepository.markUsed(used, 1, NOW);
         memberCouponRepository.expire(List.of(expired), NOW);
@@ -317,9 +324,9 @@ class MemberCouponRepositoryTest {
     void 판매자_만료가_많아도_플랫폼_미확인_건만_선택하며_로컬_조회_계획을_남긴다() throws Exception {
         final int sellerCount = 20_000;
         final int completedPlatformCount = 20_000;
-        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().quantity(sellerCount).build(), NOW));
-        long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        long completedPlatform = saveCoupon(Coupon.createPlatform(ADMIN_ID,
+        long seller = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(sellerCount).build(), NOW));
+        long platform = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long completedPlatform = saveCoupon(CouponFixture.createPlatform(ADMIN_ID,
                 lectureRate().quantity(completedPlatformCount).build(), NOW));
         entityManager.flush();
         jdbc.update("""
@@ -358,8 +365,8 @@ class MemberCouponRepositoryTest {
     void 미래_USED가_많아도_만료_소수와_0건_조회는_기한_범위만_읽는다() throws Exception {
         final int futureUsedCount = 20_000;
         final int sellerExpiredCount = 20_000;
-        long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().quantity(futureUsedCount + 2).build(), NOW));
-        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().quantity(sellerExpiredCount).build(), NOW));
+        long platform = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().quantity(futureUsedCount + 2).build(), NOW));
+        long seller = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().quantity(sellerExpiredCount).build(), NOW));
         entityManager.flush();
         jdbc.update("""
                 insert into coupon.member_coupon (member_id, coupon_id, issue_request_id, status, generation,
@@ -421,11 +428,11 @@ class MemberCouponRepositoryTest {
 
     @Test
     void 예산_후보_정책은_미확인_만료_플랫폼만_정책_ID_cursor로_고른다() {
-        long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
-        long pendingA = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        long complete = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        long future = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        long pendingB = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long seller = saveCoupon(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        long pendingA = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long complete = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long future = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        long pendingB = saveCoupon(CouponFixture.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
         budgetMember(seller, MemberCouponStatus.EXPIRED, null, NOW);
         long first = budgetMember(pendingA, MemberCouponStatus.EXPIRED, null, NOW);
         budgetMember(complete, MemberCouponStatus.EXPIRED, MemberCouponStatus.EXPIRED, NOW);
@@ -530,8 +537,20 @@ class MemberCouponRepositoryTest {
         return owned.stream().map(o -> o.memberCoupon().getId()).toList();
     }
 
+    /** 조건부 갱신은 영속성 컨텍스트를 거치지 않으므로 비우고 DB에서 엔티티를 다시 읽는다 */
+    private MemberCoupon reread(long id) {
+        flushAndClear();
+        return memberCouponTestRepository.findById(id).orElseThrow();
+    }
+
     private void flushAndClear() {
         entityManager.flush();
         entityManager.clear();
+    }
+
+    /** 만료 배치 대상의 첫 페이지 ID */
+    private List<Long> expiredIds(Instant now, Limit limit) {
+        return memberCouponRepository.findExpiredCouponTargets(now, null, 0, limit).stream()
+                .map(MemberCouponExpiryTarget::id).toList();
     }
 }

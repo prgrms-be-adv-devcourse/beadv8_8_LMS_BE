@@ -24,9 +24,4 @@ public record CouponExpiryProperties(Duration interval, Integer batchSize) {
             throw new IllegalArgumentException("hapbang.coupon.expiry.batch-size는 1 이상이어야 한다");
         }
     }
-
-    /** 모두 기본값 */
-    public static CouponExpiryProperties defaults() {
-        return new CouponExpiryProperties(null, null);
-    }
 }

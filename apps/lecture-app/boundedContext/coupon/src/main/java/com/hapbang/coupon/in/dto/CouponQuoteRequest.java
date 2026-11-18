@@ -2,7 +2,7 @@ package com.hapbang.coupon.in.dto;
 
 import java.util.List;
 
-import com.hapbang.coupon.domain.usage.Selection;
+import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -23,10 +23,10 @@ public record CouponQuoteRequest(
         List<@NotNull @Valid SelectionRequest> selections
 ) {
 
-    /** 도메인 매핑으로 바꾼다. 생략했으면 {@code null}(추천) */
-    public List<Selection> toSelections() {
+    /** app 입력으로 바꾼다. 생략했으면 {@code null}(추천) */
+    public List<CouponQuoteSelection> toSelections() {
         return selections == null ? null : selections.stream()
-                .map(selection -> new Selection(selection.memberCouponId(), selection.lectureId()))
+                .map(selection -> new CouponQuoteSelection(selection.memberCouponId(), selection.lectureId()))
                 .toList();
     }
 

@@ -39,18 +39,12 @@ class CouponDltLogTest {
         assertThat(from.canTransitTo(to)).isEqualTo(expected);
     }
 
-    @ParameterizedTest(name = "{0}: {1}")
-    @CsvSource({"PENDING, true", "REPLAYING, true", "REPLAYED, false", "REJECTED, false"})
-    void PENDING과_REPLAYING을_미처리로_본다(CouponDltStatus status, boolean expected) {
-        assertThat(status.isUnresolved()).isEqualTo(expected);
-    }
-
     @Test
     void 격리_기록은_PENDING으로_시작하고_긴_실패_원인은_칸_길이로_자른다() {
         CouponDltLog log = CouponDltLog.isolate(SOURCE, 42L, "req-1", "{}", "x".repeat(2_000), NOW);
 
         assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
-        assertThat(log.isPending()).isTrue();
+        assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(log.getFailureCause()).hasSize(CouponDltLog.MAX_FAILURE_CAUSE);
         assertThat(log.getSourceOffset()).isEqualTo(7L);
         assertThat(log.getMessageKey()).isEqualTo("42");
@@ -155,7 +149,7 @@ class CouponDltLogTest {
 
         assertThatThrownBy(() -> log.reject(ADMIN_ID, " ", NOW, LEASE)).isInstanceOf(CouponDomainException.class)
                 .extracting("error").isEqualTo(CouponDomainError.REJECT_REASON_REQUIRED);
-        assertThat(log.isPending()).isTrue();
+        assertThat(log.getStatus()).isEqualTo(CouponDltStatus.PENDING);
     }
 
     @Test

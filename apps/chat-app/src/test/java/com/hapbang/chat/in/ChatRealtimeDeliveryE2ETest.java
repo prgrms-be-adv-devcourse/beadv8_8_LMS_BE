@@ -8,8 +8,8 @@ import static org.awaitility.Awaitility.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,33 +35,33 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import com.hapbang.chat.app.ChatConnectionRecheckService;
-import com.hapbang.chat.app.ChatPresence;
 import com.hapbang.chat.app.ChatRealtimeFacade;
-import com.hapbang.chat.app.ChatRecipientStateReader;
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
-import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.LocalRoomSubscriptions;
-import com.hapbang.chat.app.RealtimeChatFanout;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.ChatPresence;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.LocalChatConnections;
+import com.hapbang.chat.app.port.RealtimeChatFanout;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.chat.in.support.RealtimeStompClient.RoomSubscription;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.redis.ChatRedisKeys;
+import com.hapbang.chat.in.support.RealtimeStompClient;
+import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 import com.hapbang.chat.out.redis.RedisRealtimeChatFanout;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -128,7 +128,7 @@ class ChatRealtimeDeliveryE2ETest {
     private ChatRoomUseCase chatRoomUseCase;
 
     @Autowired
-    private ChatRecipientStateReader chatRecipientStateReader;
+    private ChatRoomMembershipLoader chatRoomMembershipLoader;
 
     @Autowired
     private LocalRoomSubscriptions localRoomSubscriptions;
@@ -554,7 +554,7 @@ class ChatRealtimeDeliveryE2ETest {
     }
 
     private int currentSetVersion(Long chatRoomId) {
-        return chatRecipientStateReader.findRoomMembership(chatRoomId).setVersion();
+        return chatRoomMembershipLoader.load(chatRoomId).setVersion();
     }
 
     /** Redis의 그 채널 구독자 수(이 namespace는 이 앱만 쓴다) */

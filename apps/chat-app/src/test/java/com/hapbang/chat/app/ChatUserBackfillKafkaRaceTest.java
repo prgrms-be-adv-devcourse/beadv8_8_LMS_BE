@@ -44,28 +44,25 @@ import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatUserBackfillResult;
-import com.hapbang.chat.domain.ChatControlReason;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
-import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
-import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
-import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
-import com.hapbang.chat.out.ChatUserRepository;
-import com.hapbang.chat.out.JpaChatConnectionControl;
+import com.hapbang.chat.in.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -91,8 +88,7 @@ import jakarta.persistence.EntityManager;
  */
 @IntegrationTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({KafkaTestcontainersConfig.class, ChatUserBackfillKafkaRaceTest.Topics.class,
-        ChatUserBackfillKafkaRaceTest.FailableConnectionControl.class})
+@Import({KafkaTestcontainersConfig.class, ChatUserBackfillKafkaRaceTest.Topics.class})
 class ChatUserBackfillKafkaRaceTest {
 
     private static final String SUFFIX = UUID.randomUUID().toString();
@@ -147,8 +143,8 @@ class ChatUserBackfillKafkaRaceTest {
 
     private ChatNativeSql sql;
 
-    @Autowired
-    private FailableConnectionControl connectionControl;
+    @MockitoSpyBean
+    private ChatConnectionControl connectionControl;
 
     private KafkaProducer<String, byte[]> producer;
 
@@ -170,7 +166,7 @@ class ChatUserBackfillKafkaRaceTest {
     @AfterEach
     void tearDown() {
         beforeRespond = null;
-        connectionControl.reset();
+        reset(connectionControlSpy());
         producer.close(Duration.ofSeconds(5));
         clearControlTables();
     }
@@ -276,7 +272,7 @@ class ChatUserBackfillKafkaRaceTest {
         long id = NEXT_ID.incrementAndGet();
         chatUserSyncService.syncJoined(new UserDto(id, "가입", Role.INFLUENCER, UserStatus.ACTIVE, 1L));
         source(id, "정지", Role.INFLUENCER, UserStatus.SUSPENDED, 2L);
-        connectionControl.failAfterRecording(id);
+        failAfterRecording(id);
 
         ChatUserBackfillResult failed = backfillService.backfill(id - 1, MAX_LIMIT);
 
@@ -284,7 +280,7 @@ class ChatUserBackfillKafkaRaceTest {
                         ChatUserBackfillResult::failedIds, ChatUserBackfillResult::completed)
                 .containsExactly(0L, 1L, List.of(id), false);
         // 충돌이 아니라 다시 시도하지 않는다(한 번 기록했다가 롤백)
-        assertThat(connectionControl.calls(id)).isEqualTo(1L);
+        assertThat(recheckCalls(id)).isEqualTo(1L);
         assertThat(chatUserRepository.findById(id)).hasValueSatisfying(chatUser -> {
             assertThat(chatUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
             assertThat(chatUser.getMemberVersion()).isEqualTo(1L);
@@ -293,7 +289,7 @@ class ChatUserBackfillKafkaRaceTest {
         assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isZero();
 
-        connectionControl.reset();
+        reset(connectionControlSpy());
         ChatUserBackfillResult retried = backfillService.backfill(id - 1, MAX_LIMIT);
 
         assertThat(retried).extracting(ChatUserBackfillResult::updated, ChatUserBackfillResult::completed)
@@ -303,7 +299,6 @@ class ChatUserBackfillKafkaRaceTest {
         assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isEqualTo(1L);
     }
-
 
     @Test
     void 가입_이벤트가_백필과_동시에_만들다_충돌하면_다시_처리해_한_행으로_수렴하고_DLT로_보내지_않는다() {
@@ -492,6 +487,30 @@ class ChatUserBackfillKafkaRaceTest {
         }
     }
 
+    /** 그 회원의 재검사 작업을 실제로 기록한 뒤 같은 트랜잭션 안에서 실패시킨다 */
+    private void failAfterRecording(Long userId) {
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("제어 작업 기록 뒤 실패(테스트)");
+        }).when(connectionControlSpy()).requestRecheck(eq(userId), any(), any());
+    }
+
+    /** 그 회원의 재검사 작업 기록 호출 수(기록 뒤 실패한 호출 포함) */
+    private long recheckCalls(Long userId) {
+        return mockingDetails(connectionControlSpy()).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("requestRecheck")
+                        && userId.equals(invocation.getArgument(0)))
+                .count();
+    }
+
+    /**
+     * 트랜잭션 프록시 안쪽의 spy. 주입받은 빈은 트랜잭션 프록시(MANDATORY)라 그대로 stub하면 트랜잭션 없이 실제 메서드를 부른다.
+     * spy를 stub하면 실패도 실제 호출처럼 프록시 안에서 나 회원 반영 트랜잭션을 롤백시킨다.
+     */
+    private ChatConnectionControl connectionControlSpy() {
+        return AopTestUtils.getUltimateTargetObject(connectionControl);
+    }
+
     /** 이 클래스 전용 토픽과 DLT. 리스너 컨테이너가 시작하기 전에 KafkaAdmin이 만든다 */
     @TestConfiguration(proxyBeanMethods = false)
     static class Topics {
@@ -507,45 +526,4 @@ class ChatUserBackfillKafkaRaceTest {
         }
     }
 
-    /** 실제 제어 작업 기록을 감싸 호출 수를 세고, 지정한 회원은 기록한 뒤 같은 트랜잭션 안에서 실패시킨다 */
-    @Primary
-    @TestComponent
-    static class FailableConnectionControl implements ChatConnectionControl {
-
-        private final JpaChatConnectionControl delegate;
-        private final Map<Long, AtomicLong> calls = new ConcurrentHashMap<>();
-        private final Set<Long> failing = ConcurrentHashMap.newKeySet();
-
-        FailableConnectionControl(JpaChatConnectionControl delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public void requestRecheck(Long userId, Long memberVersion, ChatControlReason reason) {
-            calls.computeIfAbsent(userId, key -> new AtomicLong()).incrementAndGet();
-            delegate.requestRecheck(userId, memberVersion, reason);
-            if (failing.contains(userId)) {
-                throw new IllegalStateException("제어 작업 기록 뒤 실패(테스트)");
-            }
-        }
-
-        @Override
-        public void requestLogout(Long userId, java.time.Instant loggedOutAt) {
-            delegate.requestLogout(userId, loggedOutAt);
-        }
-
-        void failAfterRecording(Long userId) {
-            failing.add(userId);
-        }
-
-        long calls(Long userId) {
-            AtomicLong count = calls.get(userId);
-            return count == null ? 0 : count.get();
-        }
-
-        void reset() {
-            calls.clear();
-            failing.clear();
-        }
-    }
 }

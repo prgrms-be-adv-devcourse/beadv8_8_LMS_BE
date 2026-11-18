@@ -2,6 +2,7 @@ package com.hapbang.chat.app.dto;
 
 import java.time.LocalDateTime;
 
+import com.hapbang.chat.app.ChatStoredJson;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
@@ -48,8 +49,9 @@ public record ChatMessageHistoryResponse(
         return new ChatMessageHistoryResponse(message.getId(), message.getRoomSequence(), message.getSenderUserId(),
                 message.getMessageType(), message.getContent(), message.getSentAt(), message.getDeletedAt(),
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
-                message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted(),
-                message.readGroupMembersInvited(), message.readGroupMemberKicked(), message.readGroupMemberLeft(),
-                message.readGroupRoomClosed(), message.readGroupHostUnavailable());
+                ChatStoredJson.readAppearanceRequestSent(message), ChatStoredJson.readAppearanceApplicationSubmitted(message),
+                ChatStoredJson.readGroupMembersInvited(message), ChatStoredJson.readGroupMemberKicked(message),
+                ChatStoredJson.readGroupMemberLeft(message), ChatStoredJson.readGroupRoomClosed(message),
+                ChatStoredJson.readGroupHostUnavailable(message));
     }
 }

@@ -13,11 +13,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.coupon.app.dto.CouponCreateCommand;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.port.CouponIssueStore;
-import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.config.CouponPolicyProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
@@ -25,8 +28,6 @@ import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.DiscountType;
 import com.hapbang.coupon.domain.ExpiryType;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.out.CouponRepository;
 
 // 판매자 쿠폰 신청에서 강의 조회 결과(없음·다른 판매자·판매 상태·가격 snapshot)를 어떻게 쓰는지 본다. 발행 검증은 도메인 테스트가 본다
 class CouponCreateUseCaseTest {
@@ -39,7 +40,7 @@ class CouponCreateUseCaseTest {
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class));
         useCase = new CouponCreateUseCase(couponRepository, support, new CouponPolicyProperties(null),
-                CouponLimitsProperties.defaults(), CLOCK);
+                CouponTestProperties.limits(), CLOCK);
         when(couponRepository.save(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
     }
 
@@ -112,7 +113,7 @@ class CouponCreateUseCaseTest {
         // 명령의 만료는 접수 후 30일이다
         CouponCreateUseCase shortLimit = new CouponCreateUseCase(couponRepository,
                 new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class)),
-                new CouponPolicyProperties(29), CouponLimitsProperties.defaults(), CLOCK);
+                new CouponPolicyProperties(29), CouponTestProperties.limits(), CLOCK);
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 12_000L, "ON_SALE")));
 

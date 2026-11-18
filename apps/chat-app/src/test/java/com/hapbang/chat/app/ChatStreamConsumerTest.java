@@ -28,14 +28,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
 import com.hapbang.chat.app.dto.MessageFanout;
-import com.hapbang.chat.app.dto.QueuedJob;
-import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatDeadReason;
+import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * Stream 그룹 소비·Pub/Sub 발행·체크포인트·ACK·PEL 회수 (테스트 기준 "Stream 소비", "Pub/Sub·체크포인트").
@@ -54,7 +55,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @MockitoSpyBean
-    private JpaChatPublishCheckpointStore spiedCheckpointStore;
+    private ChatPublishCheckpointStore spiedCheckpointStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
@@ -128,7 +129,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
             assertThat(control.memberVersion()).isNull();
             assertThat(control.reason()).isEqualTo(ChatControlReason.MEMBER_BACKFILL);
         });
-        assertThat(checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.CONTROL.consumerGroup(),
+        assertThat(checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.CONTROL.consumerGroup(),
                 fanout.controls().getFirst().controlId()).orElseThrow().getStatus())
                 .isEqualTo(ChatPublishStatus.PUBLISHED);
         assertThat(pendingCount(ChatJobStream.CONTROL)).isZero();
@@ -364,10 +365,10 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
         assertThat(fanout.publishCalls()).isZero();
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
-        assertThat(checkpointRepository.findAll())
+        assertThat(checkpointTestRepository.findAll())
                 .extracting(ChatPublishCheckpoint::getDeadReason)
                 .contains(ChatDeadReason.MALFORMED_ENTRY, ChatDeadReason.SOURCE_MISSING);
-        assertThat(checkpointRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), unknown)
+        assertThat(checkpointTestRepository.findByConsumerGroupAndJobId(ChatJobStream.DELIVERY.consumerGroup(), unknown)
                 .orElseThrow().getStatus()).isEqualTo(ChatPublishStatus.DEAD);
     }
 

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.coupon.app.dto.CouponCreateCommand;
 import com.hapbang.coupon.app.dto.CouponView;
+import com.hapbang.coupon.app.exception.CouponErrorCode;
+import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponLimitsProperties;
@@ -15,9 +18,6 @@ import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponTerms;
 import com.hapbang.coupon.domain.LectureSaleRule;
-import com.hapbang.coupon.global.exception.CouponErrorCode;
-import com.hapbang.coupon.global.exception.CouponException;
-import com.hapbang.coupon.out.CouponRepository;
 
 import lombok.extern.slf4j.Slf4j;
 

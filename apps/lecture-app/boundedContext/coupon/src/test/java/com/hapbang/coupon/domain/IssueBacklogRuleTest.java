@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.hapbang.coupon.config.CouponLimitsProperties;
+import com.hapbang.coupon.config.CouponTestProperties;
 import com.hapbang.coupon.domain.IssueBacklogRule.Decision;
 
 class IssueBacklogRuleTest {
@@ -59,7 +60,7 @@ class IssueBacklogRuleTest {
 
     @Test
     void 해제_기준은_임계치에_해제_비율을_곱해_내린다() {
-        assertThat(CouponLimitsProperties.defaults().backlogReleaseAt()).isEqualTo(400);
+        assertThat(CouponTestProperties.limits().backlogReleaseAt()).isEqualTo(400);
         assertThat(new CouponLimitsProperties(null, null, 7, 0.5, null).backlogReleaseAt()).isEqualTo(3);
     }
 

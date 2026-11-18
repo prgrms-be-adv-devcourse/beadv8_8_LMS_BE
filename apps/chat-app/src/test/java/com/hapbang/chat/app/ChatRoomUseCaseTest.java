@@ -11,14 +11,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
-import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
+import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatRoomMemberRepository;
+import com.hapbang.chat.app.port.ChatRoomRepository;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
@@ -26,9 +28,8 @@ import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.out.ChatRoomLogRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
-import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.support.ChatRoomLogTestRepository;
+import com.hapbang.chat.support.ChatRoomTestRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
@@ -55,7 +56,10 @@ class ChatRoomUseCaseTest {
     private ChatRoomRepository chatRoomRepository;
 
     @Autowired
-    private ChatRoomLogRepository chatRoomLogRepository;
+    private ChatRoomTestRepository chatRoomTestRepository;
+
+    @Autowired
+    private ChatRoomLogTestRepository chatRoomLogTestRepository;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -88,7 +92,7 @@ class ChatRoomUseCaseTest {
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
-        assertThat(chatRoomRepository.count()).isEqualTo(1);
+        assertThat(chatRoomTestRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -110,13 +114,13 @@ class ChatRoomUseCaseTest {
         ChatRoomLeaveResult result = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         assertThat(result.left()).isTrue();
-        assertThat(result.roomEnded()).isFalse();
         // 끝난 참여 세대를 돌려준다. 퇴장 뒤 구독 회수는 이 세대 이하만 한다
         assertThat(result.leftParticipationVersion()).isEqualTo(1);
-        assertThat(result.leftNotice().messageType()).isEqualTo(ChatMessageType.SYSTEM);
-        assertThat(result.leftNotice().content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(contentsSeenBy(chatRoomId, HOST_ID))
                 .containsExactly("게스트님이 나갔습니다.", "반갑습니다", "안녕하세요");
+        assertThat(messagesSeenBy(chatRoomId, HOST_ID).getFirst())
+                .extracting(ChatMessageResponse::messageType, ChatMessageResponse::senderUserId)
+                .containsExactly(ChatMessageType.SYSTEM, GUEST_ID);
         assertThatThrownBy(() -> chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
@@ -144,7 +148,7 @@ class ChatRoomUseCaseTest {
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).containsSubsequence(hostBefore);
         assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
-        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+        assertThat(chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType, ChatRoomLog::getActorUserId)
                 .endsWith(tuple(ChatRoomEventType.MEMBER_LEFT, GUEST_ID),
                         tuple(ChatRoomEventType.MEMBER_REJOINED, GUEST_ID));
@@ -157,12 +161,10 @@ class ChatRoomUseCaseTest {
 
         Opened result = open(GUEST_ID, HOST_ID);
 
-        assertThat(result.rejoinNotices()).singleElement().satisfies(notice -> {
-            assertThat(notice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
-            assertThat(notice.senderUserId()).isEqualTo(GUEST_ID);
-            assertThat(notice.content()).isEqualTo("게스트님이 다시 들어왔습니다.");
-        });
-        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
+        assertThat(messagesSeenBy(chatRoomId, HOST_ID).getFirst())
+                .extracting(ChatMessageResponse::messageType, ChatMessageResponse::senderUserId,
+                        ChatMessageResponse::content)
+                .containsExactly(ChatMessageType.SYSTEM, GUEST_ID, "게스트님이 다시 들어왔습니다.");
         assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
         assertThat(result.room().lastMessage()).isNull();
         assertThat(result.room().unreadCount()).isZero();
@@ -174,10 +176,10 @@ class ChatRoomUseCaseTest {
     void 둘_다_참여_중인_방을_다시_시작하면_재입장_안내를_남기지_않는다() {
         Long chatRoomId = createRoom();
 
-        Opened result = open(HOST_ID, GUEST_ID);
+        open(HOST_ID, GUEST_ID);
 
-        assertThat(result.rejoinNotices()).isEmpty();
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).isEmpty();
+        assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
     }
 
     @Test
@@ -198,9 +200,8 @@ class ChatRoomUseCaseTest {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomLeaveResult lastLeave = chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        assertThat(chatRoomUseCase.leave(chatRoomId, HOST_ID, null).left()).isTrue();
 
-        assertThat(lastLeave.roomEnded()).isTrue();
         ChatRoom endedRoom = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(endedRoom.getStatus()).isEqualTo(ChatRoomStatus.ENDED);
         assertThat(endedRoom.getDirectKey()).isNull();
@@ -223,12 +224,12 @@ class ChatRoomUseCaseTest {
     void 이미_나간_뒤_같은_퇴장_요청은_아무것도_바꾸지_않는다() {
         Long chatRoomId = createRoom();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        long logCount = chatRoomLogRepository.count();
+        long logCount = chatRoomLogTestRepository.count();
 
         ChatRoomLeaveResult retried = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         assertThat(retried.left()).isFalse();
-        assertThat(chatRoomLogRepository.count()).isEqualTo(logCount);
+        assertThat(chatRoomLogTestRepository.count()).isEqualTo(logCount);
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).containsExactly("게스트님이 나갔습니다.");
     }
 
@@ -379,15 +380,20 @@ class ChatRoomUseCaseTest {
     }
 
     private List<ChatRoomEventType> eventsOf(Long chatRoomId) {
-        return chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId).stream()
+        return chatRoomLogTestRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId).stream()
                 .map(ChatRoomLog::getEventType)
                 .toList();
     }
 
     private List<String> contentsSeenBy(Long chatRoomId, Long userId) {
-        return chatMessageSupporter.getMessages(chatRoomId, userId, null, 100).messages().stream()
+        return messagesSeenBy(chatRoomId, userId).stream()
                 .map(ChatMessageResponse::content)
                 .toList();
+    }
+
+    /** 그 회원이 이력 조회로 보는 메시지(최신 순) */
+    private List<ChatMessageResponse> messagesSeenBy(Long chatRoomId, Long userId) {
+        return chatMessageSupporter.getMessages(chatRoomId, userId, null, 100).messages();
     }
 
     /**
@@ -396,10 +402,9 @@ class ChatRoomUseCaseTest {
      */
     private Opened open(Long requesterId, Long targetUserId) {
         ChatRoomOpenResult opened = chatRoomUseCase.createOrGet(requesterId, targetUserId);
-        return new Opened(chatRoomSupporter.toResponse(opened.chatRoomId(), requesterId), opened.created(),
-                opened.rejoinNotices());
+        return new Opened(chatRoomSupporter.toResponse(opened.chatRoomId(), requesterId), opened.created());
     }
 
-    private record Opened(ChatRoomResponse room, boolean created, List<ChatMessageResponse> rejoinNotices) {
+    private record Opened(ChatRoomResponse room, boolean created) {
     }
 }

@@ -25,9 +25,4 @@ public record ItemResult(
     public ItemResult {
         coupons = List.copyOf(coupons);
     }
-
-    /** 쿠폰 없이 원가격 그대로인 결과 */
-    public static ItemResult noCoupon(UsageItem item) {
-        return new ItemResult(item, 0, 0, 0, item.price(), item.price(), List.of());
-    }
 }

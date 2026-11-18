@@ -377,10 +377,6 @@ public class RecoveryRun {
         }
     }
 
-    public boolean isActive() {
-        return step.isActive();
-    }
-
     /**
      * 이 복구 때문에 그 쿠폰의 "Redis·DB 어디에도 없는 요청"을 지금 UNKNOWN으로 답해야 하는가. 접수 기록 유실이 의심된 복구만 해당한다.
      * <ul>

@@ -17,7 +17,7 @@ import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.in.dto.ChatErrorMessage;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
-import com.hapbang.chat.in.websocket.ChatMessageSender;
+import com.hapbang.chat.in.websocket.StompLocalChatSender;
 import com.hapbang.chat.in.websocket.ChatWebSocketConfig;
 import com.hapbang.chat.global.exception.GlobalErrorCode;
 
@@ -40,7 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ChatMessageStompController {
 
     private final ChatMessageFacade chatMessageFacade;
-    private final ChatMessageSender chatMessageSender;
+    private final StompLocalChatSender stompLocalChatSender;
 
     @MessageMapping("/chats/{chatRoomId}/messages")
     public void sendMessage(@DestinationVariable("chatRoomId") Long chatRoomId,
@@ -58,7 +58,7 @@ public class ChatMessageStompController {
         // 새 메시지는 저장 트랜잭션에 남긴 outbox → Stream → Pub/Sub 경로로 보낸 사람(전송 ID 포함)과 상대에게 간다.
         // 같은 전송 ID의 재전송은 전달 작업을 만들지 않으므로, 보낸 사람에게만 바로 다시 보낸다. 알림·안 읽은 수는 올리지 않는다
         if (sent.resent()) {
-            chatMessageSender.sendMessage(senderId, sent.message().withClientMessageId(clientMessageId),
+            stompLocalChatSender.sendMessage(senderId, sent.message().withClientMessageId(clientMessageId),
                     sent.senderParticipationVersion());
         }
     }

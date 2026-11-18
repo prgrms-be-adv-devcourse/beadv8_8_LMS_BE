@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
-import com.hapbang.chat.app.ChatDeliveryProperties;
+import com.hapbang.chat.config.ChatDeliveryProperties;
 
 /**
  * 전달 파이프라인 빈은 {@code hapbang.chat.delivery.pipeline.enabled}가 {@code false}가 아니면 만든다.

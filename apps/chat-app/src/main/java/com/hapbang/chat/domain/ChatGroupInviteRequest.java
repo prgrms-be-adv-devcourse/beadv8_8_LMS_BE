@@ -2,16 +2,11 @@ package com.hapbang.chat.domain;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.util.Assert;
-
-import tools.jackson.core.JacksonException;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.json.JsonMapper;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -42,10 +37,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatGroupInviteRequest {
 
-    private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final TypeReference<List<ChatGroupInviteOutcome>> OUTCOMES = new TypeReference<>() {
-    };
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -69,36 +60,26 @@ public class ChatGroupInviteRequest {
     private LocalDateTime recordedAt;
 
     private ChatGroupInviteRequest(Long chatRoomId, UUID requestId, Long requesterUserId,
-            List<ChatGroupInviteOutcome> outcomes, LocalDateTime now) {
+            String resultsJson, LocalDateTime now) {
+        Assert.state(requesterUserId != null && resultsJson != null, "요청한 회원과 결과가 필요합니다.");
         this.chatRoomId = chatRoomId;
         this.requestId = requestId;
-        apply(requesterUserId, outcomes, now);
+        this.requesterUserId = requesterUserId;
+        this.resultsJson = resultsJson;
+        this.recordedAt = now;
     }
 
+    /**
+     * @param resultsJson 회원별 결과 목록({@link ChatGroupInviteOutcome})의 JSON. 요청 순서(중복 제거 뒤)다
+     */
     public static ChatGroupInviteRequest record(Long chatRoomId, UUID requestId, Long requesterUserId,
-            List<ChatGroupInviteOutcome> outcomes, LocalDateTime now) {
+            String resultsJson, LocalDateTime now) {
         Assert.state(chatRoomId != null && requestId != null, "방과 요청 ID가 필요합니다.");
-        return new ChatGroupInviteRequest(chatRoomId, requestId, requesterUserId, outcomes, now);
+        return new ChatGroupInviteRequest(chatRoomId, requestId, requesterUserId, resultsJson, now);
     }
 
     /** 보존 기간 안의 결과인지. 기간이 끝나는 시각부터는 새 요청으로 본다 */
     public boolean isRetained(LocalDateTime now, Duration retention) {
         return now.isBefore(recordedAt.plus(retention));
-    }
-
-    public List<ChatGroupInviteOutcome> outcomes() {
-        try {
-            return JSON.readValue(resultsJson, OUTCOMES);
-        } catch (JacksonException e) {
-            // 서버가 쓴 값만 있으므로 오지 않는 경로다. 저장한 결과를 모른 채 다시 초대하지 않도록 실패로 둔다
-            throw new IllegalStateException("저장한 초대 결과를 읽을 수 없습니다. id=" + id, e);
-        }
-    }
-
-    private void apply(Long requesterUserId, List<ChatGroupInviteOutcome> outcomes, LocalDateTime now) {
-        Assert.state(requesterUserId != null && outcomes != null, "요청한 회원과 결과가 필요합니다.");
-        this.requesterUserId = requesterUserId;
-        this.resultsJson = JSON.writeValueAsString(outcomes);
-        this.recordedAt = now;
     }
 }

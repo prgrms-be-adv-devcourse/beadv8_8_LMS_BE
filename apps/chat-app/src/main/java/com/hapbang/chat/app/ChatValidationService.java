@@ -5,8 +5,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.app.port.ChatUserRepository;
 import com.hapbang.chat.domain.ChatUser;
-import com.hapbang.chat.out.ChatUserRepository;
 
 import lombok.RequiredArgsConstructor;
 
