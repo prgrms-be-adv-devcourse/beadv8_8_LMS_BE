@@ -110,7 +110,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 5. 모듈을 실제로 만들 때
 
 - auxiliary-app README "모듈 추가 방법" 1~7단계를 따른다(`settings.gradle.kts`의 `auxiliaryModules`, 모듈 `build.gradle.kts`, 앱 의존, `package-info.java`, 첫 Flyway SQL, Gateway route, `verifyModuleStructure :auxiliary-app:check`).
-- 이 문서의 결정 범위 밖(예: WebSocket 경로의 Gateway 시간 제한, 자원 예산 U13)은 단계를 진행하기 전에 질문한다.
+- 이 문서의 결정 범위 밖(예: WebSocket 경로의 Gateway 시간 제한, ND-204로 확정한 자원 예산의 변경)은 단계를 진행하기 전에 질문한다.
 - Flyway 버전은 작성 시각 `V{yyyyMMddHHmm}__...`이고, 같은 분에 다른 모듈 SQL과 겹치지 않는지 병합 전에 확인한다(README "Flyway").
 
 ## 6. 무단 변경 금지

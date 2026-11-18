@@ -136,6 +136,22 @@ class NotificationRealtimeIntegrationTest {
         assertThat(stomp.nextFrame(WAIT)).contains("\"targetId\":\"s-2\"").contains("\"unreadCount\":2");
     }
 
+    /** 닉네임 없는 알림은 묶음으로 읽어 보낸다(ND-205, NT-RT-10). 받는 사람마다 순서와 안 읽은 수가 맞다 */
+    @Test
+    void 닉네임_없는_알림을_여러_받는_사람에게_몰아_저장해도_받는_사람마다_저장_순서대로_가고_안_읽은_수가_맞다() throws Exception {
+        long a = member();
+        long b = member();
+        RawStomp stompA = connect(a, Role.USER);
+        RawStomp stompB = connect(b, Role.USER);
+
+        for (int i = 1; i <= 10; i++) {
+            writer.save(draftWithoutMention(i % 2 == 1 ? a : b, "m-" + i, T0.plusSeconds(i)));
+        }
+
+        assertFramesInOrder(stompA, List.of("m-1", "m-3", "m-5", "m-7", "m-9"));
+        assertFramesInOrder(stompB, List.of("m-2", "m-4", "m-6", "m-8", "m-10"));
+    }
+
     @Test
     void 하루_묶음은_만들_때와_갱신할_때마다_갱신된_알림과_안_읽은_수를_보내고_중복은_보내지_않는다() throws Exception {
         long a = member();
@@ -433,6 +449,24 @@ class NotificationRealtimeIntegrationTest {
     }
 
     /** STOMP MESSAGE 프레임 본문의 targetId */
+    /** 프레임이 이 순서로 오고, 안 읽은 수가 줄지 않으며 마지막 프레임은 받은 건수와 같다(묶음이면 같은 값이 이어질 수 있다) */
+    private static void assertFramesInOrder(RawStomp stomp, List<String> targetIds) throws InterruptedException {
+        List<String> received = new ArrayList<>();
+        long previous = 0;
+        for (int i = 0; i < targetIds.size(); i++) {
+            String frame = stomp.nextFrame(WAIT);
+            assertThat(frame).as("%d번째 프레임", i + 1).isNotNull();
+            received.add(targetIdOf(frame));
+            Matcher unread = Pattern.compile("\"unreadCount\":(\\d+)").matcher(frame);
+            assertThat(unread.find()).isTrue();
+            long count = Long.parseLong(unread.group(1));
+            assertThat(count).isGreaterThanOrEqualTo(previous).isBetween((long) i + 1, (long) targetIds.size());
+            previous = count;
+        }
+        assertThat(received).containsExactlyElementsOf(targetIds);
+        assertThat(previous).isEqualTo(targetIds.size());
+    }
+
     private static String targetIdOf(String frame) {
         Matcher matcher = TARGET_ID.matcher(frame);
         assertThat(matcher.find()).as("targetId가 없는 프레임: %s", frame).isTrue();

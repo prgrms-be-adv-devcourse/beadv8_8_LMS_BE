@@ -8,6 +8,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,8 +24,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.core.task.TaskExecutor;
-import org.springframework.core.task.TaskRejectedException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionSystemException;
@@ -37,7 +37,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 실시간 전달의 장애 처리와 파기 순서(ND-027·ND-054, #829 Bot 리뷰).
+ * 실시간 전달의 장애 처리와 파기 순서(ND-027·ND-054, #829 Bot 리뷰). 묶음 처리(ND-205)는 {@link NotificationRealtimeBatchTest}가
+ * 보고, 여기서는 프레임마다 넘기고 바로 비운다(한 프레임이 한 묶음).
  * <ul>
  *     <li>버린 프레임은 이유별로 센다: 줄 포화 {@code queue_full}, 발행 실패 {@code publish_failed}, 실패 뒤 생략 {@code skipped}.</li>
  *     <li>발행이 실패하면 생략 시간(기본 5초) 동안 DB 조회·파기 순서 잠금 전에 바로 버린다. 시간이 지나면 다시 시도하고, 성공하면
@@ -57,16 +58,17 @@ class NotificationRealtimeRelayTest {
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final MemberMaskLocks maskLocks = mock(MemberMaskLocks.class);
     private final MutableClock clock = new MutableClock(T0);
+    private final Map<Long, Notification> stored = new HashMap<>();
 
     @Test
     void 줄이_가득_차_넘기지_못한_프레임은_queue_full로_센다() {
-        TaskExecutor rejecting = task -> {
-            throw new TaskRejectedException("full");
-        };
-        NotificationRealtimeRelay relay = relay(rejecting, (receiver, frame) -> { });
+        NotificationRealtimeRelay relay = new NotificationRealtimeRelay(notifications,
+                provider(NotificationRealtimePublisher.class, (receiver, frame) -> { }), transactions, maskLocks,
+                provider(MeterRegistry.class, registry), BACKOFF, 1, 100, clock);
 
         relay.publishAfterCommit(1L, 10L);
         relay.publishAfterCommit(2L, 10L);
+        relay.publishAfterCommit(3L, 10L);
 
         assertThat(dropped("queue_full")).isEqualTo(2.0);
     }
@@ -75,14 +77,14 @@ class NotificationRealtimeRelayTest {
     void 발행이_실패하면_publish_failed로_세고_생략_시간_동안은_DB_조회와_잠금_전에_skipped로_버린다(CapturedOutput output) {
         givenNotification(1L, 10L, mentioning());
         givenNotification(2L, 10L, mentioning());
-        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> {
             throw new IllegalStateException("redis down");
         });
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
         clearInvocations(notifications, maskLocks);
         clock.advance(BACKOFF.minusMillis(1));
-        relay.publishAfterCommit(2L, 10L);
+        send(relay, 2L, 10L);
 
         assertThat(dropped("publish_failed")).isEqualTo(1.0);
         assertThat(dropped("skipped")).isEqualTo(1.0);
@@ -97,18 +99,18 @@ class NotificationRealtimeRelayTest {
         givenNotification(3L, 10L, mentioning());
         AtomicBoolean down = new AtomicBoolean(true);
         AtomicInteger sent = new AtomicInteger();
-        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> {
             if (down.get()) {
                 throw new IllegalStateException("redis down");
             }
             sent.incrementAndGet();
         });
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
         down.set(false);
         clock.advance(BACKOFF);
-        relay.publishAfterCommit(2L, 10L);
-        relay.publishAfterCommit(3L, 10L);
+        send(relay, 2L, 10L);
+        send(relay, 3L, 10L);
 
         assertThat(sent.get()).isEqualTo(2);
         assertThat(dropped("skipped")).isZero();
@@ -119,9 +121,9 @@ class NotificationRealtimeRelayTest {
     void 언급_회원이_있는_알림은_파기_순서_잠금을_잡고_commit_전에_발행한다() {
         givenNotification(1L, 10L, mentioning());
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
-        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+        NotificationRealtimeRelay relay = relay(publisher);
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
 
         InOrder order = inOrder(maskLocks, publisher, transactions);
         order.verify(maskLocks).lockShared(List.of(7L));
@@ -133,9 +135,9 @@ class NotificationRealtimeRelayTest {
     void 언급_회원이_없는_알림은_잠금을_잡지_않고_트랜잭션을_끝낸_뒤_발행한다() {
         givenNotification(1L, 10L, noMention());
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
-        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+        NotificationRealtimeRelay relay = relay(publisher);
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
 
         verify(maskLocks, never()).lockShared(any());
         InOrder order = inOrder(transactions, publisher);
@@ -149,10 +151,9 @@ class NotificationRealtimeRelayTest {
     @Test
     void 발행에_성공하면_commit_뒤부터_Redis_발행_완료까지를_잰다() {
         givenNotification(1L, 10L, noMention());
-        NotificationRealtimeRelay relay = relay(Runnable::run,
-                (receiver, frame) -> clock.advance(Duration.ofMillis(40)));
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> clock.advance(Duration.ofMillis(40)));
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
 
         var timer = registry.find(NotificationRealtimeRelay.PUBLISH_LATENCY_METRIC).timer();
         assertThat(timer).isNotNull();
@@ -164,26 +165,26 @@ class NotificationRealtimeRelayTest {
     void 발행에_실패하거나_버린_프레임은_발행_구간을_재지_않는다() {
         givenNotification(1L, 10L, noMention());
         givenNotification(2L, 10L, noMention());
-        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> {
             throw new IllegalStateException("redis down");
         });
 
-        relay.publishAfterCommit(1L, 10L);
-        relay.publishAfterCommit(2L, 10L);
+        send(relay, 1L, 10L);
+        send(relay, 2L, 10L);
 
         assertThat(registry.find(NotificationRealtimeRelay.PUBLISH_LATENCY_METRIC).timer()).isNull();
     }
 
     @Test
     void 알림을_다시_읽지_못하면_read_failed로_세고_생략_시간을_걸지_않는다() {
-        when(notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(1L, 10L))
-                .thenThrow(new IllegalStateException("db down"));
         givenNotification(2L, 10L, noMention());
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
-        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+        NotificationRealtimeRelay relay = relay(publisher);
+        when(notifications.findAllByIdInAndDeletedAtIsNull(List.of(1L)))
+                .thenThrow(new IllegalStateException("db down"));
 
-        relay.publishAfterCommit(1L, 10L);
-        relay.publishAfterCommit(2L, 10L);
+        send(relay, 1L, 10L);
+        send(relay, 2L, 10L);
 
         assertThat(dropped("read_failed")).isEqualTo(1.0);
         assertThat(dropped("publish_failed")).isZero();
@@ -195,12 +196,12 @@ class NotificationRealtimeRelayTest {
     void 언급_회원이_없는_알림의_발행이_실패해도_publish_failed로_세고_생략_시간을_건다() {
         givenNotification(1L, 10L, noMention());
         givenNotification(2L, 10L, noMention());
-        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> {
             throw new IllegalStateException("redis down");
         });
 
-        relay.publishAfterCommit(1L, 10L);
-        relay.publishAfterCommit(2L, 10L);
+        send(relay, 1L, 10L);
+        send(relay, 2L, 10L);
 
         assertThat(dropped("publish_failed")).isEqualTo(1.0);
         assertThat(dropped("skipped")).isEqualTo(1.0);
@@ -212,11 +213,11 @@ class NotificationRealtimeRelayTest {
     void 발행_실패_뒤_롤백이_실패해도_publish_failed로_센다() {
         givenNotification(1L, 10L, mentioning());
         doThrow(new TransactionSystemException("rollback failed")).when(transactions).rollback(any());
-        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+        NotificationRealtimeRelay relay = relay((receiver, frame) -> {
             throw new IllegalStateException("redis down");
         });
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
 
         assertThat(dropped("publish_failed")).isEqualTo(1.0);
         assertThat(dropped("read_failed")).isZero();
@@ -229,10 +230,10 @@ class NotificationRealtimeRelayTest {
         givenNotification(2L, 10L, noMention());
         doThrow(new IllegalStateException("lock failed")).when(maskLocks).lockShared(any());
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
-        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+        NotificationRealtimeRelay relay = relay(publisher);
 
-        relay.publishAfterCommit(1L, 10L);
-        relay.publishAfterCommit(2L, 10L);
+        send(relay, 1L, 10L);
+        send(relay, 2L, 10L);
 
         assertThat(dropped("read_failed")).isEqualTo(1.0);
         assertThat(dropped("publish_failed")).isZero();
@@ -246,9 +247,9 @@ class NotificationRealtimeRelayTest {
         Notification notification = givenNotification(1L, 10L, mentioning());
         ReflectionTestUtils.setField(notification, "mentionedUserIds", new Long[0]);
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
-        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+        NotificationRealtimeRelay relay = relay(publisher);
 
-        relay.publishAfterCommit(1L, 10L);
+        send(relay, 1L, 10L);
 
         InOrder order = inOrder(maskLocks, publisher);
         order.verify(maskLocks).lockShared(List.of(7L));
@@ -257,16 +258,32 @@ class NotificationRealtimeRelayTest {
 
     // ---------------------------------------------------------------------------------------------
 
-    private NotificationRealtimeRelay relay(TaskExecutor executor, NotificationRealtimePublisher publisher) {
+    /** 줄 1000·묶음 1. 프레임마다 {@link #send}로 넘기고 바로 비운다(한 프레임이 한 묶음) */
+    private NotificationRealtimeRelay relay(NotificationRealtimePublisher publisher) {
+        when(notifications.findAllByIdInAndDeletedAtIsNull(anyCollection())).thenAnswer(invocation -> {
+            Collection<Long> ids = invocation.getArgument(0);
+            return ids.stream().filter(stored::containsKey).map(stored::get).toList();
+        });
+        when(notifications.countUnreadByReceivers(anyCollection())).thenReturn(List.of());
         return new NotificationRealtimeRelay(notifications, provider(NotificationRealtimePublisher.class, publisher),
-                provider(TaskExecutor.class, executor), transactions, maskLocks,
-                provider(MeterRegistry.class, registry), BACKOFF, clock);
+                transactions, maskLocks, provider(MeterRegistry.class, registry), BACKOFF, 1000, 1, clock);
+    }
+
+    private static void send(NotificationRealtimeRelay relay, long id, long receiver) {
+        relay.publishAfterCommit(id, receiver);
+        try {
+            relay.deliverPending(Duration.ZERO);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private Notification givenNotification(long id, long receiver, Map<String, Object> payload) {
         NotificationDraft draft = new NotificationDraft(receiver, "TEST_MENTION", "TestEvent", "s-" + id, "LECTURE",
                 "s-" + id, payload, T0);
         Notification notification = Notification.create(draft, p -> "문구");
+        ReflectionTestUtils.setField(notification, "id", id);
+        stored.put(id, notification);
         when(notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(id, receiver))
                 .thenReturn(Optional.of(notification));
         return notification;

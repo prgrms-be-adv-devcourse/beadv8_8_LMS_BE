@@ -86,6 +86,248 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-120 · 2026-11-18 · 통과 (N17-1 #989 PR 리뷰 반영: Error·interrupt 뒤에도 발행 스레드 유지)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-120 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `de9a9167` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeWorker.loop`: `Error`는 `[NOTIFICATION_REALTIME_ERROR]` ERROR를 남기고 다음 묶음으로, 멈춤 요청 없는 `InterruptedException`은 WARN을 남기고 계속 돈다. 시험 Worker 2개 추가. module.md 3.8, test-spec 4장 |
+| 대상 기능 | 발행 스레드가 멈춤 요청 없이 끝나지 않음(이전 `ThreadPoolTaskExecutor`가 죽은 worker를 새로 띄우던 동작과 같게) |
+| 관련 NT ID | NT-RT-10 |
+| 명령 | `:notification:test --tests "*NotificationRealtimeWorkerTest"`(RED), `--tests "*NotificationRealtimeWorkerTest" --tests "*NotificationRealtimeOrderTest" --rerun` 3번, `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 첫 묶음에서 `NoClassDefFoundError`·`InterruptedException`을 던지면 스레드가 끝나 `deliverPending`이 다시 불리지 않음(2건). GREEN: Worker 11·Order 2를 3번 연속 통과. 전체 `:notification:test` 575/0/0/2(573 + 2), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | `[NOTIFICATION_REALTIME_ERROR]`를 찾는 alert 규칙은 더하지 않았다(팀 공유 `k8s/platform/base/alerting/rules.yaml`, 승인 필요, module.md 4.3 후속). `realtime.dropped`를 보는 alert도 없다. 같은 `Error`가 묶음마다 나면 묶음마다 ERROR가 남고 그 묶음 프레임은 지표에 잡히지 않는다(이전 실행기와 같음). 사용자 결정(2026-11-18): 모든 `Error`를 잡고 계속 돈다. 근거: 운영 `-XX:+ExitOnOutOfMemoryError`가 JVM이 던진 OOM에서 catch 전에 종료(충돌 없음), `TransactionTemplate`은 `Error`에도 롤백(spring-tx 7.0.9 예외 표 확인) |
+| 관련 변경 | #989 |
+
+#### NR-119 · 2026-11-18 · 통과 (N17-1 #989 ND-211 순서 보장 범위 반영 뒤 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-119 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a` 위 작업 트리 미커밋(NR-118 변경 포함) |
+| 작업 트리 변경 | 동작 변경 없음. `NotificationRealtimeRelay`·`NotificationRealtimeWorker` Javadoc을 ND-211(commit 뒤 줄에 넣은 순서 보장)에 맞춤. decisions ND-211·ND-205 상태, test-spec NT-RT-10, module 3.8, PROGRESS |
+| 대상 기능 | 받는 사람별 프레임 순서(보장 범위 문서화) |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | `:notification:test` 573/0/0/2(실시간 Batch 13·Order 2·Relay 12·Worker 9·Integration 15·Metrics 4), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 해당 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 해당 없음 |
+| 미검증 항목 | 서로 다른 저장 스레드의 commit 순서와 줄에 넣은 순서가 다른 경우는 시험을 더하지 않았다. Relay는 commit 시각을 보지 않고 줄에 넣은 순서만 따르며, 그 순서는 기존 시험(Batch "넘긴 순서대로", Order 300건, 묶음 경계)이 확인한다. 뒤바뀜을 일부러 만드는 시험은 같은 FIFO를 다시 확인할 뿐이다 |
+| 관련 변경 | #989 |
+
+#### NR-118 · 2026-11-18 · 통과 (N17-1 #989 PR 리뷰 반영: 멈출 때 interrupt 제거, 시작·멈춤 직렬화)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-118 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeWorker`: 멈출 때 interrupt하지 않고 처리 중 묶음을 기다림(5초), `start`·`stop`을 직렬화, 스레드마다 실행 표시를 따로 둠, 이전 스레드가 대기 뒤에도 살아 있으면 시작 거절(`IllegalStateException`), 대기 시간 생성자(테스트). 시험: Worker 4개 추가, Batch 1개에 잠금 뒤 다시 읽기 순서 확인 추가. 문서: module.md 3.8 멈춤 대기 행, test-spec 4장 |
+| 대상 기능 | 발행 스레드 수명주기, 멈출 때 처리 중 묶음 |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:compileTestJava`(RED), `:notification:test --tests "*NotificationRealtimeWorkerTest"`(RED·GREEN), `--tests "*NotificationRealtimeWorkerTest" --tests "*NotificationRealtimeOrderTest" --rerun` 3번, `:notification:test --tests "*NotificationRealtimeBatchTest"`, `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 대기 시간 생성자가 없어 시험 컴파일 실패. 생성자만 더한 뒤 동작 RED 3건: 멈출 때 interrupt 걸림(`AtomicBoolean(true)`), 대기 뒤에도 살아 있는 이전 스레드가 있는데 시작이 예외 없이 됨, 동시 시작·멈춤에서 묶음 처리 동시 4개. 재시작 시험은 지금 코드도 통과(특성 시험). GREEN: Worker 9·Order 2를 3번 연속 통과, Batch 13 통과. 전체 `:notification:test` 573/0/0/2(569 + 4), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED. 시험 작성 실수 1건(재시작 시험의 `verifyNoMoreInteractions`가 계속 도는 `deliverPending`을 잡음)은 `close` 1번 확인으로 고쳤다 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 부하 재측정은 하지 않았다(멈춤·시작 경로만 바뀜). ND-205 순서 표현(commit 순서와 afterCommit 넘김 순서)은 사용자 결정 대기 |
+| 관련 변경 | #989 |
+
+#### NR-117 · 2026-11-18 · 통과 (N17-1 #989 dev 병합(#996) 뒤 알림 범위 재검증)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-117 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a`(병합 `845026d7` + ND-210 문서) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | dev(#996 limit 832Mi, #999 Chat·Coupon 구조 정정) 병합 뒤 알림 모듈 |
+| 관련 NT ID | 알림 모듈 전체 |
+| 명령 | `./gradlew :notification:test --rerun verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | `:notification:test` 569/0/0/2, `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 해당 없음 |
+| 수정 내용 | 없음(test-spec NT-RES-03 충돌은 병합 커밋에서 해결) |
+| 재실행 결과 | 해당 없음 |
+| 미검증 항목 | 전체 `./gradlew check` |
+| 관련 변경 | #989, #996 |
+
+#### NR-116 · 2026-11-18 · 통과 (N17-1 #989 S6 리뷰 반영: 닫힘·거절, 이름·가시성, 로그 레벨, 안 읽은 수 시나리오)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-116 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeRelay`: `deliverPending`을 package-private으로, `clearPending`을 `open`·`close`(남은 수 반환)로 바꿈. 닫힌 뒤 넘긴 프레임은 줄에 넣지 않고 `queue_full`로 셈(넣는 사이에 닫히면 꺼내고 셈). `NotificationRealtimeWorker`: 시작 때 `open`, 멈출 때 `close` 뒤 버린 수 WARN, 묶음 예외 로그 ERROR→WARN. `NotificationRepository.UnreadCount` → `ReceiverUnread`. 시험: Batch 5개·Worker 1개 추가, 이름 변경 반영. 문서: module.md 3.8·4.3, test-spec 4장 |
+| 대상 기능 | 실시간 전달 멈춤·거절, 같은 받는 사람 프레임의 안 읽은 수 |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:compileTestJava`(RED), `:notification:test --tests "*NotificationRealtime*"`, 변이 확인 `:notification:test --tests "*NotificationRealtimeBatchTest"`, `./gradlew :notification:test verifyModuleStructure`, `./gradlew verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: `ReceiverUnread`·`open`·`close`가 없어 시험 컴파일 실패. GREEN: Batch 13·Order 2·Relay 12·Worker 5·Integration 15·Metrics 4. 변이: 닫힘 검사 두 곳을 끄면 닫힘 시험 RED, 이어받기를 끄면 "잠금 경로 뒤"·"읽음 감소" 시험 RED(묶음 경계 시험은 다음 묶음에서 새로 읽으므로 이 변이와 무관한 특성 시험), 되돌린 뒤 통과. 전체 `:notification:test` 569/0/0/2(NR-115 563 + 6), `verifyModuleStructure` 새로 실행 BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED만 있음 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 부하 재측정(L4·L3)은 하지 않았다. 바뀐 동작은 멈춤 뒤 거절, 닉네임 알림 뒤 맵 값 갱신, 로그 레벨뿐이라 부하 조건·DB 호출 수·프레임 형식이 같다. 정리 후보는 module.md 4.3 |
+| 관련 변경 | #989 |
+
+#### NR-115 · 2026-11-17 · 통과 (N17-1 #989 S6 리뷰 반영: 잠금 경로 뒤 안 읽은 수 역행 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-115 |
+| 실행 날짜 | 2026-11-17 23:10~23:25 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeRelay`: 잠금 경로(ND-054)가 발행할 때 다시 센 안 읽은 수를 묶음 값에 덮어써, 같은 묶음 뒤의 같은 받는 사람 프레임이 이어받는다. `NotificationRealtimeBatchTest`에 시험 1개 추가. module.md 3.8 서술 수정 |
+| 대상 기능 | 같은 묶음에서 닉네임 알림 뒤에 오는 일반 알림 프레임의 안 읽은 수 |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:test --tests "*NotificationRealtimeBatchTest"`(RED), `:notification:test --tests "*NotificationRealtime*"`, `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `./gradlew :auxiliary-app:test --rerun :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 묶음 값 3·잠금 경로 값 5에서 `["10:t-1:5", "10:t-2:3"]`(뒤 프레임이 오래된 값). GREEN: `["10:t-1:5", "10:t-2:5"]`. 실시간 시험 Batch 8·Order 2·Relay 12·Worker 4·Integration 15·Metrics 4 통과. 전체 `:notification:test` 563/0/0/2(NR-114 562 + 1), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0 |
+| 실패 원인 분류 | 의도한 RED. 원인: 일반 알림은 묶음을 읽을 때 센 값을, 닉네임 알림은 발행할 때 다시 센 값을 써서, 그 사이 commit이 있으면 뒤 프레임 값이 작아졌다(S6 Spec 리뷰 지적) |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 수정 뒤 부하 측정(L4·L3·B0)은 다시 하지 않았다. 바뀐 것은 닉네임 알림 뒤 맵 값 한 칸 갱신이라 DB 호출 수는 같다 |
+| 관련 변경 | #989 |
+
+#### NR-114 · 2026-11-17 · 통과 (N17-1 #989 예외 병합 전 재검증)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-114 |
+| 실행 날짜 | 2026-11-17 22:56~23:03 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋(NR-111과 같은 코드, 그 뒤 문서만 바뀜) |
+| 작업 트리 변경 | NR-111과 같다. 문서 NR-113·NR-114·ND-207·ND-208·교차 대조 절 추가 |
+| 대상 기능 | 실시간 전달 묶음 처리 전체 회귀(ND-208 예외 병합 전) |
+| 관련 NT ID | NT-RT-10·NT-RT-11, 알림 모듈 전체 |
+| 명령 | `./gradlew :notification:test --rerun`, `./gradlew verifyModuleStructure :auxiliary-app:check`, `./gradlew :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | `:notification:test` 562/실패 0/오류 0/건너뜀 2(NR-111과 같음), `verifyModuleStructure` 새로 실행 BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0/0/0, `:auxiliary-app:check` BUILD SUCCESSFUL(첫 실행은 UP-TO-DATE라 `--rerun`으로 다시 돌림) |
+| 실패 원인 분류 | 해당 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 해당 없음 |
+| 미검증 항목 | 전체 `./gradlew check`(⑤에서 묻는다) |
+| 관련 변경 | #989 |
+
+#### NR-113 · 2026-11-17 · 통과 (N17-1 #989 B0 교차 대조: 변경 후 중앙값 변경 전의 99.9%)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-113 |
+| 실행 날짜 | 2026-11-17 20:35~21:41 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | 변경 전 `cf27a922`(별도 worktree에서 빌드한 이미지 `119606d1…`), 변경 후 `cf27a922` 위 작업 트리 미커밋(NR-112와 같은 이미지 `7f53b371…`) |
+| 작업 트리 변경 | NR-111과 같다. `b0.sh`·fixture는 고치지 않았다. 회차마다 이미지를 `hapbang/auxiliary-app:local`로 태그해 `k3d image import`로 넣었다 |
+| 대상 기능 | B0 소비 처리량 회귀 여부(NR-112 불합격의 환경·코드 원인 분리) |
+| 관련 NT ID | NT-LOAD-RT1(ND-206), 대조 기준 ND-207 |
+| 명령 | 변경 전(A)·변경 후(B)를 A→B 순서로 3번 번갈아 `b0.sh run 11`~`run 16` |
+| 실행 환경 | 로컬 Windows, Docker Desktop(12 CPU, 7.7GiB, 5회 같음), B0 cluster `k3d-hapbang-b0`, Kafka·PostgreSQL·메모리·JVM 설정 같음. 호스트 CPU(측정 전/후) 15/12·26/13·23/12·16/9·24/22%(6회차 미기록). 6회차(B, r16)는 검증까지 끝난 뒤 Claude Code가 호스트 메모리 부족으로 감싼 스크립트를 멈춰 pod 이미지 ID를 적지 못했다. r16 이미지는 import 기록(`7f53b371…`)과 변경 전에만 있는 `executor_*{name="notificationRealtimeExecutor"}` 지표가 없는 것으로 확인했다. 1~5회차 pod 이미지 ID는 A `58377a63…`, B `e606a8d1…`(cluster 쪽 ID)로 순서대로 바뀌었다 |
+| 결과 | 통과 |
+| 건수 | 6회 모두 유효, V0~V8 통과, F `5a7ab852…`(5,461행, B0와 같음). 처리량 A 207.31 / 203.51 / 198.39(중앙값 203.51), B 203.32 / 203.45 / 203.07(중앙값 203.32, A의 99.9%, 기준 183.16 이상). 투입 속도 A 262.48 / 253.28 / 249.68, B 258.06 / 260.28 / 263.19. 처리량/투입 속도 A 0.790 / 0.803 / 0.795, B 0.788 / 0.782 / 0.772. p95 A 26.2 / 26.6 / 26.7초, B 26.3 / 26.2 / 26.3초. CPU 최대 A 2480 / 2752 / 2729m, B 3473 / 2469 / 3473m. 메모리 최대 A 581 / 605 / 593MiB, B 611 / 580 / 597MiB. GC A 0.215초·24회 / 0.231·25 / 0.237·25, B 0.229·27 / 0.221·27 / 0.220·26. Hikari active 최대 A 3 / 3 / 3, B 3 / 3 / 4, 대기 0, timeout 0 |
+| 실패 원인 분류 | 해당 없음. 같은 환경에서 변경 전 이미지도 약 200건/초라 NR-112의 B0 처리량 저하는 이번 변경보다 측정 환경 쪽에 가깝다. 다만 B의 처리량/투입 비율이 평균 약 1.5% 낮고 GC 횟수가 회차당 1~3회 많아, 영향이 전혀 없다고 보지는 않는다. 회차가 3+3이라 이 정도 차이는 구분하지 못한다 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 공식 B0 판정(ND-175, NR-112 불합격)은 바뀌지 않는다. 예외 병합은 사용자 결정으로 진행(ND-208) |
+| 관련 변경 | #989 |
+
+#### NR-112 · 2026-11-17 · 일부 실패 (N17-1 #989 재측정: L4·L3 합격, B0 5회 ND-175 불합격)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-112 |
+| 실행 날짜 | 2026-11-17 16:48~20:27 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋(NR-111과 같음) |
+| 작업 트리 변경 | NR-111과 같다. 앱 이미지 `b0.sh setup`으로 작업 트리에서 빌드, `7f53b371…` |
+| 대상 기능 | 실시간 전달 묶음 처리 뒤 백로그 회복·저장→전달·소비 처리량 |
+| 관련 NT ID | NT-LOAD-RT1(ND-206), NT-LOAD-L4·L3 기준 |
+| 명령 | `n15.sh l4 n17r1`, `n15.sh l3 n17r1`, `b0.sh run 1`~`run 5` |
+| 실행 환경 | 로컬 Windows, Docker Desktop, B0 cluster `k3d-hapbang-b0`(cluster start, 재생성 아님). 3회차 뒤 사용자 지시로 멈췄다가 4·5회차를 이어 돌렸다. 4회차는 20:06에 시작했다(멈춘 뒤 약 2시간 지남, 그사이 호스트 상태는 확인하지 않음) |
+| 결과 | 일부 실패 |
+| 건수 | L4 `n15-l4-20261117-164840-rn17r1`: `queue_full` 0(N15 1,335), 할당 완료→lag 0 40.1초, V0~V8 통과, Hikari active 최대 4·대기 0, 메모리 최대 629MiB, 발행 지연 평균 약 0.42초(모두 2.5초 안). L3 `n15-l3-20261117-171111-rn17r1`: p50 6.0·p95 11.5·p99 17.7ms, 유실 0/6,000, 연결 100. B0 `b0-20261117-171801-r1`~`201655-r5`: 5회 모두 V0~V8·F 통과(`5a7ab852…`, B0와 같음), 처리량 195.10 / 203.23 / 169.91 / 150.99 / 201.99건/초, 중앙값 195.10(B0 237.52의 82.1%), CV 12.45%. 투입 속도 253.21 / 263.17 / 217.36 / 197.44 / 258.05(중앙값 253.21, CV 12.15%) |
+| 실패 원인 분류 | ND-175 성능 판정 불합격(중앙값 < 213.8, CV > 10%). 원인 미확정: 처리량/투입 속도 비율이 5회 모두 0.765~0.783로 앱과 무관한 투입 속도와 함께 움직인다. N14 재측정(198.66)·리팩토링 전 대조(199.01, ND-186)와 같은 수준 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함(처리는 사용자 결정 대기) |
+| 미검증 항목 | 같은 환경에서 변경 전 이미지와의 대조 측정 |
+| 관련 변경 | #989 |
+
+#### NR-111 · 2026-11-17 · 통과 (N17-1 #989 묶음 처리 구현 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-111 |
+| 실행 날짜 | 2026-11-17 16:3x~16:45 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeRelay`(줄·묶음 읽기), `NotificationRealtimeWorker`(새 발행 스레드), `NotificationRealtimeExecutorConfig`(Worker 빈), `NotificationRepository`(`findAllByIdInAndDeletedAtIsNull`, `countUnreadByReceivers`). 시험 `NotificationRealtimeBatchTest`·`WorkerTest` 새로, `OrderTest`·`RelayTest`·`NotificationRealtimeIntegrationTest`·`NotificationFixtures` 고침. 문서 |
+| 대상 기능 | 실시간 전달 묶음 처리(ND-205) |
+| 관련 NT ID | NT-RT-01~05·08·10·11, NT-OBS-07 |
+| 명령 | `./gradlew :notification:compileTestJava`(RED), `:notification:test --tests "…app.NotificationRealtime*"`, `--tests "…in.NotificationRealtimeIntegrationTest" "…in.NotificationConnectionExpiryTest" "…in.NotificationHeartbeatTest"`, `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Docker Desktop(Testcontainers) |
+| 결과 | 통과 |
+| 건수 | RED: 새 API가 없어 시험 컴파일 실패(`UnreadCount`, `NotificationRealtimeWorker`, 새 생성자). GREEN: 단위 Batch 7·Worker 4·Order 2·Relay 12, 통합 Realtime 15·ConnectionExpiry 7·Heartbeat 5. 전체 `:notification:test` 562/0/0/2(앞 548 + 새 14), `verifyModuleStructure`·`:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음(부하 판정은 NR-112) |
+| 관련 변경 | #989 |
+
+#### NR-110 · 2026-11-17 · 통과 (N17-1 #989 진단: 실시간 전달 순서 특성 시험, 진단 L4 2회)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-110 |
+| 실행 날짜 | 2026-11-17 15:40~16:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `cf27a922` 위 작업 트리 미커밋(문서, `NotificationRealtimeOrderTest` 추가. 운영 코드 변경 없음) |
+| 작업 트리 변경 | 운영 코드 없음. 시험 `app.NotificationRealtimeOrderTest` 추가 |
+| 대상 기능 | 실시간 전달의 현재 순서 보장 범위와 처리량 병목(ND-205 구현 전 확인) |
+| 관련 NT ID | NT-RT-10, NT-RT-11(특성), NT-LOAD-RT1(진단, 판정 회차 아님) |
+| 명령 | `./gradlew :notification:test --tests "…app.NotificationRealtimeOrderTest"`. 진단 L4: `loadtest/notification/n15.sh l4 n17diag1`, `… l4 n17diag2`(앱 이미지 N15와 같은 `cf9d7470…`), diag2는 재개 pod에 `kill -3`으로 스레드 덤프 70회(0.3초 간격, 처리 구간) |
+| 실행 환경 | 로컬 Windows, Docker Desktop, B0 cluster `k3d-hapbang-b0`(cluster start, 재생성 아님) |
+| 결과 | 통과 |
+| 건수 | 특성 시험 2/0/0/0(받는 사람별 순서가 넘긴 순서와 같음 — 잠금 경로 섞임 포함, 안 읽은 수는 발행 직전 프레임마다 한 번 셈). 시험 쪽 실행기만 스레드 4개로 바꾸면 2건 RED → 되돌려 GREEN. 진단 L4: diag1·diag2 모두 V0~V8·L4 회복 통과, `queue_full` 1,155·1,264건(N15 r2 1,335건과 같은 수준) |
+| 실패 원인 분류 | 실패 없음(diag1의 덤프는 장벽용 pod에 가 채집 실패, 채집기만 고쳐 diag2) |
+| 수정 내용 | 없음(운영 코드) |
+| 재실행 결과 | 위 건수 |
+| 미검증 항목 | 진단 값은 판정 회차가 아니다. 덤프는 safepoint로 측정을 조금 흔든다 |
+| 관련 변경 | #989 |
+
 #### NR-109 · 2026-11-17 · 통과 (N15 #970 PR Bot 리뷰 반영)
 
 | 항목 | 값 |

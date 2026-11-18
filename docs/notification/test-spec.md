@@ -214,6 +214,8 @@
 | NT-RT-07 | WebSocket 경로 Gateway 시간 제한과 heart-beat | Gateway를 거친 연결, 알림 없음 | WebSocket을 stream idle(5분)과 기본 응답 시간(30초)보다 오래, 프레임 없이 연결 | 알림이 없어도 서버 STOMP heart-beat로 연결이 연결 만료(ND-056)까지 유지되고, 만료 시각에 서버가 4401로 끊는다. Envoy가 먼저 끊지(1006) 않는다 | 앱 쪽은 연결 만료를 짧게 설정해 heart-beat 협상·유지를 확인한다. 실제 15분은 Gateway를 거친 E2E로 확인한다 | ND-062, ND-063, ND-056 | `k8s/base/gateway.yaml` HTTPRoute·BackendTrafficPolicy, WebSocket | Integration(PG+Redis), E2E | 유효 |
 | NT-RT-08 | 읽음 때 프레임 없음 | A 연결 | A가 읽음·전체 읽음 | 프레임이 오지 않는다. 새 알림·묶음 갱신 저장 때만 온다 | — | ND-059 | WebSocket, `PATCH /api/v1/notifications/{notificationId}/read`, `PATCH /api/v1/notifications/read-all` | Integration(PG+Redis) | 유효 |
 | NT-RT-09 | Gateway 경로·인증과 `exp` claim | Gateway(로컬 k3d) 경유 | (1) JWT 없이 `GET /api/v1/notifications/ws`(티켓 있음·없음·틀림) (2) access token으로 티켓 발급 REST (3) 같은 발급 요청에 외부에서 `X-User-Token-Exp`를 붙임 (4) 다른 메서드·하위 경로 | (1) JWT가 없어도 Gateway JWT 인증에 막히지 않고 앱까지 간다. 유효한 1회용 티켓이 있으면 연결되고, 없거나 틀리면 앱이 핸드셰이크를 401로 거절한다 (2) 발급 요청에 Gateway가 access token `exp`를 `X-User-Token-Exp`로 넣는다 (3) 외부에서 붙인 헤더는 지워지고 Gateway가 넣은 값만 닿는다 (4) WebSocket route로 가지 않는다 | WebSocket route는 JWT SecurityPolicy 대상이 아니다(ND-067). 위조 헤더 제거와 `exp` 주입은 JWT 인증이 있는 REST 요청에서 확인한다 | ND-062, ND-064, ND-067, ND-056, ND-060 | `k8s/base/gateway.yaml` HTTPRoute·SecurityPolicy | E2E | 유효 |
+| NT-RT-10 | 받는 사람별 프레임 순서 | A 연결 | A에게 가는 알림 여러 건을 차례로 저장(사이에 다른 회원 알림이 섞임, 저장이 실시간 발행보다 빠름) | A가 받는 프레임의 알림 순서가 commit 뒤 줄에 넣은 순서와 같다. 이 시험처럼 한 스레드가 차례로 저장하면 저장 commit 순서와 같다(다른 스레드에서 거의 동시에 commit된 저장끼리는 보장하지 않는다, ND-211). 각 프레임의 안 읽은 수는 그 프레임 알림의 commit 뒤, 발행 전에 읽은 값이고(묶음 시점 차이는 ND-209), 같은 받는 사람의 프레임에서 앞 프레임보다 오래된 값이 뒤에 오지 않는다(그사이 읽음이 없을 때) | 버린 프레임(줄 포화 등)은 순서 비교에서 빼고 따로 센다. 프레임 형식은 ND-059 그대로 | ND-205, ND-211, ND-059, ND-027 | WebSocket `/user/queue/notifications` | Unit, Integration(PG+Redis) | 유효 |
+| NT-RT-11 | 다른 회원 닉네임이 든 알림의 순서·파기 잠금 | A 연결, 언급 회원 B | A에게 가는 알림 중 B 닉네임이 든 알림과 없는 알림을 섞어 저장, B 파기와 겹침 | NT-RT-10의 순서가 지켜진다. B 닉네임이 든 알림은 파기 순서 잠금 안에서 다시 읽어 보내고, 파기가 진행 중이면 끝난 뒤 파기된 닉네임으로 나간다 | — | ND-205, ND-054 | 위와 같음 | Unit, Integration(PG+Redis) | 유효 |
 
 ### 2.11 ERR — 실패·재시도·DLT
 
@@ -246,9 +248,9 @@
 
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NT-RES-01 | DB 연결 풀 공유 | 풀 크기 확정(지금 Hikari 5, 챗봇 기준) | 알림 소비·API·예약 배치와 챗봇 요청을 동시에 | 정한 예산 안에서 연결 대기 시간 초과가 없다 | PostgreSQL `max_connections` 100을 다른 앱과 나눔 | **U13** | auxiliary-app README "실행과 설정" | 부하 | 미결 (U13) |
-| NT-RES-02 | 배치 스레드 공유 | 스레드 수 확정(지금 2) | 1분 예약 배치와 챗봇 배치가 겹침 | 예약 배치 지연이 정한 범위 안이다 | — | ND-029, **U13** | 위와 같음 | 부하 | 미결 (U13) |
-| NT-RES-03 | 메모리 | 예산 확정(지금 limit 832Mi(#996, 전 704Mi), `-Xmx256m`) | STOMP 연결 여럿 + 소비 + 챗봇 | OOMKilled 없이 정한 예산 안이다 | — | **U13** | 위와 같음 | 부하, E2E | 미결 (U13) |
+| NT-RES-01 | DB 연결 풀 공유 | Hikari 5(ND-204) | 알림 소비·API·예약 배치와 챗봇 요청을 동시에 | 예산(Hikari 5) 안에서 연결 대기 시간 초과가 없다 | PostgreSQL `max_connections` 100을 다른 앱과 나눔. N15 격리 측정은 챗봇 요청 없이 쟀다(ND-203) | ND-204 | auxiliary-app README "실행과 설정" | 부하 | 유효 |
+| NT-RES-02 | 배치 스레드 공유 | 앱 공통 스케줄러 스레드 2(ND-204) | 1분 예약 배치와 챗봇 배치가 겹침 | 예약 배치 지연이 NT-LOAD-L5S·L5B·L5M 기준(최대 지연 ⌈N/100⌉+1분) 안이다 | 챗봇 배치가 스레드를 오래 쥐면 예약 회차가 늦게 시작할 수 있다(ND-204). 알림 쪽 분리는 N17-4 | ND-029, ND-192, ND-204 | 위와 같음 | 부하 | 유효 |
+| NT-RES-03 | 메모리 | limit 832Mi(#996, ND-210. N15·N17-1 측정 때는 704Mi), `-Xmx256m`(ND-204) | STOMP 연결 여럿 + 소비 + 챗봇 | OOMKilled 없이 예산 안이다 | `-Xmx`를 함께 올릴지는 N17-2 메모리 분석 뒤 다시 정한다(ND-210) | ND-204, ND-210 | 위와 같음 | 부하, E2E | 유효 |
 
 ### 2.15 OBS — 계측
 
@@ -310,15 +312,16 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NT-LOAD-L1 | 운영 REST 조회 혼합 | 운영 시험 계정, N14 이상 배포, 운영 E2E 기간 아님(ND-158), 공지 | `loadtest/k6/notification/rest.js` `PROFILE=load` 100 RPS 10분, GET만(목록 50%·안 읽은 수 50%) | 앱 p95 500ms 이하, 5xx 1% 미만, 보내지 못한 요청 0.1% 미만, Hikari 연결 대기 시간 초과 0 | 요약은 허용 목록만(ND-174). CPU credit 전후 값 기록 | ND-155·ND-157·ND-174 | `GET /api/v1/notifications`, `GET /api/v1/notifications/unread-count` | 부하(운영) | 유효 |
-| NT-LOAD-L2 | 운영 STOMP 연결 유지 | NT-LOAD-L1과 같음 | `stomp.js` `PROFILE=load` 연결 50 → 100 → 200, 단계마다 4분 20초, 모두 13분(access token 15분 안), 시험 계정 최대 10개, 서버 heart-beat 25초 | OOMKilled 0, 컨테이너 메모리 limit의 85% 이하, 비정상 끊김(1006) 0 | 클라이언트가 계획대로 닫기 전에 닫힌 연결은 종료 코드와 관계없이 비정상 끊김으로 센다(ND-200). 연결 200개·티켓 실패 0은 시험 성립 조건이고 연결 시간은 기록만 한다. 모든 연결이 setup에서 받은 access token이 끝나기 전에 끝나므로 연결 만료(4401, ND-056)도 0이어야 한다(나오면 기록하고 원인 확인). 티켓 발급 한도(NT-RT-05) 안에서 계정에 고르게 나눠 연결한다. 알림 쓰기 없음(ND-188) | ND-155·ND-157·ND-188·ND-198·ND-200, U13 | 연결 티켓, WebSocket | 부하(운영) | 유효 |
+| NT-LOAD-L1 | 운영 REST 조회 혼합 | 운영 시험 계정, N14 이상 배포, 운영 E2E 기간 아님(ND-158, 지금은 운영 E2E 보류 ND-203), 공지 | `loadtest/k6/notification/rest.js` `PROFILE=load` 100 RPS 10분, GET만(목록 50%·안 읽은 수 50%) | 앱 p95 500ms 이하, 5xx 1% 미만, 보내지 못한 요청 0.1% 미만, Hikari 연결 대기 시간 초과 0 | 요약은 허용 목록만(ND-174). CPU credit 전후 값 기록. N15에서는 실행하지 않았다(ND-202). 도구는 준비돼 있다 | ND-155·ND-157·ND-174 | `GET /api/v1/notifications`, `GET /api/v1/notifications/unread-count` | 부하(운영) | 유효 |
+| NT-LOAD-L2 | 운영 STOMP 연결 유지 | NT-LOAD-L1과 같음 | `stomp.js` `PROFILE=load` 연결 50 → 100 → 200, 단계마다 4분 20초, 모두 13분(access token 15분 안), 시험 계정 최대 10개, 서버 heart-beat 25초 | OOMKilled 0, 컨테이너 메모리 limit의 85% 이하, 비정상 끊김(1006) 0 | 클라이언트가 계획대로 닫기 전에 닫힌 연결은 종료 코드와 관계없이 비정상 끊김으로 센다(ND-200). 연결 200개·티켓 실패 0은 시험 성립 조건이고 연결 시간은 기록만 한다. 모든 연결이 setup에서 받은 access token이 끝나기 전에 끝나므로 연결 만료(4401, ND-056)도 0이어야 한다(나오면 기록하고 원인 확인). 티켓 발급 한도(NT-RT-05) 안에서 계정에 고르게 나눠 연결한다. 알림 쓰기 없음(ND-188). N15에서는 실행하지 않았다(ND-202). 도구는 준비돼 있다 | ND-155·ND-157·ND-188·ND-198·ND-200, U13 | 연결 티켓, WebSocket | 부하(운영) | 유효 |
 | NT-LOAD-L3 | 저장→실시간 전달(격리) | 격리 cluster, 시험 회원 복제본, 회원마다 기존 계약대로 연결 티켓 발급·STOMP 연결 100개 | 연결된 받는 사람에게 가는 단건 알림 이벤트를 소비 처리량보다 낮은 고정 속도로 투입 | 저장→전달 지연 p95 1초 이하, 유실률(저장된 시험 대상 알림 중 받지 못한 고유 알림) 0.1% 미만. 중복 수신·수신 누락·측정 제외(하루 묶음 갱신 등)를 따로 센다. 앱·클라이언트 시계 차와 시간대를 기록한다 | `realtime.publish.latency`·`send.latency`는 보조이며 합산하지 않는다. 앱의 티켓 발급·검증·연결 만료를 우회하지 않는다. Gateway가 없어 사용자 헤더를 직접 주고 JWT 서명 검증은 거치지 않는다(ND-195, 결과 조건에 적음). 계약대로 연결할 수 없으면 실행하지 않고 보고한다 | ND-188·ND-193·ND-195·ND-027·ND-162 | 연결 티켓, WebSocket 프레임 | 부하(격리) | 유효 |
 | NT-LOAD-L4 | 밀린 이벤트 회복(격리) | 격리 cluster, L4 fixture·manifest(B0와 독립, ND-189), 앱 replicas 0 | 정상 백로그 10,000건 투입 → replicas 1. 회복 뒤 의도한 실패 레코드를 별도 단계로 투입 | 다섯 group partition 할당 완료 시각부터 5분 안에 다섯 group lag 0, manifest대로 저장(종류·결과별), 같은 원본 키 중복 0, 예상 밖 DLT 0. 입력 완료·replicas 1 전환·할당 완료·lag 0 시각을 모두 기록한다. 실패 단계는 재시도 횟수·DLT 건수와 대상·복구 시간을 따로 기록한다 | 정상 백로그에 재시도·DLT 대상 없음. LEGACY·재전송·받을 수 없는 회원(정지·탈퇴)은 포함하고, 받는 사람 복제본 없음(DLT)은 실패 단계다(ND-190). B0 기본 fixture SHA-256 불변. 실시간 전달 버림(`realtime.dropped`)과 메모리 사용은 판정하지 않고 기록한다(ND-196) | ND-189·ND-190·ND-196·ND-166 | 알림 소비 토픽 5개 + 회원 토픽 | 부하(격리) | 유효 |
 | NT-LOAD-L5S | 예약 배치 한 회차(격리) | 격리 cluster, 활성 회원 복제본 | 보낼 시각이 같은 예약 100건(Kafka 이벤트로 생성, ND-191) | 1회차 안에 100건 보냄, 알림 100건, 중복·누락 0, 최대 지연 2분 이하(⌈N/100⌉+1), 회차 실행 60초 미만, 회차 누락 0 | — | ND-191·ND-192 | 출연 이벤트(`APPEARANCE_REQUEST_EXPIRING` 예약) | 부하(격리) | 유효 |
 | NT-LOAD-L5B | 배치 경계 이월(격리) | NT-LOAD-L5S와 같음 | 같은 시각 예약 101건 | 1회차 100건·2회차 1건 보냄, 중복·누락 0, 최대 지연 3분 이하, 회차 실행 60초 미만, 회차 누락 0 | — | ND-192 | 위와 같음 | 부하(격리) | 유효 |
 | NT-LOAD-L5M | 연속 다회차(격리) | NT-LOAD-L5S와 같음 | 같은 시각 예약 1,000건 | 10회차 안에 모두 보냄, 중복·누락 0, 최대 지연 11분 이하, 회차 실행 60초 미만, 회차 누락 0 | — | ND-192 | 위와 같음 | 부하(격리) | 유효 |
 | NT-LOAD-L5F | 실패 경로(격리) | NT-LOAD-L5S와 같음. 예약 생성 뒤 실패 대상 10명의 복제본을 격리 DB에서 지움(ND-191) | 같은 시각 정상 990 + 실패 10, 기한 지남 예약은 별도 | 정상 990건이 11회차(⌈(990 + 3×10)/100⌉) 안에 모두 보냄, 최대 지연 12분 이하. 실패 10건은 각자 첫 시도 회차 + 2회차에 건너뜀, ERROR `NOTIFICATION_SCHEDULE_FAILED` 10건, `schedule.outcomes{result=abandoned}` 10. 기한 지남 예약은 건너뜀. 의도한 건너뜀과 회차 누락·중복·미처리를 따로 센다 | 시험 중 실패 대상 복제본이 다시 생기면 무효. 정렬·재선정 전제가 코드와 다르면 기대값을 바꾸지 않고 보고한다(ND-194) | ND-191·ND-194·ND-147 | 위와 같음 | 부하(격리) | 유효 |
-| NT-LOAD-L6 | 알림·챗봇 혼합(운영) | NT-LOAD-L1 선행 조건 + 챗봇 담당 확인 | `l6.js` 10분: 알림 L1 + STOMP 100 + 챗봇(LLM을 부르지 않는 GET 위주 + LLM 약 1 RPS. 비율은 챗봇 담당 확인값, 경로는 FAQ 모아보기·FAQ 대화로 두고 담당 확인). 챗봇 단독 비교는 `CHATBOT_ONLY=1` | 알림은 NT-LOAD-L1·L2 기준을 만족한다. 챗봇 p95는 단독 대비 악화율을 기록한다 | 챗봇 담당 확인 전에는 실행하지 않는다(ND-187) | ND-157·ND-187, U13 | 알림 REST·WebSocket, 챗봇 GET | 부하(운영) | 유효 |
+| NT-LOAD-L6 | 알림·챗봇 혼합(운영) | NT-LOAD-L1 선행 조건 + 챗봇 담당 확인 | `l6.js` 10분: 알림 L1 + STOMP 100 + 챗봇(LLM을 부르지 않는 GET 위주 + LLM 약 1 RPS. 비율은 챗봇 담당 확인값, 경로는 FAQ 모아보기·FAQ 대화로 두고 담당 확인). 챗봇 단독 비교는 `CHATBOT_ONLY=1` | 알림은 NT-LOAD-L1·L2 기준을 만족한다. 챗봇 p95는 단독 대비 악화율을 기록한다 | 챗봇 담당 확인 전에는 실행하지 않는다(ND-187). N15에서는 실행하지 않았다(ND-202). 도구는 준비돼 있다 | ND-157·ND-187, U13 | 알림 REST·WebSocket, 챗봇 GET | 부하(운영) | 유효 |
+| NT-LOAD-RT1 | 백로그 회복 중 실시간 전달 버림 재측정(N17-1, 격리) | NT-LOAD-L4와 같음(같은 L4 fixture), N17-1 변경을 담은 이미지. NT-LOAD-L3·B0 5회도 같은 이미지로 잰다 | NT-LOAD-L4 입력 그대로 | `realtime.dropped{reason=queue_full}` 0건. NT-LOAD-L4 기준(할당 완료부터 5분 안 lag 0, manifest대로 저장, 중복 0, 예상 밖 DLT 0)과 NT-LOAD-L3 기준(p95 1초 이하, 유실 0.1% 미만), B0 5회 허용 회귀 −10%(ND-175)를 함께 만족한다. 판정 회차는 L4 유효 1회, L3 유효 1회, B0 5회다 | 회복 중 `realtime.publish.latency`는 판정하지 않고 기록한다. `queue_full` 밖의 버림 이유(`read_failed`·`publish_failed`·`skipped`)도 기록한다. 격리 값이다(ND-203) | ND-206, ND-205, ND-196, ND-175 | 지표 `hapbang.notification.realtime.dropped`·`publish.latency` | 부하(격리) | 유효 |
 
 ## 3. 완료 증거 매핑
 
@@ -348,16 +351,16 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
 | SCH 예약 | 24 | 24 | 0 | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
-| RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
+| RT 실시간·재접속 | 11 | 11 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
-| RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
+| RES 자원 | 3 | 3 | 0 | 0 | 0 |
 | OBS 계측 | 12 | 12 | 0 | 0 | 0 |
 | B0 부하 도구·기준선 | 11 | 11 | 0 | 0 | 0 |
 | REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
-| LOAD 본 부하 시험 | 9 | 9 | 0 | 0 | 0 |
-| **합계** | **160** | **156** | **4** | **0** | **0** |
+| LOAD 본 부하 시험 | 10 | 10 | 0 | 0 | 0 |
+| **합계** | **163** | **162** | **1** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -416,6 +419,8 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-RT-07 | `in.NotificationHeartbeatTest`(CONNECTED heart-beat 값, 알림 없이 서버 heart-beat·연결 유지, 클라이언트 받기 0이면 서버 heart-beat 없음, 클라이언트 heart-beat가 끊기면 서버가 닫음, heart-beat 중에도 만료 4401), `in.websocket.NotificationWebSocketConfigTest`(heart-beat 스케줄러 종료, 설정값 0 이하·5분 이상이면 기동 실패, ND-068) | 앱 쪽 전부. Gateway stream idle을 넘는 유지는 로컬 k3d E2E(regression-log, 레포 밖 스크립트) |
 | NT-RT-09 | 테스트 코드 없음. 로컬 k3d E2E(regression-log, 레포 밖 스크립트·시험 backend) | Gateway 동작만. 실제 앱의 티켓 거절은 NT-RT-05 |
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
+| NT-RT-10 (N17-1) | `app.NotificationRealtimeOrderTest`(발행 스레드가 밀린 동안 쌓인 300건, 받는 사람별 넘긴 순서, 안 읽은 수는 commit 뒤·발행 전에 읽은 값), `app.NotificationRealtimeBatchTest`(묶음당 알림·안 읽은 수 쿼리 1번씩, 꺼낸 순서대로 발행, 묶음 상한, 줄 포화, 묶음 읽기 실패 `read_failed`, 받는 사람이 다르거나 밀려난 알림 건너뜀, 잠금 경로 뒤 같은 받는 사람 프레임이 다시 센 값을 이어받음, 묶음 경계, 읽음으로 실제 값이 줄면 줄어든 최신 값, 잠금 경로 알림이 보이지 않으면(잠금을 잡은 뒤 다시 읽음) 보내지 않고 묶음 값 유지, 닫으면 남은 수 반환·닫힌 뒤 `queue_full` 거절·다시 열기), `app.NotificationRealtimeWorkerTest`(스레드 하나, 예외·Error·멈춤 요청 없는 interrupt 뒤 계속, 멈추면 끝나고 Relay를 닫음, 시작하면 다시 엶, 멈출 때 interrupt 없이 처리 중 묶음을 끝냄, 멈춘 뒤 재시작, 이전 스레드가 살아 있으면 시작 거절, 동시 시작·멈춤에도 발행 스레드 하나, Kafka보다 먼저 시작·나중에 멈춤), `in.NotificationRealtimeIntegrationTest`(닉네임 없는 알림 10건을 두 받는 사람에게 몰아 저장 → 순서·안 읽은 수) | 전부(단위·통합). 순서 시험은 실행기 스레드 4개로 바꾸면 RED(NR-110). 이어받기·닫힘 거절은 해당 코드를 끄면 RED(NR-115·NR-116) |
+| NT-RT-11 (N17-1) | `app.NotificationRealtimeOrderTest`(잠금 경로 알림이 섞인 순서), `app.NotificationRealtimeBatchTest`(닉네임 알림은 그 자리에서 잠금 경로로), 파기 중 닉네임은 기존 `in.NotificationRealtimeIntegrationTest`(파기가 끝난 뒤의 닉네임으로) | 전부 |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
 | (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패와 잠금 경로의 잠금 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`(잠금 경로·언급 회원 없는 경로 모두, 롤백이 실패해도 원래 원인으로 분류)와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
 | (자원 정리) | `in.websocket.NotificationWebSocketConfigTest`(컨텍스트가 닫히면 수신·송신 채널 실행기 스레드가 끝남) | test-spec 항목 없음(U13 보강, #829 Bot 리뷰 2차) |
@@ -456,6 +461,13 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-18 decisions.md ND-211 반영(#989): NT-RT-10 기대 결과의 순서를 "저장 commit 순서"에서 "commit 뒤 줄에 넣은 순서(한 스레드가 차례로 저장하면 commit 순서)"로 고쳤다.
+- 2026-11-18 N17-1 PR 리뷰 반영(#989): 4장 NT-RT-10 연결 행의 Worker·Batch 시험 목록을 고쳤다. 요구사항 수는 그대로다.
+- 2026-11-18 decisions.md ND-210 반영(#989, dev #996 병합): NT-RES-03 limit을 832Mi(#996)로 적고 근거에 ND-210을 더했다. `-Xmx` 증설 여부는 N17-2 뒤.
+- 2026-11-18 decisions.md ND-209 반영(#989): NT-RT-10 기대 결과의 안 읽은 수를 "발행하기 직전에 읽은 값"에서 "commit 뒤, 발행 전에 읽은 값"으로 고쳤다(묶음 시점, 구현과 맞춤).
+- 2026-11-18 N17-1 S6 리뷰 반영(#989): 4장 NT-RT-10 연결 행에 잠금 경로 뒤 안 읽은 수 이어받기·묶음 경계·읽음 감소·닫힘 거절 시험을 더했다. 요구사항 수는 그대로다.
+- 2026-11-17 decisions.md ND-203~ND-206 반영(N15 뒤 정리·N17-1, #989): NT-RES-01~03을 U13 확정(ND-204)으로 유효로 바꾸고(NT-RES-02 지연 범위는 NT-LOAD-L5 기준), NT-RT-10(받는 사람별 프레임 순서)·NT-RT-11(닉네임 알림의 순서·파기 잠금)·NT-LOAD-RT1(N17-1 재측정)을 더했다. 집계 160 → 163, 유효 156 → 162.
+- 2026-11-17 decisions.md ND-202 반영(N15를 격리 결과로 마침, #970): NT-LOAD-L1·L2·L6 예외 칸에 N15 미실행을 적었다. 합격 기준은 유효로 둔다. 집계는 그대로.
 - 2026-11-17 decisions.md ND-200·ND-201 반영(N15 PR Bot 리뷰, #970): NT-LOAD-L2 예외 칸에 계획 전 종료·성립 조건·연결 시간 기록을 적고, 4장 연결 표의 B0 불변 시험을 구조 불변으로 고쳤다. 집계는 그대로.
 - 2026-11-17 decisions.md ND-199 반영(N15 S6 리뷰, #970): 4장 연결 표 NT-LOAD-L3·L5 행의 판정·집계 범위를 검증기와 맞췄다. 집계는 그대로.
 - 2026-11-16 decisions.md ND-198 반영(N15 운영 준비, #970): NT-LOAD-L2를 access token 수명 안 13분(단계마다 4분 20초)·시험 계정 최대 10개로 고치고, NT-LOAD-L6에 스크립트와 길이(10분)를 적었다. 집계는 그대로.
