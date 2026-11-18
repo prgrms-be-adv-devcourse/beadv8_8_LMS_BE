@@ -359,6 +359,29 @@ class AppearanceEarningQueryTest {
         }
 
         @Test
+        @DisplayName("요청서 출처와 모집 출처가 섞인 목록: 출연마다 자기 출처의 제목, 한 건씩 넘겨도 같은 순서·제목 (#1002)")
+        void mixedSources() {
+            Long fromRequest = establish(GUEST, 30_000);
+            Long recruitId = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(clock.now())).id();
+            clock.advance(Duration.ofMinutes(1));
+            Long fromRecruit = appearanceApplicationFacade.accept(HOST,
+                    appearanceApplicationFacade.apply(GUEST, recruitId, "지원합니다.").id()).appearanceId();
+            String requestTitle = AppearanceRequestFixture.content(clock.now()).title();
+            String recruitTitle = AppearanceRecruitFixture.content(clock.now()).title();
+
+            List<AppearanceEarningItemDto> all = list(GUEST, null, null);
+            assertThat(all).extracting(AppearanceEarningItemDto::sourceId, AppearanceEarningItemDto::title)
+                    .containsExactly(tuple(fromRecruit, recruitTitle), tuple(fromRequest, requestTitle));
+
+            Page<AppearanceEarningItemDto> first = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 1));
+            Page<AppearanceEarningItemDto> second = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(1, 1));
+            assertThat(first.getTotalElements()).isEqualTo(2);
+            assertThat(List.of(first.getContent().getFirst(), second.getContent().getFirst()))
+                    .extracting(AppearanceEarningItemDto::sourceId, AppearanceEarningItemDto::title)
+                    .containsExactly(tuple(fromRecruit, recruitTitle), tuple(fromRequest, requestTitle));
+        }
+
+        @Test
         @DisplayName("다른 회원의 수익은 나오지 않는다: 호스트로 조회하면 비어 있고(호스트는 수익을 받는 쪽이 아님), 출연이 없는 회원은 0원 요약·빈 목록")
         void onlyThatGuest() {
             allStates();

@@ -2,9 +2,7 @@ package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -116,18 +114,6 @@ public class AppearanceRequestSupport {
     public List<Long> findStaleHoldPendingIds(LocalDateTime cutoff, int limit) {
         return appearanceRequestRepository.findIdsByStatusAndCreatedBefore(AppearanceRequestStatus.HOLD_PENDING,
                 cutoff, PageRequest.of(0, limit));
-    }
-
-    /** 요청서 ID별 제목 (출연 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
-    public Map<Long, String> findTitles(Collection<Long> requestIds) {
-        Map<Long, String> titles = new HashMap<>();
-        if (requestIds.isEmpty()) {
-            return titles;
-        }
-        for (AppearanceRequest request : appearanceRequestRepository.findAllById(requestIds)) {
-            titles.put(request.getId(), request.getTitle());
-        }
-        return titles;
     }
 
     /** 호스트가 보낸 요청서 중 이 상태인 수 (탈퇴 막힌 이유, #624) */

@@ -59,7 +59,6 @@ public class AppearanceEarningQueryUseCase {
     }
 
     private final AppearanceEarningSupport appearanceEarningSupport;
-    private final AppearanceTitleSupport appearanceTitleSupport;
 
     /**
      * @param type 종류, null이면 출연료·위약금 모두
@@ -105,19 +104,14 @@ public class AppearanceEarningQueryUseCase {
             return Page.empty(pageable);
         }
         Page<AppearanceEarningRow> rows = appearanceEarningSupport.find(userId, condition, pageable);
-        List<Appearance> appearances = new ArrayList<>();
-        for (AppearanceEarningRow row : rows.getContent()) {
-            appearances.add(row.appearance());
-        }
-        Map<Long, String> titles = appearanceTitleSupport.titlesOf(appearances);
         List<AppearanceEarningItemDto> items = new ArrayList<>();
         for (AppearanceEarningRow row : rows.getContent()) {
-            items.add(toItem(row, titles.get(row.appearance().getId())));
+            items.add(toItem(row));
         }
         return new PageImpl<>(items, pageable, rows.getTotalElements());
     }
 
-    private AppearanceEarningItemDto toItem(AppearanceEarningRow row, String title) {
+    private AppearanceEarningItemDto toItem(AppearanceEarningRow row) {
         Appearance appearance = row.appearance();
         Classification classification = AppearanceEarningRule.classify(appearance.getStatus(), row.taskStatus());
         if (classification.missingTask()) {
@@ -125,7 +119,7 @@ public class AppearanceEarningQueryUseCase {
                     appearance.getGuestId(), appearance.getId(), appearance.getStatus());
         }
         return new AppearanceEarningItemDto(AppearanceEarningItemDto.SOURCE_TYPE, appearance.getId(),
-                classification.type(), title, AppearanceEarningRule.amountOf(appearance), classification.status(),
+                classification.type(), row.title(), AppearanceEarningRule.amountOf(appearance), classification.status(),
                 null, row.statusUpdatedAt());
     }
 

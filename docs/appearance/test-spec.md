@@ -832,7 +832,7 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceRepositoryTest` | 자동 확인 대상 (기준 시각 이전·같음·1초 뒤·이미 확인) | 성립 + 방송 예정 일시 ≤ 기준만, 오래된 순, 건수 제한 |
+| `AppearanceRepositoryTest` | 자동 확인 대상 (기준 시각 이전·같음·1초 뒤·이미 확인) | 성립 + 방송 예정 일시 ≤ 기준만, 오래된 순, 건수 제한. 대상마다 출처 제목을 함께 읽음 (#1002) |
 | `HpTaskRepositoryTest` | 지급 작업 저장 / 지급액 ≠ 출연료 | 받는 회원·지급액·출연 ID·사유 저장 / `ck_hp_tasks_receiver` 위반 |
 
 ### 15.3 흐름 — `AppearanceConfirmFlowTest`
@@ -1003,6 +1003,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 필터 | 종류 | 위약금: 요약 처리 중 9,000·1, 목록 1건. 출연료: 미지급 4건 |
 | 필터 | 맞는 것 없음 | 지급 예정(`SCHEDULED`)만, 위약금 + 확인 대기 → 빈 결과. 빈 상태 목록은 고르지 않은 것과 같음(미지급 5건) |
 | 회원 | 모집 1:N | 성립 게스트 2명 각각 1인 출연료 한 건(원천 `APPEARANCE`·출연 ID, 모집글 제목), 미선정 게스트 없음 |
+| 회원 | 요청서·모집 출처가 섞임 (#1002) | 2건 각자 자기 출처 제목, 최근 것(모집 출처)이 먼저. 1건씩 넘겨도 같은 순서·제목, 전체 2건 |
 | 회원 | 다른 회원 | 호스트로 조회하면 빈 결과, 출연이 없는 회원은 0원·빈 목록 |
 | 회원 | 회원 ID null·0·-1 | `INVALID_REQUEST` |
 | 페이지 | 2건씩 끝까지 | 건수·금액 합계 = 요약, 중복 없음 |
@@ -1700,7 +1701,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceNotificationEventTest` | 성립 1·대기 1에서 조기 마감 / 기한 마감 배치 | 마감 `EARLY`와 대기 지원만 미선정(마감 시각과 같은 시각) / 마감 `DEADLINE`, 마감 시각은 마감 일시 뒤 |
 | `AppearanceNotificationEventTest` | 모집 중 전체 취소(성립 1·대기 1) / 마감 뒤 전체 취소 | 모집 취소 1, 호스트 일방 취소 1(모집글 제목·위약금 9,000), 미선정 1, 마감 이벤트 없음, 위약금 작업 출처 제목 = 모집글 제목 / 미선정은 마감 때 1건뿐(다시 나가지 않음) |
 | `AppearanceNotificationEventTest` | 호스트 일방 취소 / 호스트 확인 / 불참 | 출연 DTO(요청서 제목·호스트·게스트·방송 예정 일시)와 위약금 9,000·`HOST`·불참 시각. 위약금·지급 작업 출처 제목 = 요청서 제목. 확인과 불참은 서로의 이벤트가 없음 |
-| `AppearanceNotificationEventTest` | 요청서 출처·모집 출처 출연을 함께 D+7 자동 확인 | 2건 모두 `AUTO`, 출연마다 제목이 각자의 출처 제목, 지급 작업 출처 제목도 같음. 제목은 회차 시작에 한 번에 읽고(`titlesByAppearanceIds` 1번), 출연마다 읽는 `titleOf`는 부르지 않음(N+1 방지) |
+| `AppearanceNotificationEventTest` | 요청서 출처·모집 출처 출연을 함께 D+7 자동 확인 | 2건 모두 `AUTO`, 출연마다 제목이 각자의 출처 제목, 지급 작업 출처 제목도 같음. 제목은 대상 조회 쿼리에서 출처를 조인해 함께 읽고(#1002), 출연마다 읽는 `titleOf`는 부르지 않음(N+1 방지) |
 | `AppearanceNotificationEventTest` | 호스트가 아닌 회원의 확인 | 예외, 확인 이벤트 없음 |
 | `AppearanceEventExternalizationConfigTest` | shared 출연 이벤트 중 `@Externalized` 전부(19종) | 모두 내보내는 대상이고 `eventType`(레코드 이름)·`eventVersion` 헤더가 붙음. 헤더 등록을 빠뜨리면 실패 |
 | `AppearanceEventExternalizationConfigTest` | 같은 19종의 key 식을 Kafka 없이 평가 | 모두 대상 ID로 끝나고, 알림용 12종은 정한 접두어(`appearance-request:`·`appearance-application:`·`appearance-recruit:`·`appearance:`). 접근자 이름이 틀리면 실패 |
