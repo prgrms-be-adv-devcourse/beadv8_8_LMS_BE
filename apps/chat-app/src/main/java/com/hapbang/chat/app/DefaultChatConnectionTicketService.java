@@ -9,7 +9,6 @@ import java.util.Base64;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
@@ -49,14 +48,14 @@ public class DefaultChatConnectionTicketService implements ChatConnectionTicketS
     /** base64url(패딩 없음) 32바이트 = 43자. 이 모양이 아니면 저장소를 부르지 않는다 */
     private static final Pattern TICKET_FORMAT = Pattern.compile("[A-Za-z0-9_-]{43}");
 
-    private final ObjectProvider<ChatConnectionTicketStore> chatConnectionTicketStore;
+    private final ChatConnectionTicketStore chatConnectionTicketStore;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
     private final Duration ticketTtl;
     private final int issueLimit;
     private final Duration issueWindow;
 
-    public DefaultChatConnectionTicketService(ObjectProvider<ChatConnectionTicketStore> chatConnectionTicketStore,
+    public DefaultChatConnectionTicketService(ChatConnectionTicketStore chatConnectionTicketStore,
             Clock clock,
             @Value("${hapbang.chat.realtime.websocket.ticket-ttl:30s}") Duration ticketTtl,
             @Value("${hapbang.chat.realtime.websocket.ticket-issue-limit:10}") int issueLimit,
@@ -75,17 +74,13 @@ public class DefaultChatConnectionTicketService implements ChatConnectionTicketS
     public ChatConnectionTicketResponse issue(Long userId, Role role, String tokenExpiresAtHeader) {
         Assert.notNull(userId, "userId가 필요합니다.");
         Assert.notNull(role, "role이 필요합니다.");
-        ChatConnectionTicketStore store = chatConnectionTicketStore.getIfAvailable();
-        if (store == null) {
-            throw new ChatException(ChatErrorCode.CONNECTION_TICKET_UNAVAILABLE);
-        }
-        checkIssueLimit(store, userId);
+        checkIssueLimit(userId);
         Instant issuedAt = clock.instant();
         String ticket = newTicket();
         ChatConnectionTicket value = new ChatConnectionTicket(userId, role, issuedAt,
                 tokenExpiresAt(tokenExpiresAtHeader, issuedAt));
         try {
-            store.save(ticket, value, ticketTtl);
+            chatConnectionTicketStore.save(ticket, value, ticketTtl);
         } catch (RuntimeException exception) {
             log.warn("웹소켓 연결 티켓을 저장하지 못함 userId={}", userId, exception);
             throw new ChatException(ChatErrorCode.CONNECTION_TICKET_UNAVAILABLE);
@@ -95,12 +90,11 @@ public class DefaultChatConnectionTicketService implements ChatConnectionTicketS
 
     @Override
     public Optional<ChatConnectionTicket> consume(String ticket) {
-        ChatConnectionTicketStore store = chatConnectionTicketStore.getIfAvailable();
-        if (store == null || ticket == null || !TICKET_FORMAT.matcher(ticket).matches()) {
+        if (ticket == null || !TICKET_FORMAT.matcher(ticket).matches()) {
             return Optional.empty();
         }
         try {
-            return store.consume(ticket);
+            return chatConnectionTicketStore.consume(ticket);
         } catch (RuntimeException exception) {
             log.warn("웹소켓 연결 티켓을 읽지 못해 연결을 거절함", exception);
             return Optional.empty();
@@ -124,10 +118,10 @@ public class DefaultChatConnectionTicketService implements ChatConnectionTicketS
         }
     }
 
-    private void checkIssueLimit(ChatConnectionTicketStore store, Long userId) {
+    private void checkIssueLimit(Long userId) {
         long count;
         try {
-            count = store.incrementIssueCount(userId, issueWindow);
+            count = chatConnectionTicketStore.incrementIssueCount(userId, issueWindow);
         } catch (RuntimeException exception) {
             log.warn("웹소켓 연결 티켓 발급 횟수를 세지 못해 상한 확인을 건너뜀 userId={}", userId, exception);
             return;

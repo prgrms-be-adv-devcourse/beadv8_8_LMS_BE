@@ -62,7 +62,6 @@ import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.MemberCouponRepository;
 import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
-import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkKind;
@@ -283,11 +282,8 @@ class CouponUsageE2ETest {
     }
 
     private CouponOpenUseCase budgetOpener(Instant now, CouponIssueStore issueStore) {
-        org.springframework.beans.factory.support.StaticListableBeanFactory beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
-        beans.addBean("budget", promotionBudget);
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
-                budgetWorkRepository, budgetWorker(now), issueStore, capacitySupport,
-                beans.getBeanProvider(PromotionBudget.class), redisProperties, budgetTransactionManager,
+                budgetWorkRepository, budgetWorker(now), issueStore, capacitySupport, redisProperties, budgetTransactionManager,
                 java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
     }
 
@@ -532,10 +528,8 @@ class CouponUsageE2ETest {
     }
 
     private com.hapbang.coupon.app.CouponBudgetWorkUseCase budgetWorker(Instant now) {
-        org.springframework.beans.factory.support.StaticListableBeanFactory beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
-        beans.addBean("budget", promotionBudget);
         return new com.hapbang.coupon.app.CouponBudgetWorkUseCase(budgetWorkRepository,
-                couponRepository, memberCouponRepository, budgetReleaseRecorder, beans.getBeanProvider(com.hapbang.coupon.app.port.PromotionBudget.class),
+                couponRepository, memberCouponRepository, budgetReleaseRecorder, promotionBudget,
                 new com.hapbang.coupon.config.CouponBudgetWorkProperties(null, java.time.Duration.ofSeconds(60), 100),
                 budgetTransactionManager, java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
     }

@@ -2,7 +2,7 @@ package com.hapbang.chat.app.port;
 
 /**
  * 방 채널(Redis Pub/Sub)의 동적 구독. 방 topic을 구독한 로컬 세션이 생기면 그 방 채널을 받고, 없어지면 유예 뒤 놓는다.
- * 방마다 참조 수를 센다. Redis가 없는 실행(실시간 전달을 끈 테스트)에는 빈이 없다.
+ * 방마다 참조 수를 센다.
  */
 public interface RoomChannelSubscriptions {
 

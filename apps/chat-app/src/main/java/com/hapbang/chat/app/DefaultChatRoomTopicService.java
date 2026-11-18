@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatRecipientStateReader.SubscriptionCheck;
@@ -7,10 +8,10 @@ import com.hapbang.chat.app.LocalRoomSubscriptions.Registered;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignalEvent;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
-import com.hapbang.chat.app.port.LocalChatSender;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>거절은 연결을 닫지 않고 그 구독에 거절 프레임 하나를 쓴다. 성공 프레임은 없다(구독 순간의 공백은 허용, 설계 Q23).</li>
  *     <li>허가 뒤의 퇴장·세대 변경은 전달할 때의 버전 확인 규칙이 막는다. 퇴장 직후의 회수({@link #revokeMember})는 FE가
  *     빨리 알게 하는 것뿐이다.</li>
+ *     <li>거절·회수 프레임은 직접 쓰지 않고 {@link ChatSubscriptionSignalEvent}를 낸다. 진입 어댑터의 리스너가 같은 스레드에서 바로
+ *     프레임을 쓰므로, 거절 프레임은 구독 허가가 돌아오기 전에, 회수 프레임은 구독을 뺀 직후에 쓰인다. 이 서비스는 STOMP 송신기에
+ *     기대지 않는다(송신기 → 메시지 브로커 설정 → 이 서비스를 쓰는 구독 인터셉터로 이어지는 생성 순환을 만들지 않는다).</li>
  * </ul>
  */
 @Slf4j
@@ -32,7 +36,7 @@ public class DefaultChatRoomTopicService implements ChatRoomTopicService {
     private final ChatRecipientStateReader chatRecipientStateReader;
     private final LocalRoomSubscriptions localRoomSubscriptions;
     private final LocalChatConnections localChatConnections;
-    private final LocalChatSender localChatSender;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 방 topic 구독을 허가하고 목록에 넣는다. 거절하면 그 구독에 거절 프레임을 쓴다.
@@ -115,17 +119,16 @@ public class DefaultChatRoomTopicService implements ChatRoomTopicService {
                 continue;
             }
             if (localRoomSubscriptions.remove(subscription)) {
-                localChatSender.sendSubscriptionSignal(roomId,
-                        new RoomTarget(subscription.sessionId(), subscription.subscriptionId(),
-                                subscription.participationVersion()),
-                        SubscriptionSignal.SUBSCRIPTION_REVOKED, reason, null);
+                eventPublisher.publishEvent(new ChatSubscriptionSignalEvent(roomId, subscription.sessionId(),
+                        subscription.subscriptionId(), subscription.participationVersion(),
+                        ChatSubscriptionSignal.SUBSCRIPTION_REVOKED, reason, null));
             }
         }
     }
 
     private void reject(Long roomId, RoomTarget target, ChatSubscriptionReason reason, Integer currentVersion) {
         log.info("방 topic 구독 거절 roomId={}, sessionId={}, reason={}", roomId, target.sessionId(), reason);
-        localChatSender.sendSubscriptionSignal(roomId, target, SubscriptionSignal.SUBSCRIPTION_REJECTED, reason,
-                currentVersion);
+        eventPublisher.publishEvent(new ChatSubscriptionSignalEvent(roomId, target.sessionId(), target.subscriptionId(),
+                target.participationVersion(), ChatSubscriptionSignal.SUBSCRIPTION_REJECTED, reason, currentVersion));
     }
 }

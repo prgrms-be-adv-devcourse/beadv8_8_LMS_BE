@@ -21,7 +21,6 @@ import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
@@ -53,11 +52,11 @@ class DefaultChatRoomActivityNotifierTest {
     private final LocalChatConnections connections = mock(LocalChatConnections.class);
     private final ChatPresence presence = mock(ChatPresence.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
-    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(provider(null), 20);
+    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(new AcceptingRoomChannels(), 20);
     private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final ChatRoomActivityNotifier notifier = new DefaultChatRoomActivityNotifier(cache, connections, subscriptions,
-            provider(presence), sender, 1000);
+            presence, sender, 1000);
 
     @BeforeEach
     void setUp() {
@@ -213,12 +212,6 @@ class DefaultChatRoomActivityNotifierTest {
         return new RoomMembership(version, members);
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> provider(T value) {
-        ObjectProvider<T> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(value);
-        return provider;
-    }
 
     /** 정해 둔 스레드가 방 묶음을 얻은(만들거나 고친) 직후 한 번 멈추는 묶음 목록 */
     private static final class PausingBatches extends ConcurrentHashMap<Long, Object> {

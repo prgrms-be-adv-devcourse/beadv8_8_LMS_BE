@@ -6,8 +6,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatIsolatedJobPage;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatReprocessResult;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;
 
@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
  * {@code /api/v1/*}{@code /admin/**}(ADMIN)과 이 Facade의 {@code @PreAuthorize}. 트랜잭션은 열지 않는다.
  */
 @Component
-@ConditionalOnChatDeliveryPipeline
 @RequiredArgsConstructor
 public class ChatDeliveryAdminFacade {
 

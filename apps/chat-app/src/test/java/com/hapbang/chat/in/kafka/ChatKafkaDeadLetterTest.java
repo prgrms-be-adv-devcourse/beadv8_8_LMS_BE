@@ -163,7 +163,7 @@ class ChatKafkaDeadLetterTest {
     /** 운영과 같은 방법으로 만든 DLT 발행용 ProducerFactory의 설정(브로커에 연결하지 않는다) */
     private static Map<String, Object> deadLetterProducerConfig(ChatKafkaConsumerSettings settings) {
         StaticListableBeanFactory noCustomizers = new StaticListableBeanFactory();
-        return new ChatKafkaConfig("localhost:9092",
+        return new ChatKafkaConfig("localhost:9092", true,
                 noCustomizers.getBeanProvider(DefaultKafkaConsumerFactoryCustomizer.class),
                 noCustomizers.getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class))
                 .chatMemberEventDeadLetterProducerFactory(settings)

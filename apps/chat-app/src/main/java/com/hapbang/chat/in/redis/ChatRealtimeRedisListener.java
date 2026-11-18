@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.redis.connection.Message;
@@ -21,8 +22,7 @@ import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
-import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.Counter;
@@ -53,9 +53,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 따로 하는 일이 없다(알림 재료 채널의 재구독이 이미 재동기화 신호를 보낸다).
  */
 @Slf4j
-@Component(ChatRealtimeRedisConfig.LISTENER_BEAN_NAME)
-@ConditionalOnChatRealtime
-public class ChatRealtimeRedisListener implements MessageListener, SubscriptionListener, DisposableBean {
+@Component
+public class ChatRealtimeRedisListener implements MessageListener, SubscriptionListener, InitializingBean,
+        DisposableBean {
 
     /** 대기열이 넘쳐 버린 작업 수. 태그 queue=message|control */
     public static final String DROPPED_METRIC = "chat.realtime.listener.dropped";
@@ -63,6 +63,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
     private final ChatRealtimeFacade chatRealtimeFacade;
     private final JsonMapper jsonMapper;
     private final ChatRedisKeys chatRedisKeys;
+    private final ChatRealtimeListenerHolder listenerHolder;
     private final String activityChannel;
     private final String controlChannel;
     private final String readChannel;
@@ -90,7 +91,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
      * 덮는다.
      */
     public ChatRealtimeRedisListener(ChatRealtimeFacade chatRealtimeFacade, JsonMapper jsonMapper,
-            ChatRedisKeys chatRedisKeys,
+            ChatRedisKeys chatRedisKeys, ChatRealtimeListenerHolder listenerHolder,
             @Value("${hapbang.chat.realtime.listener.message-workers:2}") int messageWorkers,
             @Value("${hapbang.chat.realtime.listener.message-queue-capacity:1000}") int messageQueueCapacity,
             @Value("${hapbang.chat.realtime.listener.control-workers:1}") int controlWorkers,
@@ -111,6 +112,13 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         this.messageDropped = meterRegistry.counter(DROPPED_METRIC, "queue", "message");
         this.controlDropped = meterRegistry.counter(DROPPED_METRIC, "queue", "control");
         this.shutdownAwait = shutdownAwait;
+        this.listenerHolder = listenerHolder;
+    }
+
+    /** 구독 컨테이너에 자기를 넣고 서버 채널을 등록한다. 컨테이너는 이 뒤(생명주기 시작)에 구독을 시작한다 */
+    @Override
+    public void afterPropertiesSet() {
+        listenerHolder.attach(this);
     }
 
     @Override

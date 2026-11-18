@@ -3,6 +3,7 @@ package com.hapbang.chat.app;
 import java.util.UUID;
 
 import com.hapbang.chat.app.dto.ChatIsolatedJobPage;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatReprocessResult;
 
 /**

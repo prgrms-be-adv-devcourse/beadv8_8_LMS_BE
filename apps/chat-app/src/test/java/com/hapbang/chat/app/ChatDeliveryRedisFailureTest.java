@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -26,6 +27,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.QueueGroupState;
@@ -55,7 +57,6 @@ import jakarta.persistence.EntityManager;
 @DirtiesContext
 @Import(ChatDeliveryRedisFailureTest.FanoutConfig.class)
 @TestPropertySource(properties = {
-        "hapbang.chat.delivery.pipeline.enabled=true",
         "hapbang.chat.delivery.instance-id=test",
         "hapbang.chat.delivery.relay.max-attempts=5",
         "hapbang.chat.delivery.relay.backoff.initial=1ms",
@@ -90,6 +91,7 @@ class ChatDeliveryRedisFailureTest {
     static class FanoutConfig {
 
         @Bean
+        @Primary
         InMemoryRealtimeChatFanout inMemoryRealtimeChatFanout() {
             return new InMemoryRealtimeChatFanout();
         }
@@ -109,10 +111,10 @@ class ChatDeliveryRedisFailureTest {
     }
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -171,7 +173,7 @@ class ChatDeliveryRedisFailureTest {
         fanout.reset();
         availability.reset();
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         queue.ensureGroup(ChatJobStream.CONTROL);
     }
@@ -316,7 +318,7 @@ class ChatDeliveryRedisFailureTest {
     }
 
     private UUID send(String content) {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, content, null).message().messageId();
         return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 

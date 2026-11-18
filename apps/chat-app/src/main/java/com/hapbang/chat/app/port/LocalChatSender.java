@@ -8,6 +8,7 @@ import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
 
 /**
  * 수신 자격을 확인한 뒤 로컬 연결로 프레임을 보낸다. 자격 검사는 호출하는 쪽이 끝낸 상태여야 한다.
@@ -34,7 +35,7 @@ public interface LocalChatSender {
      *
      * @param currentParticipationVersion 세대 불일치일 때만 그 회원의 현재 세대. 아니면 null
      */
-    void sendSubscriptionSignal(Long roomId, RoomTarget target, SubscriptionSignal signal,
+    void sendSubscriptionSignal(Long roomId, RoomTarget target, ChatSubscriptionSignal signal,
             ChatSubscriptionReason reason, Integer currentParticipationVersion);
 
     /**
@@ -53,9 +54,4 @@ public interface LocalChatSender {
     record RoomTarget(String sessionId, String subscriptionId, int participationVersion) {
     }
 
-    /** 방 topic 구독에 쓰는 메시지가 아닌 프레임 */
-    enum SubscriptionSignal {
-        SUBSCRIPTION_REJECTED,
-        SUBSCRIPTION_REVOKED
-    }
 }

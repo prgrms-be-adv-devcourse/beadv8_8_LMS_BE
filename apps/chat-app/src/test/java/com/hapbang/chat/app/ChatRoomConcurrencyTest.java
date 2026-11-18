@@ -43,7 +43,7 @@ class ChatRoomConcurrencyTest {
     private ChatRoomFacade chatRoomFacade;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -88,7 +88,7 @@ class ChatRoomConcurrencyTest {
     void 두_사람이_동시에_나가면_방은_한_번만_종료된다() throws Exception {
         Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
 
-        List<Boolean> left = runConcurrently(2, index -> chatRoomUseCase
+        List<Boolean> left = runConcurrently(2, index -> chatRoomService
                 .leave(chatRoomId, index == 0 ? HOST_ID : GUEST_ID, null).left());
 
         assertThat(left).containsExactly(true, true);
@@ -103,10 +103,10 @@ class ChatRoomConcurrencyTest {
     @Test
     void 마지막_퇴장과_채팅_시작이_겹쳐도_종료된_방을_되살리지_않고_활성_방은_하나다() throws Exception {
         Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         List<Long> results = runConcurrently(2, index -> index == 0
-                ? chatRoomUseCase.leave(chatRoomId, HOST_ID, null).left() ? -1L : 0L
+                ? chatRoomService.leave(chatRoomId, HOST_ID, null).left() ? -1L : 0L
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
         Long startedRoomId = results.stream().filter(id -> id > 0).findFirst().orElseThrow();
 

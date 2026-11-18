@@ -11,8 +11,18 @@ spring:
       maximum-pool-size: 5
   data:
     redis:
-      # 모듈 테스트는 application.yaml을 읽지 않으므로 운영과 같은 명령 시간 제한을 여기에도 둔다
+      # 모듈 테스트는 application.yaml을 읽지 않으므로 운영과 같은 명령 시간 제한을 여기에도 둔다.
+      # 주소(host·port)는 두지 않는다. Redis 컨테이너를 쓰는 테스트만 주소를 넣고, 주소가 없는 테스트는 Redis 구독을 시작하지 않는다
+      # (support/ChatBrokerlessTestConfig)
       timeout: 10s
+  kafka:
+    # 대부분의 채팅 테스트에는 Kafka가 없다. 회원·출연 이벤트 리스너가 브로커에 계속 연결하거나 DLT 토픽 선언이 브로커를 기다리며
+    # 컨텍스트 기동을 늦추지 않게 끈다. Kafka를 쓰는 테스트(KafkaTestcontainersConfig)만 다시 켠다. 리스너 자동 시작을 끈 테스트에서는
+    # 회원 이벤트 DLT 확인기도 등록하지 않는다(support/ChatBrokerlessTestConfig)
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
   modulith:
     events:
       # 단체방 이벤트의 Kafka 외부화는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않고 토픽도 선언하지 않는다.
@@ -23,19 +33,10 @@ spring:
       kafka:
         enable-json: false
 hapbang:
-  chat:
-    # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,
-    # Kafka 시험 클래스만 true로 켠다
-    member-events:
-      enabled: false
-    appearance-events:
-      enabled: false
-    realtime:
-      # 운영 기본값은 켜짐(코드 기본값, ConditionalOnChatRealtime)이다. 모듈 테스트는 Redis 없이 뜨도록 끄고,
-      # 실시간 경로를 검증하는 E2E 테스트(@ChatE2ETest 등)만 켠다
-      enabled: false
-    delivery:
-      pipeline:
-        # 운영 기본값은 켜짐(코드 기본값)이다. 테스트는 메모리 실시간 전파·Redis 컨테이너가 필요하므로 명시적으로 끄고,
-        # 파이프라인을 검증하는 테스트만 @TestPropertySource로 켠다
-        enabled: false
+  clients:
+    # 회원·출연 내부 API 주소. 운영은 application.yaml·환경 변수가 넣는다. 모듈 테스트는 application.yaml을 읽지 않으므로 아무도 듣지
+    # 않는 주소를 둔다(부르면 연결 실패). 실제로 부르는 테스트는 테스트 HTTP 서버 주소로 덮는다
+    member:
+      base-url: http://localhost:9
+    appearance:
+      base-url: http://localhost:9

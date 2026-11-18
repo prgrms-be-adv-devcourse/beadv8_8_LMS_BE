@@ -302,7 +302,7 @@ class ChatInboundSessionQueueTest {
 
     private ChatInboundReceiveBudget budget(int workers, int queueCapacity, int perSessionFrames) {
         ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(registry, meterRegistry, workers, queueCapacity,
-                10, perSessionFrames);
+                10, perSessionFrames, Duration.ofSeconds(30), 10_000);
         budgets.add(budget);
         return budget;
     }

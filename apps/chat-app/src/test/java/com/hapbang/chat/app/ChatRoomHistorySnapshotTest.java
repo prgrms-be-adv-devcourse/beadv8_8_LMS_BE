@@ -33,10 +33,10 @@ class ChatRoomHistorySnapshotTest {
     private ChatRoomLogRepository chatRoomLogRepository;
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -46,7 +46,7 @@ class ChatRoomHistorySnapshotTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -58,14 +58,14 @@ class ChatRoomHistorySnapshotTest {
             Object logs = realRepository.answer(invocation);
             if (leaveOnce.getAndSet(false)) {
                 // 다른 트랜잭션에서 퇴장을 커밋한다 (퇴장 기록과 안내 메시지가 같은 시각)
-                Thread leave = new Thread(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null));
+                Thread leave = new Thread(() -> chatRoomService.leave(chatRoomId, GUEST_ID, null));
                 leave.start();
                 leave.join();
             }
             return logs;
         }).when(chatRoomLogRepository).findByChatRoom_IdOrderByOccurredAtAscIdAsc(anyLong(), any());
 
-        ChatRoomHistoryResponse page = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 4);
+        ChatRoomHistoryResponse page = chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 4);
 
         boolean hasLeftLog = page.logs().stream().map(ChatRoomLogResponse::eventType)
                 .anyMatch(ChatRoomEventType.MEMBER_LEFT::equals);
@@ -74,7 +74,7 @@ class ChatRoomHistorySnapshotTest {
         assertThat(leaveOnce).isFalse();
         assertThat(hasLeftNotice).isEqualTo(hasLeftLog);
         // 퇴장이 커밋된 뒤 처음부터 다시 조회하면 둘 다 나온다
-        ChatRoomHistoryResponse after = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100);
+        ChatRoomHistoryResponse after = chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 100);
         assertThat(after.logs()).extracting(ChatRoomLogResponse::eventType).contains(ChatRoomEventType.MEMBER_LEFT);
         assertThat(after.messages()).extracting(ChatMessageHistoryResponse::messageType)
                 .contains(ChatMessageType.SYSTEM);

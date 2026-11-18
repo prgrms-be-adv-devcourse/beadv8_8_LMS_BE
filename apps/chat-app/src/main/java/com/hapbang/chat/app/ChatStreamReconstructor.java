@@ -13,15 +13,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatOutboxStore.OutboxJob;
 import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +42,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnChatDeliveryPipeline
 @RequiredArgsConstructor
 public class ChatStreamReconstructor {
 
@@ -271,7 +269,7 @@ public class ChatStreamReconstructor {
         }
         String entryId;
         try {
-            entryId = chatDeliveryQueue.enqueue(stream, ChatStreamEntries.fieldsOf(job));
+            entryId = chatDeliveryQueue.enqueue(stream, job);
         } catch (ChatDeliveryUnavailableException | ChatDeliveryBackpressureException e) {
             // 인프라 장애(연결 불가·메모리 상한)는 재적재 횟수에 넣지 않는다(재적재 상한 격리로 몰지 않는다)
             chatOutboxStore.releaseRequeueClaim(stream, job.id(), requeuedAt, ChatDeliveryClock.now());

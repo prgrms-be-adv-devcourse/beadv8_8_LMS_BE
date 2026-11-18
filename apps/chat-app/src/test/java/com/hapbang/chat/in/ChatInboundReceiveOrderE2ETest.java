@@ -36,8 +36,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
@@ -69,7 +69,7 @@ class ChatInboundReceiveOrderE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -105,7 +105,7 @@ class ChatInboundReceiveOrderE2ETest {
 
     @RepeatedTest(3)
     void 한_연결이_SEND_50개를_연달아_보내면_보낸_순서대로_방_순번을_받는다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         BlockingQueue<RealtimeStompClient.Frame<ChatMessageResponse>> echoes = stomp.subscribe(host,
                 "/user/queue/chats/messages", ChatMessageResponse.class);
@@ -135,9 +135,9 @@ class ChatInboundReceiveOrderE2ETest {
     /** 9개 연결이 각각 10ms 간격으로 30개씩 보내도 270개 메시지 모두를 발신 회원이 아닌 상대가 수신해야 한다. */
     @Test
     void 여러_연결이_동시에_전송한_메시지_모두를_상대가_수신한다() throws Exception {
-        Long room12 = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        Long room32 = chatRoomUseCase.createOrGet(OTHER_INFLUENCER_ID, GUEST_ID).chatRoomId();
-        Long room13 = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).chatRoomId();
+        Long room12 = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long room32 = chatRoomService.createOrGet(OTHER_INFLUENCER_ID, GUEST_ID).chatRoomId();
+        Long room13 = chatRoomService.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).chatRoomId();
         Map<String, Long> receivedAt = new ConcurrentHashMap<>();
         List<StompSession> senders = new ArrayList<>();
         List<Long> rooms = new ArrayList<>();

@@ -24,7 +24,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -68,8 +67,6 @@ class CouponOpenUseCaseTest {
     private final CouponCapacitySupport capacitySupport = mock();
     private final PromotionBudget promotionBudget = mock();
     private final LectureCatalog lectureCatalog = mock();
-    @SuppressWarnings("unchecked")
-    private final ObjectProvider<PromotionBudget> promotionBudgetProvider = mock();
     private final Map<String, BudgetWork> works = new HashMap<>();
     private final CouponVersionFake db = new CouponVersionFake(couponRepository);
 
@@ -79,7 +76,6 @@ class CouponOpenUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = useCaseAt(NOW);
-        when(promotionBudgetProvider.getIfAvailable()).thenReturn(promotionBudget);
         lectureSaleStatus("ON_SALE");
         when(issueStore.allowIssue(anyLong(), anyLong())).thenReturn(AllowResult.APPLIED);
         when(budgetWorkRepository.findById(anyString()))
@@ -309,17 +305,6 @@ class CouponOpenUseCaseTest {
     }
 
     @Test
-    void 예산_연동이_없으면_503이고_아무것도_하지_않는다() {
-        given(draftPlatformCoupon());
-        when(promotionBudgetProvider.getIfAvailable()).thenReturn(null);
-
-        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
-
-        assertThat(works).isEmpty();
-        verifyNoInteractions(issueStore);
-    }
-
-    @Test
     void 판매자_쿠폰_승인은_예산_없이_Redis를_열고_OPEN이_된다() {
         given(reviewSellerCoupon());
 
@@ -329,7 +314,7 @@ class CouponOpenUseCaseTest {
         InOrder order = inOrder(issueStore);
         order.verify(issueStore).prepare(argThat(control -> control.fence() == 0));
         order.verify(issueStore).allowIssue(COUPON_ID, 1);
-        verifyNoInteractions(promotionBudgetProvider, promotionBudget, budgetWorkRepository);
+        verifyNoInteractions(promotionBudget, budgetWorkRepository);
     }
 
     @Test
@@ -408,10 +393,10 @@ class CouponOpenUseCaseTest {
     private CouponOpenUseCase useCaseAt(Instant now) {
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         CouponBudgetWorkUseCase budgetWorkUseCase = new CouponBudgetWorkUseCase(budgetWorkRepository,
-                couponRepository, mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudgetProvider,
+                couponRepository, mock(MemberCouponRepository.class), mock(CouponBudgetReleaseRecorder.class), promotionBudget,
                 new CouponBudgetWorkProperties(null, Duration.ofMinutes(1), 100), db.transactionManager(), clock);
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
-                budgetWorkRepository, budgetWorkUseCase, issueStore, capacitySupport, promotionBudgetProvider,
+                budgetWorkRepository, budgetWorkUseCase, issueStore, capacitySupport,
                 new CouponRedisProperties(KEYS_EXPIRE_MARGIN),
                 db.transactionManager(), clock);
     }

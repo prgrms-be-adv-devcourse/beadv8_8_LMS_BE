@@ -20,10 +20,10 @@ class ChatDeliverySourceReaderTest {
     private ChatDeliverySourceReader reader;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -32,19 +32,19 @@ class ChatDeliverySourceReaderTest {
     private ChatReadService chatReadService;
 
     @Autowired
-    private ChatMessageSupporter chatMessageSupporter;
+    private DefaultChatMessageQueryService chatMessageQueryService;
 
     private Long chatRoomId;
 
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
     void 일반_메시지의_전달_원본은_발신자_닉네임을_싣는다() {
-        long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId();
+        long messageId = chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId();
 
         assertThat(reader.findMessage(messageId)).get().extracting(source -> source.message().sender())
                 .isEqualTo(new ChatMessageSender(HOST_ID, "호스트", false));
@@ -61,7 +61,7 @@ class ChatDeliverySourceReaderTest {
 
     @Test
     void 일반_메시지의_전달_원본은_원본을_읽는_시점의_안_읽은_사람_수와_버전을_싣는다() {
-        long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId();
+        long messageId = chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId();
 
         MessageSource unread = reader.findMessage(messageId).orElseThrow();
         assertThat(unread.message().unreadMemberCount()).isEqualTo(1);
@@ -87,7 +87,7 @@ class ChatDeliverySourceReaderTest {
 
     /** 게스트가 나가고, 남은 호스트가 이력에서 보는 마지막 메시지(퇴장 안내)의 ID */
     private Long leaveAndGetNoticeId() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        return chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 1).messages().getFirst().messageId();
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        return chatMessageQueryService.getMessages(chatRoomId, HOST_ID, null, 1).messages().getFirst().messageId();
     }
 }

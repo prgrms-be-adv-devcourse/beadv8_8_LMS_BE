@@ -1,6 +1,5 @@
 package com.hapbang.chat.out.member;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
@@ -15,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 회원 내부 HTTP API로 회원 원본 스냅샷을 읽는다. chat-app 전용 HTTP Interface({@link ChatMemberInternalApi})로 부른다.
- * 프록시는 {@code hapbang.clients.member.base-url}이 있을 때만 만들어지므로, 없으면 설정되지 않은 것으로 본다.
  * <p>
  * 실패는 모두 {@link ChatMemberSourceException}이다. 오류 상태(4xx 거절, 5xx 호출 불가)는 프록시 설정이 바꾸고, 여기서는
  * 연결 실패·시간 초과와 성공 상태인데 쓸 수 없는 응답(본문 없음·{@code data} 없음·깨진 JSON·계약에 없는 값)을 호출 불가로 바꾼다.
@@ -24,26 +22,13 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class HttpChatMemberSnapshotSource implements ChatMemberSnapshotSource {
 
-    private final ObjectProvider<ChatMemberInternalApi> memberInternalApi;
-
-    @Override
-    public boolean isConfigured() {
-        return memberInternalApi.getIfAvailable() != null;
-    }
+    private final ChatMemberInternalApi memberInternalApi;
 
     @Override
     public MemberPageDto readPage(long afterId, int size) {
-        ChatMemberInternalApi api = memberInternalApi.getIfAvailable();
-        if (api == null) {
-            throw new IllegalStateException("회원 내부 API가 설정되지 않았습니다(hapbang.clients.member.base-url 미설정).");
-        }
-        return read(api, afterId, size);
-    }
-
-    private static MemberPageDto read(ChatMemberInternalApi api, long afterId, int size) {
         ResponseEntity<ChatMemberInternalApi.Envelope> response;
         try {
-            response = api.getMembers(size, afterId);
+            response = memberInternalApi.getMembers(size, afterId);
         } catch (ChatMemberSourceException e) {
             throw e;
         } catch (ResourceAccessException e) {

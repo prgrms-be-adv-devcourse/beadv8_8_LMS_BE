@@ -14,6 +14,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.QueueGroupState;
 import com.hapbang.chat.app.port.QueuedJob;
@@ -29,7 +30,7 @@ import com.hapbang.testsupport.IntegrationTest;
 import jakarta.persistence.EntityManager;
 
 /**
- * 전달 파이프라인 통합 테스트 공통. 파이프라인을 켜고(배치 실행은 끈 채) 처리 빈을 직접 부른다.
+ * 전달 파이프라인 통합 테스트 공통. 배치 실행은 끈 채(파이프라인 실행기가 돌지 않는다) 처리 빈을 직접 부른다.
  * <ul>
  *     <li>Redis는 공용 컨테이너를 쓰고, 테스트 클래스마다 고유한 namespace({@link #uniqueNamespace})를 둔다.
  *     테스트마다 자기 namespace의 Stream 키만 지운다. 전역 초기화(FLUSHALL·FLUSHDB)는 하지 않는다.</li>
@@ -39,7 +40,6 @@ import jakarta.persistence.EntityManager;
 @IntegrationTest
 @Import(ChatDeliveryTestConfig.class)
 @TestPropertySource(properties = {
-        "hapbang.chat.delivery.pipeline.enabled=true",
         "hapbang.chat.delivery.instance-id=test",
         "hapbang.chat.delivery.relay.max-attempts=2",
         "hapbang.chat.delivery.relay.backoff.initial=1ms",
@@ -64,10 +64,10 @@ abstract class ChatDeliveryTestSupport {
     static final String RECLAIMER = "test:delivery:reclaim";
 
     @Autowired
-    ChatRoomUseCase chatRoomUseCase;
+    DefaultChatRoomService chatRoomService;
 
     @Autowired
-    ChatMessageUseCase chatMessageUseCase;
+    DefaultChatMessageService chatMessageService;
 
     @Autowired
     ChatUserUseCase chatUserUseCase;
@@ -124,13 +124,13 @@ abstract class ChatDeliveryTestSupport {
         fanout.reset();
         availability.reset();
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         queue.ensureGroup(ChatJobStream.CONTROL);
     }
 
     UUID send(String content) {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, content, null).message().messageId();
         return deliveryIdOf(messageId);
     }
 
@@ -152,9 +152,17 @@ abstract class ChatDeliveryTestSupport {
     }
 
     long streamLength(ChatJobStream stream) {
-        Long size = redis.opsForStream().size(stream == ChatJobStream.DELIVERY
-                ? keys.deliveryStream() : keys.controlStream());
+        Long size = redis.opsForStream().size(streamKey(stream));
         return size == null ? 0 : size;
+    }
+
+    /** 필드 규칙을 거치지 않은 항목(형식이 틀린 항목, 안정 ID만 담은 중복 항목)을 큐에 바로 넣는다 */
+    String addRawEntry(ChatJobStream stream, Map<String, String> fields) {
+        return redis.opsForStream().add(streamKey(stream), fields).getValue();
+    }
+
+    private String streamKey(ChatJobStream stream) {
+        return stream == ChatJobStream.DELIVERY ? keys.deliveryStream() : keys.controlStream();
     }
 
     /** 대기 중인 outbox를 모두 적재한다 */

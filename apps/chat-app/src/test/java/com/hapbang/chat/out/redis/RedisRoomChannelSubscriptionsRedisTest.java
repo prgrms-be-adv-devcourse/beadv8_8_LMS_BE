@@ -36,6 +36,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -86,10 +87,12 @@ class RedisRoomChannelSubscriptionsRedisTest {
         container = new RedisMessageListenerContainer();
         container.setConnectionFactory(factory);
         container.setTaskExecutor(new SyncTaskExecutor());
-        container.addMessageListener(listener, ChatRealtimeRedisConfig.serverTopics(keys));
+        ChatRealtimeListenerHolder holder = new ChatRealtimeListenerHolder(container, keys);
+        // 운영과 같이 구독 진입 어댑터가 컨테이너 시작 전에 자기를 넣으며 서버 채널을 등록한다
+        holder.attach(listener);
         container.afterPropertiesSet();
         container.start();
-        channels = new RedisRoomChannelSubscriptions(container, listener, keys, new SimpleMeterRegistry(),
+        channels = new RedisRoomChannelSubscriptions(container, holder, keys, new SimpleMeterRegistry(),
                 Duration.ZERO, 1);
     }
 

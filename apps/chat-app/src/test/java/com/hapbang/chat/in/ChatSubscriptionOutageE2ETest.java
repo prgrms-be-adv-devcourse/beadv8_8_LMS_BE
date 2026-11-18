@@ -25,9 +25,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.ChatJobStream;
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.port.LocalChatConnections;
@@ -70,7 +70,7 @@ class ChatSubscriptionOutageE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -105,7 +105,7 @@ class ChatSubscriptionOutageE2ETest {
 
     @Test
     void 구독이_끊긴_동안_보낸_메시지는_격리되지_않고_구독이_돌아오면_한_번씩_전달된다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         StompSession guest = stomp.connect(GUEST_ID);
         BlockingQueue<Frame<ChatMessageResponse>> guestMessages = stomp.subscribeRoomMessages(guest, chatRoomId, 1);

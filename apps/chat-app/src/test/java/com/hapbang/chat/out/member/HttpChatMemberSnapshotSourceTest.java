@@ -1,7 +1,6 @@
 package com.hapbang.chat.out.member;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -16,18 +15,12 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.chat.ChatApplication;
-import com.hapbang.chat.app.ChatUserSyncService;
-import com.hapbang.chat.app.DefaultChatUserBackfillService;
-import com.hapbang.chat.app.exception.ChatErrorCode;
-import com.hapbang.chat.app.exception.ChatUserBackfillException;
 import com.hapbang.chat.app.port.ChatMemberSourceException.Reason;
 import com.hapbang.chat.app.port.ChatMemberSourceException;
-import com.hapbang.chat.config.ChatUserBackfillProperties;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -172,21 +165,6 @@ class HttpChatMemberSnapshotSourceTest {
     }
 
     @Test
-    void 주소가_없으면_설정되지_않은_것이고_백필은_회원_원본_호출_불가로_멈춘다() {
-        HttpChatMemberSnapshotSource notConfigured = new HttpChatMemberSnapshotSource(
-                new StaticListableBeanFactory().getBeanProvider(ChatMemberInternalApi.class));
-
-        assertThat(notConfigured.isConfigured()).isFalse();
-        assertThatIllegalStateException().isThrownBy(() -> notConfigured.readPage(0, 100));
-        DefaultChatUserBackfillService backfill = new DefaultChatUserBackfillService(notConfigured,
-                mock(ChatUserSyncService.class), new ChatUserBackfillProperties(null, null, null));
-        assertThatThrownBy(() -> backfill.backfill(0, 10))
-                .isInstanceOfSatisfying(ChatUserBackfillException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.MEMBER_SOURCE_UNAVAILABLE));
-        assertThat(requests).isEmpty();
-    }
-
-    @Test
     void 설정은_공통_Client와_같은_키와_기본값을_쓰고_주소가_비어_있으면_받지_않는다() {
         ChatMemberApiProperties defaults = new ChatMemberApiProperties("http://member", null, null);
 
@@ -227,9 +205,7 @@ class HttpChatMemberSnapshotSourceTest {
     }
 
     private static HttpChatMemberSnapshotSource source(String baseUrl) {
-        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("chatMemberInternalApi", api(baseUrl));
-        return new HttpChatMemberSnapshotSource(beanFactory.getBeanProvider(ChatMemberInternalApi.class));
+        return new HttpChatMemberSnapshotSource(api(baseUrl));
     }
 
     private static void sleep(long millis) {

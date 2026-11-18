@@ -23,6 +23,7 @@ import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -38,7 +39,7 @@ class ChatRealtimeRedisListenerTest {
     private final ChatRedisKeys keys = new ChatRedisKeys("test-listener");
     private final ChatRealtimeFacade facade = mock(ChatRealtimeFacade.class);
     private final ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade,
-            JsonMapper.builder().build(), keys, 1, 10, 1, 10, Duration.ofSeconds(1), new SimpleMeterRegistry());
+            JsonMapper.builder().build(), keys, mock(ChatRealtimeListenerHolder.class), 1, 10, 1, 10, Duration.ofSeconds(1), new SimpleMeterRegistry());
 
     @AfterEach
     void tearDown() {

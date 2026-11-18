@@ -4,7 +4,6 @@ import java.time.Duration;
 
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaOperations;
@@ -33,7 +32,6 @@ public class ChatKafkaErrorHandlerConfig {
     public static final String APPEARANCE_EVENT_ERROR_HANDLER = "chatAppearanceEventErrorHandler";
 
     @Bean(name = MEMBER_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     DefaultErrorHandler chatMemberEventErrorHandler(
             @Qualifier(ChatKafkaConfig.MEMBER_EVENT_DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate,
             @Qualifier(ChatKafkaConfig.MEMBER_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
@@ -41,7 +39,6 @@ public class ChatKafkaErrorHandlerConfig {
     }
 
     @Bean(name = APPEARANCE_EVENT_ERROR_HANDLER, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     DefaultErrorHandler chatAppearanceEventErrorHandler(
             @Qualifier(ChatKafkaConfig.APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE) KafkaTemplate<String, Object> deadLetterTemplate,
             @Qualifier(ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {

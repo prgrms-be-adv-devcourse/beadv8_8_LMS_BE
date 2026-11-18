@@ -14,17 +14,17 @@ import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * {@link ChatDeliveryAvailability} 게이트 네 진입점({@code redisAvailable}·{@code mayConsume}·{@code tryAcquireWrite}·
@@ -41,9 +41,9 @@ class ChatDeliveryAvailabilityGateTest {
 
     private final ChatDeliveryQueue queue = mock(ChatDeliveryQueue.class);
     private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue,
-            properties(PROBE_INITIAL, Duration.ofSeconds(3)), noMeterRegistry());
+            properties(PROBE_INITIAL, Duration.ofSeconds(3)), new SimpleMeterRegistry());
     private final ChatDeliveryAvailability closedLong = new ChatDeliveryAvailability(queue,
-            properties(PROBE_LONG, PROBE_LONG), noMeterRegistry());
+            properties(PROBE_LONG, PROBE_LONG), new SimpleMeterRegistry());
     private final ExecutorService other = Executors.newSingleThreadExecutor();
 
     @AfterEach
@@ -237,7 +237,6 @@ class ChatDeliveryAvailabilityGateTest {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
-                new ChatDeliveryProperties.Pipeline(true),
                 "test",
                 new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50, Duration.ofSeconds(30), 10, backoff),
                 new ChatDeliveryProperties.Consumer(2, 1, 20, Duration.ofMillis(50), 10, backoff),
@@ -249,10 +248,4 @@ class ChatDeliveryAvailabilityGateTest {
                 Duration.ofSeconds(10));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> noMeterRegistry() {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }

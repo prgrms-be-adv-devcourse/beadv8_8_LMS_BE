@@ -91,7 +91,7 @@ chat-app의 `spring.datasource.hikari.maximum-pool-size` 기본값은 20이다. 
 
 ## 설정 위치 (#418, 사용자 결정)
 
-- `hapbang.chat.delivery.*`의 기본값은 `ChatDeliveryProperties`의 `@DefaultValue`가 원본이다. application.yaml에 두지 않는다. `pipeline.enabled`의 코드 기본값은 `true`다(속성이 없으면 켠 것으로 본다). #418 단독 브랜치에서는 운영 `RealtimeChatFanout` 구현이 없어 `false`였고, 그 구현이 있는 #419 통합에서 `true`로 바꿨다. 테스트 설정은 `false`를 명시하고, 파이프라인을 검증하는 테스트만 `@TestPropertySource`로 켠다.
+- `hapbang.chat.delivery.*`의 기본값은 `ChatDeliveryProperties`의 `@DefaultValue`가 원본이다. application.yaml에 두지 않는다. 파이프라인을 켜고 끄던 `pipeline.enabled`는 2026-11-18 지웠다(사용자 결정: 운영에서 늘 켜는 기능에 테스트용 토글을 두지 않는다). 파이프라인 빈은 늘 만들고, 실행기는 배치 실행 설정(`hapbang.scheduling.enabled`)을 따른다. 모듈 테스트는 배치 실행이 꺼져 있어 처리 빈을 직접 부르고, E2E 테스트만 배치 실행을 켠다.
 - chat-app의 Spring·라이브러리 설정(`spring.datasource.hikari.maximum-pool-size=20`, `spring.data.redis.timeout=10s`)은 chat-app `application.yaml`에 둔다(2026-10-30 사용자 결정: Spring·라이브러리 설정은 yaml, `hapbang.chat.*`는 코드 기본값). 근거는 yaml 주석에 있다. 모듈 테스트 설정(`hapbang-module-test.yaml`)은 pool 5와 같은 timeout을 따로 둔다. Redis 명령 시간 제한의 근거(consumer BLOCK 2s보다 길고 lease·min-idle 30s보다 짧게)가 채팅 전달 설정에 묶여 있어 `common/redis`가 아니라 chat-app에 둔다.
 - 모든 코드 기본값은 yaml·프로필·환경 변수(예: `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`, `HAPBANG_CHAT_DELIVERY_RELAY_BATCH_SIZE`)로 덮을 수 있다. Redis 주소·인증·TLS와 `hapbang.chat.redis.namespace`처럼 환경마다 다른 값은 환경 변수·k8s 설정으로 준다.
 

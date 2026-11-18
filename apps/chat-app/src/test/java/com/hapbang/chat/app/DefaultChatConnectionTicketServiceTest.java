@@ -18,8 +18,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
@@ -95,18 +93,11 @@ class DefaultChatConnectionTicketServiceTest {
     }
 
     @Test
-    void 티켓을_저장하지_못하거나_저장소가_없으면_CONNECTION_TICKET_UNAVAILABLE이다() {
+    void 티켓을_저장하지_못하면_CONNECTION_TICKET_UNAVAILABLE이다() {
         store.failSave = true;
         assertThatThrownBy(() -> service.issue(HOST_ID, Role.INFLUENCER, null))
                 .isInstanceOfSatisfying(ChatException.class, e -> assertThat(e.getErrorCode())
                         .isEqualTo(ChatErrorCode.CONNECTION_TICKET_UNAVAILABLE));
-
-        DefaultChatConnectionTicketService withoutStore = new DefaultChatConnectionTicketService(
-                new StaticListableBeanFactory().getBeanProvider(ChatConnectionTicketStore.class),
-                Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30), 10, Duration.ofSeconds(60));
-        assertThatThrownBy(() -> withoutStore.issue(HOST_ID, Role.INFLUENCER, null))
-                .isInstanceOf(ChatException.class);
-        assertThat(withoutStore.consume("A".repeat(43))).isEmpty();
     }
 
     @Test
@@ -133,10 +124,7 @@ class DefaultChatConnectionTicketServiceTest {
     }
 
     private static DefaultChatConnectionTicketService service(ChatConnectionTicketStore store) {
-        StaticListableBeanFactory beans = new StaticListableBeanFactory();
-        beans.addBean("store", store);
-        ObjectProvider<ChatConnectionTicketStore> provider = beans.getBeanProvider(ChatConnectionTicketStore.class);
-        return new DefaultChatConnectionTicketService(provider, Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30),
+        return new DefaultChatConnectionTicketService(store, Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30),
                 10, Duration.ofSeconds(60));
     }
 

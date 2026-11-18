@@ -15,7 +15,6 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.chat.app.port.ChatRecruitSource.ChatApplicantPage;
@@ -153,15 +152,6 @@ class HttpChatRecruitSourceTest {
     }
 
     @Test
-    void 주소가_없으면_호출_불가다() {
-        HttpChatRecruitSource notConfigured = new HttpChatRecruitSource(
-                new StaticListableBeanFactory().getBeanProvider(ChatAppearanceInternalApi.class));
-
-        assertFailure(() -> notConfigured.getRecruit(7L), Reason.UNAVAILABLE, 0, null);
-        assertThat(requests).isEmpty();
-    }
-
-    @Test
     void 설정은_회원_내부_API와_같은_기본_제한_시간을_쓰고_주소가_비어_있으면_받지_않는다() {
         ChatAppearanceApiProperties defaults = new ChatAppearanceApiProperties("http://appearance", null, null);
 
@@ -189,11 +179,8 @@ class HttpChatRecruitSourceTest {
     }
 
     private static HttpChatRecruitSource source(String baseUrl) {
-        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
-        beanFactory.addBean("chatAppearanceInternalApi", new ChatAppearanceApiConfig().chatAppearanceInternalApi(
-                RestClient.builder(), new ChatAppearanceApiProperties(baseUrl, Duration.ofMillis(500),
-                        Duration.ofMillis(300)), API_KEY));
-        return new HttpChatRecruitSource(beanFactory.getBeanProvider(ChatAppearanceInternalApi.class));
+        return new HttpChatRecruitSource(new ChatAppearanceApiConfig().chatAppearanceInternalApi(RestClient.builder(),
+                new ChatAppearanceApiProperties(baseUrl, Duration.ofMillis(500), Duration.ofMillis(300)), API_KEY));
     }
 
     private static void sleep(long millis) {

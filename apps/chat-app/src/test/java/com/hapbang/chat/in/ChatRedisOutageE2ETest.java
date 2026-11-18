@@ -73,8 +73,6 @@ import jakarta.persistence.EntityManager;
                 "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
                 "hapbang.scheduling.enabled=true",
                 // 장애 중 relay 시도가 상한(DEAD)에 닿지 않고 복구 뒤 곧 다시 시도하도록 backoff를 줄인다
                 "hapbang.chat.delivery.relay.backoff.initial=200ms",
@@ -85,7 +83,9 @@ import jakarta.persistence.EntityManager;
                 // 장애 중 명령이 연결 복구를 기다리며 오래 멈추지 않게 한다(운영 기본값은 Lettuce 60초)
                 "spring.data.redis.timeout=2s",
                 // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
-                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000",
+                // 포트가 겹친 다른 프로세스로 요청이 가지 않게 서버를 127.0.0.1에 묶는다(@ChatE2ETest와 같다)
+                "server.address=127.0.0.1"
         })
 @Import({PostgresTestcontainersConfig.class})
 @DirtiesContext

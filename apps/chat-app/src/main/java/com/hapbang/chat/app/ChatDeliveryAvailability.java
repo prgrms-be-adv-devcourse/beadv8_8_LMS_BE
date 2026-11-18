@@ -5,14 +5,13 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.function.IntToLongFunction;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.config.ChatDeliveryProperties;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -52,7 +51,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatDeliveryPipeline
 public class ChatDeliveryAvailability {
 
     private final ChatDeliveryQueue chatDeliveryQueue;
@@ -67,10 +65,10 @@ public class ChatDeliveryAvailability {
     private long lastToken;
 
     public ChatDeliveryAvailability(ChatDeliveryQueue chatDeliveryQueue, ChatDeliveryProperties properties,
-            ObjectProvider<MeterRegistry> meterRegistry) {
+            MeterRegistry meterRegistry) {
         this.chatDeliveryQueue = chatDeliveryQueue;
         this.settings = properties.pause();
-        this.meterRegistry = meterRegistry.getIfAvailable();
+        this.meterRegistry = meterRegistry;
         for (ChatJobStream stream : ChatJobStream.values()) {
             subscriptions.put(stream, new Probe());
         }
@@ -414,18 +412,14 @@ public class ChatDeliveryAvailability {
     }
 
     private void count(String target) {
-        if (meterRegistry != null) {
-            meterRegistry.counter("chat.delivery.paused", "target", target).increment();
-        }
+        meterRegistry.counter("chat.delivery.paused", "target", target).increment();
     }
 
     private void registerGauge(String target, Probe probe) {
-        if (meterRegistry != null) {
-            Gauge.builder("chat.delivery.paused.state", probe, state -> state.down ? 1 : 0)
-                    .tag("target", target)
-                    .description("전달 파이프라인 멈춤 상태(1이면 멈춤)")
-                    .register(meterRegistry);
-        }
+        Gauge.builder("chat.delivery.paused.state", probe, state -> state.down ? 1 : 0)
+                .tag("target", target)
+                .description("전달 파이프라인 멈춤 상태(1이면 멈춤)")
+                .register(meterRegistry);
     }
 
     /**

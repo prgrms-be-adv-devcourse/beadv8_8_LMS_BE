@@ -29,9 +29,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
@@ -141,7 +142,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         });
         Set<Object> enqueuedJobIds = new HashSet<>();
         redis.opsForStream().range(keys.deliveryStream(), Range.unbounded())
-                .forEach(entry -> enqueuedJobIds.add(entry.getValue().get(ChatStreamEntries.JOB_ID)));
+                .forEach(entry -> enqueuedJobIds.add(entry.getValue().get("jobId")));
         assertThat(streamLength(ChatJobStream.DELIVERY)).isEqualTo(deliveryIds.size());
         assertThat(enqueuedJobIds).hasSize(deliveryIds.size());
     }
@@ -154,7 +155,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     void 적재_실패로_격리한_outbox도_운영_재처리로_다시_적재해_발행한다() {
         UUID deliveryId = send("안녕하세요");
         doThrow(new IllegalStateException("Redis 중단")).when(spiedQueue)
-                .enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+                .enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
         relay.relayBatch(ChatJobStream.DELIVERY);
         waitUntilDue(deliveryId);
         relay.relayBatch(ChatJobStream.DELIVERY);
@@ -177,7 +178,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         doThrow(new IllegalStateException("체크포인트 저장 실패")).when(spiedCheckpointRepository)
                 .save(any(ChatPublishCheckpoint.class));
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
+        assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();

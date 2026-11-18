@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -29,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class LocalRoomSubscriptions {
 
-    private final ObjectProvider<RoomChannelSubscriptions> roomChannels;
+    private final RoomChannelSubscriptions roomChannels;
     private final int maxPerSession;
     /** 방 ID → (연결 ID, 구독 ID) → 구독. 이 객체의 잠금으로 지킨다 */
     private final Map<Long, Map<Key, Subscription>> byRoom = new HashMap<>();
@@ -37,7 +36,7 @@ public class LocalRoomSubscriptions {
     private final Map<String, Map<String, Subscription>> bySession = new HashMap<>();
 
     /** 한 연결의 방 구독 수 상한(20)은 미확정 초기값(Q12)이다. 기본값은 코드가 원본이고 같은 키의 yaml·환경 변수가 덮는다 */
-    public LocalRoomSubscriptions(ObjectProvider<RoomChannelSubscriptions> roomChannels,
+    public LocalRoomSubscriptions(RoomChannelSubscriptions roomChannels,
             @Value("${hapbang.chat.realtime.room.max-subscriptions-per-session:20}") int maxPerSession) {
         Assert.isTrue(maxPerSession > 0, "hapbang.chat.realtime.room.max-subscriptions-per-session은 1 이상이어야 합니다.");
         this.roomChannels = roomChannels;
@@ -48,8 +47,7 @@ public class LocalRoomSubscriptions {
      * 구독을 넣는다. 방 채널 참조를 먼저 늘리고(잠금 밖), 연결의 구독 수 상한을 넘거나 같은 구독 ID가 이미 있으면 되돌린다.
      */
     public Registered register(Subscription subscription) {
-        RoomChannelSubscriptions channels = roomChannels.getIfAvailable();
-        if (channels != null && !channels.acquire(subscription.roomId())) {
+        if (!roomChannels.acquire(subscription.roomId())) {
             return Registered.SERVER_BUSY;
         }
         Registered result;
@@ -70,8 +68,8 @@ public class LocalRoomSubscriptions {
                 bySession.remove(subscription.sessionId());
             }
         }
-        if (result != Registered.OK && channels != null) {
-            channels.release(subscription.roomId());
+        if (result != Registered.OK) {
+            roomChannels.release(subscription.roomId());
         }
         return result;
     }
@@ -163,10 +161,7 @@ public class LocalRoomSubscriptions {
     }
 
     private void releaseChannel(Long roomId) {
-        RoomChannelSubscriptions channels = roomChannels.getIfAvailable();
-        if (channels != null) {
-            channels.release(roomId);
-        }
+        roomChannels.release(roomId);
     }
 
     /** 넣은 결과 */

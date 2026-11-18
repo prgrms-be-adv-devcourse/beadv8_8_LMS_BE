@@ -3,7 +3,6 @@ package com.hapbang.chat.out.member;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,7 +20,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 회원 내부 API HTTP Interface({@link ChatMemberInternalApi}) 프록시. {@code hapbang.clients.member.base-url}이 있을 때만 만든다.
+ * 회원 내부 API HTTP Interface({@link ChatMemberInternalApi}) 프록시. 주소는 {@code hapbang.clients.member.base-url}이다.
  * <ul>
  *     <li>RestClient 위에 {@link HttpServiceProxyFactory}로 만든다. 주소·제한 시간은 {@link ChatMemberApiProperties}의 기존 키를
  *     쓰고, 새 설정 키를 두지 않는다.</li>
@@ -32,7 +31,6 @@ import tools.jackson.databind.json.JsonMapper;
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "hapbang.clients.member", name = "base-url")
 @EnableConfigurationProperties(ChatMemberApiProperties.class)
 public class ChatMemberApiConfig {
 

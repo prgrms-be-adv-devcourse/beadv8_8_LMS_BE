@@ -81,7 +81,7 @@ requests는 요청 ID → `memberId|acceptedAtMs|ACCEPTED|expiresAtMs|e{epoch}[|
 
 ## billing 담당 계약
 
-billing 코드·공통 DTO는 billing이 소유한다. 쿠폰은 `CouponBillingInternalApi`(`@HttpExchange`)와 `HttpPromotionBudget`으로 기존 계약을 호출하며 billing 테이블에 직접 접근하지 않는다. 주소는 `hapbang.clients.billing.base-url`, 인증은 `X-Internal-Api-Key`(`hapbang.internal-api.key`)다. 주소가 없으면 어댑터를 등록하지 않으며 플랫폼 쿠폰을 열 때 성공으로 간주하지 않는다.
+billing 코드·공통 DTO는 billing이 소유한다. 쿠폰은 `CouponBillingInternalApi`(`@HttpExchange`)와 `HttpPromotionBudget`으로 기존 계약을 호출하며 billing 테이블에 직접 접근하지 않는다. 주소는 `hapbang.clients.billing.base-url`, 인증은 `X-Internal-Api-Key`(`hapbang.internal-api.key`)다. 주소는 필수다. 없으면 앱이 뜨지 않는다(운영은 늘 예산 어댑터가 있다).
 
 - 충전: fundingWorkId와 출처로 중복 충전을 방지한다.
 - 예약: `POST /api/v1/internal/billing/promotion-budgets/reservations`, `PromotionBudgetReserveCommand(workId, couponId, policyVersion, amountHp)`. 성공의 예약 ID는 `PB-{양수}` 형식이며 이후 받은 값을 그대로 쓴다.

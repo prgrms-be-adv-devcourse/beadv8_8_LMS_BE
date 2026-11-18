@@ -19,7 +19,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.port.ChatPresence;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +37,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatRealtime
 public class RedisChatPresence implements ChatPresence {
 
     private static final RedisScript<Long> CONNECT = RedisLuaSupport.longLuaScript(

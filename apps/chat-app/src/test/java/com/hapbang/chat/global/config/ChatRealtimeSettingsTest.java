@@ -9,8 +9,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -22,13 +20,10 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * 실시간 전달({@code hapbang.chat.realtime.*})과 전달 파이프라인 사용 여부의 기본값은 코드에 있고(application.yaml에 두지 않는다),
- * yaml·환경 변수가 같은 키로 덮는다. 사용 여부는 둘 다 설정이 없으면 켜지고 {@code false}로 끈다.
+ * 실시간 전달({@code hapbang.chat.realtime.*}) 수치의 기본값은 코드에 있고(application.yaml에 두지 않는다), yaml·환경 변수가 같은
+ * 키로 덮는다.
  */
 class ChatRealtimeSettingsTest {
-
-    private final ApplicationContextRunner conditions = new ApplicationContextRunner()
-            .withUserConfiguration(RealtimeOnly.class, PipelineOnly.class);
 
     // Boot 앱처럼 "30s"·"512KB" 같은 값을 @Value로 바꾸는 변환 서비스를 쓴다
     private final ApplicationContextRunner budgets = new ApplicationContextRunner()
@@ -38,33 +33,6 @@ class ChatRealtimeSettingsTest {
             .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
             .withBean(ChatInboundReceiveBudget.class)
             .withBean(ChatOutboundSendBudget.class);
-
-    @Test
-    void 아무것도_설정하지_않으면_실시간_전달과_파이프라인이_켜진다() {
-        conditions.run(context -> assertThat(context).hasNotFailed()
-                .hasBean("realtimeMarker")
-                .hasBean("pipelineMarker"));
-    }
-
-    @Test
-    void yaml_값으로_실시간_전달과_파이프라인을_끈다() {
-        conditions.withPropertyValues(ConditionalOnChatRealtime.REALTIME_ENABLED + "=false",
-                        "hapbang.chat.delivery.pipeline.enabled=false")
-                .run(context -> assertThat(context).hasNotFailed()
-                        .doesNotHaveBean("realtimeMarker")
-                        .doesNotHaveBean("pipelineMarker"));
-    }
-
-    @Test
-    void 환경_변수로_실시간_전달과_파이프라인을_끈다() {
-        conditions.withInitializer(context -> context.getEnvironment().getPropertySources().addFirst(
-                        new SystemEnvironmentPropertySource("test-env", Map.of(
-                                "HAPBANG_CHAT_REALTIME_ENABLED", "false",
-                                "HAPBANG_CHAT_DELIVERY_PIPELINE_ENABLED", "false"))))
-                .run(context -> assertThat(context).hasNotFailed()
-                        .doesNotHaveBean("realtimeMarker")
-                        .doesNotHaveBean("pipelineMarker"));
-    }
 
     @Test
     void 아무것도_설정하지_않으면_실시간_수치는_코드_기본값을_쓴다() {
@@ -104,25 +72,5 @@ class ChatRealtimeSettingsTest {
                                 "HAPBANG_CHAT_REALTIME_INBOUND_PER_SESSION_FRAMES", "16"))))
                 .run(context -> assertThat(ReflectionTestUtils.getField(
                         context.getBean(ChatInboundReceiveBudget.class), "perSessionFrames")).isEqualTo(16));
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnChatRealtime
-    static class RealtimeOnly {
-
-        @Bean
-        String realtimeMarker() {
-            return "realtime";
-        }
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnChatDeliveryPipeline
-    static class PipelineOnly {
-
-        @Bean
-        String pipelineMarker() {
-            return "pipeline";
-        }
     }
 }

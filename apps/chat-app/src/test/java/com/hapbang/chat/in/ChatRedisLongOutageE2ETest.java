@@ -34,8 +34,8 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.LocalChatConnections;
@@ -70,8 +70,6 @@ import jakarta.persistence.EntityManager;
                 "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
                 "hapbang.scheduling.enabled=true",
                 // 장애를 시도로 셌다면 곧바로 격리됐을 상한·간격
                 "hapbang.chat.delivery.relay.max-attempts=2",
@@ -94,7 +92,9 @@ import jakarta.persistence.EntityManager;
                 "hapbang.chat.realtime.listener.recovery-interval=200ms",
                 "spring.data.redis.timeout=500ms",
                 // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
-                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000",
+                // 포트가 겹친 다른 프로세스로 요청이 가지 않게 서버를 127.0.0.1에 묶는다(@ChatE2ETest와 같다)
+                "server.address=127.0.0.1"
         })
 @Import({PostgresTestcontainersConfig.class})
 @DirtiesContext
@@ -133,7 +133,7 @@ class ChatRedisLongOutageE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -179,7 +179,7 @@ class ChatRedisLongOutageE2ETest {
     @Test
     void Redis가_옛_시도_예산보다_훨씬_오래_멈춰도_장애_중_메시지는_격리되지_않고_시도_0으로_남았다가_복구_뒤_실제_STOMP로_한_번씩_전달된다()
             throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         StompSession guest = stomp.connect(GUEST_ID);
         BlockingQueue<Frame<ChatMessageResponse>> hostMessages = stomp.subscribe(host, MESSAGES,
@@ -240,7 +240,7 @@ class ChatRedisLongOutageE2ETest {
     @Test
     void Redis가_메모리_상한으로_쓰기를_거절하는_동안_보낸_메시지는_격리되지_않고_시도_0으로_남았다가_상한이_풀리면_실제_STOMP로_한_번씩_전달된다()
             throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         StompSession guest = stomp.connect(GUEST_ID);
         BlockingQueue<Frame<ChatMessageResponse>> guestMessages = stomp.subscribeRoomMessages(guest, chatRoomId, 1);

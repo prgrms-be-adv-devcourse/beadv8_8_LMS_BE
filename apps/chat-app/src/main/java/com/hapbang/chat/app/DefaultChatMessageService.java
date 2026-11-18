@@ -23,11 +23,12 @@ import com.hapbang.chat.domain.ChatUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+/** {@link ChatMessageService}의 업무 구현 */
 @Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
-public class ChatMessageUseCase {
+public class DefaultChatMessageService implements ChatMessageService {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
@@ -49,8 +50,9 @@ public class ChatMessageUseCase {
      *
      * @param clientMessageId 보낸 사람이 붙인 전송 ID. 없으면 중복을 확인하지 않는다
      */
+    @Override
     public SentChatMessage send(Long chatRoomId, Long senderId, String content, String clientMessageId) {
-        validateContent(content);
+        ChatMessageService.validateContent(content);
         // 저장 트랜잭션(설계 4.6): 방 잠금 → 발신자 참여 행 하나 → 회원 자격 → 같은 참여의 멱등 조회 → 상대 퇴장(집계)
         // → 순번·메시지·outbox 저장. 방 참여자 전체를 읽거나 전달 대상 목록·응답을 조립하지 않는다
         LocalDateTime now = LocalDateTime.now();
@@ -93,19 +95,5 @@ public class ChatMessageUseCase {
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
         return new SentChatMessage(ChatMessageResponse.from(message).withSender(senderInfo), false,
                 sender.getParticipationVersion());
-    }
-
-    /**
-     * 본문 검증. DB를 쓰지 않으므로 Facade가 저장 트랜잭션을 열기 전에 먼저 부른다(설계 4.6 "DB 트랜잭션 전").
-     * UseCase를 직접 쓰는 호출도 같은 검사를 받도록 {@link #send}에서도 한 번 더 부른다.
-     */
-    static void validateContent(String content) {
-        if (!ChatMessage.hasContent(content)) {
-            throw new ChatException(ChatErrorCode.EMPTY_MESSAGE);
-        }
-        if (!ChatMessage.fitsLength(content)) {
-            throw new ChatException(ChatErrorCode.INVALID_REQUEST,
-                    "메시지는 " + ChatMessage.MAX_CONTENT_LENGTH + "자 이하여야 합니다.");
-        }
     }
 }

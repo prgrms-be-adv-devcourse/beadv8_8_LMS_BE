@@ -279,7 +279,7 @@ class ChatInboundLifecycleRaceTest {
         ChatWebSocketSessionRegistry reg = mock(ChatWebSocketSessionRegistry.class);
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
         ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(reg, meters, 2, queueCapacity, 100_000,
-                perSessionFrames);
+                perSessionFrames, Duration.ofSeconds(30), 10_000);
         budgets.add(budget);
         ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(budget.channelExecutor());
         Map<String, Session> sessions = new HashMap<>();
@@ -454,7 +454,7 @@ class ChatInboundLifecycleRaceTest {
 
     private ChatInboundReceiveBudget budget(int workers, int queueCapacity, int perSessionFrames) {
         ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(registry, meterRegistry, workers, queueCapacity,
-                10, perSessionFrames);
+                10, perSessionFrames, Duration.ofSeconds(30), 10_000);
         budgets.add(budget);
         return budget;
     }

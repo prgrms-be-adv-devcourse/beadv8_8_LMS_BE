@@ -13,8 +13,6 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.ChatConnectionControl;
-import com.hapbang.chat.app.ChatOutboxStore;
 import com.hapbang.chat.app.port.ChatOutboxRows.ClaimedControlRow;
 import com.hapbang.chat.app.port.ChatOutboxRows.ControlCandidateRow;
 import com.hapbang.chat.app.port.ChatOutboxRows.ControlJobRow;
@@ -22,7 +20,7 @@ import com.hapbang.chat.app.port.ChatOutboxRows.IsolatedJobRow;
 import com.hapbang.chat.domain.ChatControlOutbox;
 
 /**
- * 연결 제어 outbox 저장·조회. 기록은 {@link ChatConnectionControl}, 적재 상태 변경은 {@link ChatOutboxStore}가
+ * 연결 제어 outbox 저장·조회. 기록은 {@code ChatConnectionControl}, 적재 상태 변경은 {@code ChatOutboxStore}가
  * 아래 native 문장으로 한다. 적재 문장은 전달 outbox({@link ChatOutboxRepository})와 테이블만 다르고 같다.
  * 적재 변경 문장의 트랜잭션·영속성 컨텍스트 규칙도 전달 outbox와 같다.
  */

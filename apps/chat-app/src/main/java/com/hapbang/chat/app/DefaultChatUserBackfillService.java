@@ -61,10 +61,6 @@ public class DefaultChatUserBackfillService implements ChatUserBackfillService {
 
     private ChatUserBackfillResult run(long afterId, int limit) {
         Tally tally = new Tally();
-        if (!chatMemberSnapshotSource.isConfigured()) {
-            log.error("회원 내부 API Client가 없어 채팅 회원 백필을 실행할 수 없습니다(hapbang.clients.member.base-url 미설정).");
-            throw abort(ChatErrorCode.MEMBER_SOURCE_UNAVAILABLE, tally, afterId, null);
-        }
         log.info("채팅 회원 백필 시작 afterId={}, limit={}", afterId, limit);
         long cursor = afterId;
         int remaining = limit;

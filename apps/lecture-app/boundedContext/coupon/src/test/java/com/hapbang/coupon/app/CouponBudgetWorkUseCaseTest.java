@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -47,8 +46,6 @@ class CouponBudgetWorkUseCaseTest {
     private final MemberCouponRepository members = mock();
     private final CouponBudgetReleaseRecorder releaseRecorder = mock();
     private final PromotionBudget budget = mock();
-    @SuppressWarnings("unchecked")
-    private final ObjectProvider<PromotionBudget> budgetProvider = mock();
 
     private CouponBudgetWorkUseCase useCase;
     private Coupon coupon;
@@ -56,15 +53,14 @@ class CouponBudgetWorkUseCaseTest {
     @BeforeEach
     void setUp() {
         coupon = draftPlatformCoupon();
-        when(budgetProvider.getIfAvailable()).thenReturn(budget);
         useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder,
-                budgetProvider, new CouponBudgetWorkProperties(null, LEASE, 100),
+                budget, new CouponBudgetWorkProperties(null, LEASE, 100),
                 CouponUsageFixture.transactionManager(), CLOCK);
     }
 
     @Test
     void 후보_정책별로_회원_cursor를_진행하고_실패한_회원도_뒤_정책의_등록을_막지_않는다() {
-        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder, budgetProvider,
+        useCase = new CouponBudgetWorkUseCase(works, coupons, members, releaseRecorder, budget,
                 new CouponBudgetWorkProperties(null, LEASE, 2), CouponUsageFixture.transactionManager(), CLOCK);
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 0, Limit.of(2))).thenReturn(List.of(1L, 2L));
         when(coupons.findPlatformMemberBudgetCouponIds(NOW, 2, Limit.of(2))).thenReturn(List.of(3L));

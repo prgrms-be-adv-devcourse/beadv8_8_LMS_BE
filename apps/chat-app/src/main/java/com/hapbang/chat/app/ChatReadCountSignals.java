@@ -1,7 +1,6 @@
 package com.hapbang.chat.app;
 
 import org.springframework.beans.factory.DisposableBean;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.core.task.TaskRejectedException;
@@ -24,7 +23,6 @@ import lombok.extern.slf4j.Slf4j;
  *     그 스레드와 DB 연결을 붙잡지 않는다(커밋 뒤 콜백은 연결 반환 전에 돈다).</li>
  *     <li>outbox를 쓰지 않는 최선 노력이다. 대기열이 가득 차거나 발행이 실패하면 버리고 기록만 남긴다. 변경은 실패시키지 않는다.
  *     잃은 갱신은 FE가 REST 이력으로 보정한다.</li>
- *     <li>실시간 전달을 끈 앱(발행 빈이 없음)에서는 아무것도 하지 않는다.</li>
  *     <li>실행기는 Boot가 주입하는 builder로 만든다. 그래야 앱의 {@code traceContextTaskDecorator}(#630)가 붙어 발행 스레드의
  *     로그에 신호를 낸 요청·소비의 {@code traceId}가 찍힌다(docs/dev/logging.md "스레드 경계", #582).</li>
  * </ul>
@@ -33,13 +31,13 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class ChatReadCountSignals implements DisposableBean {
 
-    private final ObjectProvider<ChatReadCountPublisher> publisher;
+    private final ChatReadCountPublisher publisher;
     private final ThreadPoolTaskExecutor executor;
 
     /**
      * 발행 스레드 수(1)·대기열 상한(1000)은 미확정 운영 수치(Q12)다. 기본값은 코드가 원본이고 같은 키의 yaml·환경 변수가 덮는다.
      */
-    public ChatReadCountSignals(ObjectProvider<ChatReadCountPublisher> publisher,
+    public ChatReadCountSignals(ChatReadCountPublisher publisher,
             ThreadPoolTaskExecutorBuilder executorBuilder,
             @Value("${hapbang.chat.realtime.read-counts.publish-workers:1}") int workers,
             @Value("${hapbang.chat.realtime.read-counts.publish-queue-capacity:1000}") int queueCapacity) {
@@ -79,7 +77,7 @@ public class ChatReadCountSignals implements DisposableBean {
     }
 
     private void signal(ReadChangedFanout fanout) {
-        if (publisher.getIfAvailable() == null || fanout.roomId() == null) {
+        if (fanout.roomId() == null) {
             return;
         }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -104,12 +102,8 @@ public class ChatReadCountSignals implements DisposableBean {
     }
 
     private void publish(ReadChangedFanout fanout) {
-        ChatReadCountPublisher target = publisher.getIfAvailable();
-        if (target == null) {
-            return;
-        }
         try {
-            target.publish(fanout);
+            publisher.publish(fanout);
         } catch (RuntimeException exception) {
             log.warn("안 읽은 사람 수 변경 신호를 내지 못함 roomId={}", fanout.roomId(), exception);
         }

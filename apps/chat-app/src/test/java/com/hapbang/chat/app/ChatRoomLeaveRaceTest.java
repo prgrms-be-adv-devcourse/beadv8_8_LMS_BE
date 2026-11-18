@@ -36,13 +36,13 @@ class ChatRoomLeaveRaceTest {
     private ChatReceiptService chatReceiptService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatReadService chatReadService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -58,9 +58,9 @@ class ChatRoomLeaveRaceTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         for (int i = 0; i < 3; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }
     }
 
@@ -69,7 +69,7 @@ class ChatRoomLeaveRaceTest {
         chatReceiptService.markReceived(chatRoomId, GUEST_ID, 1, 1);
         interleaveBeforeLeaveLog(() -> chatReceiptService.markReceived(chatRoomId, GUEST_ID, 1, 3));
 
-        assertThat(chatRoomUseCase.leave(chatRoomId, GUEST_ID, null).left()).isTrue();
+        assertThat(chatRoomService.leave(chatRoomId, GUEST_ID, null).left()).isTrue();
 
         ChatRoomMember guest = member(GUEST_ID);
         assertThat(guest.isActive()).isFalse();
@@ -81,7 +81,7 @@ class ChatRoomLeaveRaceTest {
         chatReadService.markRead(chatRoomId, GUEST_ID, 1, null);
         interleaveBeforeLeaveLog(() -> chatReadService.markRead(chatRoomId, GUEST_ID, 3, null));
 
-        assertThat(chatRoomUseCase.leave(chatRoomId, GUEST_ID, null).left()).isTrue();
+        assertThat(chatRoomService.leave(chatRoomId, GUEST_ID, null).left()).isTrue();
 
         ChatRoomMember guest = member(GUEST_ID);
         assertThat(guest.isActive()).isFalse();

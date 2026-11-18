@@ -26,8 +26,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
@@ -141,7 +143,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
                     assertThat(audit.getPreviousPublishStatus()).isEqualTo("DEAD");
                 });
         assertThat(checkpoint(deliveryId).getGeneration()).isEqualTo(1);
-        verify(spiedQueue, times(1)).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+        verify(spiedQueue, times(1)).enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
@@ -169,7 +171,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
         assertThat(unchanged.getGeneration()).isZero();
         assertThat(unchanged.getDeadReason()).isEqualTo(ChatDeadReason.PUBLISH_RETRY_EXHAUSTED);
         assertThat(unchanged.getLastError()).isEqualTo("시도 상한");
-        verify(spiedQueue, never()).enqueue(any(), anyMap());
+        verify(spiedQueue, never()).enqueue(any(), any());
     }
 
     @Test
@@ -193,7 +195,7 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
                             where consumer_group = :group and job_id = :id and status = 'PENDING'
                             """, Integer.class, Map.of("group", group, "id", deliveryId)));
             return invocation.callRealMethod();
-        }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+        }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
 
         assertThat(reconstructor.reprocess(ChatJobStream.DELIVERY, deliveryId, null)).isTrue();
 

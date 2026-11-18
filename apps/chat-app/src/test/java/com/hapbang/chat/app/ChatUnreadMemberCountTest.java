@@ -58,13 +58,13 @@ class ChatUnreadMemberCountTest {
     private static final long TIMEOUT_MILLIS = 2_000;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
-    private ChatMessageSupporter chatMessageSupporter;
+    private DefaultChatMessageQueryService chatMessageQueryService;
 
     @Autowired
     private ChatReadService chatReadService;
@@ -115,10 +115,10 @@ class ChatUnreadMemberCountTest {
 
     @Test
     void 일대일_방은_보낸_사람을_빼고_상대가_읽기_전이면_1_읽으면_0이다() {
-        Long roomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatMessageUseCase.send(roomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(roomId, HOST_ID, "두 번째", null);
-        chatMessageUseCase.send(roomId, GUEST_ID, "답장", null);
+        Long roomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatMessageService.send(roomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(roomId, HOST_ID, "두 번째", null);
+        chatMessageService.send(roomId, GUEST_ID, "답장", null);
 
         // 보는 회원과 관계없이 같은 값이다
         assertThat(counts(roomId, HOST_ID)).containsExactly(entry(3L, 1), entry(2L, 1), entry(1L, 1));
@@ -132,12 +132,12 @@ class ChatUnreadMemberCountTest {
 
     @Test
     void 일대일_방에서_상대가_나가면_내_메시지는_0이다() {
-        Long roomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatMessageUseCase.send(roomId, HOST_ID, "안녕하세요", null);
+        Long roomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatMessageService.send(roomId, HOST_ID, "안녕하세요", null);
 
-        chatRoomUseCase.leave(roomId, GUEST_ID, null);
+        chatRoomService.leave(roomId, GUEST_ID, null);
 
-        ChatMessagePageResponse page = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 30);
+        ChatMessagePageResponse page = chatMessageQueryService.getMessages(roomId, HOST_ID, null, 30);
         assertThat(page.messages()).extracting(ChatMessageResponse::messageType, ChatMessageResponse::unreadMemberCount)
                 .containsExactly(tuple(ChatMessageType.SYSTEM, null), tuple(ChatMessageType.TEXT, 0));
         verify(publisher, timeout(TIMEOUT_MILLIS)).publish(argThat(signal -> signal.roomId().equals(roomId)
@@ -146,9 +146,9 @@ class ChatUnreadMemberCountTest {
 
     @Test
     void 한_회원이_여러_기기에서_읽어도_한_명으로_한_번만_줄어든다() {
-        Long roomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatMessageUseCase.send(roomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(roomId, HOST_ID, "두 번째", null);
+        Long roomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatMessageService.send(roomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(roomId, HOST_ID, "두 번째", null);
 
         // 두 기기가 서로 다른 위치를 보낸다. 같은 값·낮은 값은 바꾸지 않고 신호도 내지 않는다
         chatReadService.markRead(roomId, GUEST_ID, 2, null);
@@ -174,7 +174,7 @@ class ChatUnreadMemberCountTest {
         Map<Long, Integer> counts = counts(roomId, HOST_ID);
         assertThat(counts).containsEntry(m1, 1).containsEntry(m2, 2).containsEntry(m3, 2);
         // 시스템 안내(초대)는 null이고 버전도 null이다
-        assertThat(chatMessageSupporter.getMessages(roomId, GUEST_B, null, 30).messages())
+        assertThat(chatMessageQueryService.getMessages(roomId, GUEST_B, null, 30).messages())
                 .filteredOn(message -> message.messageType() == ChatMessageType.SYSTEM)
                 .isNotEmpty()
                 .allSatisfy(message -> {
@@ -205,7 +205,7 @@ class ChatUnreadMemberCountTest {
         Map<Long, Integer> afterRejoin = counts(roomId, HOST_ID);
         assertThat(afterRejoin).containsEntry(m1, 0).containsEntry(m2, 1);
 
-        chatRoomUseCase.leave(roomId, GUEST_B, null);
+        chatRoomService.leave(roomId, GUEST_B, null);
         Map<Long, Integer> afterLeave = counts(roomId, HOST_ID);
         assertThat(afterLeave).containsEntry(m1, 0).containsEntry(m2, 1);
 
@@ -238,7 +238,7 @@ class ChatUnreadMemberCountTest {
         Long roomId = createGroup();
         invite(roomId, GUEST_A, GUEST_B);
         chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_A, 1);
-        chatRoomUseCase.leave(roomId, GUEST_B, null);
+        chatRoomService.leave(roomId, GUEST_B, null);
         chatGroupRoomFacade.close(roomId, HOST_ID);
 
         ArgumentCaptor<ReadChangedFanout> signals = ArgumentCaptor.forClass(ReadChangedFanout.class);
@@ -275,7 +275,7 @@ class ChatUnreadMemberCountTest {
         long m3 = sendForId(roomId, HOST_ID, "3");
         clearInvocations(chatMessageRepository);
 
-        ChatMessagePageResponse first = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 2);
+        ChatMessagePageResponse first = chatMessageQueryService.getMessages(roomId, HOST_ID, null, 2);
 
         @SuppressWarnings({"unchecked", "rawtypes"})
         ArgumentCaptor<Collection<Long>> ids = (ArgumentCaptor) ArgumentCaptor.forClass(Collection.class);
@@ -288,7 +288,7 @@ class ChatUnreadMemberCountTest {
         assertThat(first.readCountVersion()).isPositive();
 
         chatReadService.markRead(roomId, GUEST_A, first.messages().getFirst().roomSequence(), null);
-        ChatMessagePageResponse again = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 2);
+        ChatMessagePageResponse again = chatMessageQueryService.getMessages(roomId, HOST_ID, null, 2);
         assertThat(again.readCountVersion()).isGreaterThan(first.readCountVersion());
         assertThat(again.messages()).extracting(ChatMessageResponse::unreadMemberCount).containsExactly(1, 1);
     }
@@ -299,7 +299,7 @@ class ChatUnreadMemberCountTest {
         invite(roomId, GUEST_A);
         clearInvocations(chatMessageRepository);
 
-        ChatMessagePageResponse page = chatMessageSupporter.getMessages(roomId, GUEST_A, null, 30);
+        ChatMessagePageResponse page = chatMessageQueryService.getMessages(roomId, GUEST_A, null, 30);
 
         assertThat(page.messages()).isNotEmpty()
                 .allSatisfy(message -> assertThat(message.unreadMemberCount()).isNull());
@@ -339,9 +339,9 @@ class ChatUnreadMemberCountTest {
         LocalDateTime expiresAt = LocalDateTime.of(2026, 12, 1, 0, 0);
         sql.update("update chats.chat_room set history_expires_at = :at where id = :id",
                 Map.of("at", expiresAt, "id", groupId));
-        Long directId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatRoomUseCase.leave(directId, GUEST_ID, null);
-        chatRoomUseCase.leave(directId, HOST_ID, null);
+        Long directId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomService.leave(directId, GUEST_ID, null);
+        chatRoomService.leave(directId, HOST_ID, null);
 
         // 읽기 전용 방은 만료 시각 전까지 세고, 그 시각부터(같은 시각 포함) 세지 않는다(ChatRoom.isViewable과 같다)
         assertThat(chatUnreadMemberCounter.countRecent(groupId, 100, expiresAt.minusNanos(1000))).isPresent();
@@ -352,7 +352,7 @@ class ChatUnreadMemberCountTest {
     /** 일반 메시지의 순번 → 안 읽은 사람 수(최신순) */
     private Map<Long, Integer> counts(Long roomId, Long viewerId) {
         Map<Long, Integer> counts = new LinkedHashMap<>();
-        for (ChatMessageResponse message : chatMessageSupporter.getMessages(roomId, viewerId, null, 100).messages()) {
+        for (ChatMessageResponse message : chatMessageQueryService.getMessages(roomId, viewerId, null, 100).messages()) {
             if (message.messageType() == ChatMessageType.TEXT) {
                 counts.put(message.roomSequence(), message.unreadMemberCount());
             }
@@ -370,11 +370,11 @@ class ChatUnreadMemberCountTest {
 
     /** @return 보낸 메시지의 순번 */
     private long send(Long roomId, Long senderId, String content) {
-        return chatMessageUseCase.send(roomId, senderId, content, null).message().roomSequence();
+        return chatMessageService.send(roomId, senderId, content, null).message().roomSequence();
     }
 
     /** @return 보낸 메시지의 ID */
     private long sendForId(Long roomId, Long senderId, String content) {
-        return chatMessageUseCase.send(roomId, senderId, content, null).message().messageId();
+        return chatMessageService.send(roomId, senderId, content, null).message().messageId();
     }
 }

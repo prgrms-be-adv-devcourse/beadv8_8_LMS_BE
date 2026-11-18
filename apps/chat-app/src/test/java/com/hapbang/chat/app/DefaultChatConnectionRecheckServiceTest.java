@@ -216,8 +216,7 @@ class DefaultChatConnectionRecheckServiceTest {
     @Test
     void 재시도를_기다리는_회원이_상한이면_예약하지_않고_세며_주기_재검사가_그_회원을_다시_본다() {
         // 재시도는 한 번만 해서, 예약한 회원의 재시도가 끝난 뒤에는 남은 예약이 없게 한다
-        DefaultChatConnectionRecheckService limited = service(2, 1, Duration.ofMillis(200), Duration.ofMillis(200));
-        limited.setMaxPendingRetryUsers(2);
+        DefaultChatConnectionRecheckService limited = service(2, 1, Duration.ofMillis(200), Duration.ofMillis(200), 2);
         when(connections.connectedAmong(any())).thenAnswer(invocation -> Set.copyOf(invocation.getArgument(0)));
         when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 지연"));
 
@@ -269,8 +268,13 @@ class DefaultChatConnectionRecheckServiceTest {
 
     private DefaultChatConnectionRecheckService service(int batchSize, int maxRetries, Duration initialDelay,
             Duration maxDelay) {
+        return service(batchSize, maxRetries, initialDelay, maxDelay, 10_000);
+    }
+
+    private DefaultChatConnectionRecheckService service(int batchSize, int maxRetries, Duration initialDelay,
+            Duration maxDelay, int maxPendingUsers) {
         DefaultChatConnectionRecheckService created = new DefaultChatConnectionRecheckService(connections, reader,
-                meterRegistry, batchSize, maxRetries, initialDelay, maxDelay);
+                meterRegistry, batchSize, maxRetries, initialDelay, maxDelay, maxPendingUsers);
         this.created.add(created);
         return created;
     }

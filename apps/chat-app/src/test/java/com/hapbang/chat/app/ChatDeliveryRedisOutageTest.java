@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,6 +24,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.domain.ChatOutbox;
@@ -47,7 +49,6 @@ import jakarta.persistence.EntityManager;
 @DirtiesContext
 @Import(ChatDeliveryRedisOutageTest.FanoutConfig.class)
 @TestPropertySource(properties = {
-        "hapbang.chat.delivery.pipeline.enabled=true",
         "hapbang.chat.delivery.instance-id=test",
         "hapbang.chat.delivery.relay.max-attempts=2",
         "hapbang.chat.delivery.relay.backoff.initial=1ms",
@@ -82,6 +83,7 @@ class ChatDeliveryRedisOutageTest {
     static class FanoutConfig {
 
         @Bean
+        @Primary
         InMemoryRealtimeChatFanout inMemoryRealtimeChatFanout() {
             return new InMemoryRealtimeChatFanout();
         }
@@ -101,10 +103,10 @@ class ChatDeliveryRedisOutageTest {
     }
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -152,7 +154,7 @@ class ChatDeliveryRedisOutageTest {
     @Test
     void Redis가_시도_상한보다_오래_멈춰도_격리하지_않고_시도를_늘리지_않으며_돌아오면_모두_한_번씩_발행한다() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         UUID pending = send(chatRoomId, "읽고 멈춤");
         UUID undelivered = send(chatRoomId, "미배분");
@@ -201,7 +203,7 @@ class ChatDeliveryRedisOutageTest {
     }
 
     private UUID send(Long chatRoomId, String content) {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, content, null).message().messageId();
         return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 

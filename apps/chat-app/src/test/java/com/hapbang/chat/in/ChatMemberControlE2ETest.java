@@ -93,7 +93,9 @@ class ChatMemberControlE2ETest {
 
     @DynamicPropertySource
     static void memberEvents(DynamicPropertyRegistry registry) {
-        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+        // 모듈 테스트 설정은 Kafka 리스너 자동 시작과 토픽 선언을 끈다. 이 컨텍스트는 Kafka 컨테이너를 쓰므로 운영처럼 켠다
+        registry.add("spring.kafka.listener.auto-startup", () -> "true");
+        registry.add("spring.kafka.admin.auto-create", () -> "true");
     }
 
     /** 이 클래스만 쓰는 토픽·그룹·DLT로 회원 이벤트 소비 설정을 바꾼다. 나머지 값은 운영 상수 그대로다 */

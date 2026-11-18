@@ -19,21 +19,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
 import com.hapbang.chat.app.ChatOutboxStore.ClaimedJob;
-import com.hapbang.chat.app.ChatOutboxStore.DeliveryJob;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.DeliveryJob;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeliveryType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * {@link ChatDeliveryAvailability} 게이트의 동시성 (재검증). Spring·Redis 없이 PING을 흉내 내는 가짜 큐로
@@ -57,7 +58,7 @@ class ChatDeliveryAvailabilityConcurrencyTest {
     private final ChatDeliveryQueue queue = mock(ChatDeliveryQueue.class);
     private final ChatDeliveryProperties properties = properties();
     private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue, properties,
-            meterRegistry());
+            new SimpleMeterRegistry());
     private ExecutorService executor;
 
     ChatDeliveryAvailabilityConcurrencyTest() {
@@ -199,7 +200,7 @@ class ChatDeliveryAvailabilityConcurrencyTest {
         when(store.claim(eq(ChatJobStream.DELIVERY), any(), any(), any(), anyInt()))
                 .thenReturn(List.of(new ClaimedJob(job, UUID.randomUUID(), 1)));
         when(store.markEnqueued(eq(ChatJobStream.DELIVERY), anyLong(), any(), any(), any())).thenReturn(true);
-        when(queue.enqueue(eq(ChatJobStream.DELIVERY), anyMap())).thenReturn("1-0");
+        when(queue.enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class))).thenReturn("1-0");
         // 처리권 만료 회수(선점 전 DB 문장)가 한 번 실패한다
         when(store.releaseExpiredLeases(eq(ChatJobStream.DELIVERY), any(), anyInt(), anyInt()))
                 .thenThrow(new IllegalStateException("DB 연결 실패"))
@@ -222,7 +223,6 @@ class ChatDeliveryAvailabilityConcurrencyTest {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
-                new ChatDeliveryProperties.Pipeline(true),
                 "test",
                 new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50, Duration.ofSeconds(30), 10, backoff),
                 new ChatDeliveryProperties.Consumer(2, 1, 20, Duration.ofMillis(50), 10, backoff),
@@ -234,10 +234,4 @@ class ChatDeliveryAvailabilityConcurrencyTest {
                 Duration.ofSeconds(10));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> meterRegistry() {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }
