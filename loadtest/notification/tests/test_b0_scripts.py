@@ -406,3 +406,86 @@ class PollerFetchFailureTest(unittest.TestCase):
                                 env=env, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 3)
         self.assertEqual(len(result.stdout.decode("utf-8").splitlines()), 1)
+
+
+def bash_function(script, name):
+    """스크립트에서 함수 하나의 본문만 꺼낸다. b0.sh는 불러오면 바로 실행되므로 source하지 않는다"""
+    lines = (HERE / script).read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"{name}() {{")
+    end = lines.index("}", start)
+    return "\n".join(lines[start:end + 1])
+
+
+def run_commit_check(script, want, postgres_session, app_session, setting):
+    """check_commit_setting만 꺼내 실행한다. die는 스크립트와 같게 종료 코드 2로 끝낸다"""
+    import os
+    import shutil
+    body = bash_function(script, "check_commit_setting")
+    env = dict(os.environ)
+    env.update({"WANT": want, "PG_SESSION": postgres_session, "APP_SESSION": app_session, "SETTING": setting})
+    code = 'die() { echo "x: $*" >&2; exit 2; }\n' + body + \
+        '\ncheck_commit_setting "$WANT" "$PG_SESSION" "$APP_SESSION" "$SETTING"\n'
+    return subprocess.run([shutil.which("bash"), "-c", code], env=env, capture_output=True, timeout=30)
+
+
+def has_b0_context():
+    import shutil
+    if not shutil.which("kubectl"):
+        return False
+    return subprocess.run(["kubectl", "config", "get-contexts", "k3d-hapbang-b0"], capture_output=True).returncode == 0
+
+
+class SyncCommitArgTest(unittest.TestCase):
+    """N17-3 커밋 설정 인자(ND-217, test-spec NT-B0-12): B0_SYNC_COMMIT=off|on, 기본 off"""
+
+    SETTING_ON = "(모든 역할)@auxiliary=synchronous_commit=on"
+    SETTING_OFF = "(모든 역할)@auxiliary=synchronous_commit=off"
+
+    def run_b0(self, *args, **env_extra):
+        import os
+        import shutil
+        env = dict(os.environ)
+        env["MSYS_NO_PATHCONV"] = "1"
+        env.pop("B0_SYNC_COMMIT", None)
+        env.update(env_extra)
+        return subprocess.run([shutil.which("bash"), (HERE / "b0.sh").as_posix(), *args], env=env,
+                              capture_output=True, timeout=300)
+
+    def test_허용하지_않는_값은_context_검사보다_먼저_거절한다(self):
+        # 운영 context를 줘도 인자 오류가 먼저 나와야 실행 전에 거절한 것이다
+        result = self.run_b0("--dry-run", "run", "1", B0_SYNC_COMMIT="ON", B0_CONTEXT="hapbang-k3s")
+        self.assertEqual(result.returncode, 2)
+        stderr = result.stderr.decode("utf-8")
+        self.assertIn("B0_SYNC_COMMIT", stderr)
+        self.assertNotIn("k3d-hapbang-b0만 허용", stderr)
+
+    def test_확인_함수는_두_연결과_설정_한_줄이_모두_원하는_값이면_통과한다(self):
+        result = run_commit_check("b0.sh", "on", "on", "on", self.SETTING_ON)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
+
+    def test_앱_역할_새_연결_값이_다르면_멈춘다(self):
+        result = run_commit_check("b0.sh", "on", "on", "off", self.SETTING_ON)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("auxiliary", result.stderr.decode("utf-8"))
+
+    def test_관리자_새_연결_값이_다르면_멈춘다(self):
+        result = run_commit_check("b0.sh", "on", "off", "on", self.SETTING_ON)
+        self.assertEqual(result.returncode, 2)
+
+    def test_역할별_덮어쓰기가_더_있으면_멈춘다(self):
+        setting = self.SETTING_ON + " auxiliary@(모든 database)=synchronous_commit=off"
+        result = run_commit_check("b0.sh", "on", "on", "on", setting)
+        self.assertEqual(result.returncode, 2)
+
+    def test_기본_off도_같은_함수로_확인한다(self):
+        self.assertEqual(run_commit_check("b0.sh", "off", "off", "off", self.SETTING_OFF).returncode, 0)
+        self.assertEqual(run_commit_check("b0.sh", "off", "off", "off", self.SETTING_ON).returncode, 2)
+
+    @unittest.skipUnless(has_b0_context(), "k3d-hapbang-b0 context가 없다")
+    def test_dry_run_run은_기본_off와_지정한_on을_psql_변수로_넘긴다(self):
+        default = self.run_b0("--dry-run", "run", "1").stderr.decode("utf-8")
+        self.assertIn("sync_commit=off", default)
+        self.assertNotIn("sync_commit=on", default)
+        on = self.run_b0("--dry-run", "run", "1", B0_SYNC_COMMIT="on").stderr.decode("utf-8")
+        self.assertIn("sync_commit=on", on)
+        self.assertNotIn("sync_commit=off", on)

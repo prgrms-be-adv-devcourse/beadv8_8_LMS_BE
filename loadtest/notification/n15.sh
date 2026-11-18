@@ -45,6 +45,9 @@ PF_PORT=18082
 POSTGRES_POD=postgres-0
 DRY=0
 LOG_FLUSH_SECONDS=2
+# auxiliary database 커밋 설정(ND-170). B0와 같은 off가 기본값이다. on은 N17-3 진단 회차에서만 명시해 쓴다(ND-217)
+# 인자 이름은 b0.sh와 같은 B0_SYNC_COMMIT을 쓴다: 같은 B0 cluster의 같은 설정이라 한 이름으로 맞춘다(NT-B0-12)
+SYNC_COMMIT=${B0_SYNC_COMMIT:-off}
 
 die() { echo "n15: $*" >&2; exit 2; }
 log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
@@ -71,11 +74,26 @@ ensure_tools() {
   kc apply -f "$DIR/k3d/tools/kafka-tools.yaml"
   kc -n "$PLATFORM_NS" wait --for=condition=Ready "pod/$TOOLS_POD" --timeout=5m
 }
+# 첫 인자는 SQL 파일, 나머지는 psql 인자(예: -v 변수)로 넘긴다
 psql_file() {
-  kc -n "$PLATFORM_NS" exec -i "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -F $'\t' -v ON_ERROR_STOP=1 < "$1"
+  local file=$1
+  shift
+  kc -n "$PLATFORM_NS" exec -i "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -F $'\t' -v ON_ERROR_STOP=1 "$@" < "$file"
 }
 psql_c() {
   kc -n "$PLATFORM_NS" exec "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -F $'\t' -v ON_ERROR_STOP=1 -c "$1"
+}
+# 커밋 설정을 걸고 database·역할 설정을 내보낸다(b0.sh와 같다, ND-170·ND-217)
+apply_commit_setting() {
+  psql_file "$DIR/queries/commit_setting.sql" -v "sync_commit=$SYNC_COMMIT"
+}
+# 새 연결 값 확인(b0.sh와 같다, ND-217): 관리자·앱 역할 새 연결이 모두 원하는 값이고 역할별 덮어쓰기가 없어야 한다
+check_commit_setting() {
+  local want=$1 postgres_session=$2 app_session=$3 setting=$4
+  [ "$postgres_session" = "$want" ] || die "postgres 새 연결의 synchronous_commit이 $want가 아니다: $postgres_session"
+  [ "$app_session" = "$want" ] || die "앱 역할(auxiliary) 새 연결의 synchronous_commit이 $want가 아니다: $app_session"
+  [ "$setting" = "(모든 역할)@auxiliary=synchronous_commit=$want" ] \
+    || die "auxiliary database·앱 역할 설정이 기대와 다르다(역할별 덮어쓰기 확인): $setting"
 }
 
 producer_command() {
@@ -236,12 +254,15 @@ reset_round() {
   app_down
   psql_file "$DIR/queries/reset.sql"
   if [ "$DRY" = 0 ]; then
-    local commit_setting session_commit
-    commit_setting=$(psql_file "$DIR/queries/commit_setting.sql" | grep -v '^ALTER DATABASE$' | tr '\n' ' ' | sed 's/ *$//')
+    local commit_setting session_commit app_commit
+    commit_setting=$(apply_commit_setting | grep -v '^ALTER DATABASE$' | tr '\n' ' ' | sed 's/ *$//')
     session_commit=$(psql_c "show synchronous_commit")
-    [ "$session_commit" = off ] || die "새 연결의 synchronous_commit이 off가 아니다: $session_commit"
-    [ "$commit_setting" = "(모든 역할)@auxiliary=synchronous_commit=off" ] || die "auxiliary 설정이 기대와 다르다: $commit_setting"
-    printf 'synchronousCommit=%s\ndbRoleSettings=%s\n' "$session_commit" "$commit_setting" >> "$out/conditions.txt"
+    app_commit=$(kc -n "$PLATFORM_NS" exec "$POSTGRES_POD" -- psql -U auxiliary -d auxiliary -At -c "show synchronous_commit")
+    check_commit_setting "$SYNC_COMMIT" "$session_commit" "$app_commit" "$commit_setting"
+    printf 'syncCommitArg=%s\nsynchronousCommit=%s\nsynchronousCommitApp=%s\ndbRoleSettings=%s\n' \
+      "$SYNC_COMMIT" "$session_commit" "$app_commit" "$commit_setting" >> "$out/conditions.txt"
+  else
+    apply_commit_setting
   fi
   log "Kafka 초기화(토픽·DLT·group)"
   for topic in "${ALL_TOPICS[@]}"; do
@@ -737,6 +758,8 @@ EOF
 }
 
 main() {
+  # 실행 전에 거절한다(context 검사·명령보다 먼저)
+  case "$SYNC_COMMIT" in off|on) ;; *) die "B0_SYNC_COMMIT은 off 또는 on만 허용한다: $SYNC_COMMIT" ;; esac
   if [ "${1:-}" = "--dry-run" ]; then DRY=1; shift; fi
   case "${1:-}" in
     l4) [ -n "${2:-}" ] || die "회차 번호가 필요하다"; run_l4 "$2" ;;
