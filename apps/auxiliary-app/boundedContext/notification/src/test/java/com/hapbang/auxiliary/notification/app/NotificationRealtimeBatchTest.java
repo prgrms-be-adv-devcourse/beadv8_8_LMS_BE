@@ -246,6 +246,11 @@ class NotificationRealtimeBatchTest {
 
         assertThat(published).containsExactly("10:t-2:3");
         verify(notifications, never()).countByReceiverUserIdAndDeletedAtIsNullAndReadAtIsNull(anyLong());
+        // 묶음에서는 읽혔지만 잠금을 기다리는 사이 밀려났다: 잠금을 잡은 뒤 다시 읽어 보내지 않는다(묶음 결과를 쓰지 않는다)
+        InOrder order = inOrder(maskLocks, notifications);
+        order.verify(notifications).findAllByIdInAndDeletedAtIsNull(anyCollection());
+        order.verify(maskLocks).lockShared(List.of(7L));
+        order.verify(notifications).findByIdAndReceiverUserIdAndDeletedAtIsNull(1L, 10L);
     }
 
     @Test
