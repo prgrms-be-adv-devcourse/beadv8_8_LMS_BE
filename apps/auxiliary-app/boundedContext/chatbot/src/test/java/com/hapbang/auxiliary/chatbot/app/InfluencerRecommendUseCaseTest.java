@@ -17,6 +17,7 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
@@ -61,6 +62,29 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         assertThat(result.items().get(0).reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY);
         assertThat(result.items().get(3).reasons()).containsExactly(InfluencerReason.POPULAR);
         assertThat(result.items().get(0).categories()).containsExactly("GAME");
+    }
+
+    @Test
+    @DisplayName("유사도 지표(#1007): 본인·추천 불가를 뺀 후보(2·3·4)마다 점수 하나를 type=INFLUENCER와 경로 태그로 남긴다. "
+            + "위젯은 widget, 자유 질문 Tool은 chat, 버튼 풀은 button. 결과는 거르지 않는다")
+    void similarityMetric() {
+        long widget = similarityCount("widget");
+        long chat = similarityCount("chat");
+        long button = similarityCount("button");
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+        assertThat(similarityCount("widget") - widget).isEqualTo(3);
+        assertThat(result.items()).extracting(Candidate::memberId).contains(2L, 3L, 4L);
+        useCase.recommendInChat(1L, null);
+        assertThat(similarityCount("chat") - chat).isEqualTo(3);
+        useCase.pool(1L, null, 20);
+        assertThat(similarityCount("button") - button).isEqualTo(3);
+    }
+
+    private long similarityCount(String path) {
+        DistributionSummary summary = meterRegistry.find(ChatbotMetrics.RECOMMEND_SIMILARITY)
+                .tags("type", "INFLUENCER", "path", path).summary();
+        return summary == null ? 0 : summary.count();
     }
 
     @Test
