@@ -44,6 +44,8 @@ REQUIRED_CONFIG=("acks = -1" "enable.idempotence = true" "max.in.flight.requests
   "partitioner.ignore.keys = false" "partitioner.class = null")
 PF_PORT=18082
 DRY=0
+# auxiliary database 커밋 설정(ND-170). 공식 B0는 off(기본값)다. on은 N17-3 진단 회차에서만 명시해 쓴다(ND-217)
+SYNC_COMMIT=${B0_SYNC_COMMIT:-off}
 
 die() { echo "b0: $*" >&2; exit 2; }
 log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
@@ -83,8 +85,26 @@ ensure_tools() {
 }
 # PostgreSQL은 HelmChart가 만드는 StatefulSet postgres의 pod다(설치 Job pod helm-install-postgres-*와 구분)
 POSTGRES_POD=postgres-0
+# 첫 인자는 SQL 파일, 나머지는 psql 인자(예: -v 변수)로 넘긴다
 psql_file() {
-  kc -n "$PLATFORM_NS" exec -i "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -F $'\t' -v ON_ERROR_STOP=1 < "$1"
+  local file=$1
+  shift
+  kc -n "$PLATFORM_NS" exec -i "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -F $'\t' -v ON_ERROR_STOP=1 "$@" < "$file"
+}
+
+# 커밋 설정을 걸고 database·역할 설정을 내보낸다(ND-170·ND-217). 값은 psql 변수로 넘긴다
+apply_commit_setting() {
+  psql_file "$DIR/queries/commit_setting.sql" -v "sync_commit=$SYNC_COMMIT"
+}
+
+# 새 연결 값 확인(ND-217): 관리자(postgres)와 앱 역할(auxiliary) 새 연결이 모두 원하는 값이고, auxiliary database에 걸린 설정과
+# 앱 역할에 걸린 설정이 database 설정 한 줄뿐이어야 한다. 역할별 덮어쓰기가 있으면 앱 연결 값이 달라질 수 있다
+check_commit_setting() {
+  local want=$1 postgres_session=$2 app_session=$3 setting=$4
+  [ "$postgres_session" = "$want" ] || die "postgres 새 연결의 synchronous_commit이 $want가 아니다: $postgres_session"
+  [ "$app_session" = "$want" ] || die "앱 역할(auxiliary) 새 연결의 synchronous_commit이 $want가 아니다: $app_session"
+  [ "$setting" = "(모든 역할)@auxiliary=synchronous_commit=$want" ] \
+    || die "auxiliary database·앱 역할 설정이 기대와 다르다(역할별 덮어쓰기 확인): $setting"
 }
 
 producer_command() {
@@ -377,19 +397,19 @@ run_once() {
   log "2. 알림 데이터 비우기(runtime_setting·Flyway 이력 보존)"
   psql_file "$DIR/queries/reset.sql"
 
-  # B0 커밋 설정(ND-170): 앱을 띄우기 전에 걸고, 새 연결에서 off인지와 역할별 덮어쓰기가 없는지 확인해 남긴다
-  log "2-1. B0 커밋 설정(auxiliary database synchronous_commit=off)"
+  # B0 커밋 설정(ND-170·ND-217): 앱을 띄우기 전에 걸고, 관리자·앱 역할 새 연결 값과 역할별 덮어쓰기가 없는지 확인해 남긴다
+  log "2-1. B0 커밋 설정(auxiliary database synchronous_commit=$SYNC_COMMIT)"
   if [ "$DRY" = 0 ]; then
-    local commit_setting session_commit
-    # database 설정(모든 역할)만 있어야 한다. 앱 역할(auxiliary)에 걸린 설정이 있으면 그쪽이 이겨 앱 연결 값이 달라질 수 있다
-    commit_setting=$(psql_file "$DIR/queries/commit_setting.sql" | grep -v '^ALTER DATABASE$' | tr '\n' ' ' | sed 's/ *$//')
+    local commit_setting session_commit app_commit
+    commit_setting=$(apply_commit_setting | grep -v '^ALTER DATABASE$' | tr '\n' ' ' | sed 's/ *$//')
     session_commit=$(kc -n "$PLATFORM_NS" exec "$POSTGRES_POD" -- psql -U postgres -d auxiliary -At -c "show synchronous_commit")
-    [ "$session_commit" = off ] || die "새 연결의 synchronous_commit이 off가 아니다: $session_commit"
-    [ "$commit_setting" = "(모든 역할)@auxiliary=synchronous_commit=off" ] \
-      || die "auxiliary database·앱 역할 설정이 기대와 다르다(역할별 덮어쓰기 확인): $commit_setting"
-    printf 'synchronousCommit=%s\ndbRoleSettings=%s\n' "$session_commit" "$commit_setting" >> "$out/conditions.txt"
+    # 앱과 같은 역할로 새로 접속해 역할·database 설정이 합쳐진 값을 본다(pod 안 local 접속)
+    app_commit=$(kc -n "$PLATFORM_NS" exec "$POSTGRES_POD" -- psql -U auxiliary -d auxiliary -At -c "show synchronous_commit")
+    check_commit_setting "$SYNC_COMMIT" "$session_commit" "$app_commit" "$commit_setting"
+    printf 'syncCommitArg=%s\nsynchronousCommit=%s\nsynchronousCommitApp=%s\ndbRoleSettings=%s\n' \
+      "$SYNC_COMMIT" "$session_commit" "$app_commit" "$commit_setting" >> "$out/conditions.txt"
   else
-    psql_file "$DIR/queries/commit_setting.sql"
+    apply_commit_setting
   fi
 
   log "3. Kafka 초기화(토픽·DLT·group)"
@@ -563,6 +583,8 @@ run_once() {
 }
 
 main() {
+  # 실행 전에 거절한다(context 검사·명령보다 먼저)
+  case "$SYNC_COMMIT" in off|on) ;; *) die "B0_SYNC_COMMIT은 off 또는 on만 허용한다: $SYNC_COMMIT" ;; esac
   if [ "${1:-}" = "--dry-run" ]; then DRY=1; shift; fi
   case "${1:-}" in
     setup) setup ;;

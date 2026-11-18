@@ -286,6 +286,7 @@ N13 부하 도구(생성기·투입·검증 스크립트)와 B0 회차 자체의
 | NT-B0-09 | 두 단계 분리(G9) | — | 단계 나눔 전·후 | 실패 레코드만 뒤로 가고 레코드 집합·기대 결과·순서 의존 관계·정상 레코드끼리의 파티션 순서가 같다 | — | ND-166 | — | 단위 | 유효 |
 | NT-B0-10 | 스크립트 | — | 덤프·지표·표본 | 덤프 정규화(UTF-8·LF), V0~V8 판정, 회차 전체 V2, 선형 보간 분위수, 완료 관측·처리량 오차, 클러스터 시계, 도구 pod polling, 진단 분석, smoke 요약 보호, 운영 context 거절, 앱 로그를 기동 직후부터 따라 받아 수집 때 멈춤(ND-185)이 각 기준대로다 | Windows 콘솔 인코딩, +Inf 구간, 표본 0 | ND-166~ND-170·ND-173·ND-174·ND-185 | — | 단위(Python·bash) | 유효 |
 | NT-B0-11 | B0 회차 | B0 cluster, fixture | `b0.sh run <n>` | V0~V8 통과, F가 회차끼리 같다. 처리량 CV ≤ 10% | V0 실패면 회차 무효 | ND-173·ND-175 | — | E2E(k3d) | 유효 |
+| NT-B0-12 | 커밋 설정 인자(N17-3) | — | `B0_SYNC_COMMIT` 없음·`off`·`on`·그 밖의 값, `b0.sh`·`n15.sh` | 없으면 off(공식 B0 절차 그대로). 지정한 값을 psql 변수로 넘겨 `auxiliary` database에 건다. 관리자(postgres)·앱 역할(auxiliary) 새 연결 값이 모두 그 값이고 database·역할 설정이 database 설정 한 줄뿐일 때만 계속하며, 인자와 실제 값을 `conditions.txt`에 남긴다. 그 밖의 값은 context 검사·명령보다 먼저 거절한다(종료 코드 2) | on은 N17-3 진단 회차에서만 쓴다 | ND-170·ND-217 | — | 단위(셸) | 유효 |
 
 ### 2.17 REF — 구조 리팩토링 동일성
 
@@ -357,10 +358,10 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 3 | 0 | 0 | 0 |
 | OBS 계측 | 12 | 12 | 0 | 0 | 0 |
-| B0 부하 도구·기준선 | 11 | 11 | 0 | 0 | 0 |
+| B0 부하 도구·기준선 | 12 | 12 | 0 | 0 | 0 |
 | REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
 | LOAD 본 부하 시험 | 10 | 10 | 0 | 0 | 0 |
-| **합계** | **163** | **162** | **1** | **0** | **0** |
+| **합계** | **164** | **163** | **1** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -441,6 +442,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-B0-08 (N13) | `loadtest.B0ConsoleProducerCompatibilityTest` | 전부 |
 | NT-B0-10 (N13) | `loadtest/notification/tests/`의 `test_b0_scripts.py`·`test_diag_b0.py`·`test_sanitize_summary.py`·`b0_guard_test.sh` | 전부 |
 | NT-B0-11 (N13) | `loadtest/notification/b0.sh run <n>`(E2E, 결과는 regression-log·B0 기준선 결과) | 전부 |
+| NT-B0-12 (N17-3) | `loadtest/notification/tests/`의 `test_b0_scripts.py`·`test_n15_scripts.py`(`SyncCommitArgTest`) | 전부 |
 | NT-REF-01~03 (N14) | `in.event.kafka.NotificationKafkaConsumerConfigurationTest`(ApplicationContextRunner + Boot Kafka 자동 설정, 소비자 여섯 개, 리팩토링 전 GREEN·뮤테이션 RED 확인) | 전부 |
 | NT-REF-04 (N14) | `in.event.NotificationKafkaListenerConfigurationTest`(Kafka 시험 문맥, 리스너 여섯 개) | 전부 |
 | NT-REF-05 (N14) | `loadtest/notification/b0.sh run <n>` 5회(N14 커밋 이미지, 결과는 regression-log·B0 기준선 문서) | 전부 |
@@ -461,6 +463,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-18 decisions.md ND-217 반영(N17-3, #991): 2.16에 NT-B0-12(커밋 설정 인자 `B0_SYNC_COMMIT`)를 더하고 4장 집계(B0 12, 합계 164/163)와 연결 표를 고쳤다.
 - 2026-11-18 decisions.md ND-215 반영(#990): NT-RES-03 예외 칸을 ND-210·ND-215 참조로 바꿨다. 요구사항 수는 그대로다.
 - 2026-11-18 decisions.md ND-211 반영(#989): NT-RT-10 기대 결과의 순서를 "저장 commit 순서"에서 "commit 뒤 줄에 넣은 순서(한 스레드가 차례로 저장하면 commit 순서)"로 고쳤다.
 - 2026-11-18 N17-1 PR 리뷰 반영(#989): 4장 NT-RT-10 연결 행의 Worker·Batch 시험 목록을 고쳤다. 요구사항 수는 그대로다.
