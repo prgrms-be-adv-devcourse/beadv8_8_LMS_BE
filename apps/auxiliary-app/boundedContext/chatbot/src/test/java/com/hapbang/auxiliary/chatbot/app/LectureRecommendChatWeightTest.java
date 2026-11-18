@@ -109,21 +109,32 @@ class LectureRecommendChatWeightTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("유사도 지표(#1007): 산 강의를 뺀 후보(A·B)마다 점수 하나를 type=LECTURE로 남긴다(0~1). 결과는 거르지 않는다")
+    @DisplayName("유사도 지표(#1007): 산 강의를 뺀 후보(A·B)마다 점수 하나를 type=LECTURE와 경로(widget·chat·button) 태그로 남긴다"
+            + "(0~1). 결과는 거르지 않는다")
     void similarityMetric() {
-        DistributionSummary existing = similarity();
-        long before = existing == null ? 0 : existing.count();
+        long widget = similarityCount("widget");
+        long chat = similarityCount("chat");
+        long button = similarityCount("button");
 
         useCase.recommend(MEMBER, INTEREST);
+        assertThat(similarityCount("widget") - widget).isEqualTo(2);
+        useCase.recommendInChat(MEMBER, INTEREST);
+        assertThat(similarityCount("chat") - chat).isEqualTo(2);
+        useCase.pool(MEMBER, List.of(INTEREST), 20);
+        assertThat(similarityCount("button") - button).isEqualTo(2);
 
-        DistributionSummary summary = similarity();
+        DistributionSummary summary = similarity("widget");
         assertThat(summary).isNotNull();
-        assertThat(summary.count() - before).isEqualTo(2);
         assertThat(summary.max()).isBetween(0.0, 1.0);
     }
 
-    private @Nullable DistributionSummary similarity() {
-        return meterRegistry.find(ChatbotMetrics.RECOMMEND_SIMILARITY).tag("type", "LECTURE").summary();
+    private long similarityCount(String path) {
+        DistributionSummary summary = similarity(path);
+        return summary == null ? 0 : summary.count();
+    }
+
+    private @Nullable DistributionSummary similarity(String path) {
+        return meterRegistry.find(ChatbotMetrics.RECOMMEND_SIMILARITY).tags("type", "LECTURE", "path", path).summary();
     }
 
     private void lecture(RecommendRows data, long id, long sellerId, String title, float[] vector) {

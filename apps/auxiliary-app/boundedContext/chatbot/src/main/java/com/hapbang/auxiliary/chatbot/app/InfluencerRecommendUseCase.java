@@ -16,6 +16,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
+import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.RecommendPath;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
@@ -85,12 +86,21 @@ public class InfluencerRecommendUseCase {
     }
 
     /**
-     * 위젯·Tool 경로: 맞춤 후보를 {@code size}명까지 고르고 모자라면 인기순으로 채운다.
+     * 위젯 경로: 맞춤 후보를 {@code size}명까지 고르고 모자라면 인기순으로 채운다.
      *
-     * @param interest 관심사 문장(자유 질문 Tool·버튼 경로만 넘긴다). 없으면 null
+     * @param interest 관심사 문장. 위젯은 넘기지 않는다(null)
      */
     public InfluencerRecommendation recommend(long userId, @Nullable String interest) {
-        Pool pool = pool(userId, interest == null ? null : List.of(interest), properties.size());
+        return recommendOn(RecommendPath.WIDGET, userId, interest);
+    }
+
+    /** 자유 질문 대화의 Tool 경로: {@link #recommend}와 같다. 유사도 지표의 경로 태그만 다르다(#1007) */
+    public InfluencerRecommendation recommendInChat(long userId, @Nullable String interest) {
+        return recommendOn(RecommendPath.CHAT, userId, interest);
+    }
+
+    private InfluencerRecommendation recommendOn(RecommendPath path, long userId, @Nullable String interest) {
+        Pool pool = poolOn(path, userId, interest == null ? null : List.of(interest), properties.size());
         return complete(pool, pool.memberIds());
     }
 
@@ -100,6 +110,10 @@ public class InfluencerRecommendUseCase {
      * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
      */
     public Pool pool(long userId, @Nullable List<String> interest, int size) {
+        return poolOn(RecommendPath.BUTTON, userId, interest, size);
+    }
+
+    private Pool poolOn(RecommendPath path, long userId, @Nullable List<String> interest, int size) {
         if (!memberVisibility.isVisible(userId)) {
             return Pool.forHiddenRequester(userId);
         }
@@ -125,7 +139,7 @@ public class InfluencerRecommendUseCase {
                         : Pool.popularNeedingInterest(userId, partners, overallMeanRating);
             } else {
                 Map<Long, InfluencerProfile> candidateProfiles = new HashMap<>();
-                List<Candidate> similar = similar(userId, taste, overallMeanRating, size, candidateProfiles);
+                List<Candidate> similar = similar(path, userId, taste, overallMeanRating, size, candidateProfiles);
                 pool = similar.isEmpty() ? Pool.popular(userId, partners, overallMeanRating)
                         : new Pool(userId, partners, overallMeanRating, similar, RecommendBasis.PERSONALIZED, false, false,
                                 candidateProfiles);
@@ -254,7 +268,7 @@ public class InfluencerRecommendUseCase {
     }
 
     // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명. 추천 가능 확인으로 읽은 프로필을 candidateProfiles에 담는다
-    private List<Candidate> similar(long userId, Taste taste, double overallMeanRating, int size,
+    private List<Candidate> similar(RecommendPath path, long userId, Taste taste, double overallMeanRating, int size,
             Map<Long, InfluencerProfile> candidateProfiles) {
         List<ScoredId> hits = VectorCallUtil.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
                 properties.numCandidates(), NOT_HIDDEN));
@@ -274,7 +288,7 @@ public class InfluencerRecommendUseCase {
         List<Stats> popularity = store.popularityStats(similarity.keySet());
         // 후보가 확정된 뒤(인기 재료까지 읽은 뒤) 센다
         for (double score : similarity.values()) {
-            metrics.recommendSimilarity(IndexType.INFLUENCER, score);
+            metrics.recommendSimilarity(IndexType.INFLUENCER, path, score);
         }
         List<Candidate> top = rank(popularity, overallMeanRating, size,
                 (stats, normalizedPopularity) -> (1 - beta) * similarity.get(stats.memberId()) + beta * normalizedPopularity,

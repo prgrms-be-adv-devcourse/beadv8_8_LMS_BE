@@ -15,6 +15,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
+import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.RecommendPath;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
@@ -75,7 +76,7 @@ public class LectureRecommendUseCase {
      * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterestUtil#normalize}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
-        return recommendWithInterestWeight(memberId, interest, properties.interestWeight());
+        return recommendOn(RecommendPath.WIDGET, memberId, interest);
     }
 
     /**
@@ -83,11 +84,11 @@ public class LectureRecommendUseCase {
      * 대화에서 직접 말한 요구가 과거 구매보다 앞서게 위젯보다 높게 둔다.
      */
     public LectureRecommendation recommendInChat(long memberId, @Nullable String interest) {
-        return recommendWithInterestWeight(memberId, interest, properties.chatInterestWeightOrDefault());
+        return recommendOn(RecommendPath.CHAT, memberId, interest);
     }
 
-    private LectureRecommendation recommendWithInterestWeight(long memberId, @Nullable String interest, double interestWeight) {
-        Pool pool = poolWithInterestWeight(memberId, interest == null ? null : List.of(interest), properties.resultSize(), interestWeight);
+    private LectureRecommendation recommendOn(RecommendPath path, long memberId, @Nullable String interest) {
+        Pool pool = poolOn(path, memberId, interest == null ? null : List.of(interest), properties.resultSize());
         return complete(pool, pool.lectureIds());
     }
 
@@ -100,10 +101,10 @@ public class LectureRecommendUseCase {
      * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
      */
     public Pool pool(long memberId, @Nullable List<String> interest, int size) {
-        return poolWithInterestWeight(memberId, interest, size, properties.interestWeight());
+        return poolOn(RecommendPath.BUTTON, memberId, interest, size);
     }
 
-    private Pool poolWithInterestWeight(long memberId, @Nullable List<String> interest, int size, double interestWeight) {
+    private Pool poolOn(RecommendPath path, long memberId, @Nullable List<String> interest, int size) {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
@@ -121,7 +122,7 @@ public class LectureRecommendUseCase {
         }
         Pool pool;
         try {
-            pool = personalized(memberId, interest, signals, excluded, size, interestWeight);
+            pool = personalized(path, memberId, interest, signals, excluded, size);
         } catch (VectorCallUtil.Failure e) {
             if (failing.compareAndSet(false, true)) {
                 log.warn("강의 추천 색인·임베딩 호출이 실패하기 시작했다. 회복될 때까지 인기순으로 답한다", e.getCause());
@@ -160,13 +161,13 @@ public class LectureRecommendUseCase {
                 lectures);
     }
 
-    private Pool personalized(long memberId, @Nullable List<String> interest, List<LectureSignals.Signal> signals,
-            Set<Long> excluded, int size, double interestWeight) {
+    private Pool personalized(RecommendPath path, long memberId, @Nullable List<String> interest,
+            List<LectureSignals.Signal> signals, Set<Long> excluded, int size) {
         Map<Long, float[]> signalVectors =
                 VectorCallUtil.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
         float[] interestVector = interest == null ? null : VectorCallUtil.run(() -> embedder.embedInterest(interest));
         LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
-        float[] query = taste.query(interestWeight);
+        float[] query = taste.query(interestWeight(path));
         if (query == null) {
             // 신호 강의가 아직 색인되지 않았다. 관심사를 주면 맞춤으로 찾을 수 있다
             return Pool.popularNeedingInterest(memberId, excluded);
@@ -187,7 +188,7 @@ public class LectureRecommendUseCase {
             readIds.add(signal.lectureId());
         }
         Map<Long, LectureListing> lectures = store.listings(readIds);
-        List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(memberId, similarity, excluded, lectures),
+        List<LectureRanker.Ranked> ranked = LectureRanker.rank(candidates(path, memberId, similarity, excluded, lectures),
                 properties.popularityWeight(), size, properties.maxPerSeller());
         if (ranked.isEmpty()) {
             // 맞춤 후보가 제외 규칙으로 모두 빠졌다. 관심사를 바꿔도 같을 수 있어 묻지 않는다
@@ -197,9 +198,14 @@ public class LectureRecommendUseCase {
                 lectures);
     }
 
+    // 관심사 비율 α: 자유 질문 Tool만 chat-interest-weight, 위젯·버튼은 interest-weight(#1007)
+    private double interestWeight(RecommendPath path) {
+        return path == RecommendPath.CHAT ? properties.chatInterestWeightOrDefault() : properties.interestWeight();
+    }
+
     // 코드에서 빼는 규칙. kNN 필터를 지나도 사본으로 다시 본다(색인이 늦게 따라온 경우)
-    private List<LectureRanker.Candidate> candidates(long memberId, Map<Long, Double> similarity, Set<Long> excluded,
-            Map<Long, LectureListing> lectures) {
+    private List<LectureRanker.Candidate> candidates(RecommendPath path, long memberId, Map<Long, Double> similarity,
+            Set<Long> excluded, Map<Long, LectureListing> lectures) {
         List<Long> kept = new ArrayList<>();
         for (Long lectureId : similarity.keySet()) {
             LectureListing lecture = lectures.get(lectureId);
@@ -216,7 +222,7 @@ public class LectureRecommendUseCase {
         }
         // 후보가 확정된 뒤(구매 수까지 읽은 뒤) 센다
         for (LectureRanker.Candidate candidate : candidates) {
-            metrics.recommendSimilarity(IndexType.LECTURE, candidate.similarity());
+            metrics.recommendSimilarity(IndexType.LECTURE, path, candidate.similarity());
         }
         return candidates;
     }
