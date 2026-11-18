@@ -56,7 +56,7 @@ class ProdRecommendWeightsTest {
         assertThat(lecture.signalLimit()).isEqualTo(50);
     }
 
-    // #1007: 평가 없이 정한 값. 제목 비율은 바꾸면 모든 강의를 다시 임베딩하므로 배포되는 값을 고정해 둔다
+    // #1007: 임시값(평가 없이 정함). 제목 비율은 바꾸면 모든 강의를 다시 임베딩하므로 배포되는 값을 고정해 둔다
     @Test
     void 자유_질문_관심사_비율은_0_7이고_강의_제목_비율은_0_3이다() throws IOException {
         ChatbotLectureRecommendProperties lecture = bind(LECTURE, ChatbotLectureRecommendProperties.class);

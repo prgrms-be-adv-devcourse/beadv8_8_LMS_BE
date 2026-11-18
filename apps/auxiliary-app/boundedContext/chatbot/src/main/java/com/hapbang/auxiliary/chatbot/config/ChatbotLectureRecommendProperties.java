@@ -31,7 +31,7 @@ import jakarta.validation.constraints.Positive;
  *                         활동 신호보다 낮게 둔다. 임베딩 모델마다 유사도 분포가 달라 기본값 없이 프로필 yaml에 둔다(prod는 #867에서 잼)
  * @param chatInterestWeight 자유 질문 대화의 강의 추천 Tool에서 쓰는 관심사 비율 α(#1007). 대화에서 직접 말한 요구가 과거 구매보다
  *                         앞서게 위젯·버튼(α {@code interestWeight})보다 높게 둔다. 없으면 {@code interestWeight}를 쓴다.
- *                         평가 없이 정한 값이다(prod 0.7)
+ *                         <b>임시값</b>이다(평가 없이 정함, prod 0.7)
  * @param popularityWeight 최종 점수에서 인기의 비율 β. {@code (1−β)·유사도 + β·인기(후보 안 0~1)}. 인기가 뒤집을 수 있는 유사도 차이는
  *                         약 {@code β/(1−β)}다(0.05면 약 0.05, 0.2면 0.25). α와 같이 기본값 없이 프로필 yaml에 둔다(prod는 #867에서 잼)
  * @param knnK             벡터 검색으로 받는 후보 수. 임시값
@@ -44,7 +44,7 @@ import jakarta.validation.constraints.Positive;
  * @param widgetRateLimit  위젯 API 전체(관심사 여부와 상관없이)의 회원별 호출 제한. 연타가 공용 DB 연결을 붙잡지 않게 넓게 둔다
  * @param titleWeight      강의 벡터에 섞는 제목 벡터의 비율 w(#1007). {@code (1−w)·정규화(글 벡터) + w·정규화(제목 벡터)}.
  *                         긴 소개가 제목·주제를 묻는 것을 줄인다. 0이면 제목을 따로 임베딩하지 않고 글 벡터 그대로다.
- *                         색인 글 해시에 들어가므로 바꾸면 모든 강의를 다시 임베딩한다(0으로 되돌려도 같다). 평가 없이 정한 값이다(prod 0.3)
+ *                         색인 글 해시에 들어가므로 바꾸면 모든 강의를 다시 임베딩한다(0으로 되돌려도 같다). <b>임시값</b>이다(평가 없이 정함, prod 0.3)
  * @param indexCheckBatch  정합 점검이 한 번에 읽는 강의 수
  * @param checkAlertAfterFailures 정합 점검이 이 횟수 연속 실패하면 ERROR로 알린다(인플루언서 점검과 같은 값)
  */

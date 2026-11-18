@@ -48,6 +48,7 @@ class TextHashTest {
         assertThat(snapshot.textHash(0.3)).isNotEqualTo(snapshot.textHash(0))
                 .isNotEqualTo(snapshot.textHash(0.5))
                 .isEqualTo(snapshot.textHash(Double.parseDouble("0.30")))
-                .isEqualTo(Sha256.hex("강의\n소개글\n첫째\n" + (char) 0 + "title-weight=0.3"));
+                .isEqualTo(Sha256.hex("강의\n소개글\n첫째" + LectureSnapshot.TITLE_WEIGHT_MARK + "0.3"));
+        assertThat(LectureSnapshot.TITLE_WEIGHT_MARK).isEqualTo("\n\u0000title-weight=");
     }
 }

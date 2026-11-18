@@ -20,6 +20,13 @@ public record LectureSnapshot(
         boolean deleted,
         boolean missingInSource) {
 
+    /**
+     * 해시에서 글과 제목 비율 사이에 넣는 표시: 줄바꿈 + NUL 문자 + {@code title-weight=}. 강의 글은 PostgreSQL text·jsonb 사본에서
+     * 읽고, PostgreSQL은 이 두 타입에 NUL 문자를 담지 못하므로 어떤 강의 글도 이 표시를 포함할 수 없다
+     * (그래서 비율 0의 해시인 "글만"과 우연히 같아지지 않는다)
+     */
+    public static final String TITLE_WEIGHT_MARK = "\n" + (char) 0 + "title-weight=";
+
     public LectureSnapshot {
         contentTitles = List.copyOf(contentTitles);
     }
@@ -40,14 +47,14 @@ public record LectureSnapshot(
      * 색인 벡터를 만든 재료의 SHA-256(16진수). 같으면 다시 임베딩하지 않는다.
      * <p>
      * 제목 비율 {@code titleWeight}(#1007)도 벡터를 바꾸므로 넣는다. 0이면 글만 해시해 #1007 전과 같은 값이다(제목 비율을 쓰지 않는
-     * 실행이 배포만으로 전체를 다시 임베딩하지 않게). 0이 아니면 글 뒤에 강의 글에 나올 수 없는 구분자(NUL 문자)와 비율을
-     * 붙인다. 비율은 끝의 0을 뗀 십진수라 0.3과 0.30이 같은 해시다.
+     * 실행이 배포만으로 전체를 다시 임베딩하지 않게). 0이 아니면 글 뒤에 {@link #TITLE_WEIGHT_MARK}(줄바꿈 + NUL 문자 +
+     * {@code title-weight=})와 비율을 붙인다. 비율은 끝의 0을 뗀 십진수라 0.3과 0.30이 같은 해시다.
      */
     public String textHash(double titleWeight) {
         if (titleWeight == 0) {
             return Sha256.hex(indexText());
         }
-        return Sha256.hex(indexText() + "\n\u0000title-weight="
+        return Sha256.hex(indexText() + TITLE_WEIGHT_MARK
                 + BigDecimal.valueOf(titleWeight).stripTrailingZeros().toPlainString());
     }
 

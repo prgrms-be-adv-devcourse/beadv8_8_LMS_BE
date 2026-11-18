@@ -75,7 +75,7 @@ public class LectureRecommendUseCase {
      * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterestUtil#normalize}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
-        return recommend(memberId, interest, properties.interestWeight());
+        return recommendWithInterestWeight(memberId, interest, properties.interestWeight());
     }
 
     /**
@@ -83,11 +83,11 @@ public class LectureRecommendUseCase {
      * 대화에서 직접 말한 요구가 과거 구매보다 앞서게 위젯보다 높게 둔다.
      */
     public LectureRecommendation recommendInChat(long memberId, @Nullable String interest) {
-        return recommend(memberId, interest, properties.chatInterestWeightOrDefault());
+        return recommendWithInterestWeight(memberId, interest, properties.chatInterestWeightOrDefault());
     }
 
-    private LectureRecommendation recommend(long memberId, @Nullable String interest, double interestWeight) {
-        Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize(), interestWeight);
+    private LectureRecommendation recommendWithInterestWeight(long memberId, @Nullable String interest, double interestWeight) {
+        Pool pool = poolWithInterestWeight(memberId, interest == null ? null : List.of(interest), properties.resultSize(), interestWeight);
         return complete(pool, pool.lectureIds());
     }
 
@@ -100,10 +100,10 @@ public class LectureRecommendUseCase {
      * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
      */
     public Pool pool(long memberId, @Nullable List<String> interest, int size) {
-        return pool(memberId, interest, size, properties.interestWeight());
+        return poolWithInterestWeight(memberId, interest, size, properties.interestWeight());
     }
 
-    private Pool pool(long memberId, @Nullable List<String> interest, int size, double interestWeight) {
+    private Pool poolWithInterestWeight(long memberId, @Nullable List<String> interest, int size, double interestWeight) {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
@@ -208,14 +208,15 @@ public class LectureRecommendUseCase {
                 kept.add(lectureId);
             }
         }
-        for (Long lectureId : kept) {
-            metrics.recommendSimilarity(IndexType.LECTURE, similarity.get(lectureId));
-        }
         Map<Long, Long> owned = store.ownedCounts(kept);
         List<LectureRanker.Candidate> candidates = new ArrayList<>();
         for (Long lectureId : kept) {
             candidates.add(new LectureRanker.Candidate(lectureId, lectures.get(lectureId).sellerId(), similarity.get(lectureId),
                     owned.get(lectureId)));
+        }
+        // 후보가 확정된 뒤(구매 수까지 읽은 뒤) 센다
+        for (LectureRanker.Candidate candidate : candidates) {
+            metrics.recommendSimilarity(IndexType.LECTURE, candidate.similarity());
         }
         return candidates;
     }

@@ -123,7 +123,7 @@ class LectureRecommendChatWeightTest extends ChatbotIntegrationTestBase {
     }
 
     private @Nullable DistributionSummary similarity() {
-        return meterRegistry.find("hapbang.chatbot.recommend.similarity").tag("type", "LECTURE").summary();
+        return meterRegistry.find(ChatbotMetrics.RECOMMEND_SIMILARITY).tag("type", "LECTURE").summary();
     }
 
     private void lecture(RecommendRows data, long id, long sellerId, String title, float[] vector) {

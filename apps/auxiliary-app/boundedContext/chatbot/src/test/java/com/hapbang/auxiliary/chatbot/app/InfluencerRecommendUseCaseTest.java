@@ -76,7 +76,7 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     private long similarityCount() {
-        DistributionSummary summary = meterRegistry.find("hapbang.chatbot.recommend.similarity").tag("type", "INFLUENCER")
+        DistributionSummary summary = meterRegistry.find(ChatbotMetrics.RECOMMEND_SIMILARITY).tag("type", "INFLUENCER")
                 .summary();
         return summary == null ? 0 : summary.count();
     }

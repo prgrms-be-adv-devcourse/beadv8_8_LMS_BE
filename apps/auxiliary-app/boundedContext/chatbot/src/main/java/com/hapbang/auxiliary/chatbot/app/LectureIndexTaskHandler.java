@@ -97,19 +97,19 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
         double titleWeight = properties.titleWeight();
         IndexEmbedBatch.embedAndUpsert(index, IndexType.LECTURE, lectures,
                 lecture -> docIds.get(lecture.id()),
-                batch -> vectors(batch, titleWeight),
+                // 비율이 0이면 글만 임베딩한다(#1007 전과 같은 벡터·호출)
+                titleWeight == 0
+                        ? IndexEmbedBatch.documentVectors(embedder, LectureSnapshot::indexText)
+                        : batch -> titleMixedVectors(batch, titleWeight),
                 lecture -> LectureIndexDocument.of(lecture, titleWeight).allFields(),
                 failures);
     }
 
-    // 글 N개 뒤에 제목 N개를 붙여 한 번에 임베딩하고 강의마다 섞는다. 비율이 0이면 글만 임베딩한다(#1007 전과 같은 벡터·호출)
-    private List<float[]> vectors(List<LectureSnapshot> lectures, double titleWeight) {
+    // 글 N개 뒤에 제목 N개를 붙여 공급자 호출 한 번에 임베딩하고 강의마다 섞는다
+    private List<float[]> titleMixedVectors(List<LectureSnapshot> lectures, double titleWeight) {
         List<String> texts = new ArrayList<>();
         for (LectureSnapshot lecture : lectures) {
             texts.add(lecture.indexText());
-        }
-        if (titleWeight == 0) {
-            return embedder.embedDocuments(texts);
         }
         for (LectureSnapshot lecture : lectures) {
             texts.add(lecture.title());
