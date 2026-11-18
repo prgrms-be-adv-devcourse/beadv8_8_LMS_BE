@@ -25,7 +25,9 @@ import lombok.RequiredArgsConstructor;
  * <ul>
  *     <li>모든 강의를 색인한다(판매 중이 아니거나 삭제돼도). 산 강의의 벡터가 취향 계산에 필요하다. 추천 후보는 kNN 필터로 거른다.</li>
  *     <li>강의 벡터는 글(제목 + 소개 + 콘텐츠 제목) 벡터에 제목 벡터를 비율 {@code title-weight}만큼 섞는다
- *     ({@link TasteVectors#mix}, #1007). 긴 소개가 제목·주제를 묻는 것을 줄인다. 비율이 0이면 제목을 임베딩하지 않고 글 벡터 그대로다.</li>
+ *     ({@link TasteVectors#mix}, #1007). 긴 소개가 제목·주제를 묻는 것을 줄인다. 비율이 0이면 제목을 임베딩하지 않고 글 벡터 그대로다.
+ *     섞은 벡터는 크기 1로 맞춰 저장한다. 취향 벡터는 신호 강의 벡터를 정규화 없이 가중 평균하므로({@link TasteVectors#weightedAverage}),
+ *     크기가 강의마다 다르면 신호 가중치(#867)가 강의마다 달라진 것처럼 된다(글과 제목이 멀수록 짧아진다).</li>
  *     <li>글과 제목 비율의 해시를 문서에 둔다. 해시가 같으면 다시 임베딩하지 않고 상태 필드만 바꾼다. 비율을 바꾸면 해시가 달라져
  *     정합 점검이 모든 강의를 다시 색인하게 한다.
  *     문서는 검색으로 읽으므로 방금 넣은 문서(refresh 전, 기본 1초)는 없다고 보고 다시 임베딩할 수 있다. 결과는 같고 비용만 든다.</li>
@@ -118,7 +120,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
         int size = lectures.size();
         List<float[]> vectors = new ArrayList<>();
         for (int i = 0; i < size; i++) {
-            vectors.add(TasteVectors.mix(embedded.get(i), embedded.get(size + i), titleWeight));
+            vectors.add(TasteVectors.normalize(TasteVectors.mix(embedded.get(i), embedded.get(size + i), titleWeight)));
         }
         return vectors;
     }

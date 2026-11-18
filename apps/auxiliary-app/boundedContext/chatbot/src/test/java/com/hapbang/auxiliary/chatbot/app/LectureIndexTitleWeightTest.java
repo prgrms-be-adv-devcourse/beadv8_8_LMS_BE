@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,7 +78,8 @@ class LectureIndexTitleWeightTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("글과 제목을 한 번의 공급자 호출로 임베딩하고(글 N개 뒤에 제목 N개) (1−w)·글 + w·제목으로 섞는다. 해시에 w가 들어간다")
+    @DisplayName("글과 제목을 한 번의 공급자 호출로 임베딩하고(글 N개 뒤에 제목 N개) (1−w)·글 + w·제목으로 섞어 크기 1로 저장한다. "
+            + "해시에 w가 들어간다")
     void mixesTitleInOneCall() {
         assertThat(handle("1", "2")).isEmpty();
 
@@ -85,6 +87,9 @@ class LectureIndexTitleWeightTest extends ChatbotIntegrationTestBase {
         assertThat(embedding.texts()).containsExactly(lecture(1).indexText(), lecture(2).indexText(), "스프링 입문", "파이썬 기초");
         assertSameDirection(vector("1"), TasteVectors.mix(FakeEmbeddingModel.axis(3), FakeEmbeddingModel.axis(0), W));
         assertSameDirection(vector("2"), TasteVectors.mix(FakeEmbeddingModel.axis(4), FakeEmbeddingModel.axis(1), W));
+        // 취향 벡터는 신호 강의 벡터를 정규화 없이 가중 평균한다. 크기가 1이 아니면 신호 가중치(#867)가 강의마다 달라진다
+        assertUnit(vector("1"));
+        assertUnit(vector("2"));
         assertThat(stored("1").textHash()).isEqualTo(lecture(1).textHash(W)).isNotEqualTo(lecture(1).textHash(0));
     }
 
@@ -119,6 +124,10 @@ class LectureIndexTitleWeightTest extends ChatbotIntegrationTestBase {
         assertThat(index.upsertAll(IndexType.LECTURE, List.of(new RecommendVectorIndex.Upsert(String.valueOf(id), textVector,
                 LectureIndexDocument.of(lecture, 0).allFields())))).isEmpty();
         index.refresh(IndexType.LECTURE);
+    }
+
+    private static void assertUnit(float[] vector) {
+        assertThat(Math.sqrt(TasteVectors.dot(vector, vector))).isCloseTo(1.0, within(1e-6));
     }
 
     private static void assertSameDirection(float[] actual, float[] expected) {
