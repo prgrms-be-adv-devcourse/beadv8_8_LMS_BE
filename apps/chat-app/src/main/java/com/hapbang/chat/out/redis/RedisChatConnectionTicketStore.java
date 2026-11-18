@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.port.ChatConnectionTicketStore;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.shared.member.domain.Role;
 
@@ -34,7 +33,6 @@ import tools.jackson.databind.json.JsonMapper;
  * </ul>
  */
 @Component
-@ConditionalOnChatRealtime
 @RequiredArgsConstructor
 public class RedisChatConnectionTicketStore implements ChatConnectionTicketStore {
 

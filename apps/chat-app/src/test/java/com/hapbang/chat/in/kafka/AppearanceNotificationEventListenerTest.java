@@ -92,7 +92,9 @@ class AppearanceNotificationEventListenerTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add(ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, () -> "true");
+        // 모듈 테스트 설정은 Kafka 리스너 자동 시작과 토픽 선언을 끈다. 이 컨텍스트는 Kafka 컨테이너를 쓰므로 운영처럼 켠다
+        registry.add("spring.kafka.listener.auto-startup", () -> "true");
+        registry.add("spring.kafka.admin.auto-create", () -> "true");
         // 모듈 테스트 설정은 외부화를 끈다. 단체방 이벤트 발행 시험을 위해 이 컨텍스트만 켠다(토픽 선언도 함께 켜진다)
         registry.add("spring.modulith.events.externalization.enabled", () -> "true");
     }

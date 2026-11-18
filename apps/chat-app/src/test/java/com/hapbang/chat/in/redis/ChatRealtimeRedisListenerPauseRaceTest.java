@@ -23,6 +23,7 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -66,7 +67,7 @@ class ChatRealtimeRedisListenerPauseRaceTest {
                 finished.incrementAndGet();
                 return null;
             }).when(facade).deliverMessage(any());
-            ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, 2, 1_000, 1,
+            ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, mock(ChatRealtimeListenerHolder.class), 2, 1_000, 1,
                     10, Duration.ofSeconds(5), new SimpleMeterRegistry());
             AtomicBoolean firing = new AtomicBoolean(true);
             CountDownLatch go = new CountDownLatch(1);
@@ -136,7 +137,7 @@ class ChatRealtimeRedisListenerPauseRaceTest {
     void 종료한_뒤의_재구독_알림은_재동기화와_재검사를_예약하지_않는다() {
         ChatRealtimeFacade facade = mock(ChatRealtimeFacade.class);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, 1, 10, 1, 10,
+        ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, mock(ChatRealtimeListenerHolder.class), 1, 10, 1, 10,
                 Duration.ofSeconds(1), meterRegistry);
         byte[] fanoutChannel = keys.activityChannel().getBytes(StandardCharsets.UTF_8);
         byte[] controlChannel = keys.controlChannel().getBytes(StandardCharsets.UTF_8);

@@ -33,16 +33,16 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
-import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.app.port.ReclaimedJobs;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.codec.ByteArrayCodec;
@@ -65,7 +65,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatDeliveryPipeline
 public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean {
 
     private final StringRedisTemplate redisTemplate;
@@ -90,7 +89,7 @@ public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean
         call("XGROUP CREATE", () -> redisTemplate.execute((RedisCallback<Void>) connection -> {
             try {
                 connection.streamCommands().xGroupCreate(key, stream.consumerGroup(),
-                        ReadOffset.from(ChatStreamEntries.START), true);
+                        ReadOffset.from(QueuePositions.START), true);
                 log.info("consumer group 생성 stream={}, group={}", keyOf(stream), stream.consumerGroup());
             } catch (DataAccessException e) {
                 if (!RedisFailures.hasMessage(e, "BUSYGROUP")) {
@@ -102,7 +101,8 @@ public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean
     }
 
     @Override
-    public String enqueue(ChatJobStream stream, Map<String, String> fields) {
+    public String enqueue(ChatJobStream stream, OutboxJob job) {
+        Map<String, String> fields = ChatStreamEntries.fieldsOf(job);
         RecordId id = call("XADD",
                 () -> redisTemplate.opsForStream().add(StreamRecords.newRecord().in(keyOf(stream)).ofMap(fields)));
         Assert.state(id != null, "XADD 응답이 없습니다.");
@@ -181,7 +181,7 @@ public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean
             // 그룹은 처음 위치(0-0)부터 다시 만들므로 남아 있는 본문은 배분된다
             return true;
         }
-        if (ChatStreamEntries.compare(entryId, group.get().lastDeliveredId()) > 0) {
+        if (QueuePositions.compare(entryId, group.get().lastDeliveredId()) > 0) {
             return true;
         }
         var pending = redisTemplate.opsForStream().pending(key, stream.consumerGroup(),
@@ -267,7 +267,11 @@ public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean
     private static QueuedJob toJob(ByteRecord record) {
         Map<String, String> fields = new LinkedHashMap<>();
         record.getValue().forEach((field, value) -> fields.put(string(field), string(value)));
-        return new QueuedJob(record.getId().getValue(), fields);
+        return queuedJob(record.getId().getValue(), fields);
+    }
+
+    private static QueuedJob queuedJob(String entryId, Map<String, String> fields) {
+        return new QueuedJob(entryId, ChatStreamEntries.jobIdOf(fields).orElse(null), fields);
     }
 
     /** XAUTOCLAIM 응답: [다음 cursor, [[id, [field, value, ...]], ...], [본문이 사라진 id, ...]] */
@@ -286,7 +290,7 @@ public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean
                 for (int i = 0; i + 1 < kv.size(); i += 2) {
                     fields.put(string((byte[]) kv.get(i)), string((byte[]) kv.get(i + 1)));
                 }
-                jobs.add(new QueuedJob(string((byte[]) parts.get(0)), fields));
+                jobs.add(queuedJob(string((byte[]) parts.get(0)), fields));
             }
         }
         List<String> deleted = new ArrayList<>();

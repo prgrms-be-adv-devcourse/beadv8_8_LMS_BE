@@ -8,24 +8,23 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.ChatPublishCheckpointStore.CheckpointState;
 import com.hapbang.chat.app.ChatPublishCheckpointStore.FailureResult;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.app.port.RealtimeChatFanout;
 import com.hapbang.chat.app.port.ReclaimedJobs;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +47,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnChatDeliveryPipeline
 public class ChatStreamJobProcessor {
 
     /** 회수 한 번에 cursor를 이어 갈 최대 횟수. 본문 없는 항목만 계속 나와도 끝나게 한다 */
@@ -67,7 +65,7 @@ public class ChatStreamJobProcessor {
     public ChatStreamJobProcessor(ChatDeliveryQueue chatDeliveryQueue, ChatPublishCheckpointStore checkpointStore,
             ChatFanoutPayloadLoader payloadLoader, RealtimeChatFanout realtimeChatFanout,
             ChatStreamReconstructor reconstructor, ChatDeliveryProperties properties,
-            ChatDeliveryAvailability availability, ObjectProvider<MeterRegistry> meterRegistry) {
+            ChatDeliveryAvailability availability, MeterRegistry meterRegistry) {
         this.chatDeliveryQueue = chatDeliveryQueue;
         this.checkpointStore = checkpointStore;
         this.payloadLoader = payloadLoader;
@@ -75,7 +73,7 @@ public class ChatStreamJobProcessor {
         this.reconstructor = reconstructor;
         this.properties = properties;
         this.availability = availability;
-        this.meterRegistry = meterRegistry.getIfAvailable();
+        this.meterRegistry = meterRegistry;
     }
 
     /** 항목 하나를 처리한 결과 */
@@ -144,11 +142,11 @@ public class ChatStreamJobProcessor {
         }
         String cursor;
         synchronized (reclaimCursors) {
-            cursor = reclaimCursors.getOrDefault(stream, ChatStreamEntries.START);
+            cursor = reclaimCursors.getOrDefault(stream, QueuePositions.START);
         }
         int processed = 0;
         // 처음부터 시작했으면 cursor가 0-0으로 돌아올 때 한 바퀴다. 중간부터 시작했으면 한 번 처음으로 돌아가 이어 본다
-        boolean wrapped = ChatStreamEntries.START.equals(cursor);
+        boolean wrapped = QueuePositions.START.equals(cursor);
         for (int round = 0; round < MAX_RECLAIM_ROUNDS && processed < budget; round++) {
             ReclaimedJobs reclaimed;
             try {
@@ -156,7 +154,7 @@ public class ChatStreamJobProcessor {
                         Math.min(settings.count(), budget - processed));
             } catch (ChatQueueGroupMissingException e) {
                 recoverMissingGroup(stream, e);
-                cursor = ChatStreamEntries.START;
+                cursor = QueuePositions.START;
                 break;
             } catch (ChatDeliveryUnavailableException e) {
                 availability.redisUnavailable(e);
@@ -173,7 +171,7 @@ public class ChatStreamJobProcessor {
                 processed++;
             }
             cursor = reclaimed.nextCursor();
-            if (ChatStreamEntries.START.equals(cursor)) {
+            if (QueuePositions.START.equals(cursor)) {
                 if (wrapped) {
                     break;
                 }
@@ -195,14 +193,13 @@ public class ChatStreamJobProcessor {
         Assert.state(!TransactionSynchronizationManager.isActualTransactionActive(),
                 "Stream 항목은 DB 트랜잭션 밖에서 처리해야 합니다.");
         String group = stream.consumerGroup();
-        Optional<UUID> parsed = ChatStreamEntries.jobIdOf(job);
-        if (parsed.isEmpty()) {
+        UUID jobId = job.jobId();
+        if (jobId == null) {
             UUID syntheticId = UUID.nameUUIDFromBytes(
                     (group + ":" + job.entryId()).getBytes(StandardCharsets.UTF_8));
             return isolateWithoutCheckpoint(stream, job, syntheticId, ChatDeadReason.MALFORMED_ENTRY,
                     "작업 ID를 읽을 수 없는 항목: " + job.fields());
         }
-        UUID jobId = parsed.get();
         Optional<CheckpointState> found = checkpointStore.find(group, jobId);
         if (found.isEmpty()) {
             return isolateWithoutCheckpoint(stream, job, jobId, ChatDeadReason.SOURCE_MISSING,
@@ -427,8 +424,6 @@ public class ChatStreamJobProcessor {
     }
 
     private void count(String name, ChatJobStream stream, int amount) {
-        if (meterRegistry != null) {
-            meterRegistry.counter(name, "stream", stream.name()).increment(amount);
-        }
+        meterRegistry.counter(name, "stream", stream.name()).increment(amount);
     }
 }

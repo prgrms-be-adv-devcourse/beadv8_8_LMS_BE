@@ -15,8 +15,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatMessageService;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
@@ -47,7 +47,7 @@ class ChatReceiptApiE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -61,7 +61,7 @@ class ChatReceiptApiE2ETest {
         client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
         chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
         for (int i = 0; i < 3; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }
     }
 
@@ -145,7 +145,7 @@ class ChatReceiptApiE2ETest {
                 .exchange()
                 .expectStatus().isNoContent();
         createRoom(guest, HOST_ID, HttpStatus.OK);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "재입장 뒤", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "재입장 뒤", null);
 
         ChatMessagePageResponse page = messages(guest);
         assertThat(page.participationVersion()).isEqualTo(2);

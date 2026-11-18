@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.IncompleteEventPublications;
 
+import com.hapbang.chat.app.port.ChatExternalEvents;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
 import com.hapbang.shared.member.event.UserMaskedEvent;

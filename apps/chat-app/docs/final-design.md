@@ -228,10 +228,10 @@ chat-app은 **replica 1개**로 운영하고 개발·통합·k3d E2E도 같은 �
 
 초대된 회원과 강퇴된 회원은 방을 열지 않으면 그 사실을 알 수 없어 알림센터(auxiliary-app `notification`)로 알린다. 계약은 알림 담당이 정했다([이벤트 계약](../../../docs/notification/event-contracts.md) 6장, M8·ND-043·ND-044). 방 안 안내(`NotificationKind`, `notifyRule: NONE`)와 전달 outbox는 바꾸지 않고, 같은 트랜잭션에서 이벤트를 하나 더 발행한다.
 
-- **발행**: `DefaultChatGroupRoomService`가 `ApplicationEventPublisher`로 shared `GroupMembersInvitedEvent`(이번 요청으로 `JOINED`된 회원이 있을 때만)·`GroupMemberKickedEvent`(이번 요청으로 내보냈을 때만)·`GroupRoomClosedEvent`(처음 폐쇄할 때만, 폐쇄 시점 참여자 전원·호스트 포함)를 낸다. Modulith 발행 기록(`event_publication`)에 남아 커밋 뒤 Kafka `chat.events.v1`(key 방 ID, 접두어 없음, 헤더 `eventType`·`eventVersion`)으로 가고 롤백되면 나가지 않는다. 이 발행 기록은 4장의 채팅 전달 outbox와 다른 것이다. 외부화 대상은 `com.hapbang.shared.chat.event`의 `@Externalized` 레코드뿐이고(`out/kafka/ChatEventExternalizationConfig`), 토픽은 다른 `*.events.v1`처럼 앱의 `NewTopic` 빈이 선언한다(partition 3, 외부화를 끈 테스트에서는 선언하지 않는다). 보내는 ProducerFactory·KafkaTemplate은 yaml(`spring.kafka.producer.*`)이 아니라 코드 빈(`out/kafka/ChatEventKafkaConfig`, 값은 `ChatEventKafkaConstants`)으로 만든다(사용자 결정 2026-11-12, Kafka 설정은 코드로). 이 템플릿이 기본 후보라 Modulith가 받고, 소비 쪽 DLT 템플릿은 기본 후보가 아니라 섞이지 않으며, observation을 켜 `traceparent`를 싣는다. 호스트 자격 상실·나가기·새 메시지는 알림센터로 보내지 않는다(ND-004).
+- **발행**: `DefaultChatGroupRoomService`가 `ApplicationEventPublisher`로 shared `GroupMembersInvitedEvent`(이번 요청으로 `JOINED`된 회원이 있을 때만)·`GroupMemberKickedEvent`(이번 요청으로 내보냈을 때만)·`GroupRoomClosedEvent`(처음 폐쇄할 때만, 폐쇄 시점 참여자 전원·호스트 포함)를 낸다. Modulith 발행 기록(`event_publication`)에 남아 커밋 뒤 Kafka `chat.events.v1`(key 방 ID, 접두어 없음, 헤더 `eventType`·`eventVersion`)으로 가고 롤백되면 나가지 않는다. 이 발행 기록은 4장의 채팅 전달 outbox와 다른 것이다. 외부화 대상은 `com.hapbang.shared.chat.event`의 `@Externalized` 레코드뿐이고(`out/kafka/ChatEventExternalizationConfig`), 토픽은 다른 `*.events.v1`처럼 앱의 `NewTopic` 빈이 선언한다(partition 3). 보내는 ProducerFactory·KafkaTemplate은 yaml(`spring.kafka.producer.*`)이 아니라 코드 빈(`out/kafka/ChatEventKafkaConfig`, 값은 `ChatEventKafkaConstants`)으로 만든다(사용자 결정 2026-11-12, Kafka 설정은 코드로). 이 템플릿이 기본 후보라 Modulith가 받고, 소비 쪽 DLT 템플릿은 기본 후보가 아니라 섞이지 않으며, observation을 켜 `traceparent`를 싣는다. 호스트 자격 상실·나가기·새 메시지는 알림센터로 보내지 않는다(ND-004).
 - **초대 요청 ID(사용자 결정, 2026-11-12)**: 이벤트의 `inviteRequestId`는 초대 결과 기록(`chat_group_invite_request`) 행의 ID다. 클라이언트 `requestId`(UUID)의 멱등 동작(Q34, 보존 기간 안 재요청은 저장한 결과 반환·이벤트 없음)은 그대로다. 보존 기간이 지난 같은 `requestId`를 새 요청으로 처리할 때 기존 행을 덮어쓰지 않고 지운 뒤 새 행을 만들어 새 ID를 받는다(`unique (chat_room_id, request_id)` 때문에 삭제를 먼저 DB에 보낸다). 그래서 알림의 사건 ID `<chatRoomId>:<inviteRequestId>`가 같은 방에서 다시 쓰이지 않는다. 결과 기록을 잠가 읽는 것은 그대로이고, 이제는 정리 배치가 이 트랜잭션이 지우려는 행을 먼저 지우지 못하게 하는 역할이다(정리 배치는 잠긴 행을 건너뛰고, 먼저 잠갔으면 초대는 빈 값을 받아 새 행을 만든다).
 - **필드**: 채팅의 기존 이름을 쓴다(`chatRoomId`, `recruitId`, 방이 가진 모집글 제목 사본 `title`, `hostUserId`, `invitedUserIds`, `kickedUserId`, `participationVersion`, `memberUserIds`). 시각은 서버 시간대의 처리 시각(`LocalDateTime`)을 `Instant`로 바꿔 싣는다.
-- **재전송**: 보내지 못한 발행 기록은 재기동 때(`republish-outstanding-events-on-restart`, 이미 켜져 있음)와 실행 중 재발행 배치가 다시 보낸다(kafka.md 발행 규칙: 실행 중 재전송은 발행하는 앱마다 둔다). 배치(`ChatEventRepublishBatch` → `ChatEventRepublisher`)는 다른 발행 앱처럼 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 채팅 이벤트(`ChatExternalEvents.isExternalized`) 중 발행한 지 1분이 지난 기록을 오래된 것부터 100건까지 매분 다시 보낸다. 값은 Kafka 값이라 `ChatExternalEvents` 상수에 두고 설정 키를 만들지 않는다. `hapbang.scheduling.enabled`일 때만 돈다. 두 번 가도 알림센터가 사건 ID로 거른다.
+- **재전송**: 보내지 못한 발행 기록은 재기동 때(`republish-outstanding-events-on-restart`, 이미 켜져 있음)와 실행 중 재발행 배치가 다시 보낸다(kafka.md 발행 규칙: 실행 중 재전송은 발행하는 앱마다 둔다). 배치(`ChatEventRepublishBatch` → `ChatEventRepublisher`)는 다른 발행 앱처럼 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 채팅 이벤트(`ChatExternalEvents.isExternalized`) 중 발행한 지 1분이 지난 기록을 오래된 것부터 100건까지 매분 다시 보낸다. 값은 Kafka 값이라 `ChatExternalEvents`(`app/port`, 재발행과 외부화 설정이 함께 따르는 발행 계약) 상수에 두고 설정 키를 만들지 않는다. `hapbang.scheduling.enabled`일 때만 돈다. 두 번 가도 알림센터가 사건 ID로 거른다.
 
 ### 3.7 정원·동시 접속·처리량 검증안
 
@@ -382,7 +382,7 @@ SUBSCRIBE는 연결별 수신 순서(설계 4.6, `ChatInboundReceiveBudget`) 안
 | 늦은 회원 상태 재검사(`RECHECK_USER`) | 세대 정보가 없고 연결 단위다. 처리할 때 최신 회원 상태를 다시 읽어 지금도 채팅할 수 없을 때만 연결을 닫으므로, 자격이 돌아온 뒤 늦게 온 명령은 닫지 않는다(현행). 닫힌 연결의 구독은 세대와 관계없이 모두 지운다(그 회원은 지금 채팅할 수 없다) |
 | 회원 자격 상실(정지·강등·탈퇴) | 버전이 바뀌지 않는다. `RECHECK_USER`가 연결을 닫고 구독을 지운다(현행 경로). 제어 지연 동안의 노출 범위는 Q17 |
 
-**즉시 회수(사용자 경험)**: 위 규칙만으로도 누설은 막지만, 다음 메시지가 올 때까지 FE가 퇴장 사실을 모른다. 퇴장·강퇴·재입장이 커밋되면 커밋 뒤 처리(replica 1개라 같은 JVM의 커밋 후 이벤트)로 대상 회원의 그 방 로컬 구독마다 `SUBSCRIPTION_REVOKED {roomId, reason: LEFT|REMOVED|STALE_PARTICIPATION, currentParticipationVersion?}` 프레임을 그 구독으로 쓴 뒤 구독을 지운다. FE는 받으면 UNSUBSCRIBE한다(서버는 이미 지웠으므로 무시한다). 이 신호는 유실될 수 있으며(재시작 등) 보장은 버전 확인 규칙이 한다. 복수 replica로 가면 제어 Stream으로 옮긴다(4.7).
+**즉시 회수(사용자 경험)**: 위 규칙만으로도 누설은 막지만, 다음 메시지가 올 때까지 FE가 퇴장 사실을 모른다. 퇴장·강퇴·재입장이 커밋되면 커밋 뒤 처리(replica 1개라 같은 JVM의 커밋 후 이벤트)로 대상 회원의 그 방 로컬 구독마다 `SUBSCRIPTION_REVOKED {roomId, reason: LEFT|REMOVED|STALE_PARTICIPATION, currentParticipationVersion?}` 프레임을 그 구독으로 쓴 뒤 구독을 지운다(구현: 구독을 뺀 직후 앱 안 이벤트 `ChatSubscriptionSignalEvent`를 내고, 진입 어댑터의 동기 리스너가 같은 스레드에서 프레임을 쓴다. 거절 프레임도 같은 이벤트로 구독 허가가 돌아오기 전에 쓴다, 2026-11-18). FE는 받으면 UNSUBSCRIBE한다(서버는 이미 지웠으므로 무시한다). 이 신호는 유실될 수 있으며(재시작 등) 보장은 버전 확인 규칙이 한다. 복수 replica로 가면 제어 Stream으로 옮긴다(4.7).
 
 **비용**: 참여가 바뀌지 않는 동안 메시지마다 DB 조회가 없다. 참여 변경 뒤 첫 메시지에서 그 방 활성 참여 전원을 한 번 읽는다(1000명 방이면 1000행 1회). 방 topic 전환 전의 "메시지마다 로컬 수신자 배치 조회"보다 적다. 같은 캐시를 새 메시지 알림 대상과 전송 결과 확인도 쓴다. 캐시는 방 수에 상한(초기값 1000, Q12)을 두고 자주 쓰지 않는 방부터(Caffeine W-TinyLFU) 버린다.
 
@@ -400,7 +400,7 @@ SUBSCRIBE는 연결별 수신 순서(설계 4.6, `ChatInboundReceiveBudget`) 안
 
 **동적 구독**
 
-- 구독 진입 어댑터는 Spring Data Redis `RedisMessageListenerContainer` 하나를 쓴다. 컨테이너는 **구독 연결 하나**로 모든 채널을 구독하고, 실행 중 `addMessageListener(listener, ChannelTopic)`·`removeMessageListener(listener, ChannelTopic)`로 채널을 더하고 뺀다. 구독은 비동기라 `SubscriptionListener.onChannelSubscribed`로 확인을 받는다. 서버 채널 두 개는 시작할 때 구독해 계속 둔다.
+- 구독 진입 어댑터는 Spring Data Redis `RedisMessageListenerContainer` 하나를 쓴다. 컨테이너는 **구독 연결 하나**로 모든 채널을 구독하고, 실행 중 `addMessageListener(listener, ChannelTopic)`·`removeMessageListener(listener, ChannelTopic)`로 채널을 더하고 뺀다. 구독은 비동기라 `SubscriptionListener.onChannelSubscribed`로 확인을 받는다. 서버 채널 세 개(활동·제어·읽음)는 시작할 때 구독해 계속 둔다. 컨테이너는 구독 진입 어댑터를 생성자로 받지 않는다. 어댑터가 만들어질 때 `ChatRealtimeListenerHolder`(`global/redis`)에 자기를 넣으며 서버 채널을 등록하고(컨테이너 시작 전), 방 채널 동적 구독은 그 자리에서 대상을 얻는다(생성 순환 없이, 2026-11-18).
 - 방 단위 참조 수: 그 방의 로컬 방 topic 구독이 0 → 1이 되면 방 채널을 더하고, 1 → 0이 되면 유예(Q29, 초기값 60초) 뒤 정리 작업이 뺀다. 유예 중 다시 구독하면 빼지 않고 그대로 쓴다. 같은 방의 동시 SUBSCRIBE는 참조 수만 올리고 채널 추가는 한 번이다.
 - 참조 수 변경·유예 정리·상한 판단은 앱 전체 잠금 하나(`RedisRoomChannelSubscriptions`) 안에서 Redis 명령 없이 하고(해제 대기 방도 같은 값의 상한으로 센다), 평소의 컨테이너 추가/제거는 잠금 밖의 스레드 하나인 실행기가 방마다 그때의 참조 상태로 맞춘다(명령은 가상 스레드에서 5초까지만 기다린다). 이 잠금은 방 구독 목록의 잠금과 따로이며, 구독 등록은 방 채널 참조를 먼저 얻고(실패하면 `SERVER_BUSY`) 목록에 넣는다.
 - **실패하면 재설정(구현 리뷰 반영, 2026-10-30)**: 방 채널 명령이 실패하거나 시간을 넘기면 그 방만 고치지 않고 컨테이너를 멈춘 뒤(구독 연결을 닫는다) 등록을 서버 채널 + 지금 원하는 방 채널로 다시 쓰고 다시 시작해, 새 연결에서 Redis 구독과 드라이버 상태를 원하는 상태로 새로 만든다. 늦게 끝난 명령의 결과는 버리고, 재설정 실패는 1초 뒤 다시 한다. 서버 채널도 다시 구독되므로 기존 재구독 감지가 `RESYNC(REALTIME_RESUBSCRIBED)`를 보낸다. 이 빈은 `SmartLifecycle`로 컨테이너보다 먼저 멈춘다.
@@ -478,7 +478,7 @@ SUBSCRIBE는 연결별 수신 순서(설계 4.6, `ChatInboundReceiveBudget`) 안
 | `ApiV1ChatController` | 방 생성의 재입장 안내와 나가기의 퇴장 안내도 동일한 outbox 경로를 사용한다. 단일 앱의 REST 요청으로 생성한 안내가 해당 로컬 소켓으로 전달되어야 한다 |
 | `AppearanceNotificationEventListener` | `appearance.events.v1` Kafka 소비로 바꿨다(5.5). 이관 전에는 출연 알림·재입장 안내를 저장하는 트랜잭션에 outbox도 기록한다. 이관 완료 뒤에만 제거한다 |
 | `ChatMessageSender`·어댑터 (방 topic 결정 전 기준) | `app/port`의 역할 중심 계약 `ChatDeliveryQueue`는 작업 적재·소비·회수·ACK를, `RealtimeChatFanout`은 Pub/Sub 발행을 분리한다. 기술 구현은 `out/redis`, 소비 진입은 `in`, 처리·복구 조정은 `app`에 둔다. outbox 저장소는 적재 상태와 발행 체크포인트·실패 격리를 보존한다. 로컬 STOMP sender는 수신 자격 검사 뒤 최종 전달만 한다. in-memory 어댑터는 테스트 소스에 둔다 |
-| `ChatWebSocketSessionRegistry` | 인증 성공 뒤 `userId → STOMP sessionId → 실제 소켓`을 매핑한다. 연결 티켓으로 정한 회원·인증 시각·만료의 결합과 제거 규칙은 6장을 따른다. 연결을 닫으면 방 구독 목록에서도 그 세션을 지운다 |
+| `ChatWebSocketSessionRegistry` | 인증 성공 뒤 `userId → STOMP sessionId → 실제 소켓`을 매핑한다. 연결 티켓으로 정한 회원·인증 시각·만료의 결합과 제거 규칙은 6장을 따른다. 연결이 열리고 닫히는 것은 웹소켓 처리기 decorator(`ChatWebSocketLifecycleDecorator`)가 같은 스레드에서 알린다. 닫힐 때는 Spring STOMP 처리기가 같은 스레드에서 내는 `SessionDisconnectEvent`로 방 구독 목록에서 그 세션을 먼저 지우고(`ChatSessionDisconnectListener`), 그 뒤 이 목록에서 뺀다. 의존은 decorator → 연결 목록 한 방향이다 |
 | `ChatStompInterceptor`·방 구독 목록(방 topic 결정) | SUBSCRIBE에 `/topic/chats/rooms/{roomId}`를 더하고 참여·세대·자격을 검사해 chat-app의 방 구독 목록에 넣는다. UNSUBSCRIBE·DISCONNECT·연결 종료에 지운다. 전달 처리기가 이 목록과 방 참여 캐시로 방 topic 프레임을 세션별로 쓴다(4.2). simple broker는 `/queue`만 맡는다 |
 | 회원 이벤트의 연결 닫기 | 회원 상태·처리 기록(inbox를 둔다면)과 같은 트랜잭션에 제어 outbox를 남긴다. 발행과 로컬 회원 상태 재검사는 5.3을 따른다 |
 | 설정 | `../../../common/redis`의 `RedisConfig`는 비어 있다. `RedisMessageListenerContainer`와 채널 구독은 chat-app 안에 둔다. 구독 설정·키 이름(`ChatRealtimeRedisConfig`·`ChatRedisKeys`)은 in·out이 함께 쓰므로 `global/redis`, 방 채널 동적 구독은 `out/redis`, 구독 진입 어댑터는 `in/redis`다. 키·채널 규칙은 채팅이 소유한다(공통 모듈 README 규칙) |
@@ -573,7 +573,7 @@ DB 커밋 뒤 Redis 발행 실패는 업무 저장 실패로 돌려주지 않는
 
 ### 4.6 오픈 직후 급증을 전제로 한 잠금 구간 설계
 
-이번 구현의 기준은 replica 1개이며, 사용자 증가를 기다린 뒤에 보호 장치를 넣지 않는다. 아래는 구현할 목표 구조다. 현재 `ChatMessageUseCase.send`·`ChatRoomUseCase`에 이미 적용됐다는 뜻은 아니다.
+이번 구현의 기준은 replica 1개이며, 사용자 증가를 기다린 뒤에 보호 장치를 넣지 않는다. 아래는 구현할 목표 구조다. 현재 `DefaultChatMessageService.send`·`DefaultChatRoomService`에 이미 적용됐다는 뜻은 아니다.
 
 #### 불변식과 초기 구현
 
@@ -681,7 +681,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 재시도·DLT | 블로킹 재시도(1초에서 최대 10초 지수 증가, 3회) 뒤 `member.events.v1.chat-app.member-replica.DLT`로 보낸다. DLT는 chat-app이 선언한다(partition 3, 보존 7일). 재처리는 인프라 문서 1장의 runbook을 따른다(#339). DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
 | 연결 닫기 | 최신 버전 반영 결과가 채팅 불가이면 동일 트랜잭션에 `chat_control_outbox`를 기록한다. 기존의 `lostChat` boolean만으로 후속 제어 작업 성공 여부를 판단하지 않는다 |
 | 기존 리스너 | 진입점을 Kafka 수신으로 옮긴다. 회원 생성·갱신 로직을 재사용하되 적용 여부·현재 버전·채팅 자격을 처리 결과로 구분하고 제어 작업을 원자적으로 기록하도록 보완한다 |
-| 설정 위치 | Kafka 소비 설정은 설정 클래스와 상수 클래스로 둔다(`@ConfigurationProperties`·yaml 키로 두지 않는다, 2026-10-30 사용자 결정). 공통 코드 없이 chat-app의 `in/kafka`에 두고(Q9) 역할별로 나눈다: `ChatKafkaConfig`(소비자 값·ConsumerFactory·DLT 발행 ProducerFactory·KafkaTemplate·ContainerFactory), `ChatKafkaErrorHandlerConfig`(블로킹 재시도·DLT 복구기), `ChatKafkaTopicConfig`(DLT `NewTopic`), `ChatKafkaConstants`(토픽·그룹·`<토픽>.<그룹>.DLT` 이름, partition·replica 수, 보존, 재시도 값). props는 코드에 적고 연결 주소만 `spring.kafka.bootstrap-servers`에서 받는다. 남는 키는 `hapbang.chat.member-events.enabled`·`hapbang.chat.appearance-events.enabled`뿐이고, 기본으로 켜져 있으며 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. Kafka 시험은 소비자 값 빈을 테스트 빈으로 바꿔 자기 토픽·그룹을 쓰고 재시도를 줄인다. 백필 설정(`hapbang.chat.backfill.*`)은 `@ConfigurationProperties` 코드 기본값이다 |
+| 설정 위치 | Kafka 소비 설정은 설정 클래스와 상수 클래스로 둔다(`@ConfigurationProperties`·yaml 키로 두지 않는다, 2026-10-30 사용자 결정). 공통 코드 없이 chat-app의 `in/kafka`에 두고(Q9) 역할별로 나눈다: `ChatKafkaConfig`(소비자 값·ConsumerFactory·DLT 발행 ProducerFactory·KafkaTemplate·ContainerFactory), `ChatKafkaErrorHandlerConfig`(블로킹 재시도·DLT 복구기), `ChatKafkaTopicConfig`(DLT `NewTopic`), `ChatKafkaConstants`(토픽·그룹·`<토픽>.<그룹>.DLT` 이름, partition·replica 수, 보존, 재시도 값). props는 코드에 적고 연결 주소만 `spring.kafka.bootstrap-servers`에서 받는다. chat 전용 설정 키는 두지 않는다(소비를 켜고 끄던 `enabled` 두 키는 2026-11-18 지웠다). 리스너 자동 시작은 Spring Boot 표준 키 `spring.kafka.listener.auto-startup`을 따르고, 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. Kafka 시험은 소비자 값 빈을 테스트 빈으로 바꿔 자기 토픽·그룹을 쓰고 재시도를 줄인다. 백필 설정(`hapbang.chat.backfill.*`)은 `@ConfigurationProperties` 코드 기본값이다 |
 
 **연결 제어의 내구성과 로컬 회원 상태 재검사**
 

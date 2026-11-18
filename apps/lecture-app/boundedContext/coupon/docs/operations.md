@@ -118,7 +118,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 
 코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건.
 
-예산 HTTP는 공통 billing 클라이언트 설정을 사용한다. `hapbang.clients.billing.base-url`이 있어야 어댑터를 등록하고 `hapbang.internal-api.key`를 내부 인증 헤더로 보낸다. `connect-timeout` 기본 2s, `read-timeout` 기본 5s다. `hapbang.clients.billing.resilience.circuit-breaker.*` 기본값은 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s/50%·open 30s·half-open 3이다. 쿠폰 어댑터 안에서는 짧은 retry나 TimeLimiter를 추가하지 않으며 영속 작업이 재시도한다. HTTP 결과 분류는 contracts.md "예산 HTTP 결과 분류"를 따른다.
+예산 HTTP는 공통 billing 클라이언트 설정을 사용한다. `hapbang.clients.billing.base-url`은 필수이고(없으면 앱이 뜨지 않는다) `hapbang.internal-api.key`를 내부 인증 헤더로 보낸다. `connect-timeout` 기본 2s, `read-timeout` 기본 5s다. `hapbang.clients.billing.resilience.circuit-breaker.*` 기본값은 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s/50%·open 30s·half-open 3이다. 쿠폰 어댑터 안에서는 짧은 retry나 TimeLimiter를 추가하지 않으며 영속 작업이 재시도한다. HTTP 결과 분류는 contracts.md "예산 HTTP 결과 분류"를 따른다.
 
 ## invariant와 보장 주체
 

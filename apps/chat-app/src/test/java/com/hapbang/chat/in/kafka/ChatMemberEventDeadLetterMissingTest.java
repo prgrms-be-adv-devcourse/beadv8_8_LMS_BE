@@ -90,7 +90,9 @@ class ChatMemberEventDeadLetterMissingTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+        // 모듈 테스트 설정은 Kafka 리스너 자동 시작과 토픽 선언을 끈다. 이 컨텍스트는 Kafka 컨테이너를 쓰므로 운영처럼 켠다
+        registry.add("spring.kafka.listener.auto-startup", () -> "true");
+        registry.add("spring.kafka.admin.auto-create", () -> "true");
     }
 
     /** 이 클래스 전용 토픽·그룹·DLT. 브로커 1대에 DLT 복제 3이라 KafkaAdmin의 DLT 생성이 실패한다(앱은 뜬다). DLT 발행 대기는 최소 허용값인 1초로 줄인다 */

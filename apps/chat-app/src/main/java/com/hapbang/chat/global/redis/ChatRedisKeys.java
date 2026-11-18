@@ -7,7 +7,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * 채팅이 소유하는 Redis Stream·Pub/Sub 채널·접속 정보·연결 티켓·로그아웃 표식 키 이름. 환경 namespace를 앞에 붙인다.
- * consumer group 이름은 발행 체크포인트에도 저장하는 값이라 {@code app.ChatJobStream}에 둔다.
+ * consumer group 이름은 발행 체크포인트에도 저장하는 값이라 {@code app/dto/ChatJobStream}에 둔다.
  * 계약: {@code apps/chat-app/docs/contracts/realtime-fanout.md}
  */
 @Component

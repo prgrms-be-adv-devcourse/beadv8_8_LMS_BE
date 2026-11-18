@@ -17,7 +17,6 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
-import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatOutboxRelay;
 import com.hapbang.chat.app.ChatStreamJobProcessor;
 import com.hapbang.chat.app.ChatStreamReconstructor;

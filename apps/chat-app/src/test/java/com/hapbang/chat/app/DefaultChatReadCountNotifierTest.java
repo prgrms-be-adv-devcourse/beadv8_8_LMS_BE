@@ -13,7 +13,6 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.ChatUnreadMemberCounter.RecentCounts;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
@@ -24,7 +23,6 @@ import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.ChatRoomMemberships;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
 import com.hapbang.chat.app.port.LocalChatSender;
-import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
 import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
 
@@ -44,7 +42,7 @@ class DefaultChatReadCountNotifierTest {
     private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final ChatUnreadMemberCounter counter = mock(ChatUnreadMemberCounter.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
-    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels(), 20);
+    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(new AcceptingRoomChannels(), 20);
     private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final ChatReadCountNotifier notifier = new DefaultChatReadCountNotifier(subscriptions, cache, counter,
@@ -261,10 +259,4 @@ class DefaultChatReadCountNotifierTest {
         return (ArgumentCaptor) ArgumentCaptor.forClass(List.class);
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<RoomChannelSubscriptions> noChannels() {
-        ObjectProvider<RoomChannelSubscriptions> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }

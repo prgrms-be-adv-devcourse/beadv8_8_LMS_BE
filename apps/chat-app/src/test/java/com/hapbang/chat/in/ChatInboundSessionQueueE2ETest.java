@@ -37,8 +37,8 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
@@ -67,7 +67,7 @@ class ChatInboundSessionQueueE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -123,7 +123,7 @@ class ChatInboundSessionQueueE2ETest {
 
     @Test
     void 정상으로_연결하고_끊기를_반복해도_연결별_처리_줄이_남지_않는다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         for (int cycle = 0; cycle < 30; cycle++) {
             StompSession session = stomp.connect(cycle % 2 == 0 ? HOST_ID : GUEST_ID);
             stomp.subscribe(session, "/user/queue/chats/messages", ChatMessageResponse.class);
@@ -143,7 +143,7 @@ class ChatInboundSessionQueueE2ETest {
      */
     @Test
     void 운영_기본_몫에서_SEND_29에서_31개를_연달아_보내도_닫히지_않고_모두_순서대로_저장된다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         Map<String, CloseStatus> closes = listenCloses();
         List<String> expected = new java.util.ArrayList<>();
         for (int count = 29; count <= 31; count++) {
@@ -177,7 +177,7 @@ class ChatInboundSessionQueueE2ETest {
 
     @Test
     void 몫을_넘겨_서버가_닫은_연결의_처리_줄도_남지_않는다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         Map<String, CloseStatus> closes = listenCloses();
         StompSession flooder = stomp.connect(HOST_ID);
         awaitInboundIdle();
@@ -204,7 +204,7 @@ class ChatInboundSessionQueueE2ETest {
 
     @Test
     void 처리_대기_프레임을_남긴_채_웹소켓만_닫혀도_받은_프레임을_처리하고_처리_줄이_남지_않는다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         RawStomp raw = rawConnect(HOST_ID);
         awaitInboundIdle();
         RoomLock lock = lockRoom(chatRoomId);
@@ -230,7 +230,7 @@ class ChatInboundSessionQueueE2ETest {
      */
     @Test
     void 처리_대기_SEND_9개를_남긴_채_웹소켓이_닫혀도_처리_줄이_남지_않는다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         RawStomp raw = rawConnect(HOST_ID);
         awaitInboundIdle();
         RoomLock lock = lockRoom(chatRoomId);
@@ -257,7 +257,7 @@ class ChatInboundSessionQueueE2ETest {
      */
     @Test
     void 운영_기본값에서_SEND_50개를_연달아_보내면_어떻게_되는지_기록한다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         Map<String, CloseStatus> closes = listenCloses();
         StompSession host = stomp.connect(HOST_ID);
         awaitInboundIdle();

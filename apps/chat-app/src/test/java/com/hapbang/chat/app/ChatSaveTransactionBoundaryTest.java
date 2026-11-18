@@ -21,10 +21,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
@@ -40,7 +42,9 @@ import com.hapbang.testsupport.IntegrationTest;
  *     <li>메시지 전송은 방 잠금 → 발신자 참여 행 하나 → 자격 → 저장·outbox만 한다. 방 단위 참여 조회는 집계도 하지 않는다.</li>
  *     <li>채팅 시작의 방 응답(참여자·닉네임·마지막 메시지·안 읽은 수)은 저장 트랜잭션이 끝난 뒤 별도 읽기 전용 트랜잭션에서 만든다.
  *     Facade는 트랜잭션을 열지 않으므로 재시도마다 UseCase 프록시가 새 저장 트랜잭션을 연다.</li>
- *     <li>저장 중에 STOMP 전송·Redis 호출이 없다(외부 I/O는 커밋 뒤 relay·consumer·구독자가 한다).</li>
+ *     <li>저장 중에 STOMP 전송·Redis 호출이 없다(외부 I/O는 커밋 뒤 relay·consumer·구독자가 한다). 커밋 뒤 별도 실행기에서 내는
+ *     안 읽은 사람 수 변경 신호({@code ChatReadCountSignals}, 커밋 뒤에만 내는 것은 그 단위 테스트가 확인한다)는 이 시험의 대상이
+ *     아니라 발행 port를 대역으로 둔다. 그래서 Redis 호출 확인은 저장 경로만 본다.</li>
  * </ul>
  */
 @IntegrationTest
@@ -49,12 +53,12 @@ import com.hapbang.testsupport.IntegrationTest;
 class ChatSaveTransactionBoundaryTest {
 
     private static final Pattern ROW_LOCK = Pattern.compile("\\bfor\\s+(update|no\\s+key\\s+update)\\b");
-    private static final String SEND_TX = ChatMessageUseCase.class.getName() + ".send";
-    private static final String OPEN_TX = ChatRoomUseCase.class.getName() + ".createOrGet";
-    private static final String LEAVE_TX = ChatRoomUseCase.class.getName() + ".leave";
-    private static final String NOTIFY_TX = ChatNotificationUseCase.class.getName()
+    private static final String SEND_TX = DefaultChatMessageService.class.getName() + ".send";
+    private static final String OPEN_TX = DefaultChatRoomService.class.getName() + ".createOrGet";
+    private static final String LEAVE_TX = DefaultChatRoomService.class.getName() + ".leave";
+    private static final String NOTIFY_TX = DefaultChatNotificationService.class.getName()
             + ".notifyAppearanceRequestSent";
-    private static final String ROOM_RESPONSE_TX = ChatRoomSupporter.class.getName() + ".toResponse";
+    private static final String ROOM_RESPONSE_TX = DefaultChatRoomQueryService.class.getName() + ".toResponse";
 
     @Autowired
     private ChatRoomFacade chatRoomFacade;
@@ -66,10 +70,10 @@ class ChatSaveTransactionBoundaryTest {
     private ChatNotificationFacade chatNotificationFacade;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -80,12 +84,15 @@ class ChatSaveTransactionBoundaryTest {
     @MockitoSpyBean
     private StringRedisTemplate stringRedisTemplate;
 
+    @MockitoBean
+    private ChatReadCountPublisher chatReadCountPublisher;
+
     private Long chatRoomId;
 
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         clearInvocations(messagingTemplate, stringRedisTemplate);
     }
 
@@ -113,7 +120,7 @@ class ChatSaveTransactionBoundaryTest {
     @Test
     @WithMockUser(roles = "INFLUENCER")
     void 채팅_시작은_저장_트랜잭션에서_목록을_만들지_않고_방_응답은_커밋_뒤_별도_읽기_트랜잭션에서_만든다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         List<TxSql> recorded = TxSqlRecorder.record(() -> chatRoomFacade.createOrGet(GUEST_ID, HOST_ID));
 
@@ -150,7 +157,7 @@ class ChatSaveTransactionBoundaryTest {
 
     @Test
     void 출연_알림의_저장_트랜잭션은_전달_대상_목록을_만들지_않는다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         List<TxSql> recorded = TxSqlRecorder.record(() -> chatNotificationFacade.notifyAppearanceRequestSent(
                 new AppearanceRequestDto(10L, HOST_ID, GUEST_ID, "금요일 밤 합방", 50_000L,
@@ -173,8 +180,8 @@ class ChatSaveTransactionBoundaryTest {
             assertThat(List.of(facade.getDeclaredMethods()))
                     .noneMatch(method -> AnnotatedElementUtils.hasAnnotation(method, Transactional.class));
         }
-        assertThat(AopUtils.isAopProxy(chatRoomUseCase)).isTrue();
-        assertThat(AopUtils.isAopProxy(chatMessageUseCase)).isTrue();
+        assertThat(AopUtils.isAopProxy(chatRoomService)).isTrue();
+        assertThat(AopUtils.isAopProxy(chatMessageService)).isTrue();
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     }
 

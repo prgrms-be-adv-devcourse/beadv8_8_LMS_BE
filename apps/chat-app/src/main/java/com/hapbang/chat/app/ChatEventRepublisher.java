@@ -7,6 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.chat.app.port.ChatExternalEvents;
+
 import lombok.extern.slf4j.Slf4j;
 
 /**

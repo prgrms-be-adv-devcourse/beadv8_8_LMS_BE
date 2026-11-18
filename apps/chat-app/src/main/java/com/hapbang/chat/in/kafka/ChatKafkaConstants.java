@@ -6,8 +6,7 @@ import java.time.Duration;
  * chat-app Kafka 소비의 이름과 값. 규칙은 {@code docs/architecture/infrastructure/kafka.md}의 "소비"·"재시도와 DLT"다.
  * <p>
  * 값은 이 클래스에만 두고 yaml·환경 변수로 바꾸지 않는다(사용자 결정, 2026-10-30). 설정 클래스({@link ChatKafkaConfig},
- * {@link ChatKafkaErrorHandlerConfig}, {@link ChatKafkaTopicConfig})가 이 값으로 빈을 만든다. 남은 설정 키는 소비를 켜고 끄는
- * {@code *.enabled} 둘뿐이다.
+ * {@link ChatKafkaErrorHandlerConfig}, {@link ChatKafkaTopicConfig})가 이 값으로 빈을 만든다.
  */
 public final class ChatKafkaConstants {
 
@@ -20,8 +19,6 @@ public final class ChatKafkaConstants {
     public static final String MEMBER_EVENTS_DLT = MEMBER_EVENTS_TOPIC + "." + MEMBER_REPLICA_GROUP + ".DLT";
     /** 역직렬화기가 믿는 유일한 패키지(와일드카드 불가) */
     public static final String MEMBER_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.member.event";
-    /** 회원 이벤트 소비를 켤지. 없으면 켜고, 모듈 테스트 설정이 끈다 */
-    public static final String MEMBER_EVENTS_ENABLED = "hapbang.chat.member-events.enabled";
 
     // 출연 이벤트 → 채팅 출연 알림
 
@@ -29,7 +26,6 @@ public final class ChatKafkaConstants {
     public static final String APPEARANCE_NOTIFICATION_GROUP = "chat-app.appearance-notification";
     public static final String APPEARANCE_EVENTS_DLT = APPEARANCE_EVENTS_TOPIC + "." + APPEARANCE_NOTIFICATION_GROUP + ".DLT";
     public static final String APPEARANCE_EVENTS_TRUSTED_PACKAGE = "com.hapbang.shared.appearance.event";
-    public static final String APPEARANCE_EVENTS_ENABLED = "hapbang.chat.appearance-events.enabled";
 
     // 소비
 

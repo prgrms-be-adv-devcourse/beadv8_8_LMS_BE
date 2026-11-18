@@ -28,7 +28,7 @@ import com.hapbang.testsupport.IntegrationTest;
 class ChatRoomLeaveRollbackTest {
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -50,7 +50,7 @@ class ChatRoomLeaveRollbackTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -59,7 +59,7 @@ class ChatRoomLeaveRollbackTest {
                 .when(chatMessageRepository)
                 .save(argThat((ChatMessage message) -> message.getMessageType() == ChatMessageType.SYSTEM));
 
-        assertThatThrownBy(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null))
+        assertThatThrownBy(() -> chatRoomService.leave(chatRoomId, GUEST_ID, null))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, GUEST_ID))

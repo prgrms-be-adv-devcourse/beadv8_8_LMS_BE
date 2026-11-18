@@ -7,7 +7,6 @@ import java.util.regex.Pattern;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
@@ -60,10 +59,10 @@ public class ChatStompInterceptor implements ExecutorChannelInterceptor {
     private final ChatRoomTopicFacade chatRoomTopicFacade;
 
     /**
-     * 방 topic 구독 허가는 프레임을 쓰는 송신기를 거쳐 메시지 브로커 설정에 닿고, 그 설정이 이 인터셉터를 쓴다. 생성 순환을 피해
-     * 지연해서 얻는다.
+     * 방 topic 구독 허가는 STOMP 송신기에 기대지 않는다(거절·회수 프레임은 이벤트로 진입 어댑터가 쓴다). 그래서 메시지 브로커 설정이
+     * 이 인터셉터를 쓰는 생성 경로에 순환이 없다.
      */
-    public ChatStompInterceptor(ChatUserFacade chatUserFacade, @Lazy ChatRoomTopicFacade chatRoomTopicFacade) {
+    public ChatStompInterceptor(ChatUserFacade chatUserFacade, ChatRoomTopicFacade chatRoomTopicFacade) {
         this.chatUserFacade = chatUserFacade;
         this.chatRoomTopicFacade = chatRoomTopicFacade;
     }

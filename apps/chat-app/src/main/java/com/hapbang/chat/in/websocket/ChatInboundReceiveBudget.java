@@ -94,15 +94,16 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
      * 연결 ID는 연결마다 새로 만들어지므로 다시 연결한 클라이언트에는 걸리지 않는다. 만료되거나 상한을 넘으면 지운다
      */
     private final Map<String, Long> closedSessions = new ConcurrentHashMap<>();
-    private Duration closedSessionTtl = Duration.ofSeconds(30);
-    private int maxClosedSessions = 10_000;
+    private final Duration closedSessionTtl;
+    private final int maxClosedSessions;
     /** Spring의 메시지 브로커 통계 빈이 채널 실행기를 {@link TaskExecutor}로 받으므로 그 형태로 둔다 */
     private final TaskExecutor channelExecutor = this::submit;
     /** 이 스레드에서 거절 처리 중인 줄 비우기({@link Drain#onRejected}가 되부르지 않고 반복하도록) */
     private final ThreadLocal<RejectionRound> rejectionRound = new ThreadLocal<>();
 
     /**
-     * 수신 스레드 수(8)·공용 대기열 상한(1000)·닫기 대기열 상한(1000)·연결별 처리 대기 프레임 상한(64)은 미확정 초기값(Q12)이다.
+     * 수신 스레드 수(8)·공용 대기열 상한(1000)·닫기 대기열 상한(1000)·연결별 처리 대기 프레임 상한(64)·세션 종료 표식을 남기는
+     * 시간(30초)·세션 종료 표식의 최대 개수(10000)는 미확정 초기값(Q12)이다.
      * 기본값은 이 코드가 원본이고 application.yaml에 두지 않는다. 같은 키의 yaml·환경 변수가 덮는다.
      */
     @Autowired
@@ -111,34 +112,26 @@ public class ChatInboundReceiveBudget extends ChatChannelBudget {
             @Value("${hapbang.chat.realtime.inbound.workers:8}") int workers,
             @Value("${hapbang.chat.realtime.inbound.queue-capacity:1000}") int queueCapacity,
             @Value("${hapbang.chat.realtime.inbound.close-queue-capacity:1000}") int closeQueueCapacity,
-            @Value("${hapbang.chat.realtime.inbound.per-session-frames:64}") int perSessionFrames) {
+            @Value("${hapbang.chat.realtime.inbound.per-session-frames:64}") int perSessionFrames,
+            @Value("${hapbang.chat.realtime.inbound.closed-session-ttl:30s}") Duration closedSessionTtl,
+            @Value("${hapbang.chat.realtime.inbound.max-closed-sessions:10000}") int maxClosedSessions) {
         this(chatWebSocketSessionRegistry, counter(meterRegistry, REJECTED_METRIC),
                 counter(meterRegistry, DISCONNECT_COALESCED_METRIC), counter(meterRegistry, CLOSED_SESSION_DROPPED_METRIC),
-                workers, queueCapacity, closeQueueCapacity, perSessionFrames);
+                workers, queueCapacity, closeQueueCapacity, perSessionFrames, closedSessionTtl, maxClosedSessions);
     }
 
     private ChatInboundReceiveBudget(ChatWebSocketSessionRegistry chatWebSocketSessionRegistry, Counter rejected,
             Counter disconnectCoalesced, Counter closedSessionDropped, int workers, int queueCapacity,
-            int closeQueueCapacity, int perSessionFrames) {
+            int closeQueueCapacity, int perSessionFrames, Duration closedSessionTtl, int maxClosedSessions) {
         super("inbound", chatWebSocketSessionRegistry, ChatWebSocketSessionRegistry.INBOUND_OVERFLOW, rejected,
                 workers, queueCapacity, closeQueueCapacity);
         Assert.isTrue(perSessionFrames > 0, "hapbang.chat.realtime.inbound.per-session-frames는 1 이상이어야 합니다.");
+        Assert.isTrue(closedSessionTtl.isPositive(), "hapbang.chat.realtime.inbound.closed-session-ttl은 0보다 커야 합니다.");
+        Assert.isTrue(maxClosedSessions > 0, "hapbang.chat.realtime.inbound.max-closed-sessions는 1 이상이어야 합니다.");
         this.perSessionFrames = perSessionFrames;
         this.disconnectCoalesced = disconnectCoalesced;
         this.closedSessionDropped = closedSessionDropped;
-    }
-
-    /** 세션 종료 표식을 남기는 시간. 미확정 초기값(Q12) */
-    @Value("${hapbang.chat.realtime.inbound.closed-session-ttl:30s}")
-    public void setClosedSessionTtl(Duration closedSessionTtl) {
-        Assert.isTrue(closedSessionTtl.isPositive(), "hapbang.chat.realtime.inbound.closed-session-ttl은 0보다 커야 합니다.");
         this.closedSessionTtl = closedSessionTtl;
-    }
-
-    /** 세션 종료 표식의 최대 개수. 미확정 초기값(Q12) */
-    @Value("${hapbang.chat.realtime.inbound.max-closed-sessions:10000}")
-    public void setMaxClosedSessions(int maxClosedSessions) {
-        Assert.isTrue(maxClosedSessions > 0, "hapbang.chat.realtime.inbound.max-closed-sessions는 1 이상이어야 합니다.");
         this.maxClosedSessions = maxClosedSessions;
     }
 

@@ -3,7 +3,6 @@ package com.hapbang.chat.in.kafka;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.TopicConfig;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -19,14 +18,12 @@ import org.springframework.kafka.config.TopicBuilder;
 public class ChatKafkaTopicConfig {
 
     @Bean
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     NewTopic chatMemberEventDeadLetterTopic(
             @Qualifier(ChatKafkaConfig.MEMBER_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return deadLetterTopic(settings);
     }
 
     @Bean
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     NewTopic chatAppearanceEventDeadLetterTopic(
             @Qualifier(ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return deadLetterTopic(settings);

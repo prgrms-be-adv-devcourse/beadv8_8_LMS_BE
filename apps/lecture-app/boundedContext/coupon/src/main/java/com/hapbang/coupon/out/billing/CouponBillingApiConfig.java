@@ -3,8 +3,6 @@ package com.hapbang.coupon.out.billing;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,7 +13,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
-import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.shared.billing.out.BillingClientProperties;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
@@ -24,7 +21,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** 기존 billing 주소·내부 키·제한 시간 설정으로 쿠폰 전용 예산 HTTP 프록시를 만든다. */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "hapbang.clients.billing", name = "base-url")
 @EnableConfigurationProperties(BillingClientProperties.class)
 public class CouponBillingApiConfig {
 
@@ -38,7 +34,6 @@ public class CouponBillingApiConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean(PromotionBudget.class)
     HttpPromotionBudget httpPromotionBudget(CouponBillingInternalApi api, BillingClientProperties properties) {
         return new HttpPromotionBudget(api, properties);
     }

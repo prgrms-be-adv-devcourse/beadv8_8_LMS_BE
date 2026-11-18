@@ -40,17 +40,18 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 // 웹소켓 허용 출처 검사용 프론트 출처
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                // 운영과 같은 실시간 전달 경로
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
-                // 전달 파이프라인의 relay·Stream worker는 배치 실행이 켜져 있어야 돈다(@ConditionalOnSchedulingEnabled)
+                // 운영과 같은 실시간 전달 경로. 전달 파이프라인의 relay·Stream worker는 배치 실행이 켜져 있어야 돈다
+                // (@ConditionalOnSchedulingEnabled)
                 "hapbang.scheduling.enabled=true",
                 // 컨텍스트마다 다른 namespace로 Stream·채널을 나눈다(클래스마다 컨텍스트를 닫으므로 클래스마다 다르다)
                 "hapbang.chat.redis.namespace=test-chat-e2e-${random.uuid}",
                 // 메서드 사이에 파이프라인을 멈출 때 worker가 블로킹 읽기에서 빨리 돌아오게 한다
                 "hapbang.chat.delivery.consumer.block=200ms",
                 // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
-                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000",
+                // 다른 프로세스가 127.0.0.1에만 잡은 포트를 받아도 요청이 그 프로세스로 가지 않게, 서버를 127.0.0.1에 묶는다
+                // (포트가 겹치면 시작할 때 바로 실패한다)
+                "server.address=127.0.0.1"
         })
 @Import({PostgresTestcontainersConfig.class, RedisTestcontainersConfig.class})
 @DirtiesContext

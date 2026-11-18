@@ -18,7 +18,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
@@ -29,6 +28,7 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
+import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.shared.member.domain.Role;
 
 /**
@@ -43,11 +43,12 @@ class ChatStompAuthInterceptorTest {
     private static final String SESSION_ID = "session-1";
 
     private final MutableClock clock = new MutableClock();
-    private final ChatWebSocketSessionRegistry registry = new ChatWebSocketSessionRegistry(absent(), absent(), clock,
-            Duration.ofSeconds(30), 1, 10);
+    private final ChatWebSocketSessionRegistry registry = new ChatWebSocketSessionRegistry(mock(ChatPresence.class),
+            clock, Duration.ofSeconds(30), 1, 10);
     private final ChatStompAuthInterceptor interceptor = new ChatStompAuthInterceptor(registry, clock);
     private final MessageChannel channel = mock(MessageChannel.class);
-    private final WebSocketHandler handler = registry.decorate(mock(WebSocketHandler.class));
+    private final WebSocketHandler handler = new ChatWebSocketLifecycleDecorator(registry)
+            .decorate(mock(WebSocketHandler.class));
 
     @AfterEach
     void tearDown() {
@@ -191,10 +192,6 @@ class ChatStompAuthInterceptorTest {
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> absent() {
-        return mock(ObjectProvider.class);
-    }
 
     private static final class MutableClock extends Clock {
 

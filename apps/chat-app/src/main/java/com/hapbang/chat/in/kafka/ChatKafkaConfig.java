@@ -12,7 +12,6 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -48,7 +47,8 @@ import com.hapbang.common.kafka.EventLogContextRecordInterceptor;
  *     <li>offset: 자동 커밋을 끄고 레코드마다(AckMode.RECORD) 리스너가 정상 반환한 뒤 커밋한다. 리스너는 DB 커밋 뒤에야 반환하므로
  *     offset은 언제나 DB 커밋 뒤다.</li>
  * </ul>
- * 소비자마다 {@code hapbang.chat.member-events.enabled}·{@code hapbang.chat.appearance-events.enabled}로 켜고 끈다(없으면 켜짐).
+ * 리스너 컨테이너의 자동 시작은 Spring Boot 표준 키 {@code spring.kafka.listener.auto-startup}(없으면 켜짐)을 따른다. Boot가 자기
+ * 팩토리에 적용하는 값이라 직접 만든 팩토리에도 같게 적용한다. 운영은 이 키를 두지 않고, Kafka가 없는 모듈 테스트 설정만 끈다.
  * Kafka 빈은 기본 후보에서 빼서({@code defaultCandidate = false}) Boot의 기본 Kafka 빈이 물러나지 않게 하고, 이름으로만 쓴다.
  * 직접 만든 ConsumerFactory·ProducerFactory에도 Boot가 자기 factory에 적용하는 customizer(지표 listener 등)를 적용한다.
  * 적용하지 않으면 chat의 소비 그룹 lag와 DLT 전송이 Kafka client 지표에 없다(#339).
@@ -65,13 +65,16 @@ public class ChatKafkaConfig {
     public static final String APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE = "chatAppearanceEventDeadLetterTemplate";
 
     private final String bootstrapServers;
+    private final boolean listenerAutoStartup;
     private final ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers;
     private final ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers;
 
     public ChatKafkaConfig(@Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers,
+            @Value("${spring.kafka.listener.auto-startup:true}") boolean listenerAutoStartup,
             ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers,
             ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers) {
         this.bootstrapServers = bootstrapServers;
+        this.listenerAutoStartup = listenerAutoStartup;
         this.consumerFactoryCustomizers = consumerFactoryCustomizers;
         this.producerFactoryCustomizers = producerFactoryCustomizers;
     }
@@ -79,7 +82,6 @@ public class ChatKafkaConfig {
     // 회원 이벤트
 
     @Bean(name = MEMBER_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     ChatKafkaConsumerSettings chatMemberEventSettings() {
         return new ChatKafkaConsumerSettings(
                 ChatKafkaConstants.MEMBER_EVENTS_TOPIC,
@@ -94,14 +96,12 @@ public class ChatKafkaConfig {
     }
 
     @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     ConsumerFactory<String, Object> chatMemberEventConsumerFactory(
             @Qualifier(MEMBER_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return consumerFactory(settings, ChatKafkaConstants.MEMBER_EVENTS_TRUSTED_PACKAGE);
     }
 
     @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     ProducerFactory<String, Object> chatMemberEventDeadLetterProducerFactory(
             @Qualifier(MEMBER_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return deadLetterProducerFactory(settings);
@@ -109,14 +109,12 @@ public class ChatKafkaConfig {
 
     /** 발행 실패 로그에 key·값(회원 정보)을 남기지 않는 DLT 템플릿 */
     @Bean(name = MEMBER_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> chatMemberEventDeadLetterTemplate(
             @Qualifier("chatMemberEventDeadLetterProducerFactory") ProducerFactory<String, Object> producerFactory) {
         return deadLetterTemplate(producerFactory);
     }
 
     @Bean(name = MEMBER_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
     ConcurrentKafkaListenerContainerFactory<String, Object> chatMemberEventListenerContainerFactory(
             @Qualifier("chatMemberEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
             @Qualifier(ChatKafkaErrorHandlerConfig.MEMBER_EVENT_ERROR_HANDLER) DefaultErrorHandler errorHandler) {
@@ -126,7 +124,6 @@ public class ChatKafkaConfig {
     // 출연 이벤트
 
     @Bean(name = APPEARANCE_EVENT_SETTINGS)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     ChatKafkaConsumerSettings chatAppearanceEventSettings() {
         return new ChatKafkaConsumerSettings(
                 ChatKafkaConstants.APPEARANCE_EVENTS_TOPIC,
@@ -141,14 +138,12 @@ public class ChatKafkaConfig {
     }
 
     @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     ConsumerFactory<String, Object> chatAppearanceEventConsumerFactory(
             @Qualifier(APPEARANCE_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return consumerFactory(settings, ChatKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE);
     }
 
     @Bean(defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     ProducerFactory<String, Object> chatAppearanceEventDeadLetterProducerFactory(
             @Qualifier(APPEARANCE_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
         return deadLetterProducerFactory(settings);
@@ -156,14 +151,12 @@ public class ChatKafkaConfig {
 
     /** 발행 실패 로그에 key·값을 남기지 않는 DLT 템플릿 */
     @Bean(name = APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     KafkaTemplate<String, Object> chatAppearanceEventDeadLetterTemplate(
             @Qualifier("chatAppearanceEventDeadLetterProducerFactory") ProducerFactory<String, Object> producerFactory) {
         return deadLetterTemplate(producerFactory);
     }
 
     @Bean(name = APPEARANCE_EVENT_CONTAINER_FACTORY, defaultCandidate = false)
-    @ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
     ConcurrentKafkaListenerContainerFactory<String, Object> chatAppearanceEventListenerContainerFactory(
             @Qualifier("chatAppearanceEventConsumerFactory") ConsumerFactory<String, Object> consumerFactory,
             @Qualifier(ChatKafkaErrorHandlerConfig.APPEARANCE_EVENT_ERROR_HANDLER) DefaultErrorHandler errorHandler) {
@@ -203,10 +196,11 @@ public class ChatKafkaConfig {
         return factory;
     }
 
-    private static ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(
+    private ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(
             ConsumerFactory<String, Object> consumerFactory, DefaultErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        factory.setAutoStartup(listenerAutoStartup);
         factory.setCommonErrorHandler(errorHandler);
         factory.setConcurrency(1);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);

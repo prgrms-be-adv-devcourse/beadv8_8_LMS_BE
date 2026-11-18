@@ -25,7 +25,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
@@ -41,7 +40,6 @@ import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponRepository;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
-import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponFixture;
@@ -80,10 +78,8 @@ class CouponIssueRaceTest {
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 10_000L, "ON_SALE")));
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, store);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<PromotionBudget> promotionBudgetProvider = mock();
         openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), mock(CouponBudgetWorkUseCase.class), store,
-                mock(CouponCapacitySupport.class), promotionBudgetProvider,
+                mock(CouponCapacitySupport.class),
                 new CouponRedisProperties(null), db.transactionManager(), clock);
         operateUseCase = new CouponOperateUseCase(support, store, db.transactionManager(), clock);
 

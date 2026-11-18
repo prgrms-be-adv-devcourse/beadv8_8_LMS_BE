@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.LocalRoomSubscriptions.Registered;
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
@@ -16,7 +15,7 @@ import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 class LocalRoomSubscriptionsTest {
 
     private final RoomChannelSubscriptions channels = mock(RoomChannelSubscriptions.class);
-    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(provider(channels), 2);
+    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(channels, 2);
 
     @Test
     void 넣을_때마다_방_채널_참조를_늘리고_뺄_때마다_줄인다() {
@@ -77,22 +76,8 @@ class LocalRoomSubscriptionsTest {
         verify(channels, times(1)).release(10L);
     }
 
-    @Test
-    void Redis가_없는_실행에서도_목록은_동작한다() {
-        LocalRoomSubscriptions withoutRedis = new LocalRoomSubscriptions(provider(null), 20);
-
-        assertThat(withoutRedis.register(sub("s-1", "a", 10L))).isEqualTo(Registered.OK);
-        assertThat(withoutRedis.subscriptionsOf(10L, 7L)).hasSize(1);
-    }
-
     private static Subscription sub(String sessionId, String subscriptionId, Long roomId) {
         return new Subscription(sessionId, subscriptionId, roomId, 7L, 1);
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<RoomChannelSubscriptions> provider(RoomChannelSubscriptions channels) {
-        ObjectProvider<RoomChannelSubscriptions> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(channels);
-        return provider;
-    }
 }

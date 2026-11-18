@@ -40,13 +40,13 @@ import com.hapbang.chat.domain.ChatUser;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 채팅방 읽기 전용 기능. 쓰기({@link ChatRoomUseCase})와 나눈다.
- * 응답·닉네임 조회는 {@link ChatRoomUseCase}도 쓴다. 쓰기 트랜잭션 안에서 부르면 그 트랜잭션에 참여한다.
+ * 채팅방 읽기 전용 기능. 쓰기({@link DefaultChatRoomService})와 나눈다.
+ * 응답·닉네임 조회는 {@link DefaultChatRoomService}도 쓴다. 쓰기 트랜잭션 안에서 부르면 그 트랜잭션에 참여한다.
  */
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
-public class ChatRoomSupporter {
+public class DefaultChatRoomQueryService implements ChatRoomQueryService {
 
     /** 관리자 기록의 시간순: 시각 → 같은 시각이면 기록이 먼저 → ID */
     private static final Comparator<ChatHistoryCursor> HISTORY_ORDER = Comparator.comparing(ChatHistoryCursor::at)
@@ -70,6 +70,7 @@ public class ChatRoomSupporter {
      * 이 격리 수준은 새 트랜잭션을 열 때만 적용된다. 이미 열린 트랜잭션 안에서 부르면 그 트랜잭션에 참여하고 격리 수준은 무시된다.
      * 그래서 트랜잭션 밖(트랜잭션이 없는 Facade·Controller)에서 부른다.
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
         chatValidationService.validateCanChat(userId);
@@ -83,6 +84,7 @@ public class ChatRoomSupporter {
      *
      * @param myMembers 조회한 회원의 활성 참여 행(방을 함께 읽은 것). 이 순서대로 응답한다
      */
+    @Override
     public List<ChatRoomResponse> toResponses(Long userId, List<ChatRoomMember> myMembers, LocalDateTime now) {
         if (myMembers.isEmpty()) {
             return List.of();
@@ -114,6 +116,7 @@ public class ChatRoomSupporter {
     /**
      * 방 상세. 참여 중인 회원만 볼 수 있고, 단체방은 조회 만료 전까지다. 응답 형식은 방 목록의 한 항목과 같다.
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ChatRoomResponse getRoom(Long chatRoomId, Long userId) {
         chatValidationService.validateCanChat(userId);
@@ -127,6 +130,7 @@ public class ChatRoomSupporter {
      *
      * @param cursor 이전 응답의 nextCursor. 없으면 처음부터
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ChatRoomMemberPageResponse getMembers(Long chatRoomId, Long userId, Long cursor, int size) {
         chatValidationService.validateCanChat(userId);
@@ -161,6 +165,7 @@ public class ChatRoomSupporter {
      *
      * @param cursor 이전 응답의 nextCursor. 없으면 처음부터
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId, String cursor, int size) {
         chatValidationService.validateAdmin(adminId);
@@ -208,6 +213,7 @@ public class ChatRoomSupporter {
      * 이 격리 수준은 새 트랜잭션을 열 때만 적용된다. 이미 열린 트랜잭션(예: 저장 트랜잭션) 안에서 부르면 그 트랜잭션에 참여하고
      * 격리 수준은 무시된다. 그래서 저장 트랜잭션이 끝난 뒤 트랜잭션이 없는 {@link ChatRoomFacade}에서 부른다.
      */
+    @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ChatRoomResponse toResponse(Long chatRoomId, Long userId) {
         ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
@@ -219,7 +225,7 @@ public class ChatRoomSupporter {
      * 채팅방 응답 (조회한 회원 기준 마지막 메시지·안 읽은 수 포함). 1:1 방은 참여자·닉네임을 싣고, 단체방은 참여자 대신 조회한 회원의
      * 참여 세대를 싣는다(참여 중이 아니면 null).
      */
-    public ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
+    private ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
         List<Long> roomIds = List.of(chatRoom.getId());
         ChatMessageResponse lastMessage = findLastMessages(userId, roomIds).get(chatRoom.getId());
         long unreadCount = countUnread(userId, roomIds).getOrDefault(chatRoom.getId(), 0L);
@@ -238,6 +244,7 @@ public class ChatRoomSupporter {
     }
 
     /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '알 수 없는 회원'(회원 ID는 사용자에게 드러내지 않는다) */
+    @Override
     public String displayNicknameOf(Long userId) {
         return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse(ChatUser.UNKNOWN_NICKNAME);
     }

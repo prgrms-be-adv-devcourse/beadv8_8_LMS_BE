@@ -22,11 +22,11 @@ import com.hapbang.chat.domain.ChatUser;
 
 import lombok.RequiredArgsConstructor;
 
-/** 메시지 읽기 전용 기능. 쓰기({@link ChatMessageUseCase})와 나눈다 */
+/** 메시지 읽기 전용 기능. 쓰기({@link DefaultChatMessageService})와 나눈다 */
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
-public class ChatMessageSupporter {
+public class DefaultChatMessageQueryService implements ChatMessageQueryService {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
@@ -41,6 +41,7 @@ public class ChatMessageSupporter {
      * 응답에 현재 참여 세대와 조회 시작점을 담아, 클라이언트가 세대 변경과 조회 완료 구간을 판단하게 한다.
      * 일반 메시지마다 안 읽은 사람 수를 담고, 페이지에 그 값을 센 시점(버전)을 담는다. 페이지의 일반 메시지를 집계 문장 하나로 센다.
      */
+    @Override
     public ChatMessagePageResponse getMessages(Long chatRoomId, Long userId, Long cursor, int size) {
         chatRoomRepository.findById(chatRoomId)
                 .filter(room -> room.isViewable(LocalDateTime.now()))

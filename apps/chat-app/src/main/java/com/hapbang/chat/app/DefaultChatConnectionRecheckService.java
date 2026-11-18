@@ -58,13 +58,13 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
     private final Counter retryDropped;
     /** 재시도가 예약돼 기다리는 회원. 회원마다 하나만 둔다(같은 회원의 재검사가 몰려도 예약이 늘지 않는다) */
     private final Set<Long> pendingRetryUsers = ConcurrentHashMap.newKeySet();
-    private int maxPendingRetryUsers = 10_000;
+    private final int maxPendingRetryUsers;
 
     /**
      * 재시도는 이 서비스 전용 스레드 하나로 예약한다. 배치가 쓰는 공용 {@code taskScheduler}와 나눠, 배치·전송 폭주가 재시도를
      * 굶기거나 재시도가 배치를 막지 않게 한다(설계 4.6).
      * <p>
-     * 재검사 묶음 크기(500)·재시도 횟수(3)·간격(1s~10s)은 미확정 초기값(Q12)이다. 기본값은 이 코드가 원본이고 application.yaml에
+     * 재검사 묶음 크기(500)·재시도 횟수(3)·간격(1s~10s)·재시도를 기다릴 수 있는 회원 수 상한(10000)은 미확정 초기값(Q12)이다. 기본값은 이 코드가 원본이고 application.yaml에
      * 두지 않는다. 같은 키의 yaml·환경 변수가 덮는다.
      */
     public DefaultChatConnectionRecheckService(LocalChatConnections localChatConnections,
@@ -73,11 +73,14 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
             @Value("${hapbang.chat.realtime.recheck.batch-size:500}") int batchSize,
             @Value("${hapbang.chat.realtime.recheck.retry.max-retries:3}") int maxRetries,
             @Value("${hapbang.chat.realtime.recheck.retry.initial-delay:1s}") Duration initialRetryDelay,
-            @Value("${hapbang.chat.realtime.recheck.retry.max-delay:10s}") Duration maxRetryDelay) {
+            @Value("${hapbang.chat.realtime.recheck.retry.max-delay:10s}") Duration maxRetryDelay,
+            @Value("${hapbang.chat.realtime.recheck.retry.max-pending-users:10000}") int maxPendingRetryUsers) {
         Assert.isTrue(batchSize > 0, "hapbang.chat.realtime.recheck.batch-size는 1 이상이어야 합니다.");
         Assert.isTrue(maxRetries >= 0, "hapbang.chat.realtime.recheck.retry.max-retries는 0 이상이어야 합니다.");
         Assert.isTrue(initialRetryDelay.isPositive() && !maxRetryDelay.minus(initialRetryDelay).isNegative(),
                 "hapbang.chat.realtime.recheck.retry 지연은 0보다 크고 initial-delay <= max-delay여야 합니다.");
+        Assert.isTrue(maxPendingRetryUsers > 0,
+                "hapbang.chat.realtime.recheck.retry.max-pending-users는 1 이상이어야 합니다.");
         this.localChatConnections = localChatConnections;
         this.chatRecipientStateReader = chatRecipientStateReader;
         this.retryScheduler = retryScheduler();
@@ -85,6 +88,7 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
         this.maxRetries = maxRetries;
         this.initialRetryDelay = initialRetryDelay;
         this.maxRetryDelay = maxRetryDelay;
+        this.maxPendingRetryUsers = maxPendingRetryUsers;
         this.lookupFailures = meterRegistry.counter(LOOKUP_FAILURE_METRIC);
         this.retryExhausted = meterRegistry.counter(RETRY_EXHAUSTED_METRIC);
         this.retryCoalesced = meterRegistry.counter(RETRY_COALESCED_METRIC);
@@ -147,14 +151,6 @@ public class DefaultChatConnectionRecheckService implements ChatConnectionRechec
             log.info("채팅할 수 없는 회원의 로컬 연결 닫음 userId={}, closed={}", userId, closed);
         }
         return closedUsers;
-    }
-
-    /** 재시도를 기다릴 수 있는 회원 수 상한. 미확정 초기값(Q12) */
-    @Value("${hapbang.chat.realtime.recheck.retry.max-pending-users:10000}")
-    public void setMaxPendingRetryUsers(int maxPendingRetryUsers) {
-        Assert.isTrue(maxPendingRetryUsers > 0,
-                "hapbang.chat.realtime.recheck.retry.max-pending-users는 1 이상이어야 합니다.");
-        this.maxPendingRetryUsers = maxPendingRetryUsers;
     }
 
     /**

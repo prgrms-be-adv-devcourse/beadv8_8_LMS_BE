@@ -1,5 +1,7 @@
 package com.hapbang.chat.app;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
+
 /**
  * 전달 파이프라인 실행기({@code in/stream})가 부르는 작업 한 번씩의 진입점. 실행기는 스레드·반복·멈춤만 맡고, 처리는 이 계약 뒤의
  * app 조정 서비스(relay·소비·회수·재구성·정리·전달 가용성)가 한다.

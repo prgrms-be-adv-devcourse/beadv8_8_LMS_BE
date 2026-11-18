@@ -8,9 +8,6 @@ import com.hapbang.shared.member.dto.MemberPageDto;
  */
 public interface ChatMemberSnapshotSource {
 
-    /** 회원 원본을 읽을 수 있게 설정됐는지. false면 {@link #readPage}를 부르지 않는다 */
-    boolean isConfigured();
-
     /**
      * afterId보다 큰 회원을 최대 size명 읽는다.
      *

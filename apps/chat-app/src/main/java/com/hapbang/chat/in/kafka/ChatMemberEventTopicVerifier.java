@@ -2,7 +2,6 @@ package com.hapbang.chat.in.kafka;
 
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.kafka.core.KafkaAdmin;
@@ -20,7 +19,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
 public class ChatMemberEventTopicVerifier {
 
     public enum Result {

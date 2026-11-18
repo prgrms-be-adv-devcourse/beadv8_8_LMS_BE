@@ -47,7 +47,7 @@ public enum CouponErrorCode {
 
     /** billing이 예산 예약을 거절했다 */
     PROMOTION_BUDGET_REJECTED(HttpStatus.CONFLICT, "프로모션 예산을 확보하지 못했습니다."),
-    /** 예산 결과를 알 수 없거나(UNKNOWN) 예산 연동이 없다. 성공으로 보지 않는다 */
+    /** 예산 결과를 알 수 없다(UNKNOWN, 예산 작업이 PENDING으로 남는다). 성공으로 보지 않는다 */
     PROMOTION_BUDGET_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "프로모션 예산을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
     // 발급

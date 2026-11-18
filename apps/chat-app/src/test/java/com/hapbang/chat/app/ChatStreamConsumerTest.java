@@ -27,9 +27,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
-import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
@@ -65,7 +65,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 메시지를_불변_집합으로_펼쳐_발행하고_PUBLISHED_기록_뒤_ACK한다() {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1").message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1").message().messageId();
         UUID deliveryId = deliveryIdOf(messageId);
         relayAll(ChatJobStream.DELIVERY);
 
@@ -91,7 +91,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 퇴장_안내는_남은_참여자에게만_알림_없이_발행한다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         relayAll(ChatJobStream.DELIVERY);
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
@@ -104,8 +104,8 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 저장_뒤_재입장한_회원은_이전_메시지_payload의_수신자가_아니다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         relayAll(ChatJobStream.DELIVERY);
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
@@ -243,7 +243,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
 
         // 같은 작업의 중복 항목
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, deliveryId.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("jobId", deliveryId.toString()));
         int callsBefore = fanout.publishCalls();
         pollAll(ChatJobStream.DELIVERY, WORKER);
         assertThat(fanout.publishCalls()).isEqualTo(callsBefore);
@@ -357,9 +357,9 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 작업_ID를_읽을_수_없는_항목과_원본이_없는_항목은_격리를_기록한_뒤_ACK한다() {
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
         UUID unknown = UUID.randomUUID();
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, unknown.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("jobId", unknown.toString()));
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
 

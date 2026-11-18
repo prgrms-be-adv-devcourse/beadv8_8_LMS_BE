@@ -106,13 +106,13 @@ class ChatGroupRoomFacadeTest {
     private ChatRoomFacade chatRoomFacade;
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
-    private ChatMessageSupporter chatMessageSupporter;
+    private DefaultChatMessageQueryService chatMessageQueryService;
 
     @Autowired
     private ChatReceiptService chatReceiptService;
@@ -316,7 +316,7 @@ class ChatGroupRoomFacadeTest {
                     assertThat(candidate.nickname()).isEqualTo(ChatUser.UNKNOWN_NICKNAME);
                     assertThat(candidate.invitable()).isFalse();
                 });
-        assertThat(chatRoomSupporter.displayNicknameOf(NO_REPLICA_ID)).isEqualTo(ChatUser.UNKNOWN_NICKNAME);
+        assertThat(chatRoomQueryService.displayNicknameOf(NO_REPLICA_ID)).isEqualTo(ChatUser.UNKNOWN_NICKNAME);
     }
 
     @Test
@@ -394,11 +394,11 @@ class ChatGroupRoomFacadeTest {
     @Test
     void 초대_안내는_값만_남기고_초대된_회원도_본다() {
         Long roomId = createRoom();
-        chatMessageUseCase.send(roomId, HOST_ID, "초대 전 메시지", null);
+        chatMessageService.send(roomId, HOST_ID, "초대 전 메시지", null);
 
         invite(roomId, GUEST_ID, GUEST_A);
 
-        List<ChatMessageResponse> seenByGuest = chatMessageSupporter.getMessages(roomId, GUEST_ID, null, 30).messages();
+        List<ChatMessageResponse> seenByGuest = chatMessageQueryService.getMessages(roomId, GUEST_ID, null, 30).messages();
         assertThat(seenByGuest).singleElement().satisfies(notice -> {
             assertThat(notice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
             assertThat(notice.content()).isEmpty();
@@ -451,14 +451,14 @@ class ChatGroupRoomFacadeTest {
     void 나갔던_회원은_재초대로만_새_참여_세대로_들어오고_이전_메시지는_보이지_않는다() {
         Long roomId = createRoom();
         invite(roomId, GUEST_ID);
-        chatMessageUseCase.send(roomId, HOST_ID, "퇴장 전 메시지", null);
+        chatMessageService.send(roomId, HOST_ID, "퇴장 전 메시지", null);
         chatRoomFacade.leave(roomId, GUEST_ID, 1);
 
         invite(roomId, GUEST_ID);
 
         ChatRoomMember member = memberOf(roomId, GUEST_ID);
         assertThat(member.getParticipationVersion()).isEqualTo(2);
-        assertThat(chatMessageSupporter.getMessages(roomId, GUEST_ID, null, 30).messages())
+        assertThat(chatMessageQueryService.getMessages(roomId, GUEST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::notificationKind)
                 .containsExactly(NotificationKind.GROUP_MEMBERS_INVITED);
     }
@@ -494,9 +494,9 @@ class ChatGroupRoomFacadeTest {
         chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1);
 
         assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
-        assertError(() -> chatMessageSupporter.getMessages(roomId, GUEST_ID, null, 30),
+        assertError(() -> chatMessageQueryService.getMessages(roomId, GUEST_ID, null, 30),
                 ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
-        assertThat(chatMessageSupporter.getMessages(roomId, GUEST_A, null, 30).messages().getFirst())
+        assertThat(chatMessageQueryService.getMessages(roomId, GUEST_A, null, 30).messages().getFirst())
                 .satisfies(notice -> {
                     assertThat(notice.notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_KICKED);
                     assertThat(notice.groupMemberKicked().kickedUserId()).isEqualTo(GUEST_ID);
@@ -530,7 +530,7 @@ class ChatGroupRoomFacadeTest {
     void 사용_중인_단체방은_호스트_혼자여도_보낼_수_있다() {
         Long roomId = createRoom();
 
-        assertThat(chatMessageUseCase.send(roomId, HOST_ID, "혼자 공지", null).message().content())
+        assertThat(chatMessageService.send(roomId, HOST_ID, "혼자 공지", null).message().content())
                 .isEqualTo("혼자 공지");
     }
 
@@ -544,7 +544,7 @@ class ChatGroupRoomFacadeTest {
         chatRoomFacade.leave(roomId, GUEST_ID, null);
 
         assertThat(memberOf(roomId, GUEST_ID).isActive()).isFalse();
-        ChatMessageResponse leftNotice = chatMessageSupporter.getMessages(roomId, HOST_ID, null, 30).messages()
+        ChatMessageResponse leftNotice = chatMessageQueryService.getMessages(roomId, HOST_ID, null, 30).messages()
                 .getFirst();
         assertThat(leftNotice.notificationKind()).isEqualTo(NotificationKind.GROUP_MEMBER_LEFT);
         assertThat(leftNotice.groupMemberLeft().leftUserId()).isEqualTo(GUEST_ID);
@@ -558,7 +558,7 @@ class ChatGroupRoomFacadeTest {
     void 폐쇄하면_참여를_유지한_읽기_전용이_되고_조회_읽음_수신_확인만_된다() {
         Long roomId = createRoom();
         invite(roomId, GUEST_ID);
-        long sent = chatMessageUseCase.send(roomId, GUEST_ID, "폐쇄 전 메시지", null).message().roomSequence();
+        long sent = chatMessageService.send(roomId, GUEST_ID, "폐쇄 전 메시지", null).message().roomSequence();
 
         ChatGroupCloseResponse closed = chatGroupRoomFacade.close(roomId, HOST_ID);
 
@@ -571,13 +571,13 @@ class ChatGroupRoomFacadeTest {
         assertThat(closedAgain.status()).isEqualTo(ChatRoomStatus.READ_ONLY);
         assertThat(closedAgain.historyExpiresAt()).isCloseTo(closed.historyExpiresAt(), within(1, ChronoUnit.MILLIS));
 
-        assertError(() -> chatMessageUseCase.send(roomId, GUEST_ID, "폐쇄 뒤", null), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
-        assertError(() -> chatMessageUseCase.send(roomId, HOST_ID, "폐쇄 뒤", null), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
+        assertError(() -> chatMessageService.send(roomId, GUEST_ID, "폐쇄 뒤", null), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
+        assertError(() -> chatMessageService.send(roomId, HOST_ID, "폐쇄 뒤", null), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
         assertError(() -> invite(roomId, GUEST_A), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
         assertError(() -> chatGroupRoomFacade.kick(roomId, HOST_ID, GUEST_ID, 1), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
         assertError(() -> candidates(roomId, null, null, 20), ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
 
-        List<ChatMessageResponse> history = chatMessageSupporter.getMessages(roomId, GUEST_ID, null, 30).messages();
+        List<ChatMessageResponse> history = chatMessageQueryService.getMessages(roomId, GUEST_ID, null, 30).messages();
         assertThat(history.getFirst().notificationKind()).isEqualTo(NotificationKind.GROUP_ROOM_CLOSED);
         assertThat(history.getFirst().groupRoomClosed().closedByUserId()).isEqualTo(HOST_ID);
         long lastSequence = history.getFirst().roomSequence();
@@ -607,7 +607,7 @@ class ChatGroupRoomFacadeTest {
         sql.update("update chats.chat_room set history_expires_at = :at where id = :id",
                 Map.of("at", LocalDateTime.now().minusSeconds(1), "id", roomId));
 
-        assertError(() -> chatMessageSupporter.getMessages(roomId, GUEST_ID, null, 30),
+        assertError(() -> chatMessageQueryService.getMessages(roomId, GUEST_ID, null, 30),
                 ChatErrorCode.CHAT_ROOM_NOT_FOUND);
         assertError(() -> chatRoomFacade.markRead(roomId, GUEST_ID, 1, 1), ChatErrorCode.CHAT_ROOM_NOT_FOUND);
         assertError(() -> chatReceiptService.markReceived(roomId, GUEST_ID, 1, 1), ChatErrorCode.CHAT_ROOM_NOT_FOUND);
@@ -618,7 +618,7 @@ class ChatGroupRoomFacadeTest {
         assertThat(chatGroupRoomFacade.getRooms(GUEST_ID, RECRUIT_ID).previousRooms()).isEmpty();
         assertThat(chatRecipientStateReader.checkSubscription(roomId, GUEST_ID).roomOpen()).isFalse();
 
-        var history = chatRoomSupporter.getHistory(roomId, ADMIN_ID, null, 50);
+        var history = chatRoomQueryService.getHistory(roomId, ADMIN_ID, null, 50);
         assertThat(history.status()).isEqualTo(ChatRoomStatus.EXPIRED);
         assertThat(history.group().recruitId()).isEqualTo(RECRUIT_ID);
         assertThat(history.messages()).extracting(message -> message.notificationKind())
@@ -792,7 +792,7 @@ class ChatGroupRoomFacadeTest {
     }
 
     private List<ChatRoomLogResponse> logsOf(Long roomId) {
-        return chatRoomSupporter.getHistory(roomId, ADMIN_ID, null, 100).logs();
+        return chatRoomQueryService.getHistory(roomId, ADMIN_ID, null, 100).logs();
     }
 
     private static void assertError(Runnable call, ChatErrorCode errorCode) {

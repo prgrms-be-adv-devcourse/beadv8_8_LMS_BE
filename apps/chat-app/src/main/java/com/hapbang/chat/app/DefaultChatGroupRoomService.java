@@ -85,7 +85,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatUserRepository chatUserRepository;
     private final ChatGroupInviteRequestRepository chatGroupInviteRequestRepository;
     private final ChatValidationService chatValidationService;
-    private final ChatRoomSupporter chatRoomSupporter;
+    private final ChatRoomQueryService chatRoomQueryService;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatGroupProperties properties;
@@ -144,7 +144,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
                 .stream()
                 .filter(member -> member.getChatRoom().isViewable(now))
                 .toList();
-        List<ChatRoomResponse> rooms = chatRoomSupporter.toResponses(userId, memberships, now);
+        List<ChatRoomResponse> rooms = chatRoomQueryService.toResponses(userId, memberships, now);
         ChatRoomResponse current = null;
         List<ChatRoomResponse> previous = new ArrayList<>();
         for (int i = 0; i < memberships.size(); i++) {
@@ -392,7 +392,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ChatRoomResponse toRoomResponse(Long chatRoomId, Long userId) {
-        return chatRoomSupporter.toResponse(chatRoomId, userId);
+        return chatRoomQueryService.toResponse(chatRoomId, userId);
     }
 
     /**

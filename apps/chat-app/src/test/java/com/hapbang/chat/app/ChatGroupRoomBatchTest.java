@@ -65,7 +65,7 @@ class ChatGroupRoomBatchTest {
     private ChatRoomFacade chatRoomFacade;
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -165,7 +165,7 @@ class ChatGroupRoomBatchTest {
 
         assertThat(chatRoomFacade.getMyRooms(GUEST_ID)).isEmpty();
         assertThat(chatGroupRoomFacade.getRooms(GUEST_ID, FIRST_RECRUIT_ID).previousRooms()).isEmpty();
-        ChatRoomHistoryResponse history = chatRoomSupporter.getHistory(roomId, ADMIN_ID, null, 100);
+        ChatRoomHistoryResponse history = chatRoomQueryService.getHistory(roomId, ADMIN_ID, null, 100);
         assertThat(history.status()).isEqualTo(ChatRoomStatus.EXPIRED);
         assertThat(history.logs()).extracting(ChatRoomLogResponse::eventType).last()
                 .isEqualTo(ChatRoomEventType.HISTORY_EXPIRED);
@@ -250,7 +250,7 @@ class ChatGroupRoomBatchTest {
     }
 
     private List<ChatRoomLogResponse> expiryLogs(Long roomId) {
-        return chatRoomSupporter.getHistory(roomId, ADMIN_ID, null, 100).logs().stream()
+        return chatRoomQueryService.getHistory(roomId, ADMIN_ID, null, 100).logs().stream()
                 .filter(log -> log.eventType() == ChatRoomEventType.HISTORY_EXPIRED)
                 .toList();
     }

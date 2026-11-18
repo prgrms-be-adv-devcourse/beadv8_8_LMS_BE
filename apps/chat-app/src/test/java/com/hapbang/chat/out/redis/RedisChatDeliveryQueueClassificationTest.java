@@ -22,10 +22,13 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
-import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
+import com.hapbang.chat.app.port.ControlJob;
+import com.hapbang.chat.domain.ChatControlReason;
+import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 /**
@@ -35,6 +38,10 @@ import com.hapbang.chat.global.redis.ChatRedisKeys;
  * 세면 안 된다. 다른 테스트와 Redis를 나누지 않도록 전용 컨테이너를 쓴다.
  */
 class RedisChatDeliveryQueueClassificationTest {
+
+    /** 적재 결과만 보는 시험이라 내용은 아무 작업이나 된다 */
+    private static final ControlJob JOB = new ControlJob(1L, UUID.randomUUID(), ChatControlType.RECHECK_USER, 1L, null,
+            ChatControlReason.MEMBER_MODIFIED, null, 1);
 
     private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8")
             .withExposedPorts(6379)
@@ -73,7 +80,7 @@ class RedisChatDeliveryQueueClassificationTest {
     void WRONGTYPE은_연결_불가도_메모리_상한도_아닌_명령_오류로_그대로_던진다() {
         redis.opsForValue().set(keys.deliveryStream(), "문자열 키");
 
-        Throwable thrown = catchThrowable(() -> queue.enqueue(ChatJobStream.DELIVERY, Map.of("jobId", "x")));
+        Throwable thrown = catchThrowable(() -> queue.enqueue(ChatJobStream.DELIVERY, JOB));
 
         assertThat(thrown).isNotNull()
                 .isNotInstanceOf(ChatDeliveryUnavailableException.class)
@@ -153,7 +160,7 @@ class RedisChatDeliveryQueueClassificationTest {
                 keys);
         try {
             assertThatThrownBy(down::ping).isInstanceOf(ChatDeliveryUnavailableException.class);
-            assertThatThrownBy(() -> down.enqueue(ChatJobStream.DELIVERY, Map.of("jobId", "x")))
+            assertThatThrownBy(() -> down.enqueue(ChatJobStream.DELIVERY, JOB))
                     .isInstanceOf(ChatDeliveryUnavailableException.class);
             assertThatThrownBy(() -> down.reclaim(ChatJobStream.DELIVERY, "c1", Duration.ZERO, "0-0", 1))
                     .isInstanceOf(ChatDeliveryUnavailableException.class);

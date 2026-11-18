@@ -58,7 +58,7 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ChatStompAuthInterceptor chatStompAuthInterceptor;
     private final ChatConnectionTicketHandshakeInterceptor chatConnectionTicketHandshakeInterceptor;
     private final ChatStompInterceptor chatStompInterceptor;
-    private final ChatWebSocketSessionRegistry chatWebSocketSessionRegistry;
+    private final ChatWebSocketLifecycleDecorator chatWebSocketLifecycleDecorator;
     private final ChatOutboundSendBudget chatOutboundSendBudget;
     private final ChatInboundReceiveBudget chatInboundReceiveBudget;
 
@@ -93,7 +93,7 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
-        registration.addDecoratorFactory(chatWebSocketSessionRegistry);
+        registration.addDecoratorFactory(chatWebSocketLifecycleDecorator);
         registration.setSendTimeLimit(Math.toIntExact(sendTimeLimit.toMillis()));
         registration.setSendBufferSizeLimit(Math.toIntExact(sendBufferSizeLimit.toBytes()));
     }

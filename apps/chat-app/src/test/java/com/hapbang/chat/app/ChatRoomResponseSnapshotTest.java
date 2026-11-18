@@ -35,13 +35,13 @@ import com.hapbang.testsupport.IntegrationTest;
 class ChatRoomResponseSnapshotTest {
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -52,8 +52,8 @@ class ChatRoomResponseSnapshotTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        beforeMessageId = chatMessageUseCase.send(chatRoomId, HOST_ID, "끼어들기 전", null).message().messageId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        beforeMessageId = chatMessageService.send(chatRoomId, HOST_ID, "끼어들기 전", null).message().messageId();
     }
 
     @AfterEach
@@ -63,23 +63,23 @@ class ChatRoomResponseSnapshotTest {
 
     @Test
     void 채팅_시작_응답은_조회_도중_퇴장_재입장_전송이_커밋돼도_한_시점의_값으로_만든다() {
-        AtomicReference<Long> afterMessageId = armRejoinAndSend(ChatRoomSupporter.class.getName() + ".toResponse");
+        AtomicReference<Long> afterMessageId = armRejoinAndSend(DefaultChatRoomQueryService.class.getName() + ".toResponse");
 
-        ChatRoomResponse response = chatRoomSupporter.toResponse(chatRoomId, GUEST_ID);
+        ChatRoomResponse response = chatRoomQueryService.toResponse(chatRoomId, GUEST_ID);
 
         assertThat(afterMessageId.get()).as("끼어든 전송이 실제로 커밋됐다").isNotNull();
         assertConsistentBeforeInterleaving(response, afterMessageId.get());
         // 끼어든 커밋 뒤 새로 읽으면 세대 2와 그 세대의 메시지가 함께 보인다(대조군)
-        ChatRoomResponse fresh = chatRoomSupporter.toResponse(chatRoomId, GUEST_ID);
+        ChatRoomResponse fresh = chatRoomQueryService.toResponse(chatRoomId, GUEST_ID);
         assertThat(guestOf(fresh).participationVersion()).isEqualTo(2);
         assertThat(fresh.lastMessage().messageId()).isEqualTo(afterMessageId.get());
     }
 
     @Test
     void 내_채팅방_목록도_조회_도중_퇴장_재입장_전송이_커밋돼도_한_시점의_값으로_만든다() {
-        AtomicReference<Long> afterMessageId = armRejoinAndSend(ChatRoomSupporter.class.getName() + ".getMyRooms");
+        AtomicReference<Long> afterMessageId = armRejoinAndSend(DefaultChatRoomQueryService.class.getName() + ".getMyRooms");
 
-        ChatRoomResponse response = chatRoomSupporter.getMyRooms(GUEST_ID).getFirst();
+        ChatRoomResponse response = chatRoomQueryService.getMyRooms(GUEST_ID).getFirst();
 
         assertThat(afterMessageId.get()).as("끼어든 전송이 실제로 커밋됐다").isNotNull();
         assertConsistentBeforeInterleaving(response, afterMessageId.get());
@@ -102,9 +102,9 @@ class ChatRoomResponseSnapshotTest {
     private AtomicReference<Long> armRejoinAndSend(String transactionName) {
         AtomicReference<Long> afterMessageId = new AtomicReference<>();
         InterleavingInspector.arm(transactionName, () -> {
-            chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-            chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
-            SentChatMessage after = chatMessageUseCase.send(chatRoomId, HOST_ID, "끼어든 뒤", null);
+            chatRoomService.leave(chatRoomId, GUEST_ID, null);
+            chatRoomService.createOrGet(GUEST_ID, HOST_ID);
+            SentChatMessage after = chatMessageService.send(chatRoomId, HOST_ID, "끼어든 뒤", null);
             afterMessageId.set(after.message().messageId());
         });
         return afterMessageId;

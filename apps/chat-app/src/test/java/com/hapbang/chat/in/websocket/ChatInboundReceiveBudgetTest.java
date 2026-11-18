@@ -459,8 +459,13 @@ class ChatInboundReceiveBudgetTest {
 
     private ChatInboundReceiveBudget budget(int workers, int queueCapacity, int closeQueueCapacity,
             int perSessionFrames) {
+        return budget(workers, queueCapacity, closeQueueCapacity, perSessionFrames, Duration.ofSeconds(30));
+    }
+
+    private ChatInboundReceiveBudget budget(int workers, int queueCapacity, int closeQueueCapacity,
+            int perSessionFrames, Duration closedSessionTtl) {
         ChatInboundReceiveBudget budget = new ChatInboundReceiveBudget(registry, meterRegistry, workers, queueCapacity,
-                closeQueueCapacity, perSessionFrames);
+                closeQueueCapacity, perSessionFrames, closedSessionTtl, 10_000);
         budgets.add(budget);
         return budget;
     }
@@ -645,8 +650,7 @@ class ChatInboundReceiveBudgetTest {
      */
     @Test
     void 거절된_프레임의_남은_처리기_작업이_정리_뒤에_들어와도_새_줄에서_처리되지_않는다() throws Exception {
-        ChatInboundReceiveBudget budget = budget(1, 1, 20);
-        budget.setClosedSessionTtl(Duration.ofMillis(500));
+        ChatInboundReceiveBudget budget = budget(1, 1, 10, 20, Duration.ofMillis(500));
         Executor executor = budget.channelExecutor();
         List<String> handled = new CopyOnWriteArrayList<>();
         MessageHandler first = message -> handled.add("first:" + payloadOf(message));

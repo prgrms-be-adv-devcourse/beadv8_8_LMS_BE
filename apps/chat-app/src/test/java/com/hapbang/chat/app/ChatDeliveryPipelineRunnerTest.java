@@ -23,7 +23,9 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
@@ -149,7 +151,7 @@ class ChatDeliveryPipelineRunnerTest extends ChatDeliveryTestSupport {
                     release.await(30, TimeUnit.SECONDS);
                 }
                 return invocation.callRealMethod();
-            }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+            }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
         } finally {
             runner.start();
         }
