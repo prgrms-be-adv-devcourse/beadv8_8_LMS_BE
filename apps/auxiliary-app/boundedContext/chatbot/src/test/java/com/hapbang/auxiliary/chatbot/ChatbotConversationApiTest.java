@@ -116,7 +116,7 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
 
         String system = chatModel.lastPrompt().getSystemMessage().getText();
         assertThat(system).contains("마크다운 없이 일반 글로 쓴다", "목록 기호", "제목 기호")
-                .contains("정책·금액·기간을 묻는 질문이면 정확히 \"" + FaqChatUseCase.NO_ANSWER_MESSAGE + "\"")
+                .contains("정책·금액·기간이나 이용 방법·절차를 묻는 질문이면 정확히 \"" + FaqChatUseCase.NO_ANSWER_MESSAGE + "\"")
                 .contains("추천을 원하는 말이면 알맞은 추천 Tool을 쓴다")
                 .contains("방송·합방 기획, 콘텐츠 제작, 강의 고르기와 학습 방법", "합방 기능으로 이어 준다")
                 .contains("합방의 이용 방법·절차는 규칙 1대로 searchFaq로 찾고", "조언에서는 합방의 정책·금액·기간·절차를 말하지 않는다")
