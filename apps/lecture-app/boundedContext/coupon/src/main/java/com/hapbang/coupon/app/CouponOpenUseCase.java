@@ -2,7 +2,6 @@ package com.hapbang.coupon.app;
 
 import java.time.Clock;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -15,7 +14,6 @@ import com.hapbang.coupon.app.exception.CouponException;
 import com.hapbang.coupon.app.port.BudgetWorkRepository;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
 import com.hapbang.coupon.app.port.CouponIssueStore;
-import com.hapbang.coupon.app.port.PromotionBudget;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.config.CouponRedisProperties;
 import com.hapbang.coupon.domain.BudgetWork;
@@ -59,7 +57,6 @@ public class CouponOpenUseCase {
     private final CouponBudgetWorkUseCase budgetWorkUseCase;
     private final CouponIssueStore couponIssueStore;
     private final CouponCapacitySupport capacitySupport;
-    private final ObjectProvider<PromotionBudget> promotionBudgetProvider;
     private final CouponRedisProperties redisProperties;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -67,7 +64,6 @@ public class CouponOpenUseCase {
     public CouponOpenUseCase(CouponSupport couponSupport, BudgetWorkRepository budgetWorkRepository,
                              CouponBudgetWorkUseCase budgetWorkUseCase,
                              CouponIssueStore couponIssueStore, CouponCapacitySupport capacitySupport,
-                             ObjectProvider<PromotionBudget> promotionBudgetProvider,
                              CouponRedisProperties redisProperties, PlatformTransactionManager transactionManager,
                              @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponSupport = couponSupport;
@@ -75,7 +71,6 @@ public class CouponOpenUseCase {
         this.budgetWorkUseCase = budgetWorkUseCase;
         this.couponIssueStore = couponIssueStore;
         this.capacitySupport = capacitySupport;
-        this.promotionBudgetProvider = promotionBudgetProvider;
         this.redisProperties = redisProperties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -95,13 +90,8 @@ public class CouponOpenUseCase {
         return view;
     }
 
-    /** 플랫폼 쿠폰 발행. 예산 연동(billing)이 없으면 열지 않는다 */
+    /** 플랫폼 쿠폰 발행 */
     public CouponView open(long adminId, long couponId) {
-        PromotionBudget promotionBudget = promotionBudgetProvider.getIfAvailable();
-        if (promotionBudget == null) {
-            throw new CouponException(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE,
-                    "프로모션 예산 연동이 없어 플랫폼 쿠폰을 열 수 없습니다.");
-        }
         Coupon current = couponSupport.findCoupon(couponId);
         requireOpenable(current, CouponType.PLATFORM);
         if (current.getStatus() != CouponStatus.OPEN) {

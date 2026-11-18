@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -35,7 +34,7 @@ public class CouponBudgetWorkUseCase {
     private final CouponRepository couponRepository;
     private final MemberCouponRepository memberCouponRepository;
     private final CouponBudgetReleaseRecorder releaseRecorder;
-    private final ObjectProvider<PromotionBudget> budgetProvider;
+    private final PromotionBudget promotionBudget;
     private final CouponBudgetWorkProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -43,13 +42,13 @@ public class CouponBudgetWorkUseCase {
     public CouponBudgetWorkUseCase(BudgetWorkRepository budgetWorkRepository,
             CouponRepository couponRepository, MemberCouponRepository memberCouponRepository,
             CouponBudgetReleaseRecorder releaseRecorder,
-            ObjectProvider<PromotionBudget> budgetProvider, CouponBudgetWorkProperties properties,
+            PromotionBudget promotionBudget, CouponBudgetWorkProperties properties,
             PlatformTransactionManager transactionManager, @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.budgetWorkRepository = budgetWorkRepository;
         this.couponRepository = couponRepository;
         this.memberCouponRepository = memberCouponRepository;
         this.releaseRecorder = releaseRecorder;
-        this.budgetProvider = budgetProvider;
+        this.promotionBudget = promotionBudget;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -58,27 +57,15 @@ public class CouponBudgetWorkUseCase {
     public void runDue() {
         registerExpiredRemainders();
         registerExpiredDrafts();
-        PromotionBudget budget = budgetProvider.getIfAvailable();
-        if (budget == null) {
-            return;
-        }
         List<String> ids = transaction.execute(status -> budgetWorkRepository.findDueIds(clock.instant(),
                 Limit.of(properties.batchSize())));
         for (String id : ids) {
             try {
-                execute(id, budget);
+                execute(id);
             } catch (RuntimeException exception) {
                 // 결과 불명·기록 실패도 같은 작업 ID를 다음 lease 뒤에 다시 확인한다.
                 log.warn("프로모션 예산 작업을 완료하지 못해 다음 회차로 넘긴다 workId={}", id, exception);
             }
-        }
-    }
-
-    /** 발급 열기의 즉시 실행도 배치와 같은 lease·결과 fence를 사용한다. 이미 선점됐으면 아무것도 호출하지 않는다. */
-    public void execute(String id) {
-        PromotionBudget budget = budgetProvider.getIfAvailable();
-        if (budget != null) {
-            execute(id, budget);
         }
     }
 
@@ -142,7 +129,8 @@ public class CouponBudgetWorkUseCase {
         }
     }
 
-    private void execute(String id, PromotionBudget budget) {
+    /** 발급 열기의 즉시 실행도 배치와 같은 lease·결과 fence를 사용한다. 이미 선점됐으면 아무것도 호출하지 않는다. */
+    public void execute(String id) {
         BudgetWork work = transaction.execute(status -> {
             Instant now = clock.instant();
             if (budgetWorkRepository.claim(id, now, now.plus(properties.lease())) == 0) {
@@ -158,7 +146,7 @@ public class CouponBudgetWorkUseCase {
         if (work == null) {
             return;
         }
-        PromotionBudget.BudgetResult result = budget.status(id);
+        PromotionBudget.BudgetResult result = promotionBudget.status(id);
         if (result != null && ((result.outcome() == PromotionBudget.Outcome.SUCCEEDED && !matches(work, result))
                 || (result.outcome() == PromotionBudget.Outcome.UNKNOWN && invalidLookup(result.reason())))) {
             log.error("[COUPON_BUDGET_WORK_RESPONSE_MISMATCH] 프로모션 예산 조회 근거가 영속 작업과 달라 "
@@ -171,9 +159,10 @@ public class CouponBudgetWorkUseCase {
         if (result == null || result.outcome() == PromotionBudget.Outcome.UNKNOWN) {
             if (work.getKind() == BudgetWorkKind.RESERVE) {
                 Coupon coupon = transaction.execute(status -> couponRepository.findById(work.getCouponId()).orElseThrow());
-                result = budget.reserve(id, work.getCouponId(), coupon.getPolicyVersion(), work.getAmount());
+                result = promotionBudget.reserve(id, work.getCouponId(), coupon.getPolicyVersion(), work.getAmount());
             } else {
-                result = budget.release(id, work.getReservationId(), work.getAmount(), work.getTarget(), work.getReason());
+                result = promotionBudget.release(id, work.getReservationId(), work.getAmount(), work.getTarget(),
+                        work.getReason());
             }
         }
         if (result == null || result.outcome() == PromotionBudget.Outcome.UNKNOWN
