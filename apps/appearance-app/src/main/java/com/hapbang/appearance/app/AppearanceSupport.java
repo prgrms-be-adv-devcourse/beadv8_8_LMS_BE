@@ -67,7 +67,6 @@ public class AppearanceSupport {
         return found(appearanceRepository.findById(appearanceId));
     }
 
-    /** 여러 출연을 한 번에 읽는다 (잠그지 않는다). 없는 ID는 빠진다 */
     /**
      * 출연을 배타 잠금으로 읽는다. 같은 출연의 취소 요청·응답·자동 거절이 차례로 처리돼, 나중 처리는 바뀐 상태를 본다.
      *

@@ -11,6 +11,9 @@ import com.hapbang.appearance.domain.HpTaskStatus;
  * @param statusUpdatedAt 정렬과 응답에 함께 쓰는 값. 작업 완료 시각 → 확인 시각 → 취소 시각 → 불참 시각 → 출연 수정 시각 중 처음 있는 값
  * @param title           출처(요청서·모집글)의 현재 제목 (#1002). 출처가 없으면 null
  */
-public record AppearanceEarningRow(Appearance appearance, HpTaskStatus taskStatus, LocalDateTime statusUpdatedAt,
-                                   String title) {
+public record AppearanceEarningRow(
+        Appearance appearance,
+        HpTaskStatus taskStatus,
+        LocalDateTime statusUpdatedAt,
+        String title) {
 }
