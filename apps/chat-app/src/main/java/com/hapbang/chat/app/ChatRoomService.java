@@ -1,7 +1,10 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
+
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomOpenResult;
+import com.hapbang.chat.domain.ChatRoom;
 
 /**
  * 1:1 채팅방을 열고 나간다. 메서드마다 하나의 쓰기 트랜잭션이고 저장만 한다. 방 응답 조립은
@@ -21,4 +24,16 @@ public interface ChatRoomService {
      * @param participationVersion 요청한 참여 세대. null이면 현재 세대로 본다.
      */
     ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion);
+
+    /**
+     * 두 회원의 1:1 방을 연다. 채팅 시작({@link #createOrGet})과 출연 알림이 같은 규칙을 쓴다. 부른 쪽의 쓰기 트랜잭션에서 한다.
+     * 새 방을 동시에 만들면 유일 제약(direct_key)에 걸리므로 호출한 Facade가 다시 시도한다.
+     */
+    OpenedRoom openDirectRoom(Long requesterId, Long targetUserId, LocalDateTime now);
+
+    /**
+     * 연 방. 기존 방이면 잠긴 상태다. 나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보일 재입장 안내의 전달은 outbox가 맡는다.
+     */
+    record OpenedRoom(ChatRoom chatRoom, boolean created) {
+    }
 }

@@ -1,10 +1,12 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberPageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.domain.ChatRoomMember;
 
 /**
  * 채팅방 읽기 전용 기능. 쓰기({@link ChatRoomService})와 나눈다. 한 시점의 스냅샷으로 읽도록 새 읽기 트랜잭션을 열므로
@@ -34,4 +36,14 @@ public interface ChatRoomQueryService {
 
     /** 채팅 시작 응답. 저장 트랜잭션이 커밋된 뒤 부른다 */
     ChatRoomResponse toResponse(Long chatRoomId, Long userId);
+
+    /**
+     * 조회한 회원의 참여 행들로 방 응답을 만든다(단체방 목록 등). 부른 쪽의 트랜잭션에서 읽는다.
+     *
+     * @param myMembers 조회한 회원의 활성 참여 행(방을 함께 읽은 것). 이 순서대로 응답한다
+     */
+    List<ChatRoomResponse> toResponses(Long userId, List<ChatRoomMember> myMembers, LocalDateTime now);
+
+    /** 표시용 닉네임(안내 문구용). 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '알 수 없는 회원'. 부른 쪽의 트랜잭션에서 읽는다 */
+    String displayNicknameOf(Long userId);
 }

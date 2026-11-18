@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -88,6 +89,36 @@ class ChatRealtimeServiceBoundaryTest {
                 .check(classes);
     }
 
+    /**
+     * 서비스 경계 규칙: Facade뿐 아니라 {@code app}의 모든 빈 클래스는 다른 업무 서비스를 그 인터페이스로 주입받는다. 업무 서비스
+     * 구현({@code app}의 인터페이스를 구현한 {@code DefaultXxx})을 생성자·필드 타입으로 쓰지 않는다. 인터페이스가 없는 조정 클래스
+     * (예: {@code ChatUserUseCase}, {@code LocalRoomSubscriptions})와, Facade용 좁은 역할 계약({@code ChatUserEligibility})만
+     * 구현하고 서비스들이 도메인 타입 검증에 함께 쓰는 {@code ChatValidationService}는 구현이 아니라 조정 클래스로 보고 그대로
+     * 주입받을 수 있다. 빈이 아닌 중첩 클래스는 보지 않는다.
+     */
+    @Test
+    @DisplayName("app 클래스는 업무 서비스 구현(app 인터페이스를 구현한 클래스)을 주입받지 않는다")
+    void appClassesDoNotInjectServiceImplementations() {
+        List<Class<?>> appClasses = classes.stream()
+                .filter(type -> type.getPackageName().equals("com.hapbang.chat.app"))
+                .filter(type -> type.getEnclosingClass().isEmpty())
+                .<Class<?>>map(JavaClass::reflect)
+                .toList();
+        assertThat(appClasses).hasSizeGreaterThan(50);
+
+        assertThat(appClasses.stream().flatMap(type -> injectedServiceImplementations(type).stream()).toList())
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("업무 서비스 구현을 주입받는 app 클래스가 있으면 규칙 검사가 잡는다")
+    void serviceImplementationInjectionIsDetected() {
+        assertThat(injectedServiceImplementations(InjectsQueryImplementation.class))
+                .containsExactly("InjectsQueryImplementation 생성자 → DefaultChatRoomQueryService",
+                        "InjectsQueryImplementation 필드 → DefaultChatRoomQueryService");
+        assertThat(injectedServiceImplementations(InjectsQueryInterface.class)).isEmpty();
+    }
+
     @Test
     @DisplayName("ChatRealtimeFacade는 app·domain과 Spring 스테레오타입·로깅(lombok 생성 표시 포함) 외에 의존하지 않는다")
     void facadeDependsOnlyOnAppLayer() {
@@ -151,6 +182,55 @@ class ChatRealtimeServiceBoundaryTest {
         assertThat(transactional.readOnly()).isTrue();
         assertThat(ChatRoomMemberships.class).isAssignableFrom(CachedChatRoomMemberships.class);
         assertThat(ChatRoomMembershipLoader.class).isNotEqualTo(CachedChatRoomMemberships.class);
+    }
+
+    /** 그 클래스가 생성자·필드로 받는 업무 서비스 구현. 비어 있어야 한다 */
+    private static List<String> injectedServiceImplementations(Class<?> type) {
+        List<String> found = new ArrayList<>();
+        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+            for (Class<?> parameter : constructor.getParameterTypes()) {
+                if (isServiceImplementation(parameter)) {
+                    found.add(type.getSimpleName() + " 생성자 → " + parameter.getSimpleName());
+                }
+            }
+        }
+        for (Field field : type.getDeclaredFields()) {
+            if (!Modifier.isStatic(field.getModifiers()) && !field.isSynthetic()
+                    && isServiceImplementation(field.getType())) {
+                found.add(type.getSimpleName() + " 필드 → " + field.getType().getSimpleName());
+            }
+        }
+        return found;
+    }
+
+    /** {@code app} 바로 아래의 {@code DefaultXxx} 클래스로, 같은 패키지의 인터페이스(업무 서비스 계약)를 구현한다 */
+    private static boolean isServiceImplementation(Class<?> type) {
+        return !type.isInterface() && type.getPackageName().equals("com.hapbang.chat.app")
+                && type.getSimpleName().startsWith("Default")
+                && Arrays.stream(type.getInterfaces())
+                        .anyMatch(contract -> contract.getPackageName().equals("com.hapbang.chat.app"));
+    }
+
+    /** 규칙 위반 예: 조회 계약 대신 구현을 받는다 */
+    @SuppressWarnings("unused")
+    private static final class InjectsQueryImplementation {
+
+        private final DefaultChatRoomQueryService chatRoomQueryService;
+
+        InjectsQueryImplementation(DefaultChatRoomQueryService chatRoomQueryService) {
+            this.chatRoomQueryService = chatRoomQueryService;
+        }
+    }
+
+    /** 규칙을 지킨 예: 조회 계약을 받는다 */
+    @SuppressWarnings("unused")
+    private static final class InjectsQueryInterface {
+
+        private final ChatRoomQueryService chatRoomQueryService;
+
+        InjectsQueryInterface(ChatRoomQueryService chatRoomQueryService) {
+            this.chatRoomQueryService = chatRoomQueryService;
+        }
     }
 
     /** Facade가 주입받을 수 있는 타입: app·app/port의 인터페이스, config의 설정값 */

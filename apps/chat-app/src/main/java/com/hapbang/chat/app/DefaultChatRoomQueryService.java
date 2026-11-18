@@ -84,6 +84,7 @@ public class DefaultChatRoomQueryService implements ChatRoomQueryService {
      *
      * @param myMembers 조회한 회원의 활성 참여 행(방을 함께 읽은 것). 이 순서대로 응답한다
      */
+    @Override
     public List<ChatRoomResponse> toResponses(Long userId, List<ChatRoomMember> myMembers, LocalDateTime now) {
         if (myMembers.isEmpty()) {
             return List.of();
@@ -243,6 +244,7 @@ public class DefaultChatRoomQueryService implements ChatRoomQueryService {
     }
 
     /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '알 수 없는 회원'(회원 ID는 사용자에게 드러내지 않는다) */
+    @Override
     public String displayNicknameOf(Long userId) {
         return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse(ChatUser.UNKNOWN_NICKNAME);
     }

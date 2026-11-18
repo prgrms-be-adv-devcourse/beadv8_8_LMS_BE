@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.DefaultChatRoomService.OpenedRoom;
+import com.hapbang.chat.app.ChatRoomService.OpenedRoom;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.port.ChatMessageRepository;
@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
  * 출연 이벤트를 채팅 알림 메시지로 남긴다.
  * <ul>
  *     <li>알림은 행위자(보낸 사람)와 받는 사람의 1:1 방에 남긴다. 방이 없으면 만들고, 나갔으면 재입장시킨다
- *     ({@link DefaultChatRoomService#openDirectRoom}, 채팅 시작과 같은 규칙).</li>
+ *     ({@link ChatRoomService#openDirectRoom}, 채팅 시작과 같은 규칙).</li>
  *     <li>알림 메시지는 저장 시점 방의 현재 불변 수신자 집합으로 전달하고, 받는 사람(보낸 사람 제외)에게 알린다.
  *     전달 outbox·발행 체크포인트를 같은 트랜잭션에 남긴다.</li>
  *     <li>같은 출연 건의 같은 알림은 한 번만 남긴다. 이벤트가 다시 처리되면 아무것도 하지 않는다.</li>
@@ -44,7 +44,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class DefaultChatNotificationService implements ChatNotificationService {
 
-    private final DefaultChatRoomService chatRoomService;
+    private final ChatRoomService chatRoomService;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatDeliveryRecorder chatDeliveryRecorder;

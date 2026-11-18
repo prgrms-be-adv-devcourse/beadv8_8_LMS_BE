@@ -40,7 +40,7 @@ public class DefaultChatRoomService implements ChatRoomService {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatValidationService chatValidationService;
-    private final DefaultChatRoomQueryService chatRoomQueryService;
+    private final ChatRoomQueryService chatRoomQueryService;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatReadCountSignals chatReadCountSignals;
@@ -68,6 +68,7 @@ public class DefaultChatRoomService implements ChatRoomService {
      * 참여가 바뀌면(생성·재입장) 같은 트랜잭션에서 불변 수신자 집합의 새 버전을 만든다. 수신자 집합이 없는 기존 방
      * (전환 전 데이터 이상)은 지금의 활성 참여로 집합을 만든 뒤 연다.
      */
+    @Override
     public OpenedRoom openDirectRoom(Long requesterId, Long targetUserId, LocalDateTime now) {
         if (requesterId == null || targetUserId == null) {
             throw new ChatException(ChatErrorCode.INVALID_REQUEST);
@@ -193,12 +194,6 @@ public class DefaultChatRoomService implements ChatRoomService {
         chatReadCountSignals.membershipChanged(chatRoom.getId(), remaining.getSetVersion());
         log.info("단체방 퇴장 chatRoomId={}, userId={}, status={}", chatRoom.getId(), userId, chatRoom.getStatus());
         return new ChatRoomLeaveResult(true, member.getParticipationVersion());
-    }
-
-    /**
-     * 연 방. 기존 방이면 잠긴 상태다. 나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보일 재입장 안내의 전달은 outbox가 맡는다.
-     */
-    public record OpenedRoom(ChatRoom chatRoom, boolean created) {
     }
 
     /**

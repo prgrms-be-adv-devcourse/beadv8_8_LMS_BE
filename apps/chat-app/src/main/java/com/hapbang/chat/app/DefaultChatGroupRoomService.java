@@ -85,7 +85,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatUserRepository chatUserRepository;
     private final ChatGroupInviteRequestRepository chatGroupInviteRequestRepository;
     private final ChatValidationService chatValidationService;
-    private final DefaultChatRoomQueryService chatRoomQueryService;
+    private final ChatRoomQueryService chatRoomQueryService;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatGroupProperties properties;
