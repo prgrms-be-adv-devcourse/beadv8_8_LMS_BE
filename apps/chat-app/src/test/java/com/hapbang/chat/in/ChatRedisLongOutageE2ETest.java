@@ -92,7 +92,9 @@ import jakarta.persistence.EntityManager;
                 "hapbang.chat.realtime.listener.recovery-interval=200ms",
                 "spring.data.redis.timeout=500ms",
                 // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
-                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000",
+                // 포트가 겹친 다른 프로세스로 요청이 가지 않게 서버를 127.0.0.1에 묶는다(@ChatE2ETest와 같다)
+                "server.address=127.0.0.1"
         })
 @Import({PostgresTestcontainersConfig.class})
 @DirtiesContext

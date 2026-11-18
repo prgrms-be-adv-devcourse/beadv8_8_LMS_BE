@@ -3,7 +3,6 @@ package com.hapbang.chat.out.kafka;
 import java.util.Map;
 
 import org.apache.kafka.clients.admin.NewTopic;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -25,7 +24,7 @@ import com.hapbang.shared.chat.event.GroupRoomClosedEvent;
  *     롤백되면 보내지 않는다. 보내지 못한 기록은 재발행 배치({@code ChatEventRepublisher}, 매분)와 서버 재시작 때 다시 보낸다.</li>
  *     <li>이 발행 기록은 방 안 메시지를 전달하는 채팅 outbox(Redis Streams로 적재)와 다른 것이다. 방 안 안내·전달 작업은 그대로다.</li>
  *     <li>헤더는 {@value #EVENT_TYPE}·{@value #EVENT_VERSION} 두 개다. 이벤트 ID는 두지 않고 받는 쪽은 사건 ID로 중복을 거른다.</li>
- *     <li>토픽은 채팅 앱이 선언한다(브로커 자동 생성은 꺼져 있다). 외부화를 끈 테스트에서는 선언하지 않는다.</li>
+ *     <li>토픽은 채팅 앱이 선언한다(브로커 자동 생성은 꺼져 있다).</li>
  *     <li>보내는 템플릿은 {@link ChatEventKafkaConfig}가 코드로 만든다.</li>
  * </ul>
  * 내보낼 이벤트를 더하면 shared 레코드에 {@code @Externalized}를 붙이고 여기에 {@value #EVENT_TYPE} 헤더를 더한다.
@@ -55,7 +54,6 @@ public class ChatEventExternalizationConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "spring.modulith.events.externalization.enabled", matchIfMissing = true)
     NewTopic chatEventTopic() {
         return TopicBuilder.name(ChatEventTopic.NAME).partitions(ChatEventKafkaConstants.TOPIC_PARTITIONS)
                 .replicas(ChatEventKafkaConstants.TOPIC_REPLICAS).build();

@@ -48,7 +48,10 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 // 메서드 사이에 파이프라인을 멈출 때 worker가 블로킹 읽기에서 빨리 돌아오게 한다
                 "hapbang.chat.delivery.consumer.block=200ms",
                 // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
-                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000",
+                // 다른 프로세스가 127.0.0.1에만 잡은 포트를 받아도 요청이 그 프로세스로 가지 않게, 서버를 127.0.0.1에 묶는다
+                // (포트가 겹치면 시작할 때 바로 실패한다)
+                "server.address=127.0.0.1"
         })
 @Import({PostgresTestcontainersConfig.class, RedisTestcontainersConfig.class})
 @DirtiesContext
