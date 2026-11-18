@@ -26,6 +26,8 @@ import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher.SearchResu
 /**
  * 인플루언서 검색(#771, {@code GET /api/v1/search/influencers}). 로그인 회원만 쓴다.
  * <ul>
+ *     <li>먼저 호출 제한을 센다({@link InfluencerSearchRateLimit}, 회원 ID마다 분당 60회, #1012). 넘으면 429다. 정렬·페이지 오류(400)도
+ *     센다(강의 검색과 같다). 검색어 길이 같은 형식 오류는 Spring 메서드 검증이 컨트롤러 전에 400을 내 세지 않는다.</li>
  *     <li>정렬은 {@code followers,desc}·{@code rating,desc} 하나만 고를 수 있고, 그 밖은 400 {@code UNSUPPORTED_SORT}다.</li>
  *     <li>앞에서 {@value #MAX_RESULT_WINDOW}건까지만 볼 수 있다({@code page × size + size}가 넘으면 400 {@code PAGE_TOO_DEEP}).
  *     전체 수도 그만큼까지만 센다.</li>
@@ -42,13 +44,15 @@ public class InfluencerSearchFacade {
 
     static final String UNSUPPORTED_SORT_DETAIL = "지원하지 않는 정렬입니다. followers,desc 또는 rating,desc만 쓸 수 있습니다.";
 
+    private final InfluencerSearchRateLimit rateLimit;
     private final InfluencerSearcher searcher;
     private final RatingBaseline ratingBaseline;
     private final SearchMetrics.Target metrics;
     private final InfluencerZeroResultKeywords zeroResultKeywords;
 
-    public InfluencerSearchFacade(InfluencerSearcher searcher, RatingBaseline ratingBaseline, SearchMetrics metrics,
-            InfluencerZeroResultKeywords zeroResultKeywords) {
+    public InfluencerSearchFacade(InfluencerSearchRateLimit rateLimit, InfluencerSearcher searcher,
+            RatingBaseline ratingBaseline, SearchMetrics metrics, InfluencerZeroResultKeywords zeroResultKeywords) {
+        this.rateLimit = rateLimit;
         this.searcher = searcher;
         this.ratingBaseline = ratingBaseline;
         this.metrics = metrics.forTarget(InfluencerIndexDefinition.METRIC_TARGET);
@@ -56,11 +60,12 @@ public class InfluencerSearchFacade {
     }
 
     /**
-     * @param userId 검색한 회원 ID. 0건 검색어를 "서로 다른 회원 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
+     * @param userId 검색한 회원 ID. 호출 제한과, 0건 검색어를 "서로 다른 회원 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
      */
     @PreAuthorize(SearchRoles.MEMBER)
     public SearchPage<InfluencerSearchItem> search(Long userId, String keyword, List<String> contentCategories, Boolean verified,
             Long minFollowers, Double minRating, Pageable pageable) {
+        rateLimit.acquire(userId);
         InfluencerSort sort = sort(pageable.getSort());
         if (pageable.getOffset() + pageable.getPageSize() > MAX_RESULT_WINDOW) {
             throw new SearchException(SearchErrorCode.PAGE_TOO_DEEP);

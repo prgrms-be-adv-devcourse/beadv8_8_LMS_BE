@@ -72,6 +72,7 @@ public interface ApiV1SearchSpec {
             검색어는 꼭 넘기고(최대 50자), 공백뿐이면 빈 목록이다. 검색할 수 없으면 503 SEARCH_UNAVAILABLE(후보를 숨기면 된다). \
             누르면 userId로 프로필에 가거나 nickname으로 인플루언서 검색을 하면 된다.""")
     RsData<List<InfluencerSuggestion>> suggestInfluencers(
+            Long userId,
             @Parameter(description = "입력 중인 검색어(최대 50자)", example = "침착") @Size(max = 50) String keyword);
 
     @Operation(summary = "강의 검색어 자동완성 (비회원 가능)", description = """

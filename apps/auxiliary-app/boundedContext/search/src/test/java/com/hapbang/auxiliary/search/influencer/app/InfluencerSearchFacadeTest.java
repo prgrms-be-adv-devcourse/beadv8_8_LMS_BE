@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
@@ -18,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 
+import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
 import com.hapbang.auxiliary.search.app.exception.SearchException;
 import com.hapbang.auxiliary.search.common.app.KeywordIndex;
@@ -27,7 +31,7 @@ import com.hapbang.auxiliary.search.influencer.out.InfluencerSearcher;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-/** 검색 Facade: 검색어·분야 다듬기, ES 장애(#771), 검색어 제안(#977). 정렬·페이지 제한은 API 테스트가 본다 */
+/** 검색 Facade: 검색어·분야 다듬기, ES 장애(#771), 검색어 제안(#977), 호출 제한(#1012). 정렬·페이지 제한과 실제 429는 API 테스트가 본다 */
 class InfluencerSearchFacadeTest {
 
     private final InfluencerSearcher searcher = mock(InfluencerSearcher.class);
@@ -36,8 +40,10 @@ class InfluencerSearchFacadeTest {
 
     private final InfluencerZeroResultKeywords zeroResultKeywords = new InfluencerZeroResultKeywords();
 
-    private final InfluencerSearchFacade facade = new InfluencerSearchFacade(searcher, mock(RatingBaseline.class),
-            new SearchMetrics(registry), zeroResultKeywords);
+    private final InfluencerSearchRateLimit rateLimit = mock(InfluencerSearchRateLimit.class);
+
+    private final InfluencerSearchFacade facade = new InfluencerSearchFacade(rateLimit, searcher,
+            mock(RatingBaseline.class), new SearchMetrics(registry), zeroResultKeywords);
 
     /** 검색어 제안이 묻는 index. 기본(mock)은 모든 낱말을 조사·어미뿐인 말로 보아 고칠 것이 없다 */
     private final KeywordIndex keywordIndex = mock(KeywordIndex.class);
@@ -77,6 +83,16 @@ class InfluencerSearchFacadeTest {
         facade.search(2L, "롤토체스", List.of(), null, null, null, page);
         assertThat(zeroResultKeywords.flush()).containsOnlyKeys("롤토체스");
         assertThat(registry.counter("hapbang.search.zero.results", "target", "influencer").count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("호출 제한을 먼저 센다. 넘으면 ES를 부르지 않고 예외를 그대로 던진다(#1012)")
+    void rateLimitFirst() {
+        doThrow(new RateLimitExceededException(30)).when(rateLimit).acquire(7L);
+
+        assertThatThrownBy(() -> facade.search(7L, "메이플", List.of(), null, null, null, PageRequest.of(0, 20)))
+                .isInstanceOf(RateLimitExceededException.class);
+        verify(searcher, never()).search(any(), anyDouble(), anyInt());
     }
 
     @Test
