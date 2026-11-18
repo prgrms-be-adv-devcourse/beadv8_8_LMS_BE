@@ -1,7 +1,6 @@
 package com.hapbang.auxiliary.chatbot.out;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -11,14 +10,17 @@ import java.util.Map;
 import java.util.Set;
 
 import org.jspecify.annotations.Nullable;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Repository;
 
 import com.hapbang.auxiliary.chatbot.domain.LectureListing;
 import com.hapbang.auxiliary.chatbot.domain.LectureRanker;
 import com.hapbang.auxiliary.chatbot.domain.LectureSignals;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.core.type.TypeReference;
@@ -27,16 +29,123 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 강의 추천이 읽는 사본 조회 (#718). 강의 사본 4종을 읽기만 한다(쓰기는 {@link LectureCopyStore}).
  * 원본에 없는 행({@code missing_in_source})은 신호·제외·인기 어디에도 세지 않는다.
+ * <p>
+ * JDBC로 쓰는 이유: 사본 테이블은 엔티티 없이 다루고, {@code count(...) FILTER}·{@code ::text}·배열 비교({@code <> ALL})
+ * 같은 PostgreSQL 문법을 쓴다. QueryDSL은 사본 테이블에 엔티티를 두게 되면 다시 본다(#1003).
+ * SQL은 문장마다 상수 하나로 두고 실행 중에 이어 붙이지 않는다. 구매 상태 값은 {@link LecturePurchaseResult}의 이름을 파라미터로 넘긴다.
  */
 @Repository
 @RequiredArgsConstructor
 public class LectureRecommendStore {
 
+    private static final String OWNED = LecturePurchaseResult.OWNED.name();
+    private static final String PENDING = LecturePurchaseResult.PENDING.name();
+
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
     };
-    private static final String LECTURE_COLUMNS = """
-            id, seller_user_id, title, description, content_titles::text AS content_titles, on_sale, deleted, missing_in_source""";
+
+    private static final String LECTURES = """
+            SELECT id, seller_user_id, title, description, content_titles::text AS content_titles, on_sale, deleted,
+                   missing_in_source
+            FROM chatbot.lecture_copy
+            WHERE id IN (:ids)
+            """;
+
+    private static final String LECTURES_AFTER = """
+            SELECT id, seller_user_id, title, description, content_titles::text AS content_titles, on_sale, deleted,
+                   missing_in_source
+            FROM chatbot.lecture_copy
+            WHERE id > :afterId
+            ORDER BY id
+            LIMIT :limit
+            """;
+
+    // 판매자 보임 규칙은 MemberCopyStore 한 곳에 둔다. 클래스를 읽을 때 한 번 끼운다
+    private static final String LISTINGS = """
+            SELECT l.id, l.seller_user_id, l.title, l.description, l.on_sale, l.deleted, l.missing_in_source,
+                   %s AS seller_visible
+            FROM chatbot.lecture_copy l
+            WHERE l.id IN (:ids)
+            """.formatted(MemberCopyStore.visibleCondition("l.seller_user_id"));
+
+    private static final String PURCHASES = """
+            SELECT lecture_id, result, COALESCE(purchased_at, ordered_at) AS at
+            FROM chatbot.lecture_purchase_copy
+            WHERE buyer_user_id = :memberId AND result IN (:owned, :pending) AND NOT missing_in_source
+            """;
+
+    private static final String CART_ITEMS = """
+            SELECT lecture_id, added_at
+            FROM chatbot.cart_item_copy
+            WHERE user_id = :memberId AND NOT deleted AND NOT missing_in_source
+            """;
+
+    private static final String RATINGS = """
+            SELECT lecture_id, rating
+            FROM chatbot.lecture_review_copy
+            WHERE reviewer_user_id = :memberId AND counted AND NOT deleted AND NOT missing_in_source
+            """;
+
+    private static final String OWNED_COUNTS = """
+            SELECT lecture_id, count(*) AS owned
+            FROM chatbot.lecture_purchase_copy
+            WHERE lecture_id IN (:ids) AND result = :owned AND NOT missing_in_source
+            GROUP BY lecture_id
+            """;
+
+    // :memberId가 null이면 본인 강의 조건을 건너뛴다. :excluded는 bigint 배열이라 비어 있어도 된다(빈 IN은 문법 오류)
+    private static final String POPULAR = """
+            SELECT l.id, l.seller_user_id,
+                   count(p.order_item_id) FILTER (WHERE p.result = :owned AND NOT p.missing_in_source) AS owned
+            FROM chatbot.lecture_copy l
+            LEFT JOIN chatbot.lecture_purchase_copy p ON p.lecture_id = l.id
+            WHERE l.on_sale AND NOT l.deleted AND NOT l.missing_in_source
+              AND %s
+              AND (CAST(:memberId AS bigint) IS NULL OR l.seller_user_id <> :memberId)
+              AND l.id <> ALL(:excluded)
+            GROUP BY l.id, l.seller_user_id
+            ORDER BY owned DESC, l.id DESC
+            LIMIT :limit
+            """.formatted(MemberCopyStore.visibleCondition("l.seller_user_id"));
+
+    private static final RowMapper<LectureSnapshot> SNAPSHOT = (rs, row) -> new LectureSnapshot(
+            rs.getLong("id"),
+            rs.getLong("seller_user_id"),
+            rs.getString("title"),
+            rs.getString("description"),
+            JSON.readValue(rs.getString("content_titles"), STRING_LIST),
+            rs.getBoolean("on_sale"),
+            rs.getBoolean("deleted"),
+            rs.getBoolean("missing_in_source"));
+
+    private static final RowMapper<LectureListing> LISTING = (rs, row) -> new LectureListing(
+            rs.getLong("id"),
+            rs.getLong("seller_user_id"),
+            rs.getString("title"),
+            rs.getString("description"),
+            rs.getBoolean("on_sale"),
+            rs.getBoolean("deleted"),
+            rs.getBoolean("missing_in_source"),
+            rs.getBoolean("seller_visible"));
+
+    private static final RowMapper<Purchase> PURCHASE = (rs, row) -> new Purchase(
+            rs.getLong("lecture_id"),
+            OWNED.equals(rs.getString("result")),
+            new LectureSignals.Activity(rs.getLong("lecture_id"), LectureSignals.Source.PURCHASED,
+                    rs.getTimestamp("at").toLocalDateTime()));
+
+    private static final RowMapper<LectureSignals.Activity> CART_ACTIVITY = (rs, row) -> new LectureSignals.Activity(
+            rs.getLong("lecture_id"), LectureSignals.Source.CART, rs.getTimestamp("added_at").toLocalDateTime());
+
+    private static final RowMapper<Map.Entry<Long, Integer>> RATING = (rs, row) ->
+            Map.entry(rs.getLong("lecture_id"), rs.getInt("rating"));
+
+    private static final RowMapper<Map.Entry<Long, Long>> OWNED_COUNT = (rs, row) ->
+            Map.entry(rs.getLong("lecture_id"), rs.getLong("owned"));
+
+    private static final RowMapper<LectureRanker.Popular> POPULAR_ROW = (rs, row) ->
+            new LectureRanker.Popular(rs.getLong("id"), rs.getLong("seller_user_id"));
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -46,11 +155,9 @@ public class LectureRecommendStore {
         if (ids.isEmpty()) {
             return lectures;
         }
-        jdbc.query("SELECT " + LECTURE_COLUMNS + " FROM chatbot.lecture_copy WHERE id IN (:ids)",
-                new MapSqlParameterSource("ids", ids), rs -> {
-                    LectureSnapshot lecture = snapshot(rs);
-                    lectures.put(lecture.id(), lecture);
-                });
+        for (LectureSnapshot lecture : jdbc.query(LECTURES, new MapSqlParameterSource("ids", ids), SNAPSHOT)) {
+            lectures.put(lecture.id(), lecture);
+        }
         return lectures;
     }
 
@@ -60,23 +167,15 @@ public class LectureRecommendStore {
         if (ids.isEmpty()) {
             return listings;
         }
-        jdbc.query("""
-                SELECT l.id, l.seller_user_id, l.title, l.description, l.on_sale, l.deleted, l.missing_in_source,
-                """ + "       " + MemberCopyStore.visibleCondition("l.seller_user_id") + " AS seller_visible\n" + """
-                FROM chatbot.lecture_copy l WHERE l.id IN (:ids)
-                """, new MapSqlParameterSource("ids", ids), rs -> {
-                    LectureListing listing = new LectureListing(rs.getLong("id"), rs.getLong("seller_user_id"),
-                            rs.getString("title"), rs.getString("description"), rs.getBoolean("on_sale"), rs.getBoolean("deleted"),
-                            rs.getBoolean("missing_in_source"), rs.getBoolean("seller_visible"));
-                    listings.put(listing.id(), listing);
-                });
+        for (LectureListing listing : jdbc.query(LISTINGS, new MapSqlParameterSource("ids", ids), LISTING)) {
+            listings.put(listing.id(), listing);
+        }
         return listings;
     }
 
     /** ID 순으로 이 ID 다음 강의 사본을 limit개 읽는다(전체 점검용) */
     public List<LectureSnapshot> lecturesAfter(long afterId, int limit) {
-        return jdbc.query("SELECT " + LECTURE_COLUMNS + " FROM chatbot.lecture_copy WHERE id > :afterId ORDER BY id LIMIT :limit",
-                new MapSqlParameterSource("afterId", afterId).addValue("limit", limit), (rs, row) -> snapshot(rs));
+        return jdbc.query(LECTURES_AFTER, new MapSqlParameterSource("afterId", afterId).addValue("limit", limit), SNAPSHOT);
     }
 
     /**
@@ -87,29 +186,21 @@ public class LectureRecommendStore {
      * </ul>
      */
     public MemberLectures memberLectures(long memberId) {
-        MapSqlParameterSource params = new MapSqlParameterSource("memberId", memberId);
+        MapSqlParameterSource params = new MapSqlParameterSource("memberId", memberId)
+                .addValue("owned", OWNED)
+                .addValue("pending", PENDING);
         Set<Long> excluded = new HashSet<>();
         List<LectureSignals.Activity> activities = new ArrayList<>();
-        jdbc.query("""
-                SELECT lecture_id, result, COALESCE(purchased_at, ordered_at) AS at FROM chatbot.lecture_purchase_copy
-                WHERE buyer_user_id = :memberId AND result IN ('OWNED', 'PENDING') AND NOT missing_in_source
-                """, params, rs -> {
-                    long lectureId = rs.getLong("lecture_id");
-                    excluded.add(lectureId);
-                    if ("OWNED".equals(rs.getString("result"))) {
-                        activities.add(new LectureSignals.Activity(lectureId, LectureSignals.Source.PURCHASED,
-                                rs.getTimestamp("at").toLocalDateTime()));
-                    }
-                });
-        jdbc.query("""
-                SELECT lecture_id, added_at FROM chatbot.cart_item_copy
-                WHERE user_id = :memberId AND NOT deleted AND NOT missing_in_source
-                """, params, rs -> {
-                    long lectureId = rs.getLong("lecture_id");
-                    excluded.add(lectureId);
-                    activities.add(new LectureSignals.Activity(lectureId, LectureSignals.Source.CART,
-                            rs.getTimestamp("added_at").toLocalDateTime()));
-                });
+        for (Purchase purchase : jdbc.query(PURCHASES, params, PURCHASE)) {
+            excluded.add(purchase.lectureId());
+            if (purchase.owned()) {
+                activities.add(purchase.activity());
+            }
+        }
+        for (LectureSignals.Activity cart : jdbc.query(CART_ITEMS, params, CART_ACTIVITY)) {
+            excluded.add(cart.lectureId());
+            activities.add(cart);
+        }
         return new MemberLectures(excluded, activities);
     }
 
@@ -125,13 +216,9 @@ public class LectureRecommendStore {
     /** 회원이 남긴 리뷰 별점(강의가 평점에 세는 리뷰만). 강의 ID → 별점 */
     public Map<Long, Integer> ratings(long memberId) {
         Map<Long, Integer> ratings = new HashMap<>();
-        jdbc.query("""
-                SELECT lecture_id, rating FROM chatbot.lecture_review_copy
-                WHERE reviewer_user_id = :memberId AND counted AND NOT deleted AND NOT missing_in_source
-                """, new MapSqlParameterSource("memberId", memberId),
-                rs -> {
-                    ratings.put(rs.getLong("lecture_id"), rs.getInt("rating"));
-                });
+        for (Map.Entry<Long, Integer> rating : jdbc.query(RATINGS, new MapSqlParameterSource("memberId", memberId), RATING)) {
+            ratings.put(rating.getKey(), rating.getValue());
+        }
         return ratings;
     }
 
@@ -144,14 +231,10 @@ public class LectureRecommendStore {
         if (lectureIds.isEmpty()) {
             return counts;
         }
-        jdbc.query("""
-                SELECT lecture_id, count(*) AS owned FROM chatbot.lecture_purchase_copy
-                WHERE lecture_id IN (:ids) AND result = 'OWNED' AND NOT missing_in_source
-                GROUP BY lecture_id
-                """, new MapSqlParameterSource("ids", lectureIds),
-                rs -> {
-                    counts.put(rs.getLong("lecture_id"), rs.getLong("owned"));
-                });
+        MapSqlParameterSource params = new MapSqlParameterSource("ids", lectureIds).addValue("owned", OWNED);
+        for (Map.Entry<Long, Long> count : jdbc.query(OWNED_COUNTS, params, OWNED_COUNT)) {
+            counts.put(count.getKey(), count.getValue());
+        }
         return counts;
     }
 
@@ -162,33 +245,14 @@ public class LectureRecommendStore {
      * @param memberId 요청 회원(본인 강의를 뺀다). null이면 회원과 상관없는 목록(인기순 캐시)
      */
     public List<LectureRanker.Popular> popular(@Nullable Long memberId, Collection<Long> excluded, int limit) {
-        MapSqlParameterSource params = new MapSqlParameterSource("limit", limit);
-        String excludeClause = "";
-        if (memberId != null) {
-            excludeClause += "AND l.seller_user_id <> :memberId\n";
-            params.addValue("memberId", memberId);
-        }
-        if (!excluded.isEmpty()) {
-            excludeClause += "AND l.id NOT IN (:excluded)\n";
-            params.addValue("excluded", excluded);
-        }
-        return jdbc.query("""
-                SELECT l.id, l.seller_user_id,
-                       count(p.order_item_id) FILTER (WHERE p.result = 'OWNED' AND NOT p.missing_in_source) AS owned
-                FROM chatbot.lecture_copy l
-                LEFT JOIN chatbot.lecture_purchase_copy p ON p.lecture_id = l.id
-                WHERE l.on_sale AND NOT l.deleted AND NOT l.missing_in_source
-                """ + "AND " + MemberCopyStore.visibleCondition("l.seller_user_id") + "\n" + excludeClause + """
-
-                GROUP BY l.id, l.seller_user_id
-                ORDER BY owned DESC, l.id DESC
-                LIMIT :limit
-                """, params, (rs, row) -> new LectureRanker.Popular(rs.getLong("id"), rs.getLong("seller_user_id")));
+        MapSqlParameterSource params = new MapSqlParameterSource("limit", limit)
+                .addValue("owned", OWNED)
+                .addValue("memberId", memberId, Types.BIGINT)
+                .addValue("excluded", new SqlArrayValue("bigint", excluded.toArray()));
+        return jdbc.query(POPULAR, params, POPULAR_ROW);
     }
 
-    private static LectureSnapshot snapshot(ResultSet rs) throws SQLException {
-        return new LectureSnapshot(rs.getLong("id"), rs.getLong("seller_user_id"), rs.getString("title"),
-                rs.getString("description"), JSON.readValue(rs.getString("content_titles"), STRING_LIST),
-                rs.getBoolean("on_sale"), rs.getBoolean("deleted"), rs.getBoolean("missing_in_source"));
+    // 구매 한 행: 뺄 강의이고, OWNED면 활동
+    private record Purchase(long lectureId, boolean owned, LectureSignals.Activity activity) {
     }
 }

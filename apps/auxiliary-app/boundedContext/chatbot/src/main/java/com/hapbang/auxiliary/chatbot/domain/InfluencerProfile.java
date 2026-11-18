@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
 import java.util.List;
+import java.util.Set;
 
 import org.jspecify.annotations.Nullable;
 
@@ -28,13 +29,16 @@ public record InfluencerProfile(
         boolean masked
 ) {
 
+    /** 인플루언서 역할(인증 여부 무관). SQL 조건({@code InfluencerRecommendStore})도 이 값을 쓴다 */
+    public static final Set<Role> INFLUENCER_ROLES = Set.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER);
+
     public InfluencerProfile {
         categories = List.copyOf(categories);
     }
 
     /** 인플루언서 역할(인증 여부 무관) */
     public boolean isInfluencer() {
-        return role == Role.INFLUENCER || role == Role.VERIFIED_INFLUENCER;
+        return INFLUENCER_ROLES.contains(role);
     }
 
     /** 추천 가능(색인 문서 {@code hidden=false}) */
