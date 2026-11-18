@@ -9,11 +9,15 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.ChatQueueGroupMissingException;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.ControlJob;
+import com.hapbang.chat.app.port.DeliveryJob;
+import com.hapbang.chat.app.port.OutboxJob;
+import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.out.redis.RedisChatDeliveryQueue;
 import com.tngtech.archunit.base.DescribedPredicate;
@@ -31,7 +35,8 @@ class ChatDeliveryServiceBoundaryTest {
     /** 전달 파이프라인의 app 조정 서비스와 그 계약·보조 클래스 */
     private static final List<Class<?>> DELIVERY_APP_CLASSES = List.of(ChatOutboxRelay.class,
             ChatStreamJobProcessor.class, ChatStreamReconstructor.class, ChatStreamTrimmer.class,
-            ChatFanoutPayloadLoader.class, ChatStreamEntries.class, ChatJobStream.class, ChatRetryBackoff.class,
+            ChatFanoutPayloadLoader.class, QueuePositions.class, OutboxJob.class, DeliveryJob.class, ControlJob.class,
+            ChatJobStream.class, ChatRetryBackoff.class,
             ChatDeliveryClock.class, ChatDeliveryErrors.class, ChatDeliveryProperties.class, ChatDeliveryQueue.class,
             ChatOutboxStore.class, ChatPublishCheckpointStore.class, ChatDeliverySourceReader.class,
             ChatQueueGroupMissingException.class, ChatDeliveryUnavailableException.class,

@@ -89,7 +89,7 @@ public interface RealtimeChatFanout {
 
 ## 이름 (`global/redis/ChatRedisKeys`)
 
-`hapbang.chat.redis.namespace`(기본 `local`) 뒤에 붙인다. 테스트는 고유한 namespace를 쓴다. consumer group 이름은 발행 체크포인트의 `consumer_group`에도 저장하는 값이라 `app/ChatJobStream`이 소유한다(namespace를 붙이지 않는다).
+`hapbang.chat.redis.namespace`(기본 `local`) 뒤에 붙인다. 테스트는 고유한 namespace를 쓴다. consumer group 이름은 발행 체크포인트의 `consumer_group`에도 저장하는 값이라 `app/dto/ChatJobStream`이 소유한다(namespace를 붙이지 않는다).
 
 | 종류 | 이름 |
 | --- | --- |

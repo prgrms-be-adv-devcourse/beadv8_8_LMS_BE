@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.support.ChatDeliveryReprocessAuditTestRepository;
@@ -49,7 +50,7 @@ class ChatDeliveryAdminApiTest extends ChatDeliveryTestSupport {
     void 관리자는_격리한_작업을_페이지로_조회한다() throws Exception {
         UUID older = isolate(send("먼저 격리"));
         UUID newer = isolate(send("나중 격리"));
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
         String body = mockMvc.perform(get(URL).param("size", "2").with(TestLogin.as(ADMIN, Role.ADMIN)))

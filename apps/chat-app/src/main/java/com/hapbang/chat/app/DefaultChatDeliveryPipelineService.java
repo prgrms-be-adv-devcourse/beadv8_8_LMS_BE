@@ -2,6 +2,7 @@ package com.hapbang.chat.app;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 

@@ -25,10 +25,12 @@ import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WritePermit;
 import com.hapbang.chat.app.ChatOutboxStore.ClaimedJob;
-import com.hapbang.chat.app.ChatOutboxStore.DeliveryJob;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.DeliveryJob;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeliveryType;
 import com.hapbang.chat.domain.ChatNotifyRule;
@@ -199,7 +201,7 @@ class ChatDeliveryAvailabilityConcurrencyTest {
         when(store.claim(eq(ChatJobStream.DELIVERY), any(), any(), any(), anyInt()))
                 .thenReturn(List.of(new ClaimedJob(job, UUID.randomUUID(), 1)));
         when(store.markEnqueued(eq(ChatJobStream.DELIVERY), anyLong(), any(), any(), any())).thenReturn(true);
-        when(queue.enqueue(eq(ChatJobStream.DELIVERY), anyMap())).thenReturn("1-0");
+        when(queue.enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class))).thenReturn("1-0");
         // 처리권 만료 회수(선점 전 DB 문장)가 한 번 실패한다
         when(store.releaseExpiredLeases(eq(ChatJobStream.DELIVERY), any(), anyInt(), anyInt()))
                 .thenThrow(new IllegalStateException("DB 연결 실패"))

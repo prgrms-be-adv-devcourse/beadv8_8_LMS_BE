@@ -14,6 +14,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.QueueGroupState;
 import com.hapbang.chat.app.port.QueuedJob;
@@ -152,9 +153,17 @@ abstract class ChatDeliveryTestSupport {
     }
 
     long streamLength(ChatJobStream stream) {
-        Long size = redis.opsForStream().size(stream == ChatJobStream.DELIVERY
-                ? keys.deliveryStream() : keys.controlStream());
+        Long size = redis.opsForStream().size(streamKey(stream));
         return size == null ? 0 : size;
+    }
+
+    /** 필드 규칙을 거치지 않은 항목(형식이 틀린 항목, 안정 ID만 담은 중복 항목)을 큐에 바로 넣는다 */
+    String addRawEntry(ChatJobStream stream, Map<String, String> fields) {
+        return redis.opsForStream().add(streamKey(stream), fields).getValue();
+    }
+
+    private String streamKey(ChatJobStream stream) {
+        return stream == ChatJobStream.DELIVERY ? keys.deliveryStream() : keys.controlStream();
     }
 
     /** 대기 중인 outbox를 모두 적재한다 */

@@ -24,7 +24,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatDeliveryReprocessAudit;
@@ -281,7 +283,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
 
     private void isolateOutboxByEnqueueFailures(UUID deliveryId) {
         doThrow(new IllegalStateException("Redis 중단")).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY),
-                anyMap());
+                any(OutboxJob.class));
         relay.relayBatch(ChatJobStream.DELIVERY);
         dueNow(deliveryId);
         relay.relayBatch(ChatJobStream.DELIVERY);

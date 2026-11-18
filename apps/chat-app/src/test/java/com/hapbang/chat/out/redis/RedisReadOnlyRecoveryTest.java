@@ -8,7 +8,6 @@ import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
@@ -26,9 +25,12 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
-import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
+import com.hapbang.chat.app.port.ControlJob;
 import com.hapbang.chat.config.ChatDeliveryProperties;
+import com.hapbang.chat.domain.ChatControlReason;
+import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -39,6 +41,10 @@ import io.micrometer.core.instrument.MeterRegistry;
  * 간격이 두 배씩 늘며, 다시 마스터가 되면 재개한다.
  */
 class RedisReadOnlyRecoveryTest {
+
+    /** 적재 결과만 보는 시험이라 내용은 아무 작업이나 된다 */
+    private static final ControlJob JOB = new ControlJob(1L, UUID.randomUUID(), ChatControlType.RECHECK_USER, 1L, null,
+            ChatControlReason.MEMBER_MODIFIED, null, 1);
 
     private static final Duration PROBE_INITIAL = Duration.ofMillis(50);
     private static final Duration PROBE_MAX = Duration.ofMillis(800);
@@ -84,11 +90,11 @@ class RedisReadOnlyRecoveryTest {
     @Test
     void 읽기_전용이면_PING은_되어도_재개하지_않고_재확인_간격이_늘며_마스터가_되면_재개한다() throws Exception {
         queue.ensureGroup(ChatJobStream.DELIVERY);
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of("jobId", "before"));
+        queue.enqueue(ChatJobStream.DELIVERY, JOB);
 
         becomeReplicaOfMissingMaster();
         assertThat(redis.execute((RedisCallback<String>) connection -> connection.ping())).isEqualTo("PONG");
-        Throwable rejected = catchThrowable(() -> queue.enqueue(ChatJobStream.DELIVERY, Map.of("jobId", "x")));
+        Throwable rejected = catchThrowable(() -> queue.enqueue(ChatJobStream.DELIVERY, JOB));
         assertThat(rejected).isInstanceOf(ChatDeliveryUnavailableException.class);
         assertThat(RedisFailures.hasMessage(rejected, "READONLY")).isTrue();
         assertThat(catchThrowable(() -> queue.readNew(ChatJobStream.DELIVERY, "c1", 1, Duration.ofMillis(10))))
@@ -113,7 +119,7 @@ class RedisReadOnlyRecoveryTest {
         becomeMaster();
         await().atMost(PROBE_MAX.plusSeconds(2)).pollInterval(Duration.ofMillis(10))
                 .until(availability::redisAvailable);
-        assertThat(queue.enqueue(ChatJobStream.DELIVERY, Map.of("jobId", "after"))).isNotBlank();
+        assertThat(queue.enqueue(ChatJobStream.DELIVERY, JOB)).isNotBlank();
     }
 
     private void becomeReplicaOfMissingMaster() throws Exception {

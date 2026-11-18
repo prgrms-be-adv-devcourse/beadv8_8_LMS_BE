@@ -16,11 +16,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatOutboxRelay;
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;

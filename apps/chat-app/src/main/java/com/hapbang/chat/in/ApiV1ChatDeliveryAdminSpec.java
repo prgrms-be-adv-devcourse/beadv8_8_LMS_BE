@@ -2,8 +2,8 @@ package com.hapbang.chat.in;
 
 import java.util.UUID;
 
-import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatIsolatedJobPage;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatReprocessResult;
 import com.hapbang.chat.global.response.RsData;
 

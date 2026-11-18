@@ -2,10 +2,9 @@ package com.hapbang.chat.app.port;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.dto.ChatJobStream;
 
 /**
  * 커밋된 전달·제어 작업의 참조를 담는 작업 큐. 적재·그룹 소비·pending 회수·ACK·안전한 정리를 맡는다.
@@ -27,11 +26,11 @@ public interface ChatDeliveryQueue {
     void ensureGroup(ChatJobStream stream);
 
     /**
-     * 작업을 적재한다.
+     * 작업을 적재한다. 항목에는 outbox 행을 가리키는 참조 필드만 싣는다(필드 규칙은 구현이 가진다).
      *
      * @return 적재한 항목 위치
      */
-    String enqueue(ChatJobStream stream, Map<String, String> fields);
+    String enqueue(ChatJobStream stream, OutboxJob job);
 
     /**
      * 그룹에 아직 배분되지 않은 새 작업을 읽는다. 읽은 작업은 ACK할 때까지 이 consumer의 미확인 목록에 남는다.
@@ -45,7 +44,7 @@ public interface ChatDeliveryQueue {
      * {@code minIdle} 넘게 확인되지 않은 미확인 작업을 이 consumer로 가져온다. 반환한 cursor로 이어서 탐색한다.
      * 본문이 사라진 미확인 항목은 {@link ReclaimedJobs#deletedEntryIds()}로 알린다. 성공 처리로 보지 않는다.
      *
-     * @param cursor 처음이면 {@code 0-0}
+     * @param cursor 처음이면 {@link QueuePositions#START}
      * @throws ChatQueueGroupMissingException 큐나 그룹이 없을 때 (Redis 유실)
      */
     ReclaimedJobs reclaim(ChatJobStream stream, String consumer, Duration minIdle, String cursor, int count);

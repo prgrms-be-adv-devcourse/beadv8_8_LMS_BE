@@ -22,14 +22,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatOutboxStore.ClaimedJob;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatControlOutbox;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
+import com.hapbang.chat.out.redis.ChatStreamEntries;
 import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 
 /**
@@ -122,7 +124,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
         String currentEntryId = outbox(deliveryId).getStreamEntryId();
 
         // 옛 relay가 늦게 적재를 마쳤다
-        String lateEntryId = queue.enqueue(ChatJobStream.DELIVERY, ChatStreamEntries.fieldsOf(late.job()));
+        String lateEntryId = queue.enqueue(ChatJobStream.DELIVERY, late.job());
         boolean recorded = outboxStore.markEnqueued(ChatJobStream.DELIVERY, late.job().id(), late.claimToken(),
                 lateEntryId, ChatDeliveryClock.now());
         var failed = outboxStore.markEnqueueFailed(ChatJobStream.DELIVERY, late.job().id(), late.claimToken(),
@@ -141,7 +143,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
         LocalDateTime now = ChatDeliveryClock.now();
         ClaimedJob crashed = outboxStore.claim(ChatJobStream.DELIVERY, UUID.randomUUID(), now, now.plusSeconds(30),
                 10).getFirst();
-        queue.enqueue(ChatJobStream.DELIVERY, ChatStreamEntries.fieldsOf(crashed.job()));
+        queue.enqueue(ChatJobStream.DELIVERY, crashed.job());
         expireLease(deliveryId);
         relayAll(ChatJobStream.DELIVERY);
 
@@ -159,7 +161,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
         LocalDateTime now = ChatDeliveryClock.now();
         ClaimedJob claimed = outboxStore.claim(ChatJobStream.DELIVERY, UUID.randomUUID(), now, now.plusSeconds(30),
                 10).getFirst();
-        String entryId = queue.enqueue(ChatJobStream.DELIVERY, ChatStreamEntries.fieldsOf(claimed.job()));
+        String entryId = queue.enqueue(ChatJobStream.DELIVERY, claimed.job());
         pollAll(ChatJobStream.DELIVERY, WORKER);
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.PUBLISHED);
 
@@ -174,7 +176,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     void 적재가_실패하면_backoff로_다시_시도하고_상한을_넘기면_DEAD로_격리한다() {
         UUID deliveryId = send("안녕하세요");
         doThrow(new IllegalStateException("Redis 중단")).when(spiedQueue)
-                .enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+                .enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
 
         relay.relayBatch(ChatJobStream.DELIVERY);
         ChatOutbox first = outbox(deliveryId);

@@ -1,6 +1,6 @@
 package com.hapbang.chat.app.port;
 
-import com.hapbang.chat.app.ChatJobStream;
+import com.hapbang.chat.app.dto.ChatJobStream;
 
 /**
  * 작업 큐나 필수 consumer group이 없다(Redis 유실·초기화). 그룹을 다시 만들고 DB 미완료 작업으로 재구성한다.

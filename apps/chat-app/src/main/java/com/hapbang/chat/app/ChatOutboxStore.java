@@ -1,6 +1,5 @@
 package com.hapbang.chat.app;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Comparator;
@@ -11,6 +10,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatIsolatedJob;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatControlOutboxRepository;
 import com.hapbang.chat.app.port.ChatOutboxRepository;
 import com.hapbang.chat.app.port.ChatOutboxRows.Candidate;
@@ -18,10 +18,9 @@ import com.hapbang.chat.app.port.ChatOutboxRows.Claimed;
 import com.hapbang.chat.app.port.ChatOutboxRows.ControlJobRow;
 import com.hapbang.chat.app.port.ChatOutboxRows.DeliveryJobRow;
 import com.hapbang.chat.app.port.ChatOutboxRows.IsolatedJobRow;
-import com.hapbang.chat.domain.ChatControlReason;
-import com.hapbang.chat.domain.ChatControlType;
-import com.hapbang.chat.domain.ChatDeliveryType;
-import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.app.port.ControlJob;
+import com.hapbang.chat.app.port.DeliveryJob;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 
 import lombok.RequiredArgsConstructor;
@@ -46,24 +45,6 @@ public class ChatOutboxStore {
 
     private final ChatOutboxRepository chatOutboxRepository;
     private final ChatControlOutboxRepository chatControlOutboxRepository;
-
-    /** 적재할 outbox 행 */
-    public sealed interface OutboxJob permits DeliveryJob, ControlJob {
-
-        long id();
-
-        /** {@code deliveryId} 또는 {@code controlId} */
-        UUID jobId();
-    }
-
-    public record DeliveryJob(long id, UUID jobId, ChatDeliveryType type, long messageId, long roomId,
-            long roomSequence, long recipientSetId, ChatNotifyRule notifyRule, int schemaVersion) implements OutboxJob {
-    }
-
-    /** @param loggedOutAt 로그아웃 작업의 기준 시각. 재검사 작업과 이 값이 생기기 전의 로그아웃 작업은 null */
-    public record ControlJob(long id, UUID jobId, ChatControlType type, long userId, Long memberVersion,
-            ChatControlReason reason, Instant loggedOutAt, int schemaVersion) implements OutboxJob {
-    }
 
     /**
      * 선점한 행.

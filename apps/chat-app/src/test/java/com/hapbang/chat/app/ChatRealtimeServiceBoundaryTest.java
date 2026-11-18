@@ -81,10 +81,14 @@ class ChatRealtimeServiceBoundaryTest {
     }
 
     @Test
-    @DisplayName("app/port는 in·out 구현에 의존하지 않는다")
+    @DisplayName("app/port는 in·out 구현과 app의 업무 클래스에 의존하지 않는다(app/dto·app/exception 값은 쓸 수 있다)")
     void portsDoNotDependOnAdapters() {
         noClasses().that().resideInAPackage("com.hapbang.chat.app.port..")
                 .should().dependOnClassesThat().resideInAnyPackage("com.hapbang.chat.in..", "com.hapbang.chat.out..")
+                .check(classes);
+        // app 바로 아래(서비스·조정 클래스·Facade)는 port를 쓰는 쪽이다. port가 거꾸로 기대지 않는다
+        noClasses().that().resideInAPackage("com.hapbang.chat.app.port..")
+                .should().dependOnClassesThat().resideInAPackage("com.hapbang.chat.app")
                 .check(classes);
     }
 

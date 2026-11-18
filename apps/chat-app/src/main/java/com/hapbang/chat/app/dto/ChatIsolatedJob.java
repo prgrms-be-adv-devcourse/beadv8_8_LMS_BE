@@ -3,7 +3,6 @@ package com.hapbang.chat.app.dto;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 

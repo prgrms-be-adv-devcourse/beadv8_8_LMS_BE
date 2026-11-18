@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.chat.app.dto.ChatIsolatedJob;
 import com.hapbang.chat.app.dto.ChatIsolatedJobPage;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatReprocessResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;

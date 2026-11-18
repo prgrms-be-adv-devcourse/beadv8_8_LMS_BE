@@ -29,14 +29,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatPublishCheckpointRepository;
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.out.redis.ChatStreamEntries;
 import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 import com.hapbang.chat.support.ChatMessageTestRepository;
 
@@ -154,7 +156,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     void 적재_실패로_격리한_outbox도_운영_재처리로_다시_적재해_발행한다() {
         UUID deliveryId = send("안녕하세요");
         doThrow(new IllegalStateException("Redis 중단")).when(spiedQueue)
-                .enqueue(eq(ChatJobStream.DELIVERY), anyMap());
+                .enqueue(eq(ChatJobStream.DELIVERY), any(OutboxJob.class));
         relay.relayBatch(ChatJobStream.DELIVERY);
         waitUntilDue(deliveryId);
         relay.relayBatch(ChatJobStream.DELIVERY);

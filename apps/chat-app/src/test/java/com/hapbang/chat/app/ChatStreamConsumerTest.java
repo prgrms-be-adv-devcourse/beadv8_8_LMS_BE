@@ -27,9 +27,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
-import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
@@ -37,6 +37,7 @@ import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.out.redis.ChatStreamEntries;
 
 /**
  * Stream 그룹 소비·Pub/Sub 발행·체크포인트·ACK·PEL 회수 (테스트 기준 "Stream 소비", "Pub/Sub·체크포인트").
@@ -243,7 +244,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
 
         // 같은 작업의 중복 항목
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, deliveryId.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, deliveryId.toString()));
         int callsBefore = fanout.publishCalls();
         pollAll(ChatJobStream.DELIVERY, WORKER);
         assertThat(fanout.publishCalls()).isEqualTo(callsBefore);
@@ -357,9 +358,9 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 작업_ID를_읽을_수_없는_항목과_원본이_없는_항목은_격리를_기록한_뒤_ACK한다() {
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
         UUID unknown = UUID.randomUUID();
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, unknown.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, unknown.toString()));
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
 

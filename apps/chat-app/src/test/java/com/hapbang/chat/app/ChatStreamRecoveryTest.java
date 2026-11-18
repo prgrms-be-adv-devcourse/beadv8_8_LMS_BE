@@ -17,8 +17,9 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import com.hapbang.chat.app.port.ChatStreamEntries;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatOutbox;
@@ -217,7 +218,7 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         // 보존 기간 시작이 한 시간 전이면 경계는 그 시각이고, 방금 확인한 항목은 경계 뒤에 있다
         String boundary = trimmer.safeBoundary(ChatJobStream.DELIVERY, Instant.now().minusSeconds(3600))
                 .orElseThrow();
-        assertThat(ChatStreamEntries.compare(boundary, entryId)).isNegative();
+        assertThat(QueuePositions.compare(boundary, entryId)).isNegative();
         assertThat(queue.trimBefore(ChatJobStream.DELIVERY, boundary)).isZero();
         assertThat(entryExists(entryId)).isTrue();
     }

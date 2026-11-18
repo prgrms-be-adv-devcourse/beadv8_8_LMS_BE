@@ -7,7 +7,6 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 
-import com.hapbang.chat.app.ChatDeliverySourceReader;
 import com.hapbang.chat.app.port.ChatMessageRows.MessageWithSender;
 import com.hapbang.chat.domain.ChatMessage;
 
@@ -41,7 +40,7 @@ public interface ChatMessageRepositoryCustom {
 
     /**
      * 메시지와 발신자 복제본을 한 문장으로 읽는다(전달 원본). 발신자가 없거나 복제본이 없으면 발신자가 null이다.
-     * 메시지가 없으면 빈 값이다. 전달 원본 조회({@link ChatDeliverySourceReader})가 쓴다.
+     * 메시지가 없으면 빈 값이다. 전달 원본 조회({@code ChatDeliverySourceReader})가 쓴다.
      */
     Optional<MessageWithSender> findWithSender(long messageId);
 }

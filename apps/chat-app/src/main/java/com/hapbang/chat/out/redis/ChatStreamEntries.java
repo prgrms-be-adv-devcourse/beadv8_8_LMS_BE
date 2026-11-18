@@ -1,17 +1,16 @@
-package com.hapbang.chat.app.port;
+package com.hapbang.chat.out.redis;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.hapbang.chat.app.ChatOutboxStore.ControlJob;
-import com.hapbang.chat.app.ChatOutboxStore.DeliveryJob;
-import com.hapbang.chat.app.ChatOutboxStore.OutboxJob;
+import com.hapbang.chat.app.port.ControlJob;
+import com.hapbang.chat.app.port.DeliveryJob;
+import com.hapbang.chat.app.port.OutboxJob;
 
 /**
- * 작업 큐 항목의 필드 규칙과 항목 위치 비교. 항목에는 DB 원본을 가리키는 참조만 싣는다
+ * 작업 큐(Redis Stream) 항목의 필드 규칙. 항목에는 DB 원본을 가리키는 참조만 싣는다
  * (메시지 본문·수신자 목록을 복제하지 않는다, 설계 4.2).
  */
 public final class ChatStreamEntries {
@@ -27,9 +26,6 @@ public final class ChatStreamEntries {
     public static final String USER_ID = "userId";
     public static final String MEMBER_VERSION = "memberVersion";
     public static final String REASON = "reason";
-
-    /** 회수를 처음부터 시작하는 위치, 그룹을 처음부터 읽는 위치 */
-    public static final String START = "0-0";
 
     private ChatStreamEntries() {
     }
@@ -62,8 +58,8 @@ public final class ChatStreamEntries {
     }
 
     /** 항목의 안정 ID. 없거나 형식이 틀리면 빈 값 */
-    public static Optional<UUID> jobIdOf(QueuedJob job) {
-        String value = job.fields() == null ? null : job.fields().get(JOB_ID);
+    static Optional<UUID> jobIdOf(Map<String, String> fields) {
+        String value = fields == null ? null : fields.get(JOB_ID);
         if (value == null) {
             return Optional.empty();
         }
@@ -72,30 +68,5 @@ public final class ChatStreamEntries {
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
-    }
-
-    /** 항목 위치({@code <ms>-<seq>}) 비교 */
-    public static int compare(String left, String right) {
-        long[] a = parse(left);
-        long[] b = parse(right);
-        int byTime = Long.compare(a[0], b[0]);
-        return byTime != 0 ? byTime : Long.compare(a[1], b[1]);
-    }
-
-    public static String min(String left, String right) {
-        return compare(left, right) <= 0 ? left : right;
-    }
-
-    /** 이 시각보다 앞서 적재된 항목을 가르는 위치 */
-    public static String positionAt(Instant instant) {
-        return instant.toEpochMilli() + "-0";
-    }
-
-    private static long[] parse(String entryId) {
-        int dash = entryId.indexOf('-');
-        if (dash < 0) {
-            return new long[] {Long.parseLong(entryId), 0};
-        }
-        return new long[] {Long.parseLong(entryId.substring(0, dash)), Long.parseLong(entryId.substring(dash + 1))};
     }
 }

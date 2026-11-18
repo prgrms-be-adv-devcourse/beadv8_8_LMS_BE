@@ -7,10 +7,11 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.ChatDeliverySourceReader.MessageSource;
-import com.hapbang.chat.app.ChatOutboxStore.ControlJob;
-import com.hapbang.chat.app.ChatOutboxStore.DeliveryJob;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.port.ControlJob;
+import com.hapbang.chat.app.port.DeliveryJob;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -24,8 +24,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.chat.app.ChatStreamJobProcessor.Outcome;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.MessageFanout;
-import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
@@ -123,8 +123,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         // 적재 응답 유실·재구성으로 생긴 같은 작업의 중복 항목
         for (UUID deliveryId : List.of(first, second)) {
-            queue.enqueue(ChatJobStream.DELIVERY,
-                    ChatStreamEntries.fieldsOf(outboxStore.findJob(ChatJobStream.DELIVERY, deliveryId).orElseThrow()));
+            queue.enqueue(ChatJobStream.DELIVERY, outboxStore.findJob(ChatJobStream.DELIVERY, deliveryId).orElseThrow());
         }
         List<QueuedJob> jobs = new ArrayList<>(
                 queue.readNew(ChatJobStream.DELIVERY, WORKER, 10, Duration.ofMillis(50)));
@@ -166,7 +165,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
 
     @Test
     void 형식이_잘못된_항목도_격리_기록이_실패하면_ACK하지_않고_기록한_뒤에만_ACK한다() {
-        queue.enqueue(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
         doThrow(new IllegalStateException("DB 중단")).doCallRealMethod().when(spiedCheckpointStore)
                 .insertDeadIfAbsent(anyString(), any(), any(), anyString(), anyString(), any());
         QueuedJob job = queue.readNew(ChatJobStream.DELIVERY, WORKER, 10, Duration.ofMillis(50)).getFirst();

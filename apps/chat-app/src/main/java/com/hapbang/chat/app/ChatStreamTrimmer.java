@@ -5,10 +5,11 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
-import com.hapbang.chat.app.port.ChatStreamEntries;
 import com.hapbang.chat.app.port.QueueGroupState;
+import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
@@ -66,11 +67,11 @@ public class ChatStreamTrimmer {
         }
         QueueGroupState group = state.get();
         String boundary = group.pendingCount() > 0 && group.minPendingId() != null
-                ? ChatStreamEntries.min(group.minPendingId(), group.lastDeliveredId())
+                ? QueuePositions.min(group.minPendingId(), group.lastDeliveredId())
                 : group.lastDeliveredId();
-        boundary = ChatStreamEntries.min(boundary,
-                ChatStreamEntries.positionAt(now.minus(properties.trim().retention())));
-        if (ChatStreamEntries.compare(boundary, ChatStreamEntries.START) <= 0) {
+        boundary = QueuePositions.min(boundary,
+                QueuePositions.positionAt(now.minus(properties.trim().retention())));
+        if (QueuePositions.compare(boundary, QueuePositions.START) <= 0) {
             return Optional.empty();
         }
         return Optional.of(boundary);

@@ -12,8 +12,8 @@ import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
-import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatRoomActivityNotifier;
+import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 import com.hapbang.chat.in.redis.ChatRealtimeRedisListener;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
