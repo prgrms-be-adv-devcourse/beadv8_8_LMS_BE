@@ -21,13 +21,13 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.ChatRoomMemberships;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
@@ -137,7 +137,7 @@ class DefaultChatFanoutDeliveryServiceTest {
 
         verify(sender, never()).sendRoomMessage(any(), any(), any());
         verify(sender).sendSubscriptionSignal(ROOM_ID, new RoomTarget("s-guest", "sub-s-guest", 1),
-                SubscriptionSignal.SUBSCRIPTION_REVOKED, ChatSubscriptionReason.LEFT, null);
+                ChatSubscriptionSignal.SUBSCRIPTION_REVOKED, ChatSubscriptionReason.LEFT, null);
         assertThat(subscriptions.subscriptions(ROOM_ID)).isEmpty();
     }
 
@@ -155,7 +155,7 @@ class DefaultChatFanoutDeliveryServiceTest {
 
         verify(sender).sendRoomMessage(ROOM_ID, message, List.of(new RoomTarget("s-host", "sub-s-host", 1)));
         verify(sender).sendSubscriptionSignal(eq(ROOM_ID), eq(new RoomTarget("s-guest", "sub-s-guest", 1)),
-                eq(SubscriptionSignal.SUBSCRIPTION_REVOKED), eq(ChatSubscriptionReason.LEFT), isNull());
+                eq(ChatSubscriptionSignal.SUBSCRIPTION_REVOKED), eq(ChatSubscriptionReason.LEFT), isNull());
     }
 
     @Test
@@ -167,7 +167,7 @@ class DefaultChatFanoutDeliveryServiceTest {
 
         verify(sender, never()).sendRoomMessage(any(), any(), any());
         verify(sender).sendSubscriptionSignal(ROOM_ID, new RoomTarget("s-guest", "sub-s-guest", 1),
-                SubscriptionSignal.SUBSCRIPTION_REVOKED, ChatSubscriptionReason.STALE_PARTICIPATION, 2);
+                ChatSubscriptionSignal.SUBSCRIPTION_REVOKED, ChatSubscriptionReason.STALE_PARTICIPATION, 2);
     }
 
     /**

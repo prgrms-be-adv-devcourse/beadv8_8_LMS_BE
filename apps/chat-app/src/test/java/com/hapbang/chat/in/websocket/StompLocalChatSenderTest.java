@@ -28,8 +28,8 @@ import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.ChatSyncSignal;
@@ -69,7 +69,7 @@ class StompLocalChatSenderTest {
     @Test
     void 거절_회수_프레임은_그_구독에만_종류_헤더와_함께_쓴다() {
         stompLocalChatSender.sendSubscriptionSignal(12L, new RoomTarget("s-1", "sub-a", 1),
-                SubscriptionSignal.SUBSCRIPTION_REJECTED, ChatSubscriptionReason.STALE_PARTICIPATION, 2);
+                ChatSubscriptionSignal.SUBSCRIPTION_REJECTED, ChatSubscriptionReason.STALE_PARTICIPATION, 2);
 
         Message<?> sent = captureOutbound(1).getFirst();
         assertFrame(sent, "s-1", "sub-a");

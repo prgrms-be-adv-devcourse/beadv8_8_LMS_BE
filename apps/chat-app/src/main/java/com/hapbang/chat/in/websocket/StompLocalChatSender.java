@@ -21,6 +21,7 @@ import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
 import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.in.dto.ChatNotification;
 import com.hapbang.chat.in.dto.ChatReadCountsFrame;
@@ -88,7 +89,7 @@ public class StompLocalChatSender implements LocalChatSender {
     }
 
     @Override
-    public void sendSubscriptionSignal(Long roomId, RoomTarget target, SubscriptionSignal signal,
+    public void sendSubscriptionSignal(Long roomId, RoomTarget target, ChatSubscriptionSignal signal,
             ChatSubscriptionReason reason, Integer currentParticipationVersion) {
         Message<?> converted = convert(new ChatSubscriptionFrame(signal, roomId, reason, currentParticipationVersion));
         if (converted != null) {

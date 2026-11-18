@@ -14,13 +14,13 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRecipientState;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
+import com.hapbang.chat.app.dto.ChatSubscriptionSignal;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.app.port.ChatRoomMemberships.RoomMembership;
 import com.hapbang.chat.app.port.ChatRoomMemberships;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
-import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.port.LocalChatSender;
 import com.hapbang.chat.domain.ChatMessageType;
 
@@ -188,7 +188,7 @@ public class DefaultChatFanoutDeliveryService implements ChatFanoutDeliveryServi
         localChatSender.sendSubscriptionSignal(subscription.roomId(),
                 new RoomTarget(subscription.sessionId(), subscription.subscriptionId(),
                         subscription.participationVersion()),
-                SubscriptionSignal.SUBSCRIPTION_REVOKED, reason, stale ? state.participationVersion() : null);
+                ChatSubscriptionSignal.SUBSCRIPTION_REVOKED, reason, stale ? state.participationVersion() : null);
         log.info("방 topic 구독 회수 roomId={}, userId={}, sessionId={}, reason={}", subscription.roomId(),
                 subscription.userId(), subscription.sessionId(), reason);
     }
