@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 import com.hapbang.auxiliary.search.app.exception.SearchErrorCode;
@@ -92,6 +93,17 @@ class InfluencerSearchFacadeTest {
 
         assertThatThrownBy(() -> facade.search(7L, "메이플", List.of(), null, null, null, PageRequest.of(0, 20)))
                 .isInstanceOf(RateLimitExceededException.class);
+        verify(searcher, never()).search(any(), anyDouble(), anyInt());
+    }
+
+    @Test
+    @DisplayName("정렬 오류(400)로 끝나는 요청도 호출 제한에 센다. 한도를 정렬·페이지 검사보다 먼저 센다(#1012)")
+    void rateLimitCountsInvalidRequest() {
+        assertThatThrownBy(() -> facade.search(7L, "메이플", List.of(), null, null, null,
+                PageRequest.of(0, 20, Sort.by("nickname"))))
+                .isInstanceOfSatisfying(SearchException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(SearchErrorCode.UNSUPPORTED_SORT));
+        verify(rateLimit).acquire(7L);
         verify(searcher, never()).search(any(), anyDouble(), anyInt());
     }
 
