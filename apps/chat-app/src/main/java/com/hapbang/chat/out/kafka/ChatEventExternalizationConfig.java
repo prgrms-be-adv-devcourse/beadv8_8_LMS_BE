@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.modulith.events.EventExternalizationConfiguration;
 
-import com.hapbang.chat.app.ChatExternalEvents;
+import com.hapbang.chat.app.port.ChatExternalEvents;
 import com.hapbang.shared.chat.event.ChatEventTopic;
 import com.hapbang.shared.chat.event.GroupMemberKickedEvent;
 import com.hapbang.shared.chat.event.GroupMembersInvitedEvent;

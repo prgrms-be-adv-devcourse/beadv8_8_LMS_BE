@@ -170,11 +170,9 @@ class ChatRealtimeServiceBoundaryTest {
     }
 
     @Test
-    @DisplayName("방 참여 캐시(out/cache)는 app 클래스를 부르지 않고 app/port의 repository로 읽기 전용 트랜잭션 하나에서 읽는다")
+    @DisplayName("방 참여 캐시(out/cache)는 app/port의 repository로 읽기 전용 트랜잭션 하나에서 읽는다")
     void membershipCacheReadsThroughRepositoryPorts() throws NoSuchMethodException {
-        noClasses().that().resideInAPackage("com.hapbang.chat.out.cache..")
-                .should().dependOnClassesThat().resideInAPackage("com.hapbang.chat.app")
-                .check(classes);
+        // out 전체가 app 바로 아래 클래스에 기대지 않는 규칙은 out/ChatOutBoundaryTest가 확인한다
         // 캐시와 다른 빈이어야 캐시가 프록시를 거쳐 불러 트랜잭션이 걸린다
         Transactional transactional = ChatRoomMembershipLoader.class.getMethod("load", Long.class)
                 .getAnnotation(Transactional.class);

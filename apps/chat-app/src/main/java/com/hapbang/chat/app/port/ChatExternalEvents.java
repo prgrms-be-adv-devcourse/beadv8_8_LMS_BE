@@ -1,4 +1,4 @@
-package com.hapbang.chat.app;
+package com.hapbang.chat.app.port;
 
 import java.time.Duration;
 
@@ -8,7 +8,7 @@ import com.hapbang.shared.chat.event.ChatEventTopic;
 
 /**
  * Kafka로 내보내는 채팅 이벤트의 선택 기준과 실행 중 재발행 값. 외부화 설정({@code ChatEventExternalizationConfig})과 재발행
- * ({@link ChatEventRepublisher})이 같이 쓴다. 규칙은 docs/architecture/infrastructure/kafka.md "발행"이다.
+ * ({@code app/ChatEventRepublisher})이 같이 따르는 발행 계약이다. 규칙은 docs/architecture/infrastructure/kafka.md "발행"이다.
  * <ul>
  *     <li>shared 채팅 이벤트({@code com.hapbang.shared.chat.event}) 바로 안의 {@link Externalized} 레코드만 내보낸다. 채팅이 받기만
  *     하는 다른 컨텍스트의 shared 이벤트(회원·출연)는 내보내지 않는다.</li>
