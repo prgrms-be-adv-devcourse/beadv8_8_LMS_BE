@@ -56,6 +56,17 @@ class ProdRecommendWeightsTest {
         assertThat(lecture.signalLimit()).isEqualTo(50);
     }
 
+    // #1007: 평가 없이 정한 값. 제목 비율은 바꾸면 모든 강의를 다시 임베딩하므로 배포되는 값을 고정해 둔다
+    @Test
+    void 자유_질문_관심사_비율은_0_7이고_강의_제목_비율은_0_3이다() throws IOException {
+        ChatbotLectureRecommendProperties lecture = bind(LECTURE, ChatbotLectureRecommendProperties.class);
+
+        assertThat(lecture.chatInterestWeight()).isEqualTo(0.7);
+        assertThat(lecture.chatInterestWeightOrDefault()).isEqualTo(0.7);
+        assertThat(lecture.interestWeight()).isEqualTo(0.3);
+        assertThat(lecture.titleWeight()).isEqualTo(0.3);
+    }
+
     // 1점 강의를 취향에서 빼려면 구매 + 1점 보정이 0 이하여야 한다(LectureSignals는 0보다 큰 신호만 남긴다). 2점은 0.4로 남긴다
     @Test
     void 구매와_1점_보정이_상쇄되어_1점_강의는_신호에서_빠지고_2점은_약하게_남는다() throws IOException {
