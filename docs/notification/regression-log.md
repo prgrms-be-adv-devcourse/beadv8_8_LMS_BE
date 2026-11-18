@@ -86,6 +86,72 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-119 · 2026-11-18 · 통과 (N17-1 #989 ND-211 순서 보장 범위 반영 뒤 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-119 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a` 위 작업 트리 미커밋(NR-118 변경 포함) |
+| 작업 트리 변경 | 동작 변경 없음. `NotificationRealtimeRelay`·`NotificationRealtimeWorker` Javadoc을 ND-211(commit 뒤 줄에 넣은 순서 보장)에 맞춤. decisions ND-211·ND-205 상태, test-spec NT-RT-10, module 3.8, PROGRESS |
+| 대상 기능 | 받는 사람별 프레임 순서(보장 범위 문서화) |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | `:notification:test` 573/0/0/2(실시간 Batch 13·Order 2·Relay 12·Worker 9·Integration 15·Metrics 4), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 해당 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 해당 없음 |
+| 미검증 항목 | 서로 다른 저장 스레드의 commit 순서와 줄에 넣은 순서가 다른 경우는 시험을 더하지 않았다. Relay는 commit 시각을 보지 않고 줄에 넣은 순서만 따르며, 그 순서는 기존 시험(Batch "넘긴 순서대로", Order 300건, 묶음 경계)이 확인한다. 뒤바뀜을 일부러 만드는 시험은 같은 FIFO를 다시 확인할 뿐이다 |
+| 관련 변경 | #989 |
+
+#### NR-118 · 2026-11-18 · 통과 (N17-1 #989 PR 리뷰 반영: 멈출 때 interrupt 제거, 시작·멈춤 직렬화)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-118 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeWorker`: 멈출 때 interrupt하지 않고 처리 중 묶음을 기다림(5초), `start`·`stop`을 직렬화, 스레드마다 실행 표시를 따로 둠, 이전 스레드가 대기 뒤에도 살아 있으면 시작 거절(`IllegalStateException`), 대기 시간 생성자(테스트). 시험: Worker 4개 추가, Batch 1개에 잠금 뒤 다시 읽기 순서 확인 추가. 문서: module.md 3.8 멈춤 대기 행, test-spec 4장 |
+| 대상 기능 | 발행 스레드 수명주기, 멈출 때 처리 중 묶음 |
+| 관련 NT ID | NT-RT-10, NT-RT-11 |
+| 명령 | `./gradlew :notification:compileTestJava`(RED), `:notification:test --tests "*NotificationRealtimeWorkerTest"`(RED·GREEN), `--tests "*NotificationRealtimeWorkerTest" --tests "*NotificationRealtimeOrderTest" --rerun` 3번, `:notification:test --tests "*NotificationRealtimeBatchTest"`, `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 대기 시간 생성자가 없어 시험 컴파일 실패. 생성자만 더한 뒤 동작 RED 3건: 멈출 때 interrupt 걸림(`AtomicBoolean(true)`), 대기 뒤에도 살아 있는 이전 스레드가 있는데 시작이 예외 없이 됨, 동시 시작·멈춤에서 묶음 처리 동시 4개. 재시작 시험은 지금 코드도 통과(특성 시험). GREEN: Worker 9·Order 2를 3번 연속 통과, Batch 13 통과. 전체 `:notification:test` 573/0/0/2(569 + 4), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED. 시험 작성 실수 1건(재시작 시험의 `verifyNoMoreInteractions`가 계속 도는 `deliverPending`을 잡음)은 `close` 1번 확인으로 고쳤다 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 부하 재측정은 하지 않았다(멈춤·시작 경로만 바뀜). ND-205 순서 표현(commit 순서와 afterCommit 넘김 순서)은 사용자 결정 대기 |
+| 관련 변경 | #989 |
+
+#### NR-117 · 2026-11-18 · 통과 (N17-1 #989 dev 병합(#996) 뒤 알림 범위 재검증)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-117 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `ad9d125a`(병합 `845026d7` + ND-210 문서) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | dev(#996 limit 832Mi, #999 Chat·Coupon 구조 정정) 병합 뒤 알림 모듈 |
+| 관련 NT ID | 알림 모듈 전체 |
+| 명령 | `./gradlew :notification:test --rerun verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | `:notification:test` 569/0/0/2, `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 해당 없음 |
+| 수정 내용 | 없음(test-spec NT-RES-03 충돌은 병합 커밋에서 해결) |
+| 재실행 결과 | 해당 없음 |
+| 미검증 항목 | 전체 `./gradlew check` |
+| 관련 변경 | #989, #996 |
+
 #### NR-116 · 2026-11-18 · 통과 (N17-1 #989 S6 리뷰 반영: 닫힘·거절, 이름·가시성, 로그 레벨, 안 읽은 수 시나리오)
 
 | 항목 | 값 |
