@@ -95,7 +95,7 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 | 실행자 | Claude Code |
 | 브랜치 | `feature/tkt-990` |
 | 커밋 | `6f7d7d67`(dev) 위 작업 트리 미커밋(문서만). 앱 이미지 `b0.sh setup`으로 빌드, docker `b536871b…`, pod imageID `b8d7843f…`(회차 모두 같음) |
-| 작업 트리 변경 | 코드 없음. decisions ND-212~214, PROGRESS, notification-load |
+| 작업 트리 변경 | 코드 없음. 측정 때: decisions ND-212~214, PROGRESS, notification-load(N17 후보 줄). 이 기록을 담은 커밋까지 더한 것: decisions ND-215·U13 행, test-spec NT-RES-03, notification-load "N17-2 분석" 절, regression-log NR-121. 측정에 쓴 진단 스크립트는 커밋하지 않았다(절차는 명령 칸) |
 | 대상 기능 | auxiliary-app 메모리 영역별 사용과 알림 몫(ND-212·ND-214) |
 | 관련 NT ID | NT-RES-03(판정 아님, 진단) |
 | 명령 | 진단 측정이라 1.1의 8번대로 절차와 확인 방법을 적는다. 커밋하지 않은 진단 스크립트로 실행했고, 아래 절차로 재현한다. 1차(NMT 끔): `kubectl --context k3d-hapbang-b0 -n hapbang-prod scale deploy/auxiliary-app --replicas=1` → 10분 대기 → replicas 0 → `loadtest/notification/n15.sh l3 n1721` → replicas 0 → `n15.sh l4 n1721` → replicas 0. 2차(NMT 켬): 먼저 `kubectl set env deploy/auxiliary-app JAVA_TOOL_OPTIONS="-Xmx256m -XX:+ExitOnOutOfMemoryError -XX:NativeMemoryTracking=summary -XX:+UnlockDiagnosticVMOptions -XX:+PrintNMTStatistics -Xlog:class+load=info:file=/tmp/classload.log"`, 같은 순서(태그 `n1722`). 시나리오마다 끝에 `kubectl cp <pod>:/tmp/classload.log <상대 경로>`, `kubectl logs -f <pod>`를 켠 채 replicas 0. 끝나면 `kubectl set env deploy/auxiliary-app JAVA_TOOL_OPTIONS-`. 재측정: 2차와 같은 옵션으로 대기 → `n15.sh l3 n1722b`. 실행 중 5초마다 `/actuator/prometheus`의 `jvm_memory_*`·`jvm_buffer_*`·`jvm_threads_live_threads`·`jvm_classes_loaded_classes`와 `kubectl top pod`를 모았다. 확인 방법: 시나리오마다 pod `restartCount` 0·`lastState` 없음, `n15.sh` 종료 코드 0과 판정 PASS 줄, 종료 로그의 `Native Memory Tracking:` 블록, 클래스 기록 파일 줄 수 |

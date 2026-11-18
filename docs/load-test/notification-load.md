@@ -296,7 +296,7 @@ auxiliary-app 메모리를 영역별로 나누고 알림 몫을 추정했다(ND-
 
 - 알림 전용 클래스 비율을 클래스 관련 메모리 중 CDS를 뺀 Metaspace·Class·Symbol(약 208~220MiB)에 곱하면 약 14~18MiB로 추정한다. 클래스마다 크기가 달라 정확한 값은 아니다. Netty는 Lettuce가 쓰는 것으로 보아 알림에 넣었다(다른 라이브러리도 쓰면 알림 몫은 이보다 작다).
 - 알림이 직접 가진 그 밖의 자원은 설정값과 측정값으로 본다. 스레드 이름별 수는 재지 못했다(Actuator가 스레드 덤프를 열지 않고 NMT에는 이름이 없다).
-  - 스레드: 전체 스택이 스레드 250개 가까이에서도 3~4MiB라(NMT) 알림 스레드(Kafka 소비 5 group × 동시성 1, 발행 1, STOMP inbound·outbound 각 2, heartbeat 스케줄러) 몫은 1MiB 안이다. L3에서 늘어난 약 100개는 연결 처리(Tomcat 등)로 보이며 이름으로 확인하지는 않았다.
+  - 스레드: 전체 스택이 스레드 250개 가까이에서도 3~4MiB라(NMT) 알림 스레드(Kafka 소비 5 group × 동시성 1, 실시간 발행 1, STOMP inbound·outbound 각 2, heartbeat 스케줄러 `notification-ws-heartbeat-`, 연결 만료 sweep 스케줄러 `notification-ws-expiry-`, 관리자 Backfill 실행기 `notification-admin-backfill-`(요청 때만, 동시 1)) 몫은 1MiB 안이다. 예약 배치(`NotificationScheduleBatch`, `@Scheduled`)는 알림 전용 스레드가 아니라 앱 공통 스케줄러 스레드 2개(U13, ND-204) 위에서 돈다. L3에서 늘어난 약 100개는 연결 처리(Tomcat 등)로 보이며 이름으로 확인하지는 않았다.
   - Kafka fetch: 상한은 기본값(응답당 50MB, 파티션당 1MB)이고 받은 레코드는 heap에 잠깐 있다. 따로 잡아 두는 고정 버퍼가 아니다.
   - STOMP 전송 버퍼: 세션당 상한 512KB(`send-buffer-size-limit`)는 수신이 밀릴 때만 차는 상한이다. 프레임이 작아(L3 p95 11ms) 평상시에는 거의 쓰지 않는다.
   - direct buffer 0.6Mi, 실시간 줄·묶음 1MiB 안(module.md 3.8).
