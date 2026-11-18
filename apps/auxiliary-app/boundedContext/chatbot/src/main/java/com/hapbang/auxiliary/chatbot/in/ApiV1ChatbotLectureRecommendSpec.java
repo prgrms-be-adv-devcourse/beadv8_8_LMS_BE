@@ -1,6 +1,6 @@
 package com.hapbang.auxiliary.chatbot.in;
 
-import com.hapbang.auxiliary.chatbot.app.RecommendInterest;
+import com.hapbang.auxiliary.chatbot.app.RecommendInterestUtil;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
 import com.hapbang.auxiliary.chatbot.in.dto.RecommendButtonReqDto;
 import com.hapbang.auxiliary.global.response.RsData;
@@ -25,9 +25,9 @@ public interface ApiV1ChatbotLectureRecommendSpec {
                     + "회원마다 주기당 호출 수를 제한한다(모든 요청에 넓은 제한, interest를 넣은 요청은 좁은 제한도 함께. "
                     + "넘으면 429, Retry-After. FE는 위젯을 숨긴다). 다른 실패는 FE가 추천 영역만 숨긴다.")
     RsData<LectureRecommendResDto> recommend(@Parameter(hidden = true) Long userId,
-            @Parameter(description = "관심사(앞뒤 공백을 뺀 1~" + RecommendInterest.MAX_LENGTH
+            @Parameter(description = "관심사(앞뒤 공백을 뺀 1~" + RecommendInterestUtil.MAX_LENGTH
                     + "자, 저장하지 않음). 없으면 활동 기록만으로", example = "데이터 분석 입문")
-            @Pattern(regexp = RecommendInterest.PATTERN, message = RecommendInterest.MESSAGE) String interest);
+            @Pattern(regexp = RecommendInterestUtil.PATTERN, message = RecommendInterestUtil.MESSAGE) String interest);
 
     @Operation(summary = "강의 추천 + 이유(LLM, 챗봇 버튼)", description = "챗봇 '강의 추천받기' 버튼용. 본문 {interest?}. "
             + "관심사가 있으면 LLM이 비슷한 표현으로 늘려 함께 찾는다(실패하면 원문으로). 코드가 만든 맞춤 후보(최대 20개) 안에서 "

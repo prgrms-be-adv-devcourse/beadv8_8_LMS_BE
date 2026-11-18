@@ -21,7 +21,7 @@ import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
 import com.hapbang.auxiliary.chatbot.domain.RecommendTaste;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -123,7 +123,7 @@ public class RecommendReranker {
             if (usable(answer, shown.size()) && seen.add(answer.candidate())) {
                 int index = answer.candidate() - 1;
                 order.add(index);
-                reasons.put(index, TextCut.head(answer.reason().strip(), rerank.reasonMaxLength()));
+                reasons.put(index, TextCutUtil.head(answer.reason().strip(), rerank.reasonMaxLength()));
             }
         }
         if (order.isEmpty()) {

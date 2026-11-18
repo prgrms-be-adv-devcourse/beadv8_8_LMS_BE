@@ -45,7 +45,7 @@ public class MemberCopyStore {
                 .addValue("id", copy.id())
                 .addValue("role", copy.role().name())
                 .addValue("status", copy.status().name())
-                .addValue("categories", JsonColumns.write(copy.categories()))
+                .addValue("categories", JsonColumnsUtil.write(copy.categories()))
                 .addValue("bio", copy.bio());
         return TABLE.save(jdbc, params, copy.version(), copy.hash(), null, now);
     }

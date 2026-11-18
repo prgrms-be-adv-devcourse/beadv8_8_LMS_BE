@@ -9,7 +9,7 @@ import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
  * 강의 쪽 사본 4종에 넣을 값 (#717). 강의 이벤트와 강의 싱크가 같은 DTO를 주고, app의 {@code CopyMapper}가 만든다.
  * <ul>
  *     <li>강의가 판단한 값({@code onSale}, {@code result}, {@code counted})을 그대로 담고 다시 해석하지 않는다.</li>
- *     <li>해시는 받은 DTO에서 version만 뺀 값으로 계산한다({@code CopyHash}). 시각은 KST로 맞춘 뒤 넣어 offset이 달라도 같다.</li>
+ *     <li>해시는 받은 DTO에서 version만 뺀 값으로 계산한다({@code CopyHashUtil}). 시각은 KST로 맞춘 뒤 넣어 offset이 달라도 같다.</li>
  * </ul>
  */
 public final class LectureCopies {

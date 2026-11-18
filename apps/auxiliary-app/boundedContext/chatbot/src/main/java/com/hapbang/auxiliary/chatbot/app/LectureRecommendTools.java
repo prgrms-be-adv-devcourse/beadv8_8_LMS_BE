@@ -12,7 +12,7 @@ import com.hapbang.auxiliary.chatbot.app.dto.ChatCardsResDto;
 import com.hapbang.auxiliary.chatbot.app.dto.LectureRecommendResDto;
 import com.hapbang.auxiliary.chatbot.domain.LectureRecommendReason;
 import com.hapbang.auxiliary.chatbot.domain.RecommendBasis;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -54,7 +54,7 @@ public class LectureRecommendTools {
         metrics.toolCall(TOOL_NAME);
         cards.called(TOOL_NAME);
         LectureRecommendation recommendation = recommendUseCase.recommend(memberId, truncate(
-                RecommendInterest.normalize(interest)));
+                RecommendInterestUtil.normalize(interest)));
         // 카드와 Tool 결과 모두 기준 강의 제목 없는 문장을 쓴다(대화 화면에 그대로 나가고, LLM 글과 같은 근거를 보이게)
         List<LectureRecommendResDto.Item> cardItems = recommendation.items().stream()
                 .map(item -> new LectureRecommendResDto.Item(item.lectureId(), item.title(), item.score(), item.reason(),
@@ -69,9 +69,9 @@ public class LectureRecommendTools {
                 recommendation.requesterHidden() ? LectureRecommendResDto.REQUESTER_HIDDEN_NOTICE : null);
     }
 
-    // 코드포인트로 센다(TextCut): API 검사(정규식의 .)와 같은 기준이다
+    // 코드포인트로 센다(TextCutUtil): API 검사(정규식의 .)와 같은 기준이다
     static @Nullable String truncate(@Nullable String interest) {
-        return interest == null ? null : TextCut.head(interest, RecommendInterest.MAX_LENGTH).strip();
+        return interest == null ? null : TextCutUtil.head(interest, RecommendInterestUtil.MAX_LENGTH).strip();
     }
 
     /**

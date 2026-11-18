@@ -20,7 +20,7 @@ import jakarta.validation.constraints.Positive;
  * <b>임시값</b>이라고 적은 값은 평가 없이 정한 값이다. 추천 가중치 보정(#867)에서 더미 데이터로 잰 값은 운영 프로필
  * ({@code application-prod.yaml})에 근거 주석과 함께 두었다(β·별점 1·2점 보정, 근거 표는 {@code docs/chatbot/recommend-weights.md}).
  * 코드 기본값과 local 값은 출발값 그대로다. 관심사 최대 길이(100자)는 요청 검증 애노테이션이 컴파일 시점 상수를 써야 해서 설정이 아니라
- * {@code RecommendInterest.MAX_LENGTH}에 있다.
+ * {@code RecommendInterestUtil.MAX_LENGTH}에 있다.
  *
  * @param resultSize       추천 수(이슈 #718에서 정한 화면 카드 수)
  * @param maxPerSeller     판매자 한 명의 강의를 최대 몇 개까지 넣는지(다양성, 이슈 #718에서 정함)

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -138,7 +138,7 @@ public class IndexTaskStore {
             return;
         }
         // 컬럼 길이(VARCHAR, 글자 수)를 코드포인트로 센다. 이모지를 반으로 자르지 않는다
-        String trimmed = TextCut.head(error, ERROR_MAX_LENGTH);
+        String trimmed = TextCutUtil.head(error, ERROR_MAX_LENGTH);
         jdbc.update("""
                 UPDATE chatbot.index_task SET next_attempt_at = :next, last_error = :error
                 WHERE id IN (:ids) AND done_at IS NULL AND next_attempt_at = :leaseUntil

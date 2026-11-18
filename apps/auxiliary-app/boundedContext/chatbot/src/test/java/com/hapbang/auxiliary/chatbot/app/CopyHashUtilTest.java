@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 
 /** 사본 값의 해시와 시각 맞춤 (#716). DTO → 사본 변환의 해시는 {@link CopyMapperTest} */
-class CopyHashTest {
+class CopyHashUtilTest {
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 11, 20, 20, 0, 0, 123_456_789);
 
@@ -31,8 +31,8 @@ class CopyHashTest {
     void sameInstantSameHash() {
         record Value(Long id, LocalDateTime at) {
         }
-        String fromLocal = CopyHash.of(new Value(1L, CopyTimes.kst(AT)));
-        String fromOffset = CopyHash.of(new Value(1L, CopyTimes.kst(OffsetDateTime.of(AT.plusNanos(1), ZoneOffset.ofHours(9)))));
+        String fromLocal = CopyHashUtil.of(new Value(1L, CopyTimes.kst(AT)));
+        String fromOffset = CopyHashUtil.of(new Value(1L, CopyTimes.kst(OffsetDateTime.of(AT.plusNanos(1), ZoneOffset.ofHours(9)))));
         assertThat(fromLocal).isEqualTo(fromOffset).hasSize(64).matches("[0-9a-f]{64}");
     }
 
@@ -41,7 +41,7 @@ class CopyHashTest {
     void sortedJson() {
         record Value(String b, Long a, String c) {
         }
-        assertThat(CopyHash.json(new Value("x", 1L, null))).isEqualTo("{\"a\":1,\"b\":\"x\",\"c\":null}");
-        assertThat(CopyHash.of(new Value("x", 1L, null))).isNotEqualTo(CopyHash.of(new Value("x", 1L, "")));
+        assertThat(CopyHashUtil.json(new Value("x", 1L, null))).isEqualTo("{\"a\":1,\"b\":\"x\",\"c\":null}");
+        assertThat(CopyHashUtil.of(new Value("x", 1L, null))).isNotEqualTo(CopyHashUtil.of(new Value("x", 1L, "")));
     }
 }

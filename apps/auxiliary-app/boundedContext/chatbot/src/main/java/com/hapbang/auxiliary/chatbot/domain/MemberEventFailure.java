@@ -148,7 +148,7 @@ public class MemberEventFailure {
     public record Cause(String exceptionClass, String rootCauseClass, String message) {
 
         public Cause {
-            message = message == null ? null : TextCut.head(message, MESSAGE_MAX_LENGTH);
+            message = message == null ? null : TextCutUtil.head(message, MESSAGE_MAX_LENGTH);
         }
     }
 }

@@ -134,7 +134,7 @@ public class InfluencerRecommendUseCase {
                 log.info("인플루언서 추천 검색이 다시 된다");
             }
             return pool;
-        } catch (VectorCall.Failure e) {
+        } catch (VectorCallUtil.Failure e) {
             // 임베딩·ES 장애. 인기순으로 답한다. DB 오류·코드 오류는 감싸지 않아 그대로 올라간다
             if (searchFailing.compareAndSet(false, true)) {
                 log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
@@ -208,7 +208,7 @@ public class InfluencerRecommendUseCase {
     private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, List<Long> partners,
             @Nullable List<String> interest) {
         if (interest != null) {
-            return new Taste.Single(VectorCall.run(() -> embedder.embedInterest(interest)), InfluencerReason.MATCHES_INTEREST);
+            return new Taste.Single(VectorCallUtil.run(() -> embedder.embedInterest(interest)), InfluencerReason.MATCHES_INTEREST);
         }
         if (me == null || !me.isInfluencer()) {
             return null;
@@ -218,7 +218,7 @@ public class InfluencerRecommendUseCase {
         List<String> docIds = new ArrayList<>();
         docIds.add(myDocId);
         docIds.addAll(InfluencerIndexPlan.docIdsOf(partners));
-        Map<String, float[]> stored = VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, docIds));
+        Map<String, float[]> stored = VectorCallUtil.run(() -> index.vectors(IndexType.INFLUENCER, docIds));
         float[] mine = stored.get(myDocId);
         float[] partnerMean = partnerMean(stored, myDocId);
         if (mine != null && partnerMean != null) {
@@ -256,7 +256,7 @@ public class InfluencerRecommendUseCase {
     // kNN → 본인·추천 불가 제외 → 유사도와 정규화 인기를 섞어 size명. 추천 가능 확인으로 읽은 프로필을 candidateProfiles에 담는다
     private List<Candidate> similar(long userId, Taste taste, double overallMeanRating, int size,
             Map<Long, InfluencerProfile> candidateProfiles) {
-        List<ScoredId> hits = VectorCall.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
+        List<ScoredId> hits = VectorCallUtil.run(() -> index.knn(IndexType.INFLUENCER, taste.vector(), properties.k(),
                 properties.numCandidates(), NOT_HIDDEN));
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (ScoredId hit : hits) {
@@ -279,7 +279,7 @@ public class InfluencerRecommendUseCase {
             topIds.add(candidate.memberId());
         }
         Map<String, float[]> vectors = taste instanceof Taste.Mixed
-                ? VectorCall.run(() -> index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds))) : Map.of();
+                ? VectorCallUtil.run(() -> index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds))) : Map.of();
         List<Candidate> reasoned = new ArrayList<>();
         for (Candidate candidate : top) {
             float[] vector = vectors.get(InfluencerIndexPlan.docIdOf(candidate.memberId()));

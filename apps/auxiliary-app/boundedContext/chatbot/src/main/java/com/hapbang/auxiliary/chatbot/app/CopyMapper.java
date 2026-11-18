@@ -28,7 +28,7 @@ import com.hapbang.shared.member.dto.UserDto;
  * <ul>
  *     <li>이벤트와 싱크가 같은 DTO를 주므로 둘 다 여기서 만든다.</li>
  *     <li>다른 모듈이 판단한 값(출연 {@code result}, 강의 {@code onSale}·{@code result}·{@code counted})을 그대로 담고 다시 해석하지 않는다.</li>
- *     <li>해시는 받은 DTO에서 비교할 값만 골라 {@link CopyHash}로 계산한다. version은 넣지 않는다.
+ *     <li>해시는 받은 DTO에서 비교할 값만 골라 {@link CopyHashUtil}로 계산한다. version은 넣지 않는다.
  *     시각은 {@link CopyTimes}로 KST·마이크로초로 맞춘 뒤 넣어 offset이 달라도 같다.</li>
  * </ul>
  */
@@ -39,14 +39,14 @@ final class CopyMapper {
 
     static AppearanceCopy appearance(AppearanceSyncDto dto) {
         LocalDateTime scheduledAt = CopyTimes.kst(dto.scheduledAt());
-        String hash = CopyHash.of(new HashedAppearance(dto.id(), dto.hostId(), dto.guestId(), dto.result(), scheduledAt));
+        String hash = CopyHashUtil.of(new HashedAppearance(dto.id(), dto.hostId(), dto.guestId(), dto.result(), scheduledAt));
         return new AppearanceCopy(dto.id(), dto.hostId(), dto.guestId(), dto.result(), scheduledAt, dto.version(), hash);
     }
 
     /** 리뷰는 공개 뒤 바뀌지 않아 version이 없다. 받은 싱크 DTO 전체로 해시한다 */
     static AppearanceReviewCopy appearanceReview(AppearanceReviewSyncDto dto) {
         return new AppearanceReviewCopy(dto.reviewId(), dto.appearanceId(), dto.revieweeUserId(), dto.rating(),
-                CopyHash.of(dto));
+                CopyHashUtil.of(dto));
     }
 
     /**
@@ -60,7 +60,7 @@ final class CopyMapper {
 
     /** 닉네임은 저장하지 않지만 해시에는 넣는다(받은 DTO 전체로 계산) */
     static MemberCopy member(UserDto dto) {
-        String hash = CopyHash.of(new HashedMember(dto.id(), dto.nickname(), dto.role(), dto.status(),
+        String hash = CopyHashUtil.of(new HashedMember(dto.id(), dto.nickname(), dto.role(), dto.status(),
                 dto.contentCategories(), dto.bio()));
         return new MemberCopy(dto.id(), dto.role(), dto.status(), dto.contentCategories(), dto.bio(), dto.version(), hash);
     }
@@ -69,7 +69,7 @@ final class CopyMapper {
     static LectureCopies.Lecture lecture(LectureSyncDto dto) {
         List<LectureContentSyncDto> contents = dto.contents().stream()
                 .sorted(Comparator.comparingInt(LectureContentSyncDto::sequence)).toList();
-        String hash = CopyHash.of(new HashedLecture(dto.id(), dto.sellerUserId(), dto.title(), dto.description(),
+        String hash = CopyHashUtil.of(new HashedLecture(dto.id(), dto.sellerUserId(), dto.title(), dto.description(),
                 dto.onSale(), dto.deleted(), contents));
         return new LectureCopies.Lecture(dto.id(), dto.sellerUserId(), dto.title(), dto.description(),
                 contents.stream().map(LectureContentSyncDto::title).toList(), dto.onSale(), dto.deleted(),
@@ -79,7 +79,7 @@ final class CopyMapper {
     static LectureCopies.Purchase purchase(LecturePurchaseSyncDto dto) {
         LocalDateTime orderedAt = CopyTimes.kst(dto.orderedAt());
         LocalDateTime purchasedAt = CopyTimes.kst(dto.purchasedAt());
-        String hash = CopyHash.of(new HashedPurchase(dto.orderItemId(), dto.buyerUserId(), dto.lectureId(),
+        String hash = CopyHashUtil.of(new HashedPurchase(dto.orderItemId(), dto.buyerUserId(), dto.lectureId(),
                 dto.result(), orderedAt, purchasedAt));
         return new LectureCopies.Purchase(dto.orderItemId(), dto.buyerUserId(), dto.lectureId(), dto.result(), orderedAt,
                 purchasedAt, dto.version(), hash);
@@ -87,13 +87,13 @@ final class CopyMapper {
 
     static LectureCopies.CartItem cartItem(CartItemSyncDto dto) {
         LocalDateTime addedAt = CopyTimes.kst(dto.addedAt());
-        String hash = CopyHash.of(new HashedCartItem(dto.id(), dto.userId(), dto.lectureId(), dto.deleted(), addedAt));
+        String hash = CopyHashUtil.of(new HashedCartItem(dto.id(), dto.userId(), dto.lectureId(), dto.deleted(), addedAt));
         return new LectureCopies.CartItem(dto.id(), dto.userId(), dto.lectureId(), dto.deleted(), addedAt, dto.version(),
                 hash);
     }
 
     static LectureCopies.Review lectureReview(LectureReviewSyncDto dto) {
-        String hash = CopyHash.of(new HashedReview(dto.id(), dto.lectureId(), dto.reviewerUserId(), dto.rating(),
+        String hash = CopyHashUtil.of(new HashedReview(dto.id(), dto.lectureId(), dto.reviewerUserId(), dto.rating(),
                 dto.counted(), dto.deleted()));
         return new LectureCopies.Review(dto.id(), dto.lectureId(), dto.reviewerUserId(), dto.rating(), dto.counted(),
                 dto.deleted(), dto.version(), hash);

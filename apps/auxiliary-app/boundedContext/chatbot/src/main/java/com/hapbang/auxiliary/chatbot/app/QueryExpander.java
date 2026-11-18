@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotRecommendLlmProperties;
-import com.hapbang.auxiliary.chatbot.domain.TextCut;
+import com.hapbang.auxiliary.chatbot.domain.TextCutUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -87,7 +87,7 @@ public class QueryExpander {
                 break;
             }
             if (phrase != null && !phrase.isBlank()) {
-                queries.add(TextCut.head(phrase.strip(), RecommendInterest.MAX_LENGTH));
+                queries.add(TextCutUtil.head(phrase.strip(), RecommendInterestUtil.MAX_LENGTH));
             }
         }
         return new ArrayList<>(queries);

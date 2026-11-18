@@ -41,7 +41,7 @@ public class LectureCopyStore {
                 .addValue("seller_user_id", copy.sellerUserId())
                 .addValue("title", copy.title())
                 .addValue("description", copy.description())
-                .addValue("content_titles", JsonColumns.write(copy.contentTitles()))
+                .addValue("content_titles", JsonColumnsUtil.write(copy.contentTitles()))
                 .addValue("on_sale", copy.onSale())
                 .addValue("deleted", copy.deleted());
         return LECTURE.save(jdbc, params, copy.version(), copy.hash(), source.runId(), now);

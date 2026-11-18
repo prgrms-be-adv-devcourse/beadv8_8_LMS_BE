@@ -16,7 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
  *     <li>필드 이름 순으로 정렬한 JSON(null도 씀, 목록은 받은 순서 그대로)의 SHA-256을 16진수 64자로 낸다({@link Sha256}).</li>
  * </ul>
  */
-public final class CopyHash {
+public final class CopyHashUtil {
 
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
@@ -25,7 +25,7 @@ public final class CopyHash {
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
 
-    private CopyHash() {
+    private CopyHashUtil() {
     }
 
     /** 값(레코드)의 해시 */
