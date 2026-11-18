@@ -31,7 +31,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 강의 추천 후보 생성 (#718, #720). <b>후보는 코드가 정한다</b>(같은 입력이면 같은 결과). LLM을 부르지 않는다.
  * 두 단계다: {@link #pool}이 맞춤 후보만 고르고, {@link #complete}가 고른 순서대로 모자란 자리를 인기순으로 채워 답을 만든다.
- * 위젯·Tool은 {@link #recommend}(풀 크기 = 추천 수), 버튼 경로는 큰 풀을 받아 LLM이 고른 뒤 {@link #complete}를 부른다.
+ * 위젯은 {@link #recommend}, 자유 질문 Tool은 {@link #recommendInChat}(둘 다 풀 크기 = 추천 수, Tool만 관심사 비율이
+ * {@code chat-interest-weight}, #1007), 버튼 경로는 큰 풀을 받아 LLM이 고른 뒤 {@link #complete}를 부른다.
  * <ol>
  *     <li>요청 회원이 숨김(사본 없음·탈퇴·마스킹)이면 빈 결과.</li>
  *     <li>신호: 구매 {@code OWNED}·장바구니에 리뷰 별점 보정, 최근 순 상한, 0 아래로 내리지 않음({@link LectureSignals}).</li>
@@ -69,12 +70,24 @@ public class LectureRecommendUseCase {
     private final AtomicBoolean failing = new AtomicBoolean();
 
     /**
-     * 위젯·Tool 경로: 맞춤 후보를 추천 수만큼 고르고 모자라면 인기순으로 채운다.
+     * 위젯 경로: 맞춤 후보를 추천 수만큼 고르고 모자라면 인기순으로 채운다. 관심사 비율은 {@code interest-weight}.
      *
      * @param interest 사용자가 직접 입력한 관심사 문장({@link RecommendInterestUtil#normalize}를 거친 값). 없으면 null(저장하지 않는다)
      */
     public LectureRecommendation recommend(long memberId, @Nullable String interest) {
-        Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize());
+        return recommend(memberId, interest, properties.interestWeight());
+    }
+
+    /**
+     * 자유 질문 대화의 Tool 경로(#1007): {@link #recommend}와 같고 관심사 비율만 {@code chat-interest-weight}다.
+     * 대화에서 직접 말한 요구가 과거 구매보다 앞서게 위젯보다 높게 둔다.
+     */
+    public LectureRecommendation recommendInChat(long memberId, @Nullable String interest) {
+        return recommend(memberId, interest, properties.chatInterestWeightOrDefault());
+    }
+
+    private LectureRecommendation recommend(long memberId, @Nullable String interest, double interestWeight) {
+        Pool pool = pool(memberId, interest == null ? null : List.of(interest), properties.resultSize(), interestWeight);
         return complete(pool, pool.lectureIds());
     }
 
@@ -82,9 +95,15 @@ public class LectureRecommendUseCase {
      * 맞춤 후보만 최대 {@code size}개(인기순 채움 없음). 제외 규칙과 판매자당 상한은 여기서 적용하므로 풀에서 어떤 강의를 골라도
      * 규칙을 지킨다.
      *
+     * 버튼 경로가 쓰고, 관심사 비율은 위젯과 같은 {@code interest-weight}다.
+     *
      * @param interest 관심사 원문(첫째)과 쿼리 확장 표현. 함께 임베딩해 평균을 낸다. 없으면 null
      */
     public Pool pool(long memberId, @Nullable List<String> interest, int size) {
+        return pool(memberId, interest, size, properties.interestWeight());
+    }
+
+    private Pool pool(long memberId, @Nullable List<String> interest, int size, double interestWeight) {
         if (!visibility.isVisible(memberId)) {
             return Pool.forHiddenRequester(memberId);
         }
@@ -102,7 +121,7 @@ public class LectureRecommendUseCase {
         }
         Pool pool;
         try {
-            pool = personalized(memberId, interest, signals, excluded, size);
+            pool = personalized(memberId, interest, signals, excluded, size, interestWeight);
         } catch (VectorCallUtil.Failure e) {
             if (failing.compareAndSet(false, true)) {
                 log.warn("강의 추천 색인·임베딩 호출이 실패하기 시작했다. 회복될 때까지 인기순으로 답한다", e.getCause());
@@ -142,12 +161,12 @@ public class LectureRecommendUseCase {
     }
 
     private Pool personalized(long memberId, @Nullable List<String> interest, List<LectureSignals.Signal> signals,
-            Set<Long> excluded, int size) {
+            Set<Long> excluded, int size, double interestWeight) {
         Map<Long, float[]> signalVectors =
                 VectorCallUtil.run(() -> vectors(signals.stream().map(LectureSignals.Signal::lectureId).toList()));
         float[] interestVector = interest == null ? null : VectorCallUtil.run(() -> embedder.embedInterest(interest));
         LectureTaste taste = LectureTaste.of(signals, signalVectors, interestVector);
-        float[] query = taste.query(properties.interestWeight());
+        float[] query = taste.query(interestWeight);
         if (query == null) {
             // 신호 강의가 아직 색인되지 않았다. 관심사를 주면 맞춤으로 찾을 수 있다
             return Pool.popularNeedingInterest(memberId, excluded);
