@@ -22,6 +22,17 @@ import jakarta.persistence.LockModeType;
 
 public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
 
+    /**
+     * 출연의 출처(요청서·모집글)를 붙이는 조인 (#1002). 출연은 제목을 갖지 않고 출처의 현재 제목을 쓴다.
+     * 출처는 출연마다 하나(PK 조인)라 행이 늘지 않는다. 출처가 없으면 제목은 null이다(left join).
+     */
+    String SOURCE_JOINS = " left join AppearanceRequest r on r.id = a.requestId"
+            + " left join AppearanceRecruit rc on rc.id = a.recruitId ";
+
+    /** 출처 제목. {@code Appearance.isFromRecruit()}와 같은 기준(출처 종류)으로 고른다 */
+    String SOURCE_TITLE = "case when a.sourceType = com.hapbang.appearance.domain.AppearanceSourceType.RECRUIT"
+            + " then rc.basicInfo.title else r.basicInfo.title end";
+
     /** 동기화 내부 API(#713): 이 ID보다 큰 출연을 ID 오름차순으로. 모든 상태가 나온다 */
     List<Appearance> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
@@ -31,11 +42,27 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
     /** 모집 지원에서 성립한 출연들 (지원 목록 응답용) */
     List<Appearance> findByApplicationIdIn(Collection<Long> applicationIds);
 
-    /** 내가 호스트인 출연 목록 */
-    Page<Appearance> findByHostIdAndStatusIn(Long hostId, Collection<AppearanceStatus> statuses, Pageable pageable);
+    /**
+     * 내가 호스트인 출연 목록과 출처 제목. 최신순(생성 시각 내림차순, 같으면 출연 ID 내림차순) 고정이라 {@code Pageable}의 정렬은 쓰지 않는다
+     */
+    @Query(value = "select new com.hapbang.appearance.out.AppearanceTitledRow(a, " + SOURCE_TITLE + ")"
+            + " from Appearance a" + SOURCE_JOINS
+            + "where a.hostId = :hostId and a.status in :statuses order by a.createdAt desc, a.id desc",
+            countQuery = "select count(a) from Appearance a where a.hostId = :hostId and a.status in :statuses")
+    Page<AppearanceTitledRow> findTitledByHost(@Param("hostId") Long hostId,
+                                               @Param("statuses") Collection<AppearanceStatus> statuses,
+                                               Pageable pageable);
 
-    /** 내가 게스트인 출연 목록 */
-    Page<Appearance> findByGuestIdAndStatusIn(Long guestId, Collection<AppearanceStatus> statuses, Pageable pageable);
+    /**
+     * 내가 게스트인 출연 목록과 출처 제목. 최신순(생성 시각 내림차순, 같으면 출연 ID 내림차순) 고정이라 {@code Pageable}의 정렬은 쓰지 않는다
+     */
+    @Query(value = "select new com.hapbang.appearance.out.AppearanceTitledRow(a, " + SOURCE_TITLE + ")"
+            + " from Appearance a" + SOURCE_JOINS
+            + "where a.guestId = :guestId and a.status in :statuses order by a.createdAt desc, a.id desc",
+            countQuery = "select count(a) from Appearance a where a.guestId = :guestId and a.status in :statuses")
+    Page<AppearanceTitledRow> findTitledByGuest(@Param("guestId") Long guestId,
+                                                @Param("statuses") Collection<AppearanceStatus> statuses,
+                                                Pageable pageable);
 
     /**
      * 출연의 출처 모집글 ID만 읽는다 (엔티티를 영속성 컨텍스트에 올리지 않는다).
@@ -53,16 +80,14 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
                                             @Param("statuses") Collection<AppearanceStatus> statuses);
 
     /**
-     * 자동 확인 대상 출연 ID: 이 상태이고 방송 예정 일시가 기준 시각 이전 (= 방송 예정 일시 + 확인 기간 ≤ 지금).
-     * 방송 예정 일시가 오래된 순 (#282)
+     * 자동 확인 대상 출연 ID와 출처 제목: 이 상태이고 방송 예정 일시가 기준 시각 이전 (= 방송 예정 일시 + 확인 기간 ≤ 지금).
+     * 방송 예정 일시가 오래된 순 (#282). 제목을 함께 읽어 건수와 관계없이 조회는 한 번이다 (#871, #1002)
      */
-    @Query("""
-            select a.id from Appearance a
-            where a.status = :status and a.scheduledAt <= :cutoff
-            order by a.scheduledAt, a.id
-            """)
-    List<Long> findIdsByStatusAndScheduledAtUpTo(@Param("status") AppearanceStatus status,
-                                                 @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+    @Query("select new com.hapbang.appearance.out.AppearanceAutoConfirmTarget(a.id, " + SOURCE_TITLE + ")"
+            + " from Appearance a" + SOURCE_JOINS
+            + "where a.status = :status and a.scheduledAt <= :cutoff order by a.scheduledAt, a.id")
+    List<AppearanceAutoConfirmTarget> findAutoConfirmTargets(@Param("status") AppearanceStatus status,
+                                                             @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 
     /** 출연 행을 배타 잠금({@code FOR UPDATE})으로 읽는다. 같은 출연의 취소 요청·응답·자동 거절을 차례로 처리한다 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -85,15 +110,18 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
                                                    @Param("taskTypes") Collection<HpTaskType> taskTypes);
 
     /**
-     * 게스트의 출연 수익 목록 (#301). 조건은 {@code AppearanceEarningRule.Condition} 모양 그대로다.
+     * 게스트의 출연 수익 목록 (#301)과 출처 제목 (#1002). 조건은 {@code AppearanceEarningRule.Condition} 모양 그대로다.
      * 빈 목록 대신 자리표시 값을 넘기고 {@code has…} 플래그로 끈다 ({@code in ()}을 피함).
      * 정렬: 상태 기준 시각 내림차순, 같으면 출연 ID 내림차순 (출연 1건 = 1행이라 순서가 정해진다).
      */
     @Query(value = """
             select new com.hapbang.appearance.out.AppearanceEarningRow(
-                a, t.status, coalesce(t.completedAt, a.confirmedAt, a.canceledAt, a.absentAt, a.updatedAt))
+                a, t.status, coalesce(t.completedAt, a.confirmedAt, a.canceledAt, a.absentAt, a.updatedAt),
+            """ + SOURCE_TITLE + """
+            )
             from Appearance a
             left join HpTask t on t.appearanceId = a.id and t.taskType in :taskTypes
+            """ + SOURCE_JOINS + """
             where a.guestId = :guestId
               and ((:hasPlain = true and a.status in :plain)
                 or (:hasWithTask = true and a.status in :withTask and t.status in :taskStatuses)

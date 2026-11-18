@@ -131,12 +131,12 @@ class AppearanceCancelRequestRepositoryTest {
         Appearance toGuest2 = established(2L);
         Appearance toGuest3 = established(3L);
 
-        assertThat(appearanceRepository.findByHostIdAndStatusIn(HOST, List.of(AppearanceStatus.ESTABLISHED),
-                FIRST_PAGE).getContent()).extracting(Appearance::getId)
+        assertThat(appearanceRepository.findTitledByHost(HOST, List.of(AppearanceStatus.ESTABLISHED),
+                FIRST_PAGE).getContent()).extracting(row -> row.appearance().getId())
                 .containsExactly(toGuest3.getId(), toGuest2.getId());
-        assertThat(appearanceRepository.findByGuestIdAndStatusIn(3L, List.of(AppearanceStatus.values()), FIRST_PAGE)
-                .getContent()).extracting(Appearance::getId).containsExactly(toGuest3.getId());
-        assertThat(appearanceRepository.findByGuestIdAndStatusIn(3L, List.of(AppearanceStatus.CANCEL_REQUESTED),
+        assertThat(appearanceRepository.findTitledByGuest(3L, List.of(AppearanceStatus.values()), FIRST_PAGE)
+                .getContent()).extracting(row -> row.appearance().getId()).containsExactly(toGuest3.getId());
+        assertThat(appearanceRepository.findTitledByGuest(3L, List.of(AppearanceStatus.CANCEL_REQUESTED),
                 FIRST_PAGE).getContent()).isEmpty();
         assertThat(appearanceRepository.findSourceRefById(toGuest2.getId())).get()
                 .extracting(AppearanceRepository.SourceRef::getRecruitId).isNull();

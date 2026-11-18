@@ -3,7 +3,6 @@ package com.hapbang.appearance.app;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
@@ -14,6 +13,7 @@ import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.out.AppearanceAutoConfirmTarget;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  *     + 지급 작업 기록 (커밋) → [트랜잭션 밖] 지급 1회 실행. 실패한 지급은 HP 작업 재시도 배치가 이어서 한다.</li>
  *     <li>그사이 호스트가 응답했으면 건너뛴다. 취소 요청 처리 중인 출연은 대상이 아니다 (자동 거절 배치가 성립으로 되돌린 뒤 대상이 된다).</li>
  *     <li>출연마다 예외를 잡아 다음 출연을 계속 처리한다 (최대 {@code batchSize}건, 나머지는 다음 주기).</li>
- *     <li>확인 알림·지급에 쓰는 출처 제목은 회차 시작에 한 번에 읽는다(건수와 관계없이 조회 세 번 이하, #871).</li>
+ *     <li>확인 알림·지급에 쓰는 출처 제목은 대상을 읽을 때 함께 읽는다(건수와 관계없이 조회 한 번, #871, #1002).</li>
  * </ul>
  * 트랜잭션은 같은 클래스 안 처리라 {@link TransactionTemplate}으로 연다.
  */
@@ -36,7 +36,6 @@ public class AppearanceAutoConfirmUseCase {
 
     private final AppearanceSupport appearanceSupport;
     private final AppearanceConfirmRecorder appearanceConfirmRecorder;
-    private final AppearanceTitleSupport appearanceTitleSupport;
     private final HpTaskExecuteUseCase hpTaskExecuteUseCase;
     private final AppearancePolicy appearancePolicy;
     private final AppearanceBatchProperties batchProperties;
@@ -51,14 +50,13 @@ public class AppearanceAutoConfirmUseCase {
     public int confirmDue() {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime scheduledCutoff = now.minus(appearancePolicy.confirmPeriod());
-        List<Long> appearanceIds = appearanceSupport.findAutoConfirmDueIds(scheduledCutoff,
+        List<AppearanceAutoConfirmTarget> targets = appearanceSupport.findAutoConfirmTargets(scheduledCutoff,
                 batchProperties.batchSize());
-        Map<Long, String> titles = appearanceTitleSupport.titlesByAppearanceIds(appearanceIds);
         int confirmed = 0;
-        for (Long appearanceId : appearanceIds) {
+        for (AppearanceAutoConfirmTarget target : targets) {
+            Long appearanceId = target.appearanceId();
             try {
-                String title = titles.get(appearanceId);
-                Long payoutTaskId = transactionTemplate.execute(status -> confirm(appearanceId, title, now));
+                Long payoutTaskId = transactionTemplate.execute(status -> confirm(appearanceId, target.title(), now));
                 if (payoutTaskId == null) {
                     continue;
                 }

@@ -9,6 +9,11 @@ import com.hapbang.appearance.domain.HpTaskStatus;
  * 출연 수익 목록 한 줄 (#301): 출연과 그 출연의 지급·위약금 작업 상태(없으면 null), 상태 기준 시각.
  *
  * @param statusUpdatedAt 정렬과 응답에 함께 쓰는 값. 작업 완료 시각 → 확인 시각 → 취소 시각 → 불참 시각 → 출연 수정 시각 중 처음 있는 값
+ * @param title           출처(요청서·모집글)의 현재 제목 (#1002). 출처가 없으면 null
  */
-public record AppearanceEarningRow(Appearance appearance, HpTaskStatus taskStatus, LocalDateTime statusUpdatedAt) {
+public record AppearanceEarningRow(
+        Appearance appearance,
+        HpTaskStatus taskStatus,
+        LocalDateTime statusUpdatedAt,
+        String title) {
 }
