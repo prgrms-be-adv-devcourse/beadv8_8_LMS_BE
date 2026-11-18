@@ -17,7 +17,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | 원본·index 문서 수 비교 지표(#772) | 모집 검색, 통합 검색 |
 | 이미 있는 인플루언서 처음 적재, 설정이 바뀐 index 무중단 재색인(#773, 7장) | |
 | 7일 지난 tombstone 정리 | |
-| `GET /api/v1/search/influencers`, 지표 | |
+| `GET /api/v1/search/influencers`, 회원 호출 제한(#1012, 8장), 지표 | |
 | `GET /api/v1/search/lectures`(비회원 포함), 회원·client IP 호출 제한(#883, 14장) | |
 | 검색어 자동완성 `GET …/lectures/suggestions`(비회원 포함)·`…/influencers/suggestions`, 초성 검색(#973, 16장) | 한영 자판 변환(`qkdthd` → 방송, 검색 로그에서 근거가 보이면) |
 | 검색어 제안: 오타가 있으면 검색 응답에 고친 검색어(`correctedKeyword`, #977, 17장) | 고친 검색어로 바꿔 검색하기, 고쳐 쓴 검색 쌍으로 오타 사전 만들기(#977 범위 밖) |
@@ -91,14 +91,16 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | app | `InfluencerReindexer`, `InfluencerIndexLoader` | 공통 `Reindexer`에 인플루언서 부품을 끼운다(락 `JobLock` 773_001). 채우기는 회원 목록 + 통계, 따라잡기는 증분 보정 |
 | app | `InfluencerTombstoneCleanup` | 인플루언서 index의 tombstone 정리(한 pod만, `JobLock` 771_001) |
 | app | `SearchSyncMetrics` | 보정·정합성 지표 |
-| app | `InfluencerSearchFacade` | 검색 조건 검사, 지표, 0건 검색어 |
-| app | `InfluencerSuggestionFacade` | 검색어 자동완성(로그인 회원, 한도 없음, #973) |
+| app | `InfluencerSearchFacade` | 검색 조건 검사, 호출 제한, 지표, 0건 검색어 |
+| app | `InfluencerSuggestionFacade` | 검색어 자동완성(로그인 회원, 본 검색과 따로 센 호출 제한, #973, #1012) |
+| app | `InfluencerSearchRateLimit` | 회원 ID 키별 호출 제한과 지표(#1012, 9장). 본 검색(`target=influencer`)과 자동완성(`target=influencer_suggestion`)에 빈이 하나씩이다 |
 | app | `ContentCategoryNames`, `RatingBaseline` | 분야 코드 → 이름, 평점 전체 평균 C(`CachedRatingBaseline` 하위 클래스). 둘 다 pod마다 10분 캐시 |
 | app | `InfluencerZeroResultKeywords` | 인플루언서 0건 검색어(`target=influencer`) |
 | out | `InfluencerIndexDefinition`, `InfluencerIndexSetup` | 대상 이름(`influencers`)·alias·지표 대상 값(`influencer`)과, 그 정의를 채운 `IndexSetup` |
 | out | `InfluencerDocumentStore` | 회원·통계·분야 이름 쓰기(painless), 처음 적재용 bulk, 증분 보정용 문서 읽기. 나머지는 `DocumentWrites`에 맡긴다 |
 | out | `InfluencerSearcher` | 검색 쿼리(초성뿐이면 초성 칸, #973), 자동완성 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource` | 회원 내부 API(통계·분야 목록 #769) |
+| config | `InfluencerRateLimitProperties`, `InfluencerSuggestionRateLimitProperties`, `InfluencerSearchConfig` | 호출 제한 값(본 검색 `hapbang.search.influencer-rate-limit.member.*`, 자동완성 `hapbang.search.influencer-suggestion-rate-limit.member.*`)과 limiter·호출 제한 빈(#1012) |
 
 ### 강의 (`search.lecture`, #882)
 
@@ -298,6 +300,8 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 - 계수: a=0.05, v=1.05, m=5(`hapbang.search.ranking.*`). golden query(`GoldenQueryTest`) 23개가 모두 통과하는 값이다. a의 통과 구간은 0.02~0.1이다(0은 팔로워가 순서를 못 가르고, 0.5 이상은 팔로워가 텍스트 일치를 뒤집는다).
 - 앞에서 1,000건까지(`page × size + size ≤ 1000`, 넘으면 400 `PAGE_TOO_DEEP`). `totalElements`도 1,000까지만 센다.
 - ES에 닿지 못하면 503 `SEARCH_UNAVAILABLE`. 회원 앱 인플루언서 목록(`GET /api/v1/members/influencers`)은 그대로 쓸 수 있다.
+- 호출 제한: 회원 ID마다 분당 60회(`hapbang.search.influencer-rate-limit.member.*`, #1012). 넘으면 429 `TOO_MANY_REQUESTS`와 `Retry-After`(global 처리기). 정렬·페이지 오류(400)도 센다. 검색어 101자 같은 형식 오류는 Spring 메서드 검증이 컨트롤러 전에 400을 내 세지 않는다. 앱 메모리(`KeyedRateLimiter`)에서 세는 것과 배포 중 잠깐 2배가 되는 것은 강의 검색과 같다(14장). 근거는 9장 끝이다.
+- 운영 확인(배포 뒤): 같은 계정으로 1분 안에 61번 부르면 61번째가 429와 `Retry-After`이고, 다른 계정은 그동안 200이다. 자동완성은 121번째가 429이고 그동안 본 검색은 200이다.
 - 응답 한 줄: `id`, `nickname`, `role`, `contentCategories[{code, name}]`, `bio`, `channelName`(대표), `followerCount`, `appearanceRating{average, count}`. 프로필 사진은 없다(#770 API로 FE가 채운다).
 - 응답 `data`는 `content`·`page`와 `correctedKeyword`(검색어 제안, 없으면 null, 17장)다. 제안은 분야·팔로워 같은 조건과 상관없이 검색어만 본다.
 
@@ -318,7 +322,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reindex.documents{target, reason}` | 처음 적재·재색인으로 새 index에 넣은 보이는 문서 수(인플루언서는 정상 인플루언서 수, 강의는 판매 중 강의 수) |
 | `hapbang.search.lecture.reconcile.items{job, kind}` | 강의 보정이 본 항목 수(15장). job = lecture·review·seller. 놓친 이벤트를 바로잡은 kind는 inserted·overwritten·hidden(강의), copied·review_deleted(사본), seller_fixed·rating_fixed·hangul_keys_fixed(칸 맞추기, hangul_keys_fixed는 #973)이고 already_applied·skipped는 아니다. 인플루언서 `reconcile.members`와 이름을 나눈 것은 같은 이름에 태그 키가 다르면 Prometheus가 받지 않기 때문이다 |
 | `hapbang.search.lecture.reconcile.duration{job, outcome}` | 강의 보정 1회 소요 시간. outcome = success·failure |
-| `hapbang.search.rate.limit.rejected{target, requester}` | 호출 제한으로 429를 준 수(강의 검색 `target=lecture` #883, 강의 자동완성 `target=lecture_suggestion` #973). requester = member·guest |
+| `hapbang.search.rate.limit.rejected{target, requester}` | 호출 제한으로 429를 준 수(강의 검색 `target=lecture` #883, 강의 자동완성 `target=lecture_suggestion` #973, 인플루언서 검색 `target=influencer`·자동완성 `target=influencer_suggestion` #1012). requester = member·guest(인플루언서는 로그인 전용이라 member만) |
 | `hapbang.search.rate.limit.skipped{target}` | client IP가 공인 주소가 아니라 IP 호출 제한을 건너뛴 비회원 요청 수. 0이 아니면 Envoy 앞 경로를 확인한다(14장) |
 | `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(`SynonymsCheck` 10분 확인마다 한 번, 대상 수와 상관없음, #895). 묶음이 하나라 대상 태그가 없다. 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
@@ -333,7 +337,11 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
   - 초성뿐인 검색어(`ㅋㅋㅋ`)는 세지 않는다. 사전·동의어로 고칠 말이 아니다(#973). 지표 `zero.results`에는 센다. 자동완성은 치는 도중의 말이라 모으지 않는다.
   - 이 로그에서 찾은 오타는 동의어에 `오타 => 바른 말`로 넣는다(17장 운영).
   - 대상(인플루언서·강의)마다 따로 센다(#883). 요청에서는 세기만 하고 10분마다 배치 스레드가 대상마다 `여러 검색자가 찾았지만 결과가 없던 검색어를 모았다 target=…, keywords={…}` 한 줄(상위 100개)로 남긴다. 그래서 요청의 `userId`·`traceId`가 붙지 않는다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
-- 인플루언서 검색에는 rate limit을 두지 않았다(로그인 전용, #767 Q28). 위 요청 수·p95와 k6 측정을 보고 정한다. 강의 검색은 비회원에게 열려 있어 처음부터 둔다(14장).
+- **인플루언서 검색 호출 제한(#1012)**: 처음에는 로그인 전용이라 두지 않고 측정 뒤 정하기로 했다(#767). #993 운영 부하 측정(부하 시험 계정 1개, 단계별 초당 요청)에서 초당 50건까지는 p95가 일반 API 초기 목표 500ms 안이었고 초당 100건에서 넘었다. 병목은 앱이 아니라 ES가 있는 공용 large node CPU였다. 같은 node의 PostgreSQL·다른 앱도 함께 느려질 수 있다. 가장 비싼 경로는 오타 검색(17장 검색어 제안)이었다. 그래서 한 회원이 몰아서 부르지 못하게 회원 ID마다 분당 60회(평균 초당 1건)를 둔다. 평균으로는 측정에서 버틴 초당 50건을 넘기려면 50명이 동시에 최대로 불러야 한다.
+  - 한계: 1분 단위 고정 창이라(`KeyedRateLimiter`, 강의와 같다) 한 회원이 한 창의 60건을 한꺼번에 보낼 수 있고, 창이 바뀌는 앞뒤로 잠깐 최대 120건이 된다. 계정을 여럿 만들면 계정마다 한도를 받는다(구글 가입은 이메일 인증을 거치지 않는다, [정책](../policy.md) "이메일 인증"). 짧게 몰리는 것과 여러 계정은 이 한도로 막지 못한다. #993은 2분 이상 이어진 부하였고, 한 창의 60건처럼 몇 초 안에 끝나는 몰림은 재지 않았다. 이어지는 부하를 막는 것이 목적이라 짧은 몰림은 받아들인다.
+  - 자동완성(16장)도 본 검색과 따로 회원 ID마다 분당 120회를 둔다. 한 번에 ES 요청 1번이라 가볍지만, 본 검색만 막으면 자동완성으로 같은 ES를 채울 수 있다.
+  - 앱 전체 한도는 두지 않았다. 한 사람이 다 쓰면 모두가 막히고, 값이 지금 데이터 규모(인플루언서 10명)에 묶인다.
+  - 강의 검색은 비회원에게 열려 있어 처음부터 둔다(14장).
 
 ## 10. 로컬 실행
 
@@ -367,7 +375,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
 | `SearchModuleIntegrationTest` | 모듈만으로 컨텍스트, search schema, 검색 전용 client(nori), 재색인 실행기가 가상 스레드에서 trace를 이어받음 |
 | `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이(DB, 25분 지나면 비움), kind별 건수 |
-| `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |
+| `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어, 기본 한도 그대로 같은 회원의 61번째 검색·121번째 자동완성은 429·`Retry-After`, 다른 회원과 본 검색은 그대로, 지표, Swagger 설명의 429(#1012) |
 | `RatingBaselineTest`, `InfluencerDocumentStoreBulkFailureTest` | 평균 C 실패 뒤 1분 대기, bulk 일부 실패 |
 | `GoldenQueryTest` | 대표 검색어 23개 순위, 알려진 한계(G01b), 계수 격자(`build/golden-query.md`) |
 | `LectureSearcherTest` | 강의 검색 쿼리(#883): 보일 강의(판매 중·정상 판매자)만, 네 필드·동의어, 기본·최신·평점·가격순(가격 없는 강의는 맨 뒤, 가격 mapping 없는 옛 index도 거절 안 함), 응답 가격, **highlights HTML escape(`<script>`·`<b>`·따옴표·`&`)와 `<em>`만**, 검색어가 있으면 highlights 객체(닉네임만 걸린 경우), C가 없으면 가산 없음, 반올림, 전체 수 상한, alias 없음 |
@@ -593,7 +601,7 @@ ES에는 한국어 초성·자모 기능이 없고, 운영 ES에 플러그인을
 - 찾는 조건(`SearchAsYouType.suggest`): 초성뿐이면 초성 칸, 아니면 **원문 자동완성 칸 또는 자모 칸**(검색어도 자모로 풀어 비교) 중 하나라도 맞으면 후보다. 둘 다 맞으면 점수가 높다. 노출 조건은 본 검색과 같다(강의 `hidden=false`·`sellerActive=true`, 인플루언서 `hidden=false`).
 - 후보는 최대 5개다. 강의는 점수 → 리뷰 수 → 강의 ID 내림차순, 인플루언서는 점수 → 팔로워 → 회원 ID다. 평점 가산은 하지 않는다(입력할 때마다 부르는 가벼운 요청이고 평균 C를 구하지 않게).
 - 응답: 강의 `[{lectureId, title, sellerNickname}]`, 인플루언서 `[{userId, nickname}]`. 누르면 ID로 바로 가거나 글자로 본 검색을 하게 둘 다 준다. 검색어 강조는 없다(초성·자모로 맞은 후보는 강조할 자리가 없다).
-- **호출 제한**: 강의 자동완성은 본 검색과 같은 키 규칙(회원 ID·client IP, 14장)이지만 **한도를 따로 센다**(`hapbang.search.lecture-suggestion-rate-limit.*`, 각 분당 120). 입력할 때마다 불러 본 검색보다 잦으므로, 자동완성이 한도를 넘어도 본 검색은 막히지 않게 한다. 인플루언서 자동완성은 본 검색처럼 한도가 없다(로그인 전용, 9장).
+- **호출 제한**: 강의 자동완성은 본 검색과 같은 키 규칙(회원 ID·client IP, 14장)이지만 **한도를 따로 센다**(`hapbang.search.lecture-suggestion-rate-limit.*`, 각 분당 120). 입력할 때마다 불러 본 검색보다 잦으므로, 자동완성이 한도를 넘어도 본 검색은 막히지 않게 한다. 인플루언서 자동완성도 본 검색과 따로 회원 ID마다 분당 120회다(`hapbang.search.influencer-suggestion-rate-limit.member.*`, #1012, 9장). 로그인 전용이라 IP 키는 없다.
 - ES에 닿지 못하면(처음 적재 전 포함) 503 `SEARCH_UNAVAILABLE`이다. FE는 503·429면 후보를 숨기고, 입력이 잠깐 멈췄을 때(예: 300ms) 부른다.
 - 0건 검색어는 모으지 않는다(치는 도중의 말이다). 지표는 `target=lecture_suggestion`·`influencer_suggestion`이다.
 
@@ -650,7 +658,7 @@ ES에는 한국어 초성·자모 기능이 없고, 운영 ES에 플러그인을
 ### ES 요청과 실패
 
 - 오타가 없는 한 낱말 검색은 1번(낱말 확인), 오타 한 낱말은 약 4번(낱말 확인, 분석, 후보 suggest, 후보가 보이는지)이고, 두 어절 이상이면 품사 1번이 더 붙는다. 첫 페이지에만 한다. 로컬(강의 300개)에서 제안할 때 p50 6ms·p95 15ms, 고칠 것이 없으면 p50 1ms 아래였다. 제안은 본 검색이 끝난 뒤 이어서 돌아 그만큼 응답이 늦어진다. 운영 지표(`correction.latency`)를 보고 필요하면 본 검색과 함께 돌리거나 시간 상한을 둔다. 모르는 낱말마다 분석 요청을 따로 보낸다(5어절 이상은 건너뛰고, 오타 검색어는 대개 모르는 낱말이 하나다). 낱말 여러 개의 확인은 filter 집계 하나로, 후보는 suggest 여러 개를 검색 하나로 묶는다. 시간은 지표 `hapbang.search.correction.latency`로 본다(9장).
-- 제안만의 호출 한도는 없다. 강의는 같은 검색 요청 안에서 만들어 본 검색 한도(14장)가 그대로 적용된다. 인플루언서 검색에는 한도가 없다(9장 판단 그대로, 로그인 전용). 제안으로 첫 페이지 요청마다 ES 요청이 늘므로, `correction.latency`와 요청 수를 보고 함께 정한다.
+- 제안만의 호출 한도는 없다. 같은 검색 요청 안에서 만들어 본 검색 한도(강의 14장, 인플루언서 8장·9장 #1012)가 그대로 적용된다. #993 운영 부하 측정에서 오타 검색(제안을 만드는 요청)이 가장 비싼 경로였고, 인플루언서 검색 한도의 근거가 되었다. 붐빌 때 제안을 줄이는 것은 따로 검토한다.
 - 제안을 만들다 실패하면(ES 오류를 포함한 어떤 예외든) 결과는 그대로 주고 `correctedKeyword`만 null이다. 지표 `outcome=error`로 세고, WARN `검색어 제안을 만들지 못해 제안 없이 응답한다 target=…, failures=…`는 대상마다 처음 한 번과 그 뒤 10분마다 그 사이 건수와 함께 남긴다(ES 분석기가 깨진 채 이어지면 요청마다 쌓이지 않게, pod마다. 한 대상이 계속 실패해도 다른 대상의 첫 실패는 바로 남긴다, `WarnThrottle`). 검색어는 로그·지표에 남기지 않는다(남의 이름일 수 있다).
 - 오타와 제안 검색어 쌍, 제안을 눌렀는지는 남기지 않는다.
 

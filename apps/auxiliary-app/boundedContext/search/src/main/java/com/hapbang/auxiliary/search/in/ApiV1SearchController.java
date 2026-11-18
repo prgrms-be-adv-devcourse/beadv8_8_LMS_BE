@@ -69,8 +69,8 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
 
     @Override
     @GetMapping("/influencers/suggestions")
-    public RsData<List<InfluencerSuggestion>> suggestInfluencers(@RequestParam String keyword) {
-        return RsData.ok("인플루언서 검색어 자동완성 후보를 찾았습니다.", influencerSuggestions.suggest(keyword));
+    public RsData<List<InfluencerSuggestion>> suggestInfluencers(@LoginUserId Long userId, @RequestParam String keyword) {
+        return RsData.ok("인플루언서 검색어 자동완성 후보를 찾았습니다.", influencerSuggestions.suggest(userId, keyword));
     }
 
     @Override
