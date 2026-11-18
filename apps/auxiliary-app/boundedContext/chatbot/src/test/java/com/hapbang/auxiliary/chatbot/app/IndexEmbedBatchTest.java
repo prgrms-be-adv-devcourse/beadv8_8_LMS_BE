@@ -35,8 +35,8 @@ class IndexEmbedBatchTest {
         IllegalStateException broken = new IllegalStateException("필드를 만들지 못함");
         Map<String, RuntimeException> failures = new LinkedHashMap<>();
 
-        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.LECTURE, List.of("1", "2", "3"),
-                id -> id, id -> "글" + id, id -> {
+        IndexEmbedBatch.embedAndUpsert(index, IndexType.LECTURE, List.of("1", "2", "3"),
+                id -> id, IndexEmbedBatch.documentVectors(embedder, id -> "글" + id), id -> {
                     if (id.equals("2")) {
                         throw broken;
                     }

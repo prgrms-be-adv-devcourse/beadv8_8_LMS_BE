@@ -110,9 +110,9 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
     }
 
     private void embedAndUpsert(List<Pending> pending, Map<String, RuntimeException> failures) {
-        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.INFLUENCER, pending,
+        IndexEmbedBatch.embedAndUpsert(index, IndexType.INFLUENCER, pending,
                 Pending::docId,
-                one -> one.text().text(),
+                IndexEmbedBatch.documentVectors(embedder, one -> one.text().text()),
                 one -> InfluencerIndexPlan.fieldsOf(one.profile(), one.text()),
                 failures);
     }

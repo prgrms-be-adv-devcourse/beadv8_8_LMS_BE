@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.jspecify.annotations.Nullable;
@@ -35,9 +36,19 @@ public record LectureSnapshot(
         return text.toString();
     }
 
-    /** 임베딩하는 글의 SHA-256(16진수). 같으면 다시 임베딩하지 않는다 */
-    public String textHash() {
-        return Sha256.hex(indexText());
+    /**
+     * 색인 벡터를 만든 재료의 SHA-256(16진수). 같으면 다시 임베딩하지 않는다.
+     * <p>
+     * 제목 비율 {@code titleWeight}(#1007)도 벡터를 바꾸므로 넣는다. 0이면 글만 해시해 #1007 전과 같은 값이다(제목 비율을 쓰지 않는
+     * 실행이 배포만으로 전체를 다시 임베딩하지 않게). 0이 아니면 글 뒤에 강의 글에 나올 수 없는 구분자(NUL 문자)와 비율을
+     * 붙인다. 비율은 끝의 0을 뗀 십진수라 0.3과 0.30이 같은 해시다.
+     */
+    public String textHash(double titleWeight) {
+        if (titleWeight == 0) {
+            return Sha256.hex(indexText());
+        }
+        return Sha256.hex(indexText() + "\n\u0000title-weight="
+                + BigDecimal.valueOf(titleWeight).stripTrailingZeros().toPlainString());
     }
 
     /** 추천 후보가 될 수 있는 상태(판매 중, 삭제 안 됨, 원본에 있음). 판매자 숨김은 따로 본다 */
