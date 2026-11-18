@@ -114,6 +114,14 @@ class ChatStoredJsonTest {
         assertThat(read("{\"fee\":\"많이\"}", AppearanceRequestSentData.class)).isNull();
     }
 
+    @Test
+    void 값이_없으면_JSON_null을_쓰지_않고_실패한다() {
+        assertThatIllegalStateException().isThrownBy(() -> ChatStoredJson.writeNotificationData(null))
+                .withMessage("알림 값이 비어 있습니다.");
+        assertThatIllegalStateException().isThrownBy(() -> ChatStoredJson.writeInviteOutcomes(null))
+                .withMessage("초대 결과가 필요합니다.");
+    }
+
     /** 도메인 리팩터링 전 코드가 쓴 값과 바이트까지 같게 쓰고, 그 값을 그대로 읽는다(이미 DB와 STOMP·이력 응답에 나간 값이다) */
     @Test
     void 이미_저장된_알림_값과_같은_바이트로_쓰고_그대로_읽는다() {

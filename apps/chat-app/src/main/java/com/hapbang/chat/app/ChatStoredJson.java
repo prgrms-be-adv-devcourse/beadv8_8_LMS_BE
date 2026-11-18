@@ -2,6 +2,8 @@ package com.hapbang.chat.app;
 
 import java.util.List;
 
+import org.springframework.util.Assert;
+
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatGroupInviteOutcome;
@@ -68,8 +70,9 @@ public final class ChatStoredJson {
     private ChatStoredJson() {
     }
 
-    /** 알림 종류별 record를 저장할 JSON으로 바꾼다 */
+    /** 알림 종류별 record를 저장할 JSON으로 바꾼다. 값이 없으면 JSON null을 저장하지 않고 실패한다 */
     public static String writeNotificationData(Object data) {
+        Assert.state(data != null, "알림 값이 비어 있습니다.");
         return NOTIFICATION_DATA.writeValueAsString(data);
     }
 
@@ -110,8 +113,9 @@ public final class ChatStoredJson {
         return readNotificationData(message, NotificationKind.GROUP_HOST_UNAVAILABLE, GroupHostUnavailableData.class);
     }
 
-    /** 회원별 초대 결과 목록을 저장할 JSON으로 바꾼다 */
+    /** 회원별 초대 결과 목록을 저장할 JSON으로 바꾼다. 목록이 없으면 JSON null을 저장하지 않고 실패한다 */
     public static String writeInviteOutcomes(List<ChatGroupInviteOutcome> outcomes) {
+        Assert.state(outcomes != null, "초대 결과가 필요합니다.");
         return INVITE_OUTCOMES.writeValueAsString(outcomes);
     }
 
