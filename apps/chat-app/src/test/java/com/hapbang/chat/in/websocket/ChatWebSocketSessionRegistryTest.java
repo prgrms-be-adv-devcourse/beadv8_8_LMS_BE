@@ -23,11 +23,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
+import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
 import com.hapbang.chat.app.dto.ChatReauthResult;
@@ -51,7 +51,7 @@ class ChatWebSocketSessionRegistryTest {
     private final List<ChatWebSocketSessionRegistry> registries = new ArrayList<>();
     private final ChatWebSocketSessionRegistry registry = registry(Clock.fixed(NOW, ZoneOffset.UTC));
     private final WebSocketHandler delegate = mock(WebSocketHandler.class);
-    private final WebSocketHandler handler = registry.decorate(delegate);
+    private final WebSocketHandler handler = decorator(registry).decorate(delegate);
 
     @AfterEach
     void shutdown() {
@@ -254,7 +254,7 @@ class ChatWebSocketSessionRegistryTest {
     @Test
     void 연결_만료_시각이_되면_그_연결만_4401_TOKEN_EXPIRED로_닫는다() throws Exception {
         ChatWebSocketSessionRegistry timed = registry(Clock.systemUTC());
-        WebSocketHandler timedHandler = timed.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler timedHandler = decorator(timed).decorate(mock(WebSocketHandler.class));
         WebSocketSession expiring = session("s-1");
         WebSocketSession other = session("s-2");
         timedHandler.afterConnectionEstablished(expiring);
@@ -279,12 +279,10 @@ class ChatWebSocketSessionRegistryTest {
         CountDownLatch release = new CountDownLatch(1);
         ChatPresence presence = mock(ChatPresence.class);
         doAnswer(invocation -> release.await(10, TimeUnit.SECONDS)).when(presence).disconnected(eq(HOST_ID), any());
-        ObjectProvider<ChatPresence> presenceProvider = absent();
-        when(presenceProvider.getIfAvailable()).thenReturn(presence);
         OffsetClock clock = new OffsetClock();
-        ChatWebSocketSessionRegistry timed = track(new ChatWebSocketSessionRegistry(presenceProvider, absent(), clock,
+        ChatWebSocketSessionRegistry timed = track(new ChatWebSocketSessionRegistry(presence, clock,
                 Duration.ofMillis(200), 2, 10));
-        WebSocketHandler timedHandler = timed.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler timedHandler = decorator(timed).decorate(mock(WebSocketHandler.class));
         WebSocketSession blocked = closingSession("s-1", timedHandler);
         WebSocketSession scheduled = closingSession("s-2", timedHandler);
         WebSocketSession swept = closingSession("s-3", timedHandler);
@@ -312,9 +310,9 @@ class ChatWebSocketSessionRegistryTest {
     @Test
     void 만료_예약이_돌지_않아도_주기_대조가_만료가_지난_연결만_닫는다() throws Exception {
         OffsetClock clock = new OffsetClock();
-        ChatWebSocketSessionRegistry swept = track(new ChatWebSocketSessionRegistry(absent(), absent(), clock,
+        ChatWebSocketSessionRegistry swept = track(new ChatWebSocketSessionRegistry(mock(ChatPresence.class), clock,
                 Duration.ofMillis(100), 4, 10_000));
-        WebSocketHandler sweptHandler = swept.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler sweptHandler = decorator(swept).decorate(mock(WebSocketHandler.class));
         WebSocketSession expired = closingSession("s-1", sweptHandler);
         WebSocketSession valid = closingSession("s-2", sweptHandler);
         Instant start = clock.instant();
@@ -343,7 +341,7 @@ class ChatWebSocketSessionRegistryTest {
         try {
             for (int round = 0; round < rounds; round++) {
                 ChatWebSocketSessionRegistry roundRegistry = registry(Clock.fixed(NOW, ZoneOffset.UTC));
-                WebSocketHandler roundHandler = roundRegistry.decorate(mock(WebSocketHandler.class));
+                WebSocketHandler roundHandler = decorator(roundRegistry).decorate(mock(WebSocketHandler.class));
                 List<WebSocketSession> remaining = new ArrayList<>();
                 List<Callable<Void>> tasks = new ArrayList<>();
                 CountDownLatch start = new CountDownLatch(1);
@@ -400,7 +398,7 @@ class ChatWebSocketSessionRegistryTest {
     void 재인증에_성공하면_만료를_새_값으로_바꾸고_옛_예약을_취소해_새_만료에_다시_예약한다() throws Exception {
         MutableClock clock = new MutableClock(NOW);
         ChatWebSocketSessionRegistry reauth = registry(clock);
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         reauth.bind("s-1", HOST_ID, NOW, NOW.plusSeconds(60));
@@ -424,7 +422,7 @@ class ChatWebSocketSessionRegistryTest {
     void 다른_회원의_티켓이거나_티켓의_만료가_지났으면_재인증하지_않고_기존_만료에_닫는다() throws Exception {
         MutableClock clock = new MutableClock(NOW);
         ChatWebSocketSessionRegistry reauth = registry(clock);
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         reauth.bind("s-1", HOST_ID, NOW, NOW.plusSeconds(60));
@@ -446,7 +444,7 @@ class ChatWebSocketSessionRegistryTest {
     @Test
     void 만료_예약이_먼저_돌면_연결이_닫히고_그_뒤의_재인증은_거절된다() throws Exception {
         ChatWebSocketSessionRegistry reauth = registry(Clock.systemUTC());
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         Instant expiresAt = Instant.now().plusMillis(200);
@@ -461,7 +459,7 @@ class ChatWebSocketSessionRegistryTest {
     @Test
     void 재인증이_먼저면_옛_만료가_지나도_닫지_않고_새_만료에_닫는다() throws Exception {
         ChatWebSocketSessionRegistry reauth = registry(Clock.systemUTC());
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         Instant start = Instant.now();
@@ -491,7 +489,7 @@ class ChatWebSocketSessionRegistryTest {
         CountDownLatch resumeReauth = new CountDownLatch(1);
         PausingClock clock = new PausingClock(NOW, "reauth", reauthChecked, resumeReauth);
         ChatWebSocketSessionRegistry reauth = registry(clock);
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         reauth.bind("s-1", HOST_ID, NOW, expiresAt);
@@ -533,7 +531,7 @@ class ChatWebSocketSessionRegistryTest {
     void 재인증해도_인증_시각은_처음_연결의_티켓_발급_시각이라_연결한_뒤의_로그아웃_표식이_닫는다() throws Exception {
         MutableClock clock = new MutableClock(NOW);
         ChatWebSocketSessionRegistry reauth = registry(clock);
-        WebSocketHandler reauthHandler = reauth.decorate(mock(WebSocketHandler.class));
+        WebSocketHandler reauthHandler = decorator(reauth).decorate(mock(WebSocketHandler.class));
         WebSocketSession host = session("s-1");
         reauthHandler.afterConnectionEstablished(host);
         reauth.bind("s-1", HOST_ID, NOW, NOW.plusSeconds(60));
@@ -594,7 +592,12 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     private ChatWebSocketSessionRegistry registry(Clock clock) {
-        return track(new ChatWebSocketSessionRegistry(absent(), absent(), clock, Duration.ofSeconds(30), 4, 10_000));
+        return track(new ChatWebSocketSessionRegistry(mock(ChatPresence.class), clock, Duration.ofSeconds(30), 4, 10_000));
+    }
+
+    /** 연결이 열리고 닫히는 것을 이 목록에 알리는 decorator. 방 topic 구독 정리는 이 시험의 관심이 아니다 */
+    private static ChatWebSocketLifecycleDecorator decorator(ChatWebSocketSessionRegistry registry) {
+        return new ChatWebSocketLifecycleDecorator(mock(ChatRoomTopicFacade.class), registry);
     }
 
     private ChatWebSocketSessionRegistry track(ChatWebSocketSessionRegistry created) {
@@ -616,10 +619,6 @@ class ChatWebSocketSessionRegistryTest {
         return session;
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> ObjectProvider<T> absent() {
-        return mock(ObjectProvider.class);
-    }
 
     /** 이름이 {@code pausedThread}인 스레드가 처음 시각을 읽으면, 그 순간의 시각을 돌려주기 전에 멈추는 시계 */
     private static final class PausingClock extends Clock {

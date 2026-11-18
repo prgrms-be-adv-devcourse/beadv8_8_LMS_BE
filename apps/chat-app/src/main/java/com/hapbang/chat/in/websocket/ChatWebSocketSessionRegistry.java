@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.DisposableBean;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -23,12 +22,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
-import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
 
-import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
 import com.hapbang.chat.app.dto.ChatReauthResult;
@@ -56,14 +51,15 @@ import lombok.extern.slf4j.Slf4j;
  *     닫기 대기열이 차서 맡기지 못한 연결은 다음 주기 대조가 다시 맡긴다.</li>
  *     <li>로그아웃 표식: 하트비트가 넘긴 회원별 로그아웃 시각보다 먼저 인증한 연결을 {@link #LOGGED_OUT}으로 닫는다
  *     ({@link #closeLoggedOutBefore}). 닫기는 같은 닫기 실행기에 맡긴다.</li>
- *     <li>연결이 닫히면 두 목록·만료 예약·방 topic 구독·Redis 접속 정보를 모두 지운다.</li>
+ *     <li>연결이 닫히면 두 목록·만료 예약·Redis 접속 정보를 모두 지운다. 연결을 넣고 빼는 것은 웹소켓 처리기 decorator
+ *     ({@link ChatWebSocketLifecycleDecorator})가 연결이 열리고 닫히는 스레드에서 부른다. 방 topic 구독 정리는 그 decorator가 이
+ *     목록에서 빼기 전에 한다.</li>
  * </ul>
  * 실시간 전달·새 메시지 알림·연결 재검사는 회원별 연결 목록(인증된 연결만)으로 대상을 고른다.
  */
 @Slf4j
 @Component
-public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFactory, LocalChatConnections,
-        DisposableBean {
+public class ChatWebSocketSessionRegistry implements LocalChatConnections, DisposableBean {
 
     /**
      * 회원이 로그아웃해서 닫음(회원 단위 로그아웃 이벤트, 설계 문서 Q8). 그 회원의 다른 기기 연결도 함께 닫힌다.
@@ -109,10 +105,8 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
     private final Map<String, ScheduledFuture<?>> expiryTimers = new ConcurrentHashMap<>();
     /** 만료·로그아웃 표식으로 닫기를 맡겨 두고 아직 끝나지 않은 연결 ID */
     private final Set<String> expiryClosing = ConcurrentHashMap.newKeySet();
-    /** 실시간 전달을 끈 실행에는 없다(Redis 접속 정보) */
-    private final ObjectProvider<ChatPresence> chatPresence;
-    /** 방 topic 구독 목록 정리. 이 목록이 연결 목록을 쓰므로 생성 순환을 피해 지연해서 얻는다 */
-    private final ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade;
+    /** Redis 접속 정보 */
+    private final ChatPresence chatPresence;
     private final ThreadPoolTaskScheduler expiryScheduler;
     /** 만료 종료를 실제로 하는 실행기. 예약 스레드를 막지 않게 따로 둔다 */
     private final ThreadPoolTaskExecutor expiryCloser;
@@ -123,15 +117,13 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
      * 한다. 닫기는 별도 실행기(스레드 4·대기열 10000)가 한다. 주기 대조 간격(30초)과 닫기 실행기 크기는 미확정 초기값(Q12)이다.
      * 기본값은 이 코드가 원본이고 application.yaml에 두지 않는다.
      */
-    public ChatWebSocketSessionRegistry(ObjectProvider<ChatPresence> chatPresence,
-            ObjectProvider<ChatRoomTopicFacade> chatRoomTopicFacade, Clock clock,
+    public ChatWebSocketSessionRegistry(ChatPresence chatPresence, Clock clock,
             @Value("${hapbang.chat.realtime.websocket.expiry-sweep-interval:30s}") Duration expirySweepInterval,
             @Value("${hapbang.chat.realtime.websocket.expiry-close-workers:4}") int expiryCloseWorkers,
             @Value("${hapbang.chat.realtime.websocket.expiry-close-queue-capacity:10000}") int expiryCloseQueueCapacity) {
         Assert.isTrue(expirySweepInterval.isPositive(),
                 "hapbang.chat.realtime.websocket.expiry-sweep-interval은 0보다 커야 합니다.");
         this.chatPresence = chatPresence;
-        this.chatRoomTopicFacade = chatRoomTopicFacade;
         this.expiryCloser = expiryCloser(expiryCloseWorkers, expiryCloseQueueCapacity);
         this.expiryScheduler = expiryScheduler();
         this.clock = clock;
@@ -166,29 +158,6 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
     public void destroy() {
         expiryScheduler.shutdown();
         expiryCloser.shutdown();
-    }
-
-    @Override
-    public WebSocketHandler decorate(WebSocketHandler handler) {
-        return new WebSocketHandlerDecorator(handler) {
-            @Override
-            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-                register(session);
-                try {
-                    super.afterConnectionEstablished(session);
-                } catch (Exception exception) {
-                    // Spring이 오류로 닫으면 afterConnectionClosed도 오지만, 남지 않도록 먼저 지운다
-                    unregister(session);
-                    throw exception;
-                }
-            }
-
-            @Override
-            public void afterConnectionClosed(WebSocketSession session, CloseStatus closeStatus) throws Exception {
-                unregister(session);
-                super.afterConnectionClosed(session, closeStatus);
-            }
-        };
     }
 
     /**
@@ -226,14 +195,11 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
             return BindResult.CLOSED;
         }
         scheduleExpiry(sessionId, users.get(sessionId), expiresAt);
-        ChatPresence presence = chatPresence.getIfAvailable();
-        if (presence != null) {
-            try {
-                presence.connected(userId, sessionId);
-            } catch (RuntimeException exception) {
-                // 다음 하트비트가 다시 넣는다. 그 사이 새 메시지 알림을 놓치면 FE 주기 대조가 메운다
-                log.warn("접속 정보 기록 실패 userId={}, sessionId={}", userId, sessionId, exception);
-            }
+        try {
+            chatPresence.connected(userId, sessionId);
+        } catch (RuntimeException exception) {
+            // 다음 하트비트가 다시 넣는다. 그 사이 새 메시지 알림을 놓치면 FE 주기 대조가 메운다
+            log.warn("접속 정보 기록 실패 userId={}, sessionId={}", userId, sessionId, exception);
         }
         return BindResult.BOUND;
     }
@@ -445,9 +411,9 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
 
     /**
      * 연결을 넣고, 핸드셰이크에서 쓴 연결 티켓이 있으면 회원을 결합한다. 그 사이 이미 닫힌 연결은 넣지 않는다(닫힘 처리가 먼저
-     * 끝났으면 다시 지울 기회가 없다).
+     * 끝났으면 다시 지울 기회가 없다). 연결이 열린 스레드에서 {@link ChatWebSocketLifecycleDecorator}만 부른다.
      */
-    private void register(WebSocketSession session) {
+    void register(WebSocketSession session) {
         sessions.put(session.getId(), session);
         if (!session.isOpen()) {
             sessions.remove(session.getId(), session);
@@ -459,11 +425,8 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
         }
     }
 
-    private void unregister(WebSocketSession session) {
-        ChatRoomTopicFacade topics = chatRoomTopicFacade.getIfAvailable();
-        if (topics != null) {
-            topics.sessionClosed(session.getId());
-        }
+    /** 연결을 빼고 결합을 지운다. 연결이 닫힌 스레드에서 {@link ChatWebSocketLifecycleDecorator}만 부른다(방 topic 구독 정리 뒤) */
+    void unregister(WebSocketSession session) {
         sessions.remove(session.getId(), session);
         unbind(session.getId());
     }
@@ -492,14 +455,11 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
         if (timer != null) {
             timer.cancel(false);
         }
-        ChatPresence presence = chatPresence.getIfAvailable();
-        if (presence != null) {
-            try {
-                presence.disconnected(user.userId(), sessionId);
-            } catch (RuntimeException exception) {
-                // 그 연결의 접속 정보는 만료로 사라진다
-                log.warn("접속 정보 삭제 실패 userId={}, sessionId={}", user.userId(), sessionId, exception);
-            }
+        try {
+            chatPresence.disconnected(user.userId(), sessionId);
+        } catch (RuntimeException exception) {
+            // 그 연결의 접속 정보는 만료로 사라진다
+            log.warn("접속 정보 삭제 실패 userId={}, sessionId={}", user.userId(), sessionId, exception);
         }
     }
 
