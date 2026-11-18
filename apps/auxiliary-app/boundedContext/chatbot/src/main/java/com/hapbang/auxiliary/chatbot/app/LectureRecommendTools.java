@@ -43,11 +43,14 @@ public class LectureRecommendTools {
             로그인한 회원에게 맞춤 강의를 추천한다. 회원의 구매·장바구니·리뷰 활동으로 고르고, 관심사를 주면 함께 반영한다. \
             결과의 items가 추천 강의(강의 ID, 제목, 추천 이유)다. needsInterest가 true면 지금은 맞춤으로 고를 수 없어 인기 강의를 \
             준 것이고 관심사를 알려 주면 맞춤으로 찾을 수 있으니, 어떤 분야에 관심 있는지 물어본다. \
+            이 대화에서 이미 관심사를 물었으면 다시 묻지 않고 인기 강의를 소개한다. \
             basis가 POPULAR면 맞춤이 아닌 인기 강의다. 화면에는 추천 카드가 따로 나가므로 답에서는 추천 이유를 짧게 설명한다. \
             guide가 있으면 그 내용을 답에 반영한다.""")
     public Result recommendLectures(
-            @ToolParam(required = false, description = "사용자가 말한 관심 분야나 배우고 싶은 것을 한 문장으로. 예: '데이터 분석 입문', "
-                    + "'유튜브 영상 편집'. 사용자가 말하지 않았으면 비운다") @Nullable String interest,
+            @ToolParam(required = false, description = """
+                    사용자가 말한 관심 분야나 배우고 싶은 것을 한 문장으로. 사용자 말이 비유적이거나 애매하면 구체적인 분야·주제어로 \
+                    풀어서 쓴다. 예: '데이터 분석 입문', '유튜브 영상 편집', '방송을 맛깔나게 하고 싶어'는 '방송 진행·말하기'. \
+                    사용자가 말하지 않았으면 비운다""") @Nullable String interest,
             ToolContext toolContext) {
         long memberId = ChatToolContext.memberId(toolContext, TOOL_NAME);
         ChatCardCollector cards = ChatToolContext.cards(toolContext, TOOL_NAME);

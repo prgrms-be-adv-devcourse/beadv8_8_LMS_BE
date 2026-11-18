@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,6 +22,8 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -34,6 +37,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.auxiliary.chatbot.app.ChatToolContext;
 import com.hapbang.auxiliary.chatbot.app.ChatbotConversationUseCase;
+import com.hapbang.auxiliary.chatbot.app.FaqChatUseCase;
 import com.hapbang.auxiliary.chatbot.config.ChatbotLlmConfig;
 import com.hapbang.auxiliary.chatbot.support.ChatbotIntegrationTestBase;
 import com.hapbang.auxiliary.chatbot.support.FakeAiModelsConfig;
@@ -102,6 +106,37 @@ class ChatbotConversationApiTest extends ChatbotIntegrationTestBase {
         assertThat(options.getToolCallbacks()).extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyInAnyOrder("searchFaq", "recommendLectures", "recommendInfluencers");
         assertThat(options.getToolContext()).containsEntry(ChatToolContext.MEMBER_ID, member);
+    }
+
+    @Test
+    @DisplayName("모델에 가는 지시문에 일반 글 답변·관련 주제·한 번 되묻기 규칙이 있고, 추천 Tool 설명에 애매한 관심사 풀어 쓰기와 "
+            + "다시 묻지 않기가 있다(#1006)")
+    void promptAndToolDescriptions() throws Exception {
+        mockMvc.perform(message(PATH, "추천해 줘", List.of())).andExpect(status().isOk());
+
+        String system = chatModel.lastPrompt().getSystemMessage().getText();
+        assertThat(system).contains("마크다운 없이 일반 글로 쓴다", "목록 기호", "제목 기호")
+                .contains("정책·금액·기간을 묻는 질문이면 정확히 \"" + FaqChatUseCase.NO_ANSWER_MESSAGE + "\"")
+                .contains("추천을 원하는 말이면 알맞은 추천 Tool을 쓴다")
+                .contains("방송·합방 기획, 콘텐츠 제작, 강의 고르기와 학습 방법", "합방 기능으로 이어 준다")
+                .contains("관계없는 질문은 서비스 안내 챗봇이라 답하기 어렵다")
+                .contains("한 번 짧게 되묻는다", "이미 되물었으면 다시 묻지 않고 가장 그럴듯한 해석으로 추천 Tool을 쓴다")
+                .contains("합방의 정책·금액·기간·절차와 강의·인물 정보는 Tool 결과로만 말한다")
+                .doesNotContain("Tool 결과만 근거로 답한다");
+
+        ToolCallingChatOptions options = (ToolCallingChatOptions) chatModel.lastPrompt().getOptions();
+        Map<String, ToolDefinition> definitions = new HashMap<>();
+        for (ToolCallback callback : options.getToolCallbacks()) {
+            definitions.put(callback.getToolDefinition().name(), callback.getToolDefinition());
+        }
+        for (String recommend : List.of("recommendLectures", "recommendInfluencers")) {
+            ToolDefinition definition = definitions.get(recommend);
+            assertThat(definition.inputSchema()).as(recommend)
+                    .contains("비유적이거나 애매하면 구체적인").contains("풀어서 쓴다");
+            assertThat(definition.description()).as(recommend).contains("이미", "다시 묻지 않");
+        }
+        assertThat(definitions.get("recommendLectures").inputSchema()).contains("'방송 진행·말하기'");
+        assertThat(definitions.get("recommendInfluencers").inputSchema()).contains("'예능·토크 방송'");
     }
 
     @Test
