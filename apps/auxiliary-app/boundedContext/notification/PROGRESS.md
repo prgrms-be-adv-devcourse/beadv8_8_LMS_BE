@@ -8,7 +8,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-17. 상태는 `origin/dev` `cf27a922`(N15 #970 PR #978 병합 포함) 기준 git log와 코드, `feature/tkt-989` 작업 트리로 확인했다.
+마지막 갱신: 2026-11-18. 상태는 `origin/dev` `6f7d7d67`(N17-1 #989 PR #1000 병합 포함) 기준 git log와 코드, `feature/tkt-990` 작업 트리로 확인했다.
 
 ## 1. 현재 상태
 
@@ -20,8 +20,8 @@
 | `boundedContext/notification` 디렉터리 | N1~N10 구현 | `build.gradle.kts`, `src/`. 구현 범위는 [module.md](../../../../docs/notification/module.md) 2장 As-Is |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1~N15 완료, N16 보류, N17-1 진행 중(#989) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-109 |
+| 기능 구현 | N1~N15·N17-1 완료, N16 보류, N17-2 진행 중(#990) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-121 |
 | Flyway | 작성 | `src/main/resources/db/migration/`의 6개 파일(`notification_user`, `notification`, 파기 표시, `notification_runtime_setting`, `notification_payout_item`, `notification_schedule`) |
 
 ## 2. 문서 구축 상태
@@ -72,8 +72,8 @@
 | N14 | P1 | 구조 리팩토링: Kafka 설정 공통화, 리스너 공통 뼈대, 동일성 테스트, B0 재측정 | 알림 | N13 | 완료 | #955(PR #968, dev `0322495f`). 정책 ND-154·ND-156·ND-179~ND-186. 테스트 NT-REF-01~06. B0 재측정 성능 판정 불합격(ND-175), 예외 병합(ND-186) |
 | N15 | P1 | 본 부하 시험 L1~L6, U13 측정값 전달 | 알림(L6 챗봇 담당 확인, U13 확정은 인프라·챗봇 담당) | N14 | 완료 | #970(PR #978, dev `1cbfaeb7`). 정책 ND-155·ND-157·ND-187~ND-202. 테스트 NT-LOAD-L1~L6(L5S·L5B·L5M·L5F). 격리 L3·L4·L5 합격. 운영 L1·L2·L6 미실행, 도구·절차만 남김(ND-202). 결과·절차 [notification-load.md](../../../../docs/load-test/notification-load.md) |
 | N16 | P1 | 운영 E2E: N10 예약 알림 확인과 기록 | 알림(실행은 사용자) | N15 | 보류 | ND-203 |
-| N17-1 | P2 | 성능 개선: 백로그 회복 중 실시간 전달 버림(받는 사람별 순서 유지, 단일 스레드 묶음 처리) | 알림 | N15 | 진행 중 | #989. 정책 ND-203·ND-205~ND-209·ND-211 |
-| N17-2 | P2 | 성능 개선: auxiliary-app 메모리 분석과 알림 쪽 사용량 | 알림 | N15 | 대기 | ND-203·ND-204·ND-210 |
+| N17-1 | P2 | 성능 개선: 백로그 회복 중 실시간 전달 버림(받는 사람별 순서 유지, 단일 스레드 묶음 처리) | 알림 | N15 | 완료 | #989(PR #1000, dev `6f7d7d67`). 정책 ND-203·ND-205~ND-209·ND-211 |
+| N17-2 | P2 | 성능 개선: auxiliary-app 메모리 분석과 알림 쪽 사용량 | 알림 | N15 | 진행 중 | #990. 정책 ND-203·ND-204·ND-210·ND-212~ND-215 |
 | N17-3 | P2 | 성능 개선: Kafka 소비의 레코드마다 commit 구조 검토 | 알림 | N15 | 대기 | ND-170·ND-203 |
 | N17-4 | P2 | 성능 개선: 예약 배치를 공용 스케줄러에서 분리 | 알림 | N15 | 대기 | ND-203·ND-204 |
 

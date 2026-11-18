@@ -200,7 +200,7 @@ python -I loadtest/k6/notification/sanitize_summary.py "$OUT/k6-notification-l1.
 판정과 별개로 측정에서 나온 개선 후보다. 고칠지는 N17에서 정한다. 항목별 Issue와 순서는 ND-203, 진행 상태는 알림 PROGRESS N17-1~N17-4에 있다.
 
 - 실시간 전달 실행기(스레드 1개, 줄 상한)가 백로그 회복 중 초당 200건 넘는 저장을 따라가지 못해 13%를 버렸다(L4).
-- 격리 시험의 메모리 최대가 limit의 85~89%였다(L3·L4).
+- 격리 시험의 메모리 최대가 limit의 85~89%였다(L3·L4, limit 704Mi일 때. 지금 limit은 832Mi, ND-210). 분석 방법은 ND-212·ND-214.
 - 레코드마다 커밋해 처리량이 디스크 동기화 속도에 묶이는 구조(N13 진단, [B0 기준선](notification-baseline.md)).
 
 ## N17-1 진단(#989)
@@ -247,3 +247,64 @@ NR-112의 B0 불합격이 코드 때문인지 환경 때문인지 나누려고, 
 - 판정(ND-207): B 중앙값 203.32 ≥ A 중앙값 203.51 × 0.9(183.16), 6회 모두 V0~V8 통과·F 같음 → **통과**(A의 99.9%).
 - 한계: 회차가 3+3이다. B의 처리량/투입 비율이 평균 약 1.5% 낮고 GC 횟수가 조금 많아, 영향이 전혀 없다고 보지 않는다. 6회차는 검증 뒤 호스트 메모리 부족으로 감싼 스크립트가 멈춰 pod 이미지 ID·호스트 CPU를 적지 못했고, 이미지는 지표로 확인했다(NR-113).
 - 공식 B0 판정(ND-175 기준선 237.52, 중앙값 213.8 이상·CV 10% 이하)은 바꾸지 않는다. N17-1 B0 5회(NR-112)는 그대로 불합격이다.
+
+## N17-2 분석(#990)
+
+auxiliary-app 메모리를 영역별로 나누고 알림 몫을 추정했다(ND-212·ND-214, 실행 기록 regression-log NR-121). B0 cluster, limit 832Mi(ND-210), `-Xmx256m`, 지금 dev 코드. 진단 측정이라 판정하지 않는다. 용어는 ND-213이다.
+
+### 1차(NMT 끔): 시나리오별 최대
+
+| 시나리오 | working set | heap committed | JVM nonheap | 스레드 | 클래스 |
+| --- | --- | --- | --- | --- | --- |
+| 대기 10분 | 647Mi | 약 222Mi | 약 228Mi | 151 | 33,396 |
+| L3(STOMP 100) | 631Mi | 약 247Mi | 약 258Mi | 249 | 35,021 |
+| L4(백로그 10,000) | 628Mi | 약 246Mi | 약 261Mi | 158 | 34,261 |
+
+- 대기 working set이 10분 동안 366Mi에서 647Mi로 계속 올라 부하 시나리오보다 컸다. 최대값은 부하보다 기동 뒤 시간(heap 확장, JIT 코드, 클래스 적재)에 따른 몫이 크다.
+- direct buffer 0.6Mi. GC는 Serial이다. GC 직후 Tenured 사용률 55~69%(지표 `jvm_memory_usage_after_gc`, Tenured committed 최대 약 171Mi 기준 약 94~118Mi)로, heap committed가 상한(256Mi)에 붙어 있어도 살아 있는 데이터는 약 100Mi 안팎이다.
+
+### 2차(NMT 켬): 종료 때 committed(MiB)
+
+| 영역 | 대기 | L3 | L4 |
+| --- | --- | --- | --- |
+| Java Heap | 230 | 256 | 255 |
+| Metaspace + Class(압축 클래스) | 172 | 183 | 181 |
+| Symbol | 36 | 37 | 37 |
+| Shared class space(CDS) | 13 | 13 | 13 |
+| Code(JIT) | 60 | 93 | 100 |
+| Thread(스택) | 4 | 3 | 3 |
+| NMT 자체(운영에 없음) | 12 | 14 | 14 |
+| 그 밖 | 약 9 | 약 10 | 약 11 |
+| 합계 | 536 | 610 | 615 |
+
+- 클래스 관련(Metaspace·Class·Symbol·CDS 합)이 약 221~233MiB로 heap 다음으로 크다. JIT 코드는 부하 때 60에서 약 100MiB로 는다. 스레드 스택은 250개 가까이에서도 3~4MiB다. L3 컴파일러 arena malloc 최대 62.7MiB는 일시적이다.
+- working set이 NMT 합계보다 큰 차이(glibc malloc 단편화 등)는 NMT가 추적하지 않는다.
+
+### 클래스 출처로 본 몫(재측정, 대기 · L3)
+
+시나리오마다 pod를 새로 띄웠으므로(ND-214) 두 값은 같은 pod 안의 증가가 아니라 다른 pod의 값이다(검색 전용 197·188의 차이도 그 때문으로 본다).
+
+| 묶음 | 클래스 수(비율) | 쓰는 모듈 |
+| --- | --- | --- |
+| JPA·Hibernate·드라이버·바이트코드 | 7,116 → 7,508 (약 21%) | 모두 |
+| Kafka(clients·spring-kafka) | 2,403 → 2,544 (약 7%) | 알림·챗봇·검색 |
+| **알림 전용**: 알림 코드, Redis(Lettuce·spring-data-redis·Netty), WebSocket·STOMP | **2,229 → 2,861 (6.8% → 8.1%)** | 알림 |
+| 챗봇 전용: 챗봇 코드, Spring AI, OpenAI SDK, Kotlin | 2,187 → 2,550 (약 7%) | 챗봇 |
+| Elasticsearch·HTTP 클라이언트 | 812 (약 2.5%) | 검색·챗봇 |
+| 검색 전용 코드 | 197 → 188 (0.6%) | 검색 |
+| 나머지: JDK, Spring 공통, Jackson, 람다·hidden 클래스 등 | 약 55% | 공통 |
+
+- 알림 전용 클래스 비율을 클래스 관련 메모리 중 CDS를 뺀 Metaspace·Class·Symbol(약 208~220MiB)에 곱하면 약 14~18MiB로 추정한다. 클래스마다 크기가 달라 정확한 값은 아니다. Netty는 Lettuce가 쓰는 것으로 보아 알림에 넣었다(다른 라이브러리도 쓰면 알림 몫은 이보다 작다).
+- 알림이 직접 가진 그 밖의 자원은 설정값과 측정값으로 본다. 스레드 이름별 수는 재지 못했다(Actuator가 스레드 덤프를 열지 않고 NMT에는 이름이 없다).
+  - 스레드: 전체 스택이 스레드 250개 가까이에서도 3~4MiB라(NMT) 알림 스레드(Kafka 소비 6 group(알림 원본 alert 5개 + 회원 복제본 `member-replica`) × 동시성 1, 실시간 발행 1, STOMP inbound·outbound 각 2, heartbeat 스케줄러 `notification-ws-heartbeat-`, 연결 만료 sweep 스케줄러 `notification-ws-expiry-`, 관리자 Backfill 실행기 `notification-admin-backfill-`(요청 때만, 동시 1)) 몫은 1MiB 안이다. 예약 배치(`NotificationScheduleBatch`, `@Scheduled`)는 알림 전용 스레드가 아니라 앱 공통 스케줄러 스레드 2개(U13, ND-204) 위에서 돈다. L3에서 늘어난 약 100개는 연결 처리(Tomcat 등)로 보이며 이름으로 확인하지는 않았다.
+  - Kafka fetch: 상한은 기본값(응답당 50MB, 파티션당 1MB)이고 받은 레코드는 heap에 잠깐 있다. 따로 잡아 두는 고정 버퍼가 아니다.
+  - STOMP 전송 버퍼: 세션당 상한 512KB(`send-buffer-size-limit`)는 수신이 밀릴 때만 차는 상한이다. 프레임이 작아(L3 p95 11ms) 평상시에는 거의 쓰지 않는다.
+  - direct buffer 0.6Mi, 실시간 줄·묶음 1MiB 안(module.md 3.8).
+  - 합쳐 몇 MiB 수준으로 본다.
+
+### `-Xmx` 판단 자료(ND-210)
+
+- heap committed는 모든 시나리오에서 상한(256Mi)에 가깝지만, GC 직후 살아 있는 데이터는 약 100~120Mi다. Serial GC가 heap을 넓힌 뒤 줄이지 않아 committed가 상한에 붙는다.
+- working set 최대는 1차(NMT 끔) 기준 628~647Mi로 limit 832Mi의 약 75~78%다(대기는 10분 측정이라 더 오를 수 있다. 2차 값은 NMT 부담이 섞여 쓰지 않는다, ND-214).
+- 참고(판단 근거 아님, ND-203): 운영 #996은 기동 8시간 pod working set 689Mi, Metaspace 203Mi, 클래스 약 40,400개였다. 격리 측정(클래스 33,000~35,000개)보다 많은 몫은 B0에서 부르지 않은 챗봇·검색 첫 호출로 추정한다.
+- 처리와 `-Xmx` 의견: ND-215(결정 주체는 ND-210).
