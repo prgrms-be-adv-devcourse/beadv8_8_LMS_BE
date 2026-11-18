@@ -11,8 +11,9 @@ import lombok.extern.slf4j.Slf4j;
  * 실시간 전달 발행 스레드(ND-205·ND-211). 스레드 1개가 {@link NotificationRealtimeRelay}의 줄을 묶음으로 비운다. 스레드가 하나라
  * 같은 받는 사람의 프레임은 줄에 넣은 순서대로 나간다.
  * <ul>
- *     <li>한 묶음에서 예외가 나도 WARN을 남기고 다음 묶음으로 넘어간다(스레드는 멈추지 않는다). 그 묶음의 남은 프레임은 보내지 못했을
- *     수 있고, FE가 REST로 맞춘다(ND-027).</li>
+ *     <li>한 묶음에서 예외가 나도 WARN을 남기고 다음 묶음으로 넘어간다(스레드는 멈추지 않는다). {@link Error}는
+ *     {@code [NOTIFICATION_REALTIME_ERROR]} ERROR를 남기고 넘어가고, 멈춤 요청 없는 interrupt도 넘긴다. 그 묶음의 남은 프레임은
+ *     보내지 못했을 수 있고, FE가 REST로 맞춘다(ND-027).</li>
  *     <li>멈추면 스레드에 멈춤만 알리고(interrupt하지 않는다) 처리 중인 묶음이 끝나기를 {@value #STOP_WAIT_SECONDS}초까지 기다린 뒤
  *     Relay를 닫는다. 남은 줄은 보내지 않고 버리고 그 수를 WARN 한 줄로 남긴다. 닫힌 뒤 넘긴 프레임은 Relay가 거절한다. 묶음이 대기
  *     시간 안에 끝나지 않으면(Redis 시간 제한 10초, 파기 순서 잠금 대기) 종료가 이어지고, 그 묶음의 남은 프레임(최대 묶음 크기)은 그대로
@@ -105,15 +106,23 @@ public class NotificationRealtimeWorker implements SmartLifecycle {
         return !target.isAlive();
     }
 
+    /**
+     * 멈출 때까지 줄을 비운다. 멈춤 요청 없이 끝나지 않는다: 예외·{@link Error}·interrupt가 나도 다음 묶음으로 넘어간다(이전 실행기가
+     * 죽은 worker를 새로 띄우고 멈추지 않은 상태의 interrupt를 넘기던 것과 같다). 스레드가 조용히 끝나면 줄이 차서 모든 프레임이
+     * {@code queue_full}이 되기 때문이다. JVM이 던지는 {@link OutOfMemoryError}는 운영 {@code -XX:+ExitOnOutOfMemoryError}가 여기
+     * 오기 전에 JVM을 끝낸다. {@link Error}가 난 묶음의 남은 프레임은 버림 지표에 잡히지 않는다(docs/notification/module.md 3.8).
+     */
     private void loop(AtomicBoolean runActive) {
         while (runActive.get()) {
             try {
                 relay.deliverPending(POLL);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+                // 멈춤은 interrupt를 쓰지 않는다(실행 표시로 알린다). 멈춤 요청이 없으면 넘기고 계속 돈다
+                log.warn("멈춤 요청 없이 알림 실시간 전달 발행 스레드가 interrupt되어 넘김");
             } catch (RuntimeException exception) {
                 log.warn("알림 실시간 전달 묶음을 끝까지 처리하지 못해 다음 묶음으로 넘어감", exception);
+            } catch (Error error) {
+                log.error("[NOTIFICATION_REALTIME_ERROR] 알림 실시간 전달 묶음 처리 중 Error가 나 다음 묶음으로 넘어감", error);
             }
         }
     }

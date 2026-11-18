@@ -85,6 +85,38 @@ class NotificationRealtimeWorkerTest {
     }
 
     @Test
+    void 한_묶음에서_Error가_나도_스레드는_계속_돈다() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        when(relay.deliverPending(any())).thenAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new NoClassDefFoundError("boom");
+            }
+            return 0;
+        });
+
+        worker.start();
+
+        verify(relay, timeout(2000).atLeast(3)).deliverPending(any());
+        assertThat(worker.isRunning()).isTrue();
+    }
+
+    @Test
+    void 멈춤_요청_없이_interrupt되어도_스레드는_계속_돈다() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        when(relay.deliverPending(any())).thenAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new InterruptedException("stray");
+            }
+            return 0;
+        });
+
+        worker.start();
+
+        verify(relay, timeout(2000).atLeast(3)).deliverPending(any());
+        assertThat(worker.isRunning()).isTrue();
+    }
+
+    @Test
     void 묶음을_처리하는_중에_멈추면_interrupt하지_않고_그_묶음을_끝낸_뒤_멈춘다() throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         AtomicBoolean interrupted = new AtomicBoolean();
