@@ -13,6 +13,7 @@ import jakarta.validation.Valid;
 import reactor.core.publisher.Flux;
 
 @Tag(name = "챗봇 자유 질문", description = "로그인 회원 (#720). LLM이 FAQ 검색·강의 추천·인플루언서 추천 Tool을 골라 답한다. "
+        + "답은 마크다운 없는 일반 글이다. 무엇을 원하는지 알 수 없으면 카드 없이 한 번 되물을 수 있다(#1006). "
         + "대화 ID·대화 생성 API는 없고, 이전 대화는 FE가 요청마다 history로 보낸다")
 public interface ApiV1ChatbotMessageSpec {
 
