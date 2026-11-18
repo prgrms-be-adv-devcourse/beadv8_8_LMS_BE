@@ -1,33 +1,21 @@
 package com.hapbang.auxiliary.notification.app;
 
-import java.time.Duration;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
- * 실시간 발행 실행기({@link NotificationRealtimeRelay}). 스레드 1개, 줄 상한 {@code queue-capacity}(기본 1000). 작업 하나가 저장 하나의
- * 발행이라 Boot builder로 만들어 넘긴 쪽의 trace를 잇는다(docs/dev/logging.md). 줄이 차면 넘기기가 실패하고 Relay가 그 프레임을 버린다.
+ * 실시간 발행 스레드({@link NotificationRealtimeWorker}, ND-205). 스레드 1개가 {@link NotificationRealtimeRelay}의 줄(상한
+ * {@code queue-capacity}, 기본 1000)을 묶음({@code batch-size}, 기본 100)으로 비운다. 줄이 차면 Relay가 그 프레임을 버린다.
+ * <p>
+ * 여러 저장의 프레임을 묶음으로 처리하므로 넘긴 쪽의 trace를 잇지 않는다. 묶음 안 다른 프레임의 로그에 틀린 {@code traceId}가 붙기
+ * 때문이다(docs/dev/logging.md "스레드 경계"). 실시간 전달을 끈 실행에서는 만들지 않는다.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnNotificationRealtime
 public class NotificationRealtimeExecutorConfig {
 
-    @Bean(name = NotificationRealtimeRelay.EXECUTOR_BEAN_NAME)
-    ThreadPoolTaskExecutor notificationRealtimeExecutor(ThreadPoolTaskExecutorBuilder builder,
-            @Value("${hapbang.notification.realtime.publish.queue-capacity:1000}") int queueCapacity) {
-        return builder
-                .corePoolSize(1)
-                .maxPoolSize(1)
-                .queueCapacity(queueCapacity)
-                .allowCoreThreadTimeOut(false)
-                .keepAlive(Duration.ofSeconds(60))
-                .acceptTasksAfterContextClose(false)
-                .awaitTermination(false)
-                .threadNamePrefix("notification-realtime-")
-                .build();
+    @Bean
+    NotificationRealtimeWorker notificationRealtimeWorker(NotificationRealtimeRelay relay) {
+        return new NotificationRealtimeWorker(relay);
     }
 }

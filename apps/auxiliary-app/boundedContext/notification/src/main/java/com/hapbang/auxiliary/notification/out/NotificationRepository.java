@@ -63,6 +63,24 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     /** 본인의 삭제되지 않은 알림 한 건. 남의·없는·밀려난 알림은 모두 비어 있다(ND-052) */
     Optional<Notification> findByIdAndReceiverUserIdAndDeletedAtIsNull(Long id, Long receiverUserId);
 
+    /** 실시간 전달 묶음(ND-205): 삭제되지 않은 알림을 한 번에 읽는다. 순서는 보장하지 않는다(부르는 쪽이 ID로 맞춘다) */
+    List<Notification> findAllByIdInAndDeletedAtIsNull(Collection<Long> ids);
+
+    /** 실시간 전달 묶음(ND-205): 받는 사람별 안 읽은 수. 안 읽은 알림이 없는 받는 사람은 결과에 없다(0) */
+    @Query("""
+            select n.receiverUserId as receiverUserId, count(n) as unread from Notification n
+            where n.receiverUserId in :receivers and n.deletedAt is null and n.readAt is null
+            group by n.receiverUserId""")
+    List<ReceiverUnread> countUnreadByReceivers(@Param("receivers") Collection<Long> receivers);
+
+    /** {@link #countUnreadByReceivers}의 한 줄(응답 DTO {@code app.dto.UnreadCount}와 다르다) */
+    interface ReceiverUnread {
+
+        Long getReceiverUserId();
+
+        long getUnread();
+    }
+
     /** 알림 행을 ID 오름차순으로 잠근다(SELECT … FOR UPDATE). 잠근 행의 ID를 돌려준다 */
     @Query(value = "select id from notification.notification where id in (:ids) order by id for update",
             nativeQuery = true)
