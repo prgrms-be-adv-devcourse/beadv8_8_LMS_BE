@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.port.RoomChannelSubscriptions;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
@@ -69,7 +70,8 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
     private static final long STOP_TIMEOUT_MILLIS = TimeUnit.SECONDS.toMillis(5);
 
     private final RedisMessageListenerContainer container;
-    private final MessageListener listener;
+    /** 구독 대상(구독 진입 어댑터)을 얻는 자리. 생성 순환을 피해 어댑터를 생성자로 받지 않는다 */
+    private final ChatRealtimeListenerHolder listenerHolder;
     private final ChatRedisKeys chatRedisKeys;
     private final long graceNanos;
     private final int maxChannels;
@@ -100,14 +102,14 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
      */
     public RedisRoomChannelSubscriptions(
             @Qualifier(ChatRealtimeRedisConfig.CONTAINER_BEAN_NAME) RedisMessageListenerContainer container,
-            @Qualifier(ChatRealtimeRedisConfig.LISTENER_BEAN_NAME) MessageListener listener,
+            ChatRealtimeListenerHolder listenerHolder,
             ChatRedisKeys chatRedisKeys, MeterRegistry meterRegistry,
             @Value("${hapbang.chat.realtime.room.channel-grace:60s}") Duration grace,
             @Value("${hapbang.chat.realtime.room.max-channels:10000}") int maxChannels) {
         Assert.isTrue(!grace.isNegative(), "hapbang.chat.realtime.room.channel-grace는 0 이상이어야 합니다.");
         Assert.isTrue(maxChannels > 0, "hapbang.chat.realtime.room.max-channels는 1 이상이어야 합니다.");
         this.container = container;
-        this.listener = listener;
+        this.listenerHolder = listenerHolder;
         this.chatRedisKeys = chatRedisKeys;
         this.graceNanos = grace.toNanos();
         this.maxChannels = maxChannels;
@@ -237,11 +239,11 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
             ChannelTopic topic = topic(roomId);
             try {
                 if (wanted) {
-                    call(() -> container.addMessageListener(listener, topic));
+                    call(() -> container.addMessageListener(listenerHolder.listener(), topic));
                     registered.add(roomId);
                     log.debug("방 채널 구독 roomId={}", roomId);
                 } else {
-                    call(() -> container.removeMessageListener(listener, topic));
+                    call(() -> container.removeMessageListener(listenerHolder.listener(), topic));
                     registered.remove(roomId);
                     log.debug("방 채널 구독 해제 roomId={}", roomId);
                 }
@@ -278,6 +280,7 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
                 registered.addAll(channels.keySet());
                 wanted = registered.stream().map(this::topic).toList();
             }
+            MessageListener listener = listenerHolder.listener();
             container.removeMessageListener(listener);
             container.addMessageListener(listener, ChatRealtimeRedisConfig.serverTopics(chatRedisKeys));
             if (!wanted.isEmpty()) {

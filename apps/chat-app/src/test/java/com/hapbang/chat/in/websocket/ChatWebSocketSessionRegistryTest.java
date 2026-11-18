@@ -27,7 +27,6 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
-import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.dto.ChatReauthResult.Outcome;
 import com.hapbang.chat.app.dto.ChatReauthResult;
@@ -595,9 +594,9 @@ class ChatWebSocketSessionRegistryTest {
         return track(new ChatWebSocketSessionRegistry(mock(ChatPresence.class), clock, Duration.ofSeconds(30), 4, 10_000));
     }
 
-    /** 연결이 열리고 닫히는 것을 이 목록에 알리는 decorator. 방 topic 구독 정리는 이 시험의 관심이 아니다 */
+    /** 연결이 열리고 닫히는 것을 이 목록에 알리는 decorator */
     private static ChatWebSocketLifecycleDecorator decorator(ChatWebSocketSessionRegistry registry) {
-        return new ChatWebSocketLifecycleDecorator(mock(ChatRoomTopicFacade.class), registry);
+        return new ChatWebSocketLifecycleDecorator(registry);
     }
 
     private ChatWebSocketSessionRegistry track(ChatWebSocketSessionRegistry created) {

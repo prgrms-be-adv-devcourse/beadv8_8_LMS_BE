@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
@@ -22,7 +22,7 @@ import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
-import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.Counter;
@@ -53,8 +53,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 따로 하는 일이 없다(알림 재료 채널의 재구독이 이미 재동기화 신호를 보낸다).
  */
 @Slf4j
-@Component(ChatRealtimeRedisConfig.LISTENER_BEAN_NAME)
-public class ChatRealtimeRedisListener implements MessageListener, SubscriptionListener, DisposableBean {
+@Component
+public class ChatRealtimeRedisListener implements MessageListener, SubscriptionListener, InitializingBean,
+        DisposableBean {
 
     /** 대기열이 넘쳐 버린 작업 수. 태그 queue=message|control */
     public static final String DROPPED_METRIC = "chat.realtime.listener.dropped";
@@ -62,6 +63,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
     private final ChatRealtimeFacade chatRealtimeFacade;
     private final JsonMapper jsonMapper;
     private final ChatRedisKeys chatRedisKeys;
+    private final ChatRealtimeListenerHolder listenerHolder;
     private final String activityChannel;
     private final String controlChannel;
     private final String readChannel;
@@ -87,12 +89,9 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
      * 방별 처리 실행기 수(2, 각각 스레드 하나)·실행기별 대기열 상한(1000)과 제어 실행기의 스레드 수(1)·대기열 상한(1000), 종료 대기
      * 상한(5s)은 미확정 초기값(Q12)이다. 기본값은 이 코드가 원본이고 application.yaml에 두지 않는다. 같은 키의 yaml·환경 변수가
      * 덮는다.
-     * <p>
-     * 이 어댑터를 받는 구독 컨테이너를 방 채널 구독({@code RedisRoomChannelSubscriptions})이 쓰고, 그 구독을 Facade 아래의 방 구독
-     * 목록이 쓴다. 생성 순환을 피해 Facade를 지연해서 얻는다. 메시지는 컨테이너가 시작한 뒤에야 오므로 그때는 만들어져 있다.
      */
-    public ChatRealtimeRedisListener(@Lazy ChatRealtimeFacade chatRealtimeFacade, JsonMapper jsonMapper,
-            ChatRedisKeys chatRedisKeys,
+    public ChatRealtimeRedisListener(ChatRealtimeFacade chatRealtimeFacade, JsonMapper jsonMapper,
+            ChatRedisKeys chatRedisKeys, ChatRealtimeListenerHolder listenerHolder,
             @Value("${hapbang.chat.realtime.listener.message-workers:2}") int messageWorkers,
             @Value("${hapbang.chat.realtime.listener.message-queue-capacity:1000}") int messageQueueCapacity,
             @Value("${hapbang.chat.realtime.listener.control-workers:1}") int controlWorkers,
@@ -113,6 +112,13 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         this.messageDropped = meterRegistry.counter(DROPPED_METRIC, "queue", "message");
         this.controlDropped = meterRegistry.counter(DROPPED_METRIC, "queue", "control");
         this.shutdownAwait = shutdownAwait;
+        this.listenerHolder = listenerHolder;
+    }
+
+    /** 구독 컨테이너에 자기를 넣고 서버 채널을 등록한다. 컨테이너는 이 뒤(생명주기 시작)에 구독을 시작한다 */
+    @Override
+    public void afterPropertiesSet() {
+        listenerHolder.attach(this);
     }
 
     @Override

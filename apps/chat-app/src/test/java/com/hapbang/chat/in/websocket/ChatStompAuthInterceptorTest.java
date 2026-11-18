@@ -27,7 +27,6 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 
-import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.dto.ChatConnectionTicket;
 import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.shared.member.domain.Role;
@@ -48,7 +47,7 @@ class ChatStompAuthInterceptorTest {
             clock, Duration.ofSeconds(30), 1, 10);
     private final ChatStompAuthInterceptor interceptor = new ChatStompAuthInterceptor(registry, clock);
     private final MessageChannel channel = mock(MessageChannel.class);
-    private final WebSocketHandler handler = new ChatWebSocketLifecycleDecorator(mock(ChatRoomTopicFacade.class), registry)
+    private final WebSocketHandler handler = new ChatWebSocketLifecycleDecorator(registry)
             .decorate(mock(WebSocketHandler.class));
 
     @AfterEach

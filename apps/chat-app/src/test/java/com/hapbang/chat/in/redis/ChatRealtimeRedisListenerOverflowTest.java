@@ -21,6 +21,7 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -36,7 +37,7 @@ class ChatRealtimeRedisListenerOverflowTest {
     private final ChatRealtimeFacade facade = mock(ChatRealtimeFacade.class);
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     // 메시지 실행기: 스레드 1개 + 대기열 1개. 세 번째 작업이 넘친다
-    private final ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, 1, 1,
+    private final ChatRealtimeRedisListener listener = new ChatRealtimeRedisListener(facade, jsonMapper, keys, mock(ChatRealtimeListenerHolder.class), 1, 1,
             1, 10, Duration.ofSeconds(1), meterRegistry);
     private final CountDownLatch release = new CountDownLatch(1);
 

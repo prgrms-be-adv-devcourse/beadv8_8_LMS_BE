@@ -37,6 +37,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.listener.Topic;
 
 import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
+import com.hapbang.chat.global.redis.ChatRealtimeListenerHolder;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -221,7 +222,7 @@ class RedisRoomChannelSubscriptionsTest {
     @Test
     void 채널_수_게이지는_유예_중인_채널을_포함해_센다() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        RedisRoomChannelSubscriptions channels = new RedisRoomChannelSubscriptions(container, listener, keys,
+        RedisRoomChannelSubscriptions channels = new RedisRoomChannelSubscriptions(container, holder(listener), keys,
                 registry, Duration.ofHours(1), 2);
         created.add(channels);
         channels.acquire(1L);
@@ -407,7 +408,7 @@ class RedisRoomChannelSubscriptionsTest {
         context.getBeanFactory().setConversionService(ApplicationConversionService.getSharedInstance());
         context.registerBean(ChatRealtimeRedisConfig.CONTAINER_BEAN_NAME, RedisMessageListenerContainer.class,
                 () -> lifecycleContainer);
-        context.registerBean(ChatRealtimeRedisConfig.LISTENER_BEAN_NAME, MessageListener.class, () -> listener);
+        context.registerBean(ChatRealtimeListenerHolder.class, () -> holder(listener));
         context.registerBean(ChatRedisKeys.class, () -> keys);
         context.registerBean(MeterRegistry.class, SimpleMeterRegistry::new);
         context.registerBean(RedisRoomChannelSubscriptions.class);
@@ -443,13 +444,20 @@ class RedisRoomChannelSubscriptionsTest {
         return topics -> topics != null && new HashSet<>(topics).equals(rooms);
     }
 
+    /** 구독 진입 어댑터를 넣어 둔 자리 */
+    private static ChatRealtimeListenerHolder holder(MessageListener listener) {
+        ChatRealtimeListenerHolder holder = mock(ChatRealtimeListenerHolder.class);
+        when(holder.listener()).thenReturn(listener);
+        return holder;
+    }
+
     private ChannelTopic topic(long roomId) {
         return new ChannelTopic(keys.roomChannel(roomId));
     }
 
     private RedisRoomChannelSubscriptions channels(Duration grace, int max) {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        RedisRoomChannelSubscriptions channels = new RedisRoomChannelSubscriptions(container, listener, keys,
+        RedisRoomChannelSubscriptions channels = new RedisRoomChannelSubscriptions(container, holder(listener), keys,
                 meterRegistry, grace, max);
         created.add(channels);
         meterRegistries.put(channels, meterRegistry);

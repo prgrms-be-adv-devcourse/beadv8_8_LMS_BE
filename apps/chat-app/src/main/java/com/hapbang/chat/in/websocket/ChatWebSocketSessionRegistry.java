@@ -52,8 +52,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>로그아웃 표식: 하트비트가 넘긴 회원별 로그아웃 시각보다 먼저 인증한 연결을 {@link #LOGGED_OUT}으로 닫는다
  *     ({@link #closeLoggedOutBefore}). 닫기는 같은 닫기 실행기에 맡긴다.</li>
  *     <li>연결이 닫히면 두 목록·만료 예약·Redis 접속 정보를 모두 지운다. 연결을 넣고 빼는 것은 웹소켓 처리기 decorator
- *     ({@link ChatWebSocketLifecycleDecorator})가 연결이 열리고 닫히는 스레드에서 부른다. 방 topic 구독 정리는 그 decorator가 이
- *     목록에서 빼기 전에 한다.</li>
+ *     ({@link ChatWebSocketLifecycleDecorator})가 연결이 열리고 닫히는 스레드에서 부른다. 방 topic 구독 정리는 같은 스레드의
+ *     {@code SessionDisconnectEvent}({@link ChatSessionDisconnectListener})가 이 목록에서 빼기 전에 한다.</li>
  * </ul>
  * 실시간 전달·새 메시지 알림·연결 재검사는 회원별 연결 목록(인증된 연결만)으로 대상을 고른다.
  */
@@ -425,7 +425,10 @@ public class ChatWebSocketSessionRegistry implements LocalChatConnections, Dispo
         }
     }
 
-    /** 연결을 빼고 결합을 지운다. 연결이 닫힌 스레드에서 {@link ChatWebSocketLifecycleDecorator}만 부른다(방 topic 구독 정리 뒤) */
+    /**
+     * 연결을 빼고 결합을 지운다. 연결이 닫힌 스레드에서 {@link ChatWebSocketLifecycleDecorator}만 부른다(STOMP 처리기의 닫힘 처리와
+     * 방 topic 구독 정리 뒤). 여러 번 불러도 같다.
+     */
     void unregister(WebSocketSession session) {
         sessions.remove(session.getId(), session);
         unbind(session.getId());
