@@ -37,7 +37,6 @@ import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.redis.ChatStreamEntries;
 
 /**
  * Stream 그룹 소비·Pub/Sub 발행·체크포인트·ACK·PEL 회수 (테스트 기준 "Stream 소비", "Pub/Sub·체크포인트").
@@ -244,7 +243,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
 
         // 같은 작업의 중복 항목
-        addRawEntry(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, deliveryId.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("jobId", deliveryId.toString()));
         int callsBefore = fanout.publishCalls();
         pollAll(ChatJobStream.DELIVERY, WORKER);
         assertThat(fanout.publishCalls()).isEqualTo(callsBefore);
@@ -360,7 +359,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
     void 작업_ID를_읽을_수_없는_항목과_원본이_없는_항목은_격리를_기록한_뒤_ACK한다() {
         addRawEntry(ChatJobStream.DELIVERY, Map.of("garbage", "1"));
         UUID unknown = UUID.randomUUID();
-        addRawEntry(ChatJobStream.DELIVERY, Map.of(ChatStreamEntries.JOB_ID, unknown.toString()));
+        addRawEntry(ChatJobStream.DELIVERY, Map.of("jobId", unknown.toString()));
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
 

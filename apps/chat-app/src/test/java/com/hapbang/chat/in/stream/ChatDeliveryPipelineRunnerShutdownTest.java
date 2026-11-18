@@ -22,7 +22,6 @@ import com.hapbang.chat.app.ChatStreamJobProcessor;
 import com.hapbang.chat.app.ChatStreamReconstructor;
 import com.hapbang.chat.app.ChatStreamTrimmer;
 import com.hapbang.chat.app.DefaultChatDeliveryPipelineService;
-import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 

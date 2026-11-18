@@ -38,7 +38,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.redis.ChatStreamEntries;
 import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 import com.hapbang.chat.support.ChatMessageTestRepository;
 
@@ -143,7 +142,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         });
         Set<Object> enqueuedJobIds = new HashSet<>();
         redis.opsForStream().range(keys.deliveryStream(), Range.unbounded())
-                .forEach(entry -> enqueuedJobIds.add(entry.getValue().get(ChatStreamEntries.JOB_ID)));
+                .forEach(entry -> enqueuedJobIds.add(entry.getValue().get("jobId")));
         assertThat(streamLength(ChatJobStream.DELIVERY)).isEqualTo(deliveryIds.size());
         assertThat(enqueuedJobIds).hasSize(deliveryIds.size());
     }

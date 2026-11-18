@@ -97,7 +97,6 @@ class ChatDeliveryServiceBoundaryTest {
     void 전달_파이프라인_실행기는_app_조정_구현_대신_app_서비스_계약에_의존한다() {
         DescribedPredicate<JavaClass> appConcreteOrPort = JavaClass.Predicates.resideInAPackage("com.hapbang.chat.app")
                 .and(DescribedPredicate.not(JavaClass.Predicates.INTERFACES))
-                .and(DescribedPredicate.not(JavaClass.Predicates.ENUMS))
                 .or(JavaClass.Predicates.resideInAPackage("com.hapbang.chat.app.port.."))
                 .as("app 구현 클래스나 app/port 계약");
         noClasses().that().resideInAPackage("com.hapbang.chat.in.stream..")

@@ -13,25 +13,25 @@ import com.hapbang.chat.app.port.OutboxJob;
  * 작업 큐(Redis Stream) 항목의 필드 규칙. 항목에는 DB 원본을 가리키는 참조만 싣는다
  * (메시지 본문·수신자 목록을 복제하지 않는다, 설계 4.2).
  */
-public final class ChatStreamEntries {
+final class ChatStreamEntries {
 
-    public static final String JOB_ID = "jobId";
-    public static final String TYPE = "type";
-    public static final String SCHEMA_VERSION = "schemaVersion";
-    public static final String MESSAGE_ID = "messageId";
-    public static final String ROOM_ID = "roomId";
-    public static final String ROOM_SEQUENCE = "roomSequence";
-    public static final String RECIPIENT_SET_ID = "recipientSetId";
-    public static final String NOTIFY_RULE = "notifyRule";
-    public static final String USER_ID = "userId";
-    public static final String MEMBER_VERSION = "memberVersion";
-    public static final String REASON = "reason";
+    static final String JOB_ID = "jobId";
+    static final String TYPE = "type";
+    static final String SCHEMA_VERSION = "schemaVersion";
+    static final String MESSAGE_ID = "messageId";
+    static final String ROOM_ID = "roomId";
+    static final String ROOM_SEQUENCE = "roomSequence";
+    static final String RECIPIENT_SET_ID = "recipientSetId";
+    static final String NOTIFY_RULE = "notifyRule";
+    static final String USER_ID = "userId";
+    static final String MEMBER_VERSION = "memberVersion";
+    static final String REASON = "reason";
 
     private ChatStreamEntries() {
     }
 
     /** outbox 행을 큐 항목 필드로 바꾼다. 재적재해도 같은 안정 ID를 싣는다 */
-    public static Map<String, String> fieldsOf(OutboxJob job) {
+    static Map<String, String> fieldsOf(OutboxJob job) {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put(JOB_ID, job.jobId().toString());
         switch (job) {

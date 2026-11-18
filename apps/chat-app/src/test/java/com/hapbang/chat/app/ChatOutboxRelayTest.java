@@ -31,7 +31,6 @@ import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
-import com.hapbang.chat.out.redis.ChatStreamEntries;
 import com.hapbang.chat.support.ChatControlOutboxTestRepository;
 
 /**
@@ -82,12 +81,12 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
         List<MapRecord<String, Object, Object>> entries = redis.opsForStream().range(keys.deliveryStream(),
                 Range.closed(outbox.getStreamEntryId(), outbox.getStreamEntryId()));
         assertThat(entries).singleElement().satisfies(entry -> assertThat(entry.getValue())
-                .containsEntry(ChatStreamEntries.JOB_ID, deliveryId.toString())
-                .containsEntry(ChatStreamEntries.TYPE, "MESSAGE")
-                .containsEntry(ChatStreamEntries.MESSAGE_ID, outbox.getMessageId().toString())
-                .containsEntry(ChatStreamEntries.RECIPIENT_SET_ID, outbox.getRecipientSetId().toString())
-                .containsEntry(ChatStreamEntries.NOTIFY_RULE, "RECIPIENTS_EXCEPT_SENDER")
-                .containsEntry(ChatStreamEntries.SCHEMA_VERSION, "1")
+                .containsEntry("jobId", deliveryId.toString())
+                .containsEntry("type", "MESSAGE")
+                .containsEntry("messageId", outbox.getMessageId().toString())
+                .containsEntry("recipientSetId", outbox.getRecipientSetId().toString())
+                .containsEntry("notifyRule", "RECIPIENTS_EXCEPT_SENDER")
+                .containsEntry("schemaVersion", "1")
                 .doesNotContainKey("content"));
         // 적재는 발행 체크포인트를 바꾸지 않는다
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.PENDING);
@@ -208,11 +207,11 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
         List<MapRecord<String, Object, Object>> entries = redis.opsForStream().range(keys.controlStream(),
                 Range.unbounded());
         assertThat(entries).singleElement().satisfies(entry -> assertThat(entry.getValue())
-                .containsEntry(ChatStreamEntries.JOB_ID, control.getControlId().toString())
-                .containsEntry(ChatStreamEntries.TYPE, "RECHECK_USER")
-                .containsEntry(ChatStreamEntries.USER_ID, GUEST_ID.toString())
-                .containsEntry(ChatStreamEntries.MEMBER_VERSION, "5")
-                .containsEntry(ChatStreamEntries.REASON, "MEMBER_MODIFIED"));
+                .containsEntry("jobId", control.getControlId().toString())
+                .containsEntry("type", "RECHECK_USER")
+                .containsEntry("userId", GUEST_ID.toString())
+                .containsEntry("memberVersion", "5")
+                .containsEntry("reason", "MEMBER_MODIFIED"));
         assertThat(streamLength(ChatJobStream.DELIVERY)).isZero();
     }
 
