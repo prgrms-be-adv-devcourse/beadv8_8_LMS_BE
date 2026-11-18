@@ -25,12 +25,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회·사용 이력·주문 전 할인 계산 미리보기")
 public interface ApiV1CouponSpec {
 
-    @Operation(summary = "강의에 받을 수 있는 쿠폰",
-            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 이 강의 대상 쿠폰과 모든 강의 대상 쿠폰 중 발급 중(OPEN)이고 발급 기간 안인 것. "
+    @Operation(summary = "받을 수 있는 쿠폰",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 발급 중(OPEN)이고 발급 기간 안(issueStartAt ≤ 지금 < issueEndAt)인 쿠폰. "
+                    + "lectureId가 있으면 그 강의 대상 쿠폰과 모든 강의 대상 쿠폰만, 없으면 대상을 가리지 않는다"
+                    + "(특정 강의 대상은 targetType=LECTURE와 lectureId로 구분한다. 강의 제목은 싣지 않는다). "
                     + "최신순, 최대 100건. 매진이면 soldOut=true, 이미 받았거나 접수했으면 issued=true로 함께 준다. "
                     + "매진·받음은 표시용이며 실제 발급 여부는 발급 접수 결과가 정한다.")
     RsData<List<CouponSummaryView>> issuableCoupons(Long memberId,
-                                                    @Parameter(description = "쿠폰을 볼 강의 ID", required = true)
+                                                    @Parameter(description = "쿠폰을 볼 강의 ID. 없으면 강의를 가리지 않는다")
                                                     Long lectureId);
 
     @Operation(summary = "쿠폰 상세",

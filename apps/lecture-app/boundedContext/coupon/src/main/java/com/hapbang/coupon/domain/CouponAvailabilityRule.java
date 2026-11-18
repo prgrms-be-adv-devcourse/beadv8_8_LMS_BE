@@ -12,16 +12,22 @@ public final class CouponAvailabilityRule {
     }
 
     /**
-     * 이 강의 화면의 "받을 수 있는 쿠폰" 목록에 넣는가: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료, 발급 접수 Lua와 같다)이며,
-     * 그 강의 대상이거나 모든 강의 대상이다. 매진·이미 받은 쿠폰도 넣는다(표시로 구분한다).
+     * "받을 수 있는 쿠폰" 목록에 넣는가: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료, 발급 접수 Lua와 같다)이며,
+     * 강의를 정했으면 그 강의 대상이거나 모든 강의 대상이다. 매진·이미 받은 쿠폰도 넣는다(표시로 구분한다).
+     *
+     * @param lectureId 쿠폰을 볼 강의. {@code null}이면 대상을 가리지 않는다(특정 강의 대상·모든 강의 대상 모두)
      */
-    public static boolean isListedFor(Coupon coupon, long lectureId, Instant now) {
+    public static boolean isListedFor(Coupon coupon, Long lectureId, Instant now) {
         if (coupon.getStatus() != CouponStatus.OPEN) {
             return false;
         }
         if (now.isBefore(coupon.getIssueStartAt()) || !now.isBefore(coupon.getIssueEndAt())) {
             return false;
         }
+        return lectureId == null || targets(coupon, lectureId);
+    }
+
+    private static boolean targets(Coupon coupon, long lectureId) {
         return switch (coupon.getTargetType()) {
             case LECTURE -> coupon.getLectureId() != null && coupon.getLectureId() == lectureId;
             case ANY_LECTURE -> true;

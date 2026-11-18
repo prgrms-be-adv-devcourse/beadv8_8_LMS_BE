@@ -25,7 +25,7 @@ import com.hapbang.coupon.domain.CouponAvailabilityRule;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 회원 쿠폰 조회: 강의 화면의 받을 수 있는 쿠폰 목록과 쿠폰 상세. 매진·받음 표시는 DB(발급 수·발급 쿠폰)와 Redis(남은 재고·접수 회원)를
+ * 회원 쿠폰 조회: 받을 수 있는 쿠폰 목록(강의 화면은 그 강의 것, 쿠폰 받기 화면은 전체)과 쿠폰 상세. 매진·받음 표시는 DB(발급 수·발급 쿠폰)와 Redis(남은 재고·접수 회원)를
  * 함께 보고 {@link CouponAvailabilityRule}이 정한다. Redis는 한 번의 파이프라인으로 읽고, 닿지 못하면 DB 값만으로 표시한다(조회는
  * 실패시키지 않는다).
  */
@@ -49,8 +49,12 @@ public class CouponSummaryQuery {
         this.clock = clock;
     }
 
-    /** 이 강의에 지금 받을 수 있는 쿠폰(최신순, 상한 {@link CouponSupport#MAX_LIST_SIZE}건). 매진·이미 받은 쿠폰도 표시와 함께 넣는다 */
-    public List<CouponSummaryView> issuableFor(long memberId, long lectureId) {
+    /**
+     * 지금 받을 수 있는 쿠폰(최신순, 상한 {@link CouponSupport#MAX_LIST_SIZE}건). 매진·이미 받은 쿠폰도 표시와 함께 넣는다.
+     *
+     * @param lectureId 있으면 그 강의 대상과 모든 강의 대상만, {@code null}이면 대상을 가리지 않는다
+     */
+    public List<CouponSummaryView> issuableFor(long memberId, Long lectureId) {
         Instant now = clock.instant();
         List<Coupon> coupons = couponRepository.findIssuableFor(lectureId, now, CouponSupport.LIST_LIMIT).stream()
                 .filter(coupon -> CouponAvailabilityRule.isListedFor(coupon, lectureId, now))

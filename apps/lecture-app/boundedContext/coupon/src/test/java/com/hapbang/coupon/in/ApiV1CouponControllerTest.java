@@ -186,11 +186,16 @@ class ApiV1CouponControllerTest {
     }
 
     @Test
-    void 강의에_받을_수_있는_쿠폰은_강의_ID가_없으면_400이다() throws Exception {
-        mockMvc.perform(get("/api/v1/coupons").with(member()))
-                .andExpect(status().isBadRequest());
+    void 받을_수_있는_쿠폰은_강의_ID_없이_부르면_강의를_정하지_않고_조회한다() throws Exception {
+        given(couponIssueFacade.issuableCoupons(MEMBER_ID, null)).willReturn(List.of(summary(false, true)));
 
-        verify(couponIssueFacade, never()).issuableCoupons(anyLong(), anyLong());
+        mockMvc.perform(get("/api/v1/coupons").with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].couponId").value(COUPON_ID))
+                .andExpect(jsonPath("$.data[0].issued").value(true));
+
+        verify(couponIssueFacade).issuableCoupons(MEMBER_ID, null);
     }
 
     @Test

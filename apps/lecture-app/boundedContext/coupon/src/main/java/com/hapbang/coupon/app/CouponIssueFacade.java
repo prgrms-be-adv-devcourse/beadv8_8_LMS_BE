@@ -32,8 +32,12 @@ public class CouponIssueFacade {
     private final CouponCalculateUseCase couponCalculateUseCase;
     private final CouponUsageHistoryQuery couponUsageHistoryQuery;
 
-    /** 이 강의에 지금 받을 수 있는 쿠폰(매진·받음 표시 포함) */
-    public List<CouponSummaryView> issuableCoupons(long memberId, long lectureId) {
+    /**
+     * 지금 받을 수 있는 쿠폰(매진·받음 표시 포함).
+     *
+     * @param lectureId 있으면 그 강의에 받을 수 있는 쿠폰, 없으면 받을 수 있는 쿠폰 전체
+     */
+    public List<CouponSummaryView> issuableCoupons(long memberId, Long lectureId) {
         return couponSummaryQuery.issuableFor(memberId, lectureId);
     }
 
