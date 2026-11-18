@@ -153,6 +153,13 @@ spec:
   valuesContent: |-
     tempo:
       retention: 72h
+      # compaction이 합칠 블록 크기 합의 상한(byte, 32MiB). 기본 100GB면 부하 시험(trace 100%) 블록끼리 합치다
+      # limit을 넘어 OOMKilled를 반복한다(2026-11-18, 36MB 두 개). 차트가 backend_worker.compaction에도 물려준다(#1017)
+      backendScheduler:
+        provider:
+          compaction:
+            compaction:
+              max_block_bytes: 33554432
       storage:
         trace:
           backend: local
