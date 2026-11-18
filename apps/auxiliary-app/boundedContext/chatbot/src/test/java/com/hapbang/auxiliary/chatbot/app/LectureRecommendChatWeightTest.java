@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.SequencedMap;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +15,9 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
@@ -55,6 +59,9 @@ class LectureRecommendChatWeightTest extends ChatbotIntegrationTestBase {
 
     @Autowired
     private FakeEmbeddingModel embedding;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -99,6 +106,24 @@ class LectureRecommendChatWeightTest extends ChatbotIntegrationTestBase {
         LectureRecommendUseCase.Pool pool = useCase.pool(MEMBER, List.of(INTEREST), 20);
 
         assertThat(pool.ranked()).extracting(LectureRanker.Ranked::lectureId).containsExactly(NEAR_PURCHASE, NEAR_INTEREST);
+    }
+
+    @Test
+    @DisplayName("유사도 지표(#1007): 산 강의를 뺀 후보(A·B)마다 점수 하나를 type=LECTURE로 남긴다(0~1). 결과는 거르지 않는다")
+    void similarityMetric() {
+        DistributionSummary existing = similarity();
+        long before = existing == null ? 0 : existing.count();
+
+        useCase.recommend(MEMBER, INTEREST);
+
+        DistributionSummary summary = similarity();
+        assertThat(summary).isNotNull();
+        assertThat(summary.count() - before).isEqualTo(2);
+        assertThat(summary.max()).isBetween(0.0, 1.0);
+    }
+
+    private @Nullable DistributionSummary similarity() {
+        return meterRegistry.find("hapbang.chatbot.recommend.similarity").tag("type", "LECTURE").summary();
     }
 
     private void lecture(RecommendRows data, long id, long sellerId, String title, float[] vector) {

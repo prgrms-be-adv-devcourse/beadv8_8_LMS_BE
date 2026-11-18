@@ -17,6 +17,7 @@ import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
@@ -61,6 +62,23 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
         assertThat(result.items().get(0).reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY);
         assertThat(result.items().get(3).reasons()).containsExactly(InfluencerReason.POPULAR);
         assertThat(result.items().get(0).categories()).containsExactly("GAME");
+    }
+
+    @Test
+    @DisplayName("유사도 지표(#1007): 본인·추천 불가를 뺀 후보(2·3·4)마다 점수 하나를 type=INFLUENCER로 남긴다. 결과는 거르지 않는다")
+    void similarityMetric() {
+        long before = similarityCount();
+
+        InfluencerRecommendation result = useCase.recommend(1L, null);
+
+        assertThat(similarityCount() - before).isEqualTo(3);
+        assertThat(result.items()).extracting(Candidate::memberId).contains(2L, 3L, 4L);
+    }
+
+    private long similarityCount() {
+        DistributionSummary summary = meterRegistry.find("hapbang.chatbot.recommend.similarity").tag("type", "INFLUENCER")
+                .summary();
+        return summary == null ? 0 : summary.count();
     }
 
     @Test

@@ -208,6 +208,9 @@ public class LectureRecommendUseCase {
                 kept.add(lectureId);
             }
         }
+        for (Long lectureId : kept) {
+            metrics.recommendSimilarity(IndexType.LECTURE, similarity.get(lectureId));
+        }
         Map<Long, Long> owned = store.ownedCounts(kept);
         List<LectureRanker.Candidate> candidates = new ArrayList<>();
         for (Long lectureId : kept) {

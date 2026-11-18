@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +22,8 @@ import lombok.RequiredArgsConstructor;
  *     <li>{@code hapbang.chatbot.recommend.search.errors{feature}}: 추천 검색(ES·임베딩)이 실패해 인기순으로 대신 답한 수</li>
  *     <li>{@code hapbang.chatbot.rate.limit.rejected{feature}}: 회원별 호출 제한으로 429를 준 수</li>
  *     <li>{@code hapbang.chatbot.index.tasks{type, result}}: 색인 요청 실행기({@link IndexTaskRunner})가 처리한 문서 수</li>
+ *     <li>{@code hapbang.chatbot.recommend.similarity{type}}: 추천 후보(벡터 검색 결과 중 코드 제외 규칙을 지난 것)의 유사도 점수 분포
+ *     (#1007). 0.05 간격 구간을 둔다. 하한을 정하려고 보는 값이고 결과를 거르지 않는다</li>
  * </ul>
  */
 @Component
@@ -28,6 +31,10 @@ import lombok.RequiredArgsConstructor;
 public class ChatbotMetrics {
 
     static final String INDEX_TASKS = "hapbang.chatbot.index.tasks";
+    static final String RECOMMEND_SIMILARITY = "hapbang.chatbot.recommend.similarity";
+
+    // 유사도(ES 코사인 점수 0~1)의 분포 구간: 0.05 간격
+    private static final double[] SIMILARITY_BUCKETS = similarityBuckets();
 
     private final MeterRegistry registry;
 
@@ -67,6 +74,24 @@ public class ChatbotMetrics {
             counter(INDEX_TASKS, "챗봇 색인 요청을 처리한 문서 수", "type", type.name(), "result", result.tag())
                     .increment(amount);
         }
+    }
+
+    /** 추천 후보 하나의 유사도 점수(#1007). 하한을 정하려고 분포를 본다 */
+    void recommendSimilarity(IndexType type, double score) {
+        DistributionSummary.builder(RECOMMEND_SIMILARITY)
+                .description("추천 후보의 유사도 점수")
+                .tags("type", type.name())
+                .serviceLevelObjectives(SIMILARITY_BUCKETS)
+                .register(registry)
+                .record(score);
+    }
+
+    private static double[] similarityBuckets() {
+        double[] buckets = new double[20];
+        for (int i = 0; i < buckets.length; i++) {
+            buckets[i] = (i + 1) / 20.0;
+        }
+        return buckets;
     }
 
     private Counter counter(String name, String description, String... tags) {

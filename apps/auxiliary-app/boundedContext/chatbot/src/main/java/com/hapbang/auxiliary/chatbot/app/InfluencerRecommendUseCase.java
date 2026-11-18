@@ -270,6 +270,9 @@ public class InfluencerRecommendUseCase {
         if (similarity.isEmpty()) {
             return List.of();
         }
+        for (double score : similarity.values()) {
+            metrics.recommendSimilarity(IndexType.INFLUENCER, score);
+        }
         double beta = properties.popularityWeight();
         List<Candidate> top = rank(store.popularityStats(similarity.keySet()), overallMeanRating, size,
                 (stats, normalizedPopularity) -> (1 - beta) * similarity.get(stats.memberId()) + beta * normalizedPopularity,
