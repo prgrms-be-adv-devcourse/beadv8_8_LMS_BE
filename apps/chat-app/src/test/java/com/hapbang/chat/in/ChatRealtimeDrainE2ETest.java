@@ -24,8 +24,8 @@ import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.port.LocalChatConnections;
@@ -61,7 +61,7 @@ class ChatRealtimeDrainE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private RealtimeChatFanout realtimeChatFanout;
@@ -89,7 +89,7 @@ class ChatRealtimeDrainE2ETest {
     @Test
     @Order(1)
     void 전달_처리가_붙잡힌_채로_끝난다() throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         stomp.subscribe(host, "/user/queue/chats/messages", ChatMessageResponse.class);
         waitForSubscriptions();

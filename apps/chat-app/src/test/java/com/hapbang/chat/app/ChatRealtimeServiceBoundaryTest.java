@@ -8,6 +8,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,11 +18,14 @@ import com.hapbang.chat.app.port.ChatRoomMemberships;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
 import com.hapbang.chat.out.cache.ChatRoomMembershipLoader;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 
-// 서비스 경계 규칙(decisions.md, 2026-10-29): 실시간 경로의 Facade는 app 서비스·app/port 계약 인터페이스만 주입받고 Redis·STOMP 구현에 직접 의존하지 않는다.
+// 서비스 경계 규칙(decisions.md, 2026-10-29): 모든 Facade는 app 서비스·app/port 계약 인터페이스만 주입받고, 실시간 경로의 Facade는
+// Redis·STOMP 구현에 직접 의존하지 않는다. app/port는 app 업무 클래스와 in·out에 기대지 않는다.
 class ChatRealtimeServiceBoundaryTest {
 
     private final JavaClasses classes = new ClassFileImporter()
@@ -40,6 +44,48 @@ class ChatRealtimeServiceBoundaryTest {
                 .toList())
                 .isNotEmpty()
                 .allSatisfy(this::assertAppInterface);
+    }
+
+    /**
+     * 서비스 경계 규칙 1: 모든 Facade는 업무 서비스를 {@code app}의 인터페이스로, 바깥 기능을 {@code app/port}의 인터페이스로
+     * 주입받는다. 설정값({@code config}의 {@code @ConfigurationProperties})은 값이라 함께 받을 수 있다.
+     */
+    @Test
+    @DisplayName("모든 Facade의 생성자·필드는 app·app/port 인터페이스와 config 설정값만 쓴다")
+    void allFacadesInjectOnlyAppInterfaces() {
+        List<Class<?>> facades = classes.stream()
+                .filter(type -> type.getPackageName().equals("com.hapbang.chat.app"))
+                .filter(type -> type.getSimpleName().endsWith("Facade"))
+                .<Class<?>>map(JavaClass::reflect)
+                .toList();
+        assertThat(facades).hasSizeGreaterThanOrEqualTo(11);
+        for (Class<?> facade : facades) {
+            for (Constructor<?> constructor : facade.getDeclaredConstructors()) {
+                assertThat(constructor.getParameterTypes()).as("%s 생성자", facade.getSimpleName())
+                        .allSatisfy(this::assertInjectable);
+            }
+            assertThat(Arrays.stream(facade.getDeclaredFields())
+                    .filter(field -> !Modifier.isStatic(field.getModifiers()))
+                    .map(Field::getType)
+                    .toList())
+                    .as("%s 필드", facade.getSimpleName())
+                    .allSatisfy(this::assertInjectable);
+        }
+    }
+
+    @Test
+    @DisplayName("Facade는 app 바로 아래의 구현 클래스(업무 구현·조정 클래스)에 의존하지 않는다")
+    void facadesDoNotDependOnAppImplementations() {
+        DescribedPredicate<JavaClass> appImplementation = JavaClass.Predicates.resideInAPackage("com.hapbang.chat.app")
+                .and(DescribedPredicate.not(JavaClass.Predicates.INTERFACES))
+                // 서비스 계약 안에 둔 입출력 record(예: ChatGroupRoomService.InvitePreparation)는 계약의 일부다
+                .and(DescribedPredicate.describe("인터페이스 안에 둔 타입이 아닌",
+                        type -> type.getEnclosingClass().map(enclosing -> !enclosing.isInterface()).orElse(true)))
+                .and(DescribedPredicate.not(JavaClass.Predicates.simpleNameEndingWith("Facade")))
+                .as("app 구현 클래스");
+        noClasses().that().resideInAPackage("com.hapbang.chat.app").and().haveSimpleNameEndingWith("Facade")
+                .should().dependOnClassesThat(appImplementation)
+                .check(classes);
     }
 
     @Test
@@ -105,6 +151,16 @@ class ChatRealtimeServiceBoundaryTest {
         assertThat(transactional.readOnly()).isTrue();
         assertThat(ChatRoomMemberships.class).isAssignableFrom(CachedChatRoomMemberships.class);
         assertThat(ChatRoomMembershipLoader.class).isNotEqualTo(CachedChatRoomMemberships.class);
+    }
+
+    /** Facade가 주입받을 수 있는 타입: app·app/port의 인터페이스, config의 설정값 */
+    private void assertInjectable(Class<?> type) {
+        if (type.getPackageName().equals("com.hapbang.chat.config")) {
+            return;
+        }
+        assertThat(type.isInterface()).as("%s는 인터페이스", type.getName()).isTrue();
+        assertThat(type.getPackageName()).as(type.getName())
+                .isIn("com.hapbang.chat.app", "com.hapbang.chat.app.port");
     }
 
     /** 업무 서비스 계약은 app, 이 JVM의 연결 목록 같은 바깥 계약(port)은 app/port의 인터페이스다 */

@@ -19,38 +19,38 @@ import com.hapbang.chat.app.exception.ChatException;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Controller가 채팅방 기능을 쓰는 진입점. Controller는 UseCase를 직접 쓰지 않고 이 Facade를 통한다.
+ * Controller가 채팅방 기능을 쓰는 진입점. Controller는 서비스를 직접 쓰지 않고 이 Facade를 통한다.
  * 역할 검사({@code @PreAuthorize})는 여기서 한다(팀 규칙). 채팅방 나가기는 강등·정지된 회원도 나갈 수 있게 검사하지 않는다.
  */
 @Component
 @RequiredArgsConstructor
 public class ChatRoomFacade {
 
-    private final ChatRoomUseCase chatRoomUseCase;
-    private final ChatRoomSupporter chatRoomSupporter;
+    private final ChatRoomService chatRoomService;
+    private final ChatRoomQueryService chatRoomQueryService;
     private final ChatReadService chatReadService;
     private final ChatRoomTopicService chatRoomTopicService;
 
     /**
      * 같은 두 회원의 방을 동시에 만들면 한쪽은 활성 방 유일 제약(direct_key)에 걸려 롤백된다.
      * 새 트랜잭션에서 한 번 더 시도하면 먼저 만든 방을 재사용한다. 이 Facade는 트랜잭션을 열지 않으므로
-     * 시도마다 UseCase 프록시가 새 저장 트랜잭션을 연다.
+     * 시도마다 서비스 프록시가 새 저장 트랜잭션을 연다.
      * <p>
      * 방 응답(참여자·닉네임·마지막 메시지·안 읽은 수)은 저장 트랜잭션이 커밋된 뒤 별도 읽기 트랜잭션으로 조립한다(설계 4.6).
      */
     @PreAuthorize(ChatRoles.CHAT)
     public ChatRoomCreateResult createOrGet(Long requesterId, Long targetUserId) {
         ChatRoomOpenResult opened = openWithRetry(requesterId, targetUserId);
-        return new ChatRoomCreateResult(chatRoomSupporter.toResponse(opened.chatRoomId(), requesterId),
+        return new ChatRoomCreateResult(chatRoomQueryService.toResponse(opened.chatRoomId(), requesterId),
                 opened.created());
     }
 
     private ChatRoomOpenResult openWithRetry(Long requesterId, Long targetUserId) {
         try {
-            return chatRoomUseCase.createOrGet(requesterId, targetUserId);
+            return chatRoomService.createOrGet(requesterId, targetUserId);
         } catch (DataIntegrityViolationException firstConflict) {
             try {
-                return chatRoomUseCase.createOrGet(requesterId, targetUserId);
+                return chatRoomService.createOrGet(requesterId, targetUserId);
             } catch (DataIntegrityViolationException secondConflict) {
                 throw new ChatException(ChatErrorCode.CHAT_ROOM_BUSY);
             }
@@ -59,19 +59,19 @@ public class ChatRoomFacade {
 
     @PreAuthorize(ChatRoles.CHAT)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
-        return chatRoomSupporter.getMyRooms(userId);
+        return chatRoomQueryService.getMyRooms(userId);
     }
 
     /** 방 상세. 참여 중이고 볼 수 있는 방만(단체방은 조회 만료 전까지) */
     @PreAuthorize(ChatRoles.CHAT)
     public ChatRoomResponse getRoom(Long chatRoomId, Long userId) {
-        return chatRoomSupporter.getRoom(chatRoomId, userId);
+        return chatRoomQueryService.getRoom(chatRoomId, userId);
     }
 
     /** 방의 활성 참여자 한 페이지. 참여 중이고 볼 수 있는 방만 */
     @PreAuthorize(ChatRoles.CHAT)
     public ChatRoomMemberPageResponse getMembers(Long chatRoomId, Long userId, Long cursor, int size) {
-        return chatRoomSupporter.getMembers(chatRoomId, userId, cursor, size);
+        return chatRoomQueryService.getMembers(chatRoomId, userId, cursor, size);
     }
 
     /**
@@ -80,7 +80,7 @@ public class ChatRoomFacade {
      * 한다).
      */
     public void leave(Long chatRoomId, Long userId, Integer participationVersion) {
-        ChatRoomLeaveResult result = chatRoomUseCase.leave(chatRoomId, userId, participationVersion);
+        ChatRoomLeaveResult result = chatRoomService.leave(chatRoomId, userId, participationVersion);
         if (result.left()) {
             chatRoomTopicService.revokeMember(chatRoomId, userId, result.leftParticipationVersion(),
                     ChatSubscriptionReason.LEFT);
@@ -97,6 +97,6 @@ public class ChatRoomFacade {
 
     @PreAuthorize(ChatRoles.ADMIN)
     public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId, String cursor, int size) {
-        return chatRoomSupporter.getHistory(chatRoomId, adminId, cursor, size);
+        return chatRoomQueryService.getHistory(chatRoomId, adminId, cursor, size);
     }
 }

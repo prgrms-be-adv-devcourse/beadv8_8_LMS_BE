@@ -102,10 +102,10 @@ class ChatDeliveryRedisOutageTest {
     }
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -153,7 +153,7 @@ class ChatDeliveryRedisOutageTest {
     @Test
     void Redis가_시도_상한보다_오래_멈춰도_격리하지_않고_시도를_늘리지_않으며_돌아오면_모두_한_번씩_발행한다() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         UUID pending = send(chatRoomId, "읽고 멈춤");
         UUID undelivered = send(chatRoomId, "미배분");
@@ -202,7 +202,7 @@ class ChatDeliveryRedisOutageTest {
     }
 
     private UUID send(Long chatRoomId, String content) {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, content, null).message().messageId();
         return chatOutboxTestRepository.findByMessageId(messageId).orElseThrow().getDeliveryId();
     }
 

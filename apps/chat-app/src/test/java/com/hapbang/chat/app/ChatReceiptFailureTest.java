@@ -33,10 +33,10 @@ class ChatReceiptFailureTest {
     private ChatReceiptService chatReceiptService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -55,9 +55,9 @@ class ChatReceiptFailureTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         for (int i = 0; i < 3; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }
     }
 

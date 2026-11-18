@@ -18,22 +18,22 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ChatNotificationFacade {
 
-    private final ChatNotificationUseCase chatNotificationUseCase;
+    private final ChatNotificationService chatNotificationService;
 
     public void notifyAppearanceRequestSent(AppearanceRequestDto request) {
         try {
-            chatNotificationUseCase.notifyAppearanceRequestSent(request);
+            chatNotificationService.notifyAppearanceRequestSent(request);
         } catch (DataIntegrityViolationException conflict) {
-            chatNotificationUseCase.notifyAppearanceRequestSent(request);
+            chatNotificationService.notifyAppearanceRequestSent(request);
         }
     }
 
     public void notifyAppearanceApplicationSubmitted(
             AppearanceApplicationDto application) {
         try {
-            chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
+            chatNotificationService.notifyAppearanceApplicationSubmitted(application);
         } catch (DataIntegrityViolationException conflict) {
-            chatNotificationUseCase.notifyAppearanceApplicationSubmitted(application);
+            chatNotificationService.notifyAppearanceApplicationSubmitted(application);
         }
     }
 }

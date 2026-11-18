@@ -179,7 +179,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
         doThrow(new IllegalStateException("체크포인트 저장 실패")).when(spiedCheckpointRepository)
                 .save(any(ChatPublishCheckpoint.class));
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
+        assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();

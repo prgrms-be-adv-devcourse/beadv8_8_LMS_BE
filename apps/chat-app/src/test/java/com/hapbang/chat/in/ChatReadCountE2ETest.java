@@ -18,8 +18,8 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatMessageService;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.port.LocalChatConnections;
@@ -48,7 +48,7 @@ class ChatReadCountE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -76,7 +76,7 @@ class ChatReadCountE2ETest {
         RoomSubscription hostRoom = stomp.subscribeRoom(host, chatRoomId, 1);
         waitForSubscriptions();
 
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
+        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
 
         Frame<Map> message = poll(hostRoom.frames());
         assertThat(message.frameType()).isEqualTo("MESSAGE");

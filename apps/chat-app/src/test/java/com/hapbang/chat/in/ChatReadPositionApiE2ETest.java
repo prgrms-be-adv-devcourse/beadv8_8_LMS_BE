@@ -15,8 +15,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatMessageService;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.port.ChatRoomMemberRepository;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -42,7 +42,7 @@ class ChatReadPositionApiE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -57,8 +57,8 @@ class ChatReadPositionApiE2ETest {
         client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
         host = login(HOST_ID, Role.INFLUENCER);
         chatRoomId = createRoom(host, GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "두 번째", null);
     }
 
     @Test
@@ -87,7 +87,7 @@ class ChatReadPositionApiE2ETest {
         leave(guest);
         createRoom(guest, HOST_ID, HttpStatus.OK);
         long rejoinedRead = lastReadSequence(GUEST_ID);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "재입장 뒤", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "재입장 뒤", null);
         long latest = rejoinedRead + 1;
 
         assertFails(guest, Map.of("lastReadSequence", latest, "participationVersion", 1), HttpStatus.CONFLICT,

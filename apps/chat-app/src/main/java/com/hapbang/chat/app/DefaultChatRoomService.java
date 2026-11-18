@@ -28,18 +28,19 @@ import com.hapbang.chat.domain.GroupMemberLeftData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+/** {@link ChatRoomService}의 업무 구현. 출연 알림이 쓰는 1:1 방 열기({@link #openDirectRoom})도 여기 있다 */
 @Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
-public class ChatRoomUseCase {
+public class DefaultChatRoomService implements ChatRoomService {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatValidationService chatValidationService;
-    private final ChatRoomSupporter chatRoomSupporter;
+    private final DefaultChatRoomQueryService chatRoomQueryService;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatReadCountSignals chatReadCountSignals;
@@ -53,6 +54,7 @@ public class ChatRoomUseCase {
      * </ul>
      * 저장만 한다. 방 응답(참여자·닉네임·마지막 메시지·안 읽은 수)은 커밋 뒤 {@link ChatRoomFacade}가 따로 조립한다(설계 4.6).
      */
+    @Override
     public ChatRoomOpenResult createOrGet(Long requesterId, Long targetUserId) {
         OpenedRoom opened = openDirectRoom(requesterId, targetUserId, LocalDateTime.now());
         return new ChatRoomOpenResult(opened.chatRoom().getId(), opened.created());
@@ -60,7 +62,7 @@ public class ChatRoomUseCase {
 
     /**
      * 두 회원의 1:1 방을 연다. 종료되지 않은 방이 있으면 잠그고 재사용하며 나갔던 사람을 재입장시키고, 없으면 새로 만든다.
-     * 채팅 시작({@link #createOrGet})과 출연 알림({@link ChatNotificationUseCase})이 같은 규칙을 쓴다.
+     * 채팅 시작({@link #createOrGet})과 출연 알림({@link DefaultChatNotificationService})이 같은 규칙을 쓴다.
      * 새 방을 동시에 만들면 유일 제약(direct_key)에 걸리므로 호출한 Facade가 다시 시도한다.
      * <p>
      * 참여가 바뀌면(생성·재입장) 같은 트랜잭션에서 불변 수신자 집합의 새 버전을 만든다. 수신자 집합이 없는 기존 방
@@ -120,6 +122,7 @@ public class ChatRoomUseCase {
      *
      * @param participationVersion 요청한 참여 세대. null이면 현재 세대로 본다.
      */
+    @Override
     public ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion) {
         ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
@@ -141,7 +144,7 @@ public class ChatRoomUseCase {
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
         ChatMessage leftNotice = chatMessageRepository.save(
-                ChatMessage.leftNotice(chatRoom, userId, chatRoomSupporter.displayNicknameOf(userId), now));
+                ChatMessage.leftNotice(chatRoom, userId, chatRoomQueryService.displayNicknameOf(userId), now));
         if (remaining.getMemberCount() > 0) {
             chatDeliveryRecorder.recordMessage(leftNotice, remaining.getId(), ChatNotifyRule.NONE, now);
         }
@@ -209,7 +212,7 @@ public class ChatRoomUseCase {
                 // 이전 참여에서 쓴 전송 ID는 무효다. 재입장 뒤 같은 ID로 보내면 새 메시지로 저장한다
                 chatMessageRepository.clearClientMessageIds(chatRoom.getId(), member.getUserId());
                 ChatMessage rejoinNotice = chatMessageRepository.save(ChatMessage.rejoinNotice(chatRoom,
-                        member.getUserId(), chatRoomSupporter.displayNicknameOf(member.getUserId()), now));
+                        member.getUserId(), chatRoomQueryService.displayNicknameOf(member.getUserId()), now));
                 if (chatRoom.getActiveMemberCount() > 0) {
                     chatDeliveryRecorder.recordMessage(rejoinNotice, chatRoom.getCurrentRecipientSetId(),
                             ChatNotifyRule.NONE, now);

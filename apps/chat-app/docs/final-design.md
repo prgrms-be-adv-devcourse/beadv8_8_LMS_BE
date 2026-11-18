@@ -573,7 +573,7 @@ DB 커밋 뒤 Redis 발행 실패는 업무 저장 실패로 돌려주지 않는
 
 ### 4.6 오픈 직후 급증을 전제로 한 잠금 구간 설계
 
-이번 구현의 기준은 replica 1개이며, 사용자 증가를 기다린 뒤에 보호 장치를 넣지 않는다. 아래는 구현할 목표 구조다. 현재 `ChatMessageUseCase.send`·`ChatRoomUseCase`에 이미 적용됐다는 뜻은 아니다.
+이번 구현의 기준은 replica 1개이며, 사용자 증가를 기다린 뒤에 보호 장치를 넣지 않는다. 아래는 구현할 목표 구조다. 현재 `DefaultChatMessageService.send`·`DefaultChatRoomService`에 이미 적용됐다는 뜻은 아니다.
 
 #### 불변식과 초기 구현
 

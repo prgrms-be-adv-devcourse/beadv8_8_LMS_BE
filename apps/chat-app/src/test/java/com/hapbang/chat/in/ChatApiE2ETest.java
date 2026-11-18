@@ -17,8 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatMessageService;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
@@ -48,7 +48,7 @@ class ChatApiE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatRoomMemberRepository chatRoomMemberRepository;
@@ -217,8 +217,8 @@ class ChatApiE2ETest {
     @Test
     void 읽음_처리에_현재_세대를_보내면_204_옛_세대는_409_ProblemDetail_1_미만은_400() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "두 번째", null);
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
 
         ProblemDetail stale = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
@@ -358,8 +358,8 @@ class ChatApiE2ETest {
     @Test
     void 수신_확인하면_200_RsData로_반영한_위치를_돌려주고_같은_값이나_낮은_값도_200이다() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "두 번째", null);
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
 
         ChatMessagePageResponse page = messages(guest, chatRoomId);
@@ -381,7 +381,7 @@ class ChatApiE2ETest {
     @Test
     void 수신_확인은_본문의_회원_ID가_아니라_로그인한_회원의_위치만_바꾼다() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
 
         client.put().uri("/api/v1/chats/{id}/received", chatRoomId)
                 .headers(login(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
@@ -396,7 +396,7 @@ class ChatApiE2ETest {
     @Test
     void 수신_확인_오류는_ProblemDetail의_code로_응답한다() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
 
         assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(2, 1L), HttpStatus.CONFLICT,
@@ -429,7 +429,7 @@ class ChatApiE2ETest {
     void 메시지_이력의_모든_페이지에_참여_세대와_조회_시작점이_있다_커서_페이지와_빈_페이지도() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
         for (int i = 0; i < 3; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
 

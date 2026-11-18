@@ -35,8 +35,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.fixture.ChatNativeSql;
@@ -75,7 +75,7 @@ class ChatInboundOverflowE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -119,7 +119,7 @@ class ChatInboundOverflowE2ETest {
     @Test
     void 한_연결이_몫보다_많은_프레임을_쌓으면_그_연결을_INBOUND_OVERFLOW로_닫고_받은_전송만_보낸_순서대로_저장한다()
             throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         awaitInboundIdle();
         Map<String, CloseStatus> closes = listenCloses();
@@ -155,8 +155,8 @@ class ChatInboundOverflowE2ETest {
     @Test
     void 프레임을_쏟아낸_연결만_닫히고_그_순간_다른_방에_보낸_회원의_전송은_처리되며_닫힌_회원은_재연결해_다시_보낸다()
             throws Exception {
-        Long lockedRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        Long otherRoomId = chatRoomUseCase.createOrGet(OTHER_INFLUENCER_ID, GUEST_ID).chatRoomId();
+        Long lockedRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long otherRoomId = chatRoomService.createOrGet(OTHER_INFLUENCER_ID, GUEST_ID).chatRoomId();
         StompSession flooder = stomp.connect(HOST_ID);
         awaitInboundIdle();
         StompSession bystander = stomp.connect(GUEST_ID);

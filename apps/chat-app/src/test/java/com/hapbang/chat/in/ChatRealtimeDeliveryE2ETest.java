@@ -36,8 +36,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import com.hapbang.chat.app.ChatConnectionRecheckService;
 import com.hapbang.chat.app.ChatRealtimeFacade;
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.LocalRoomSubscriptions;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
@@ -125,7 +125,7 @@ class ChatRealtimeDeliveryE2ETest {
     private ChatRealtimeFacade chatRealtimeFacade;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatRoomMembershipLoader chatRoomMembershipLoader;
@@ -290,7 +290,7 @@ class ChatRealtimeDeliveryE2ETest {
         poll(guestRoom.frames());
 
         // 즉시 회수(Facade)를 거치지 않고 퇴장만 커밋한다. 구독은 남아 있다
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         int afterLeave = currentSetVersion(chatRoomId);
         realtimeChatFanout.publishMessage(fanout(chatRoomId, 3, afterLeave, null));
 
@@ -328,8 +328,8 @@ class ChatRealtimeDeliveryE2ETest {
         StompSession guest = stomp.connect(GUEST_ID);
         RoomSubscription oldGeneration = stomp.subscribeRoom(guest, chatRoomId, 1);
         waitForSubscriptions();
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         ChatRoomMember rejoined = chatRoomMemberRepository
                 .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, GUEST_ID).orElseThrow();
         assertThat(rejoined.getParticipationVersion()).isEqualTo(2);

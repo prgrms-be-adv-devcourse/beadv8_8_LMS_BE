@@ -34,8 +34,8 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.LocalChatConnections;
@@ -133,7 +133,7 @@ class ChatRedisLongOutageE2ETest {
     private ChatUserUseCase chatUserUseCase;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private LocalChatConnections localChatConnections;
@@ -179,7 +179,7 @@ class ChatRedisLongOutageE2ETest {
     @Test
     void Redis가_옛_시도_예산보다_훨씬_오래_멈춰도_장애_중_메시지는_격리되지_않고_시도_0으로_남았다가_복구_뒤_실제_STOMP로_한_번씩_전달된다()
             throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         StompSession guest = stomp.connect(GUEST_ID);
         BlockingQueue<Frame<ChatMessageResponse>> hostMessages = stomp.subscribe(host, MESSAGES,
@@ -240,7 +240,7 @@ class ChatRedisLongOutageE2ETest {
     @Test
     void Redis가_메모리_상한으로_쓰기를_거절하는_동안_보낸_메시지는_격리되지_않고_시도_0으로_남았다가_상한이_풀리면_실제_STOMP로_한_번씩_전달된다()
             throws Exception {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         StompSession host = stomp.connect(HOST_ID);
         StompSession guest = stomp.connect(GUEST_ID);
         BlockingQueue<Frame<ChatMessageResponse>> guestMessages = stomp.subscribeRoomMessages(guest, chatRoomId, 1);

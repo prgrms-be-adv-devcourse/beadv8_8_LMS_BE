@@ -60,7 +60,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     }
 
     @Autowired
-    private ChatNotificationUseCase chatNotificationUseCase;
+    private DefaultChatNotificationService chatNotificationService;
 
     @Autowired
     private ChatRoomRepository chatRoomRepository;
@@ -80,8 +80,8 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     @Test
     void 저장_뒤_상대가_퇴장_재입장해도_payload는_저장_때_집합의_참여_세대로_펼치고_Redis_유실_재구성_뒤에도_같다() {
         UUID deliveryId = send("퇴장 전 메시지");
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         relayAll(ChatJobStream.DELIVERY);
         // 소비 전에 Redis가 Stream을 잃었다
         redis.delete(keys.deliveryStream());
@@ -100,8 +100,8 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         UUID deliveryId = send("집합이 사라질 메시지");
         Long referencedSetId = outbox(deliveryId).getRecipientSetId();
         // 참여 변경으로 현재 집합은 다른 버전이 됐다
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId())
                 .isNotEqualTo(referencedSetId);
 
@@ -145,12 +145,12 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
 
     @Test
     void 나간_상대에게_출연_알림을_보내면_재입장_안내는_남아_있던_사람에게_알림은_재입장_뒤_집합에_보낸다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
         fanout.reset();
 
-        chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
+        chatNotificationService.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
                 GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3)));
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
@@ -177,10 +177,10 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     void 전송과_퇴장이_동시에_와도_메시지마다_저장_순간의_집합을_참조하고_집계와_포인터가_참여_행과_맞는다() throws Exception {
         List<Object> results = runConcurrently(THREADS, index -> {
             if (index == THREADS / 2) {
-                return chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+                return chatRoomService.leave(chatRoomId, GUEST_ID, null);
             }
             try {
-                return chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지" + index, null);
+                return chatMessageService.send(chatRoomId, HOST_ID, "메시지" + index, null);
             } catch (ChatException e) {
                 assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.CHAT_PARTNER_LEFT);
                 return e.getErrorCode();
@@ -210,11 +210,11 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
 
     @Test
     void 나간_상대와_동시에_여러_번_채팅을_다시_시작해도_재입장은_한_번이고_집합_버전이_겹치거나_비지_않는다() throws Exception {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         runConcurrently(THREADS, index -> index % 2 == 0
-                ? chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID)
-                : chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID));
+                ? chatRoomService.createOrGet(GUEST_ID, HOST_ID)
+                : chatRoomService.createOrGet(HOST_ID, GUEST_ID));
 
         List<ChatMessage> systemMessages = chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)
                 .stream().filter(message -> message.getMessageType() == ChatMessageType.SYSTEM).toList();

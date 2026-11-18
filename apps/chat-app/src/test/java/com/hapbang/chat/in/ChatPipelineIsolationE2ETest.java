@@ -16,10 +16,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatOutboxRelay;
-import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.DefaultChatMessageService;
+import com.hapbang.chat.app.DefaultChatRoomService;
 import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -48,10 +48,10 @@ class ChatPipelineIsolationE2ETest {
     private ChatOutboxRelay relay;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -78,10 +78,10 @@ class ChatPipelineIsolationE2ETest {
     @Order(1)
     void 적재만_하고_소비하지_않은_작업을_남긴_채_끝난다() {
         assertThat(runner.isRunning()).isTrue();
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         runner.stop();
 
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "소비되지 않을 메시지", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "소비되지 않을 메시지", null);
         assertThat(relay.relayBatch(ChatJobStream.DELIVERY)).isEqualTo(1);
 
         assertThat(redis.opsForStream().size(keys.deliveryStream())).isEqualTo(1);
@@ -98,8 +98,8 @@ class ChatPipelineIsolationE2ETest {
         await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3))
                 .until(() -> checkpoints(null) == 0);
 
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "새 메서드의 메시지", null);
+        Long chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatMessageService.send(chatRoomId, HOST_ID, "새 메서드의 메시지", null);
 
         await().atMost(Duration.ofSeconds(10)).until(() -> checkpoints("PUBLISHED") == 1);
         assertThat(checkpoints("DEAD")).isZero();

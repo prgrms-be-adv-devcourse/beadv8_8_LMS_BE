@@ -66,7 +66,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 메시지를_불변_집합으로_펼쳐_발행하고_PUBLISHED_기록_뒤_ACK한다() {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1").message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1").message().messageId();
         UUID deliveryId = deliveryIdOf(messageId);
         relayAll(ChatJobStream.DELIVERY);
 
@@ -92,7 +92,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 퇴장_안내는_남은_참여자에게만_알림_없이_발행한다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         relayAll(ChatJobStream.DELIVERY);
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
@@ -105,8 +105,8 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
 
     @Test
     void 저장_뒤_재입장한_회원은_이전_메시지_payload의_수신자가_아니다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         relayAll(ChatJobStream.DELIVERY);
 
         pollAll(ChatJobStream.DELIVERY, WORKER);

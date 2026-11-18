@@ -65,10 +65,10 @@ abstract class ChatDeliveryTestSupport {
     static final String RECLAIMER = "test:delivery:reclaim";
 
     @Autowired
-    ChatRoomUseCase chatRoomUseCase;
+    DefaultChatRoomService chatRoomService;
 
     @Autowired
-    ChatMessageUseCase chatMessageUseCase;
+    DefaultChatMessageService chatMessageService;
 
     @Autowired
     ChatUserUseCase chatUserUseCase;
@@ -125,13 +125,13 @@ abstract class ChatDeliveryTestSupport {
         fanout.reset();
         availability.reset();
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         queue.ensureGroup(ChatJobStream.CONTROL);
     }
 
     UUID send(String content) {
-        Long messageId = chatMessageUseCase.send(chatRoomId, HOST_ID, content, null).message().messageId();
+        Long messageId = chatMessageService.send(chatRoomId, HOST_ID, content, null).message().messageId();
         return deliveryIdOf(messageId);
     }
 

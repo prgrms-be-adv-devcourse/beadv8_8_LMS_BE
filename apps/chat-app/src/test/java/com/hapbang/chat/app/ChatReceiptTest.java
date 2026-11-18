@@ -42,19 +42,19 @@ class ChatReceiptTest {
     private ChatReceiptService chatReceiptService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
     private ChatReadService chatReadService;
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
-    private ChatMessageSupporter chatMessageSupporter;
+    private DefaultChatMessageQueryService chatMessageQueryService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -73,7 +73,7 @@ class ChatReceiptTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -125,7 +125,7 @@ class ChatReceiptTest {
     @Test
     void 나간_참여자는_거절한다() {
         sendMessages(1);
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         assertRejected(() -> chatReceiptService.markReceived(chatRoomId, GUEST_ID, 1, 1),
                 ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
@@ -138,8 +138,8 @@ class ChatReceiptTest {
         assertRejected(() -> chatReceiptService.markReceived(chatRoomId + 1000, GUEST_ID, 1, 1),
                 ChatErrorCode.CHAT_ROOM_NOT_FOUND);
 
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, HOST_ID, null);
 
         assertRejected(() -> chatReceiptService.markReceived(chatRoomId, HOST_ID, 1, 1),
                 ChatErrorCode.CHAT_ROOM_NOT_FOUND);
@@ -168,9 +168,9 @@ class ChatReceiptTest {
     void 재입장하면_미확인으로_초기화하고_옛_세대의_수신_확인은_반영하지_않는다() {
         sendMessages(2);
         chatReceiptService.markReceived(chatRoomId, GUEST_ID, 1, 2);
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
 
         ChatRoomMember rejoined = member(GUEST_ID);
         assertThat(rejoined.getParticipationVersion()).isEqualTo(2);
@@ -204,8 +204,8 @@ class ChatReceiptTest {
     @Test
     void 조회_시작점보다_작은_순번은_거절한다() {
         sendMessages(2);
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
         sendMessages(1);
         long visibleFrom = member(GUEST_ID).getVisibleFromSequence();
 
@@ -291,14 +291,14 @@ class ChatReceiptTest {
     @Test
     void 메시지_이력에_현재_참여_세대와_조회_시작점을_담는다() {
         sendMessages(2);
-        ChatMessagePageResponse first = chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30);
+        ChatMessagePageResponse first = chatMessageQueryService.getMessages(chatRoomId, GUEST_ID, null, 30);
         assertThat(first.participationVersion()).isEqualTo(1);
         assertThat(first.visibleFromSequence()).isEqualTo(1);
 
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
 
-        ChatMessagePageResponse rejoined = chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30);
+        ChatMessagePageResponse rejoined = chatMessageQueryService.getMessages(chatRoomId, GUEST_ID, null, 30);
         assertThat(rejoined.participationVersion()).isEqualTo(2);
         assertThat(rejoined.visibleFromSequence()).isEqualTo(member(GUEST_ID).getVisibleFromSequence());
         assertThat(rejoined.visibleFromSequence()).isGreaterThan(2);
@@ -310,7 +310,7 @@ class ChatReceiptTest {
 
     private void sendMessagesFrom(Long senderId, int count) {
         for (int i = 0; i < count; i++) {
-            chatMessageUseCase.send(chatRoomId, senderId, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, senderId, "메시지 " + i, null);
         }
     }
 
@@ -324,7 +324,7 @@ class ChatReceiptTest {
     }
 
     private ChatRoomResponse myRoom(Long userId) {
-        return chatRoomSupporter.getMyRooms(userId).stream()
+        return chatRoomQueryService.getMyRooms(userId).stream()
                 .filter(room -> room.chatRoomId().equals(chatRoomId))
                 .findFirst()
                 .orElseThrow();

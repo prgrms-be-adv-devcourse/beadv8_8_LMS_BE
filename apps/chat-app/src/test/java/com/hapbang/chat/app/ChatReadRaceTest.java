@@ -36,10 +36,10 @@ class ChatReadRaceTest {
     private ChatReadService chatReadService;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -55,9 +55,9 @@ class ChatReadRaceTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         for (int i = 0; i < 3; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+            chatMessageService.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }
     }
 
@@ -85,7 +85,7 @@ class ChatReadRaceTest {
     @Test
     void 확인_뒤_퇴장이_끼어들면_참여자가_아니고_퇴장한_행을_바꾸지_않는다() {
         chatReadService.markRead(chatRoomId, GUEST_ID, 1, 1);
-        interleaveBeforeUpdate(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null));
+        interleaveBeforeUpdate(() -> chatRoomService.leave(chatRoomId, GUEST_ID, null));
 
         assertRejected(() -> chatReadService.markRead(chatRoomId, GUEST_ID, 3, 1),
                 ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
@@ -105,8 +105,8 @@ class ChatReadRaceTest {
     }
 
     private void leaveAndRejoinGuest() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
     }
 
     /**

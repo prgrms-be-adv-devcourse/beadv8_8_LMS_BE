@@ -27,13 +27,13 @@ import com.hapbang.testsupport.IntegrationTest;
 class ChatRoomHistoryPagingTest {
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatRoomSupporter chatRoomSupporter;
+    private DefaultChatRoomQueryService chatRoomQueryService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -51,19 +51,19 @@ class ChatRoomHistoryPagingTest {
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
         // 생성·입장 기록 3개 → 메시지 3개 → 퇴장(기록과 안내 메시지가 같은 시각) → 재입장(안내 메시지와 기록이 같은 시각)
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "두 번째", null);
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "다시 왔어요", null);
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatMessageService.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageService.send(chatRoomId, GUEST_ID, "두 번째", null);
+        chatMessageService.send(chatRoomId, HOST_ID, "세 번째", null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(HOST_ID, GUEST_ID);
+        chatMessageService.send(chatRoomId, GUEST_ID, "다시 왔어요", null);
     }
 
     @ParameterizedTest
     @ValueSource(ints = {1, 2, 3, 4, 7})
     void 커서로_이어_조회하면_전체_기록이_누락_중복_없이_시간순으로_나온다(int size) {
-        List<Entry> all = entriesOf(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100));
+        List<Entry> all = entriesOf(chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 100));
         assertThat(all).hasSize(5 + 6); // 기록: 생성·입장 2·퇴장·재입장, 메시지: 4 + 퇴장·재입장 안내
         assertThat(all).isSortedAccordingTo(ORDER);
 
@@ -71,7 +71,7 @@ class ChatRoomHistoryPagingTest {
         String cursor = null;
         int pages = 0;
         do {
-            ChatRoomHistoryResponse page = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, cursor, size);
+            ChatRoomHistoryResponse page = chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, cursor, size);
             List<Entry> entries = entriesOf(page);
             assertThat(entries.size()).isLessThanOrEqualTo(size);
             paged.addAll(entries);
@@ -84,14 +84,14 @@ class ChatRoomHistoryPagingTest {
 
     @Test
     void 마지막_페이지는_다음_커서가_없다() {
-        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).nextCursor()).isNull();
-        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 11).nextCursor()).isNull();
-        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 10).nextCursor()).isNotNull();
+        assertThat(chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 100).nextCursor()).isNull();
+        assertThat(chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 11).nextCursor()).isNull();
+        assertThat(chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, null, 10).nextCursor()).isNotNull();
     }
 
     @Test
     void 형식이_틀린_커서는_거절한다() {
-        assertThatThrownBy(() -> chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, "not-a-cursor", 10))
+        assertThatThrownBy(() -> chatRoomQueryService.getHistory(chatRoomId, ADMIN_ID, "not-a-cursor", 10))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
     }

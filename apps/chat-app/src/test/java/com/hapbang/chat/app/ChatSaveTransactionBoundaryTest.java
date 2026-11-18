@@ -49,12 +49,12 @@ import com.hapbang.testsupport.IntegrationTest;
 class ChatSaveTransactionBoundaryTest {
 
     private static final Pattern ROW_LOCK = Pattern.compile("\\bfor\\s+(update|no\\s+key\\s+update)\\b");
-    private static final String SEND_TX = ChatMessageUseCase.class.getName() + ".send";
-    private static final String OPEN_TX = ChatRoomUseCase.class.getName() + ".createOrGet";
-    private static final String LEAVE_TX = ChatRoomUseCase.class.getName() + ".leave";
-    private static final String NOTIFY_TX = ChatNotificationUseCase.class.getName()
+    private static final String SEND_TX = DefaultChatMessageService.class.getName() + ".send";
+    private static final String OPEN_TX = DefaultChatRoomService.class.getName() + ".createOrGet";
+    private static final String LEAVE_TX = DefaultChatRoomService.class.getName() + ".leave";
+    private static final String NOTIFY_TX = DefaultChatNotificationService.class.getName()
             + ".notifyAppearanceRequestSent";
-    private static final String ROOM_RESPONSE_TX = ChatRoomSupporter.class.getName() + ".toResponse";
+    private static final String ROOM_RESPONSE_TX = DefaultChatRoomQueryService.class.getName() + ".toResponse";
 
     @Autowired
     private ChatRoomFacade chatRoomFacade;
@@ -66,10 +66,10 @@ class ChatSaveTransactionBoundaryTest {
     private ChatNotificationFacade chatNotificationFacade;
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -85,7 +85,7 @@ class ChatSaveTransactionBoundaryTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         clearInvocations(messagingTemplate, stringRedisTemplate);
     }
 
@@ -113,7 +113,7 @@ class ChatSaveTransactionBoundaryTest {
     @Test
     @WithMockUser(roles = "INFLUENCER")
     void 채팅_시작은_저장_트랜잭션에서_목록을_만들지_않고_방_응답은_커밋_뒤_별도_읽기_트랜잭션에서_만든다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         List<TxSql> recorded = TxSqlRecorder.record(() -> chatRoomFacade.createOrGet(GUEST_ID, HOST_ID));
 
@@ -150,7 +150,7 @@ class ChatSaveTransactionBoundaryTest {
 
     @Test
     void 출연_알림의_저장_트랜잭션은_전달_대상_목록을_만들지_않는다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         List<TxSql> recorded = TxSqlRecorder.record(() -> chatNotificationFacade.notifyAppearanceRequestSent(
                 new AppearanceRequestDto(10L, HOST_ID, GUEST_ID, "금요일 밤 합방", 50_000L,
@@ -173,8 +173,8 @@ class ChatSaveTransactionBoundaryTest {
             assertThat(List.of(facade.getDeclaredMethods()))
                     .noneMatch(method -> AnnotatedElementUtils.hasAnnotation(method, Transactional.class));
         }
-        assertThat(AopUtils.isAopProxy(chatRoomUseCase)).isTrue();
-        assertThat(AopUtils.isAopProxy(chatMessageUseCase)).isTrue();
+        assertThat(AopUtils.isAopProxy(chatRoomService)).isTrue();
+        assertThat(AopUtils.isAopProxy(chatMessageService)).isTrue();
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     }
 

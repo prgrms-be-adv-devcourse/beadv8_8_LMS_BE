@@ -58,13 +58,13 @@ import jakarta.persistence.EntityManager;
 class ChatDeliveryOutboxRecordTest {
 
     @Autowired
-    private ChatRoomUseCase chatRoomUseCase;
+    private DefaultChatRoomService chatRoomService;
 
     @Autowired
-    private ChatMessageUseCase chatMessageUseCase;
+    private DefaultChatMessageService chatMessageService;
 
     @Autowired
-    private ChatNotificationUseCase chatNotificationUseCase;
+    private DefaultChatNotificationService chatNotificationService;
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
@@ -117,7 +117,7 @@ class ChatDeliveryOutboxRecordTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomId = chatRoomService.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -133,7 +133,7 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 새_메시지는_현재_집합과_보낸사람_제외_알림_규칙으로_outbox와_PENDING_체크포인트를_남긴다() {
-        SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
+        SentChatMessage sent = chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
 
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
         ChatOutbox outbox = chatOutboxTestRepository.findByMessageId(sent.message().messageId()).orElseThrow();
@@ -151,8 +151,8 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 같은_전송_ID_재전송은_outbox를_만들지_않는다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
+        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
+        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", "c-1");
 
         assertThat(chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId)).hasSize(1);
         assertThat(checkpointTestRepository.count()).isEqualTo(1);
@@ -162,7 +162,7 @@ class ChatDeliveryOutboxRecordTest {
     void 퇴장하면_새_집합을_만들고_안내는_남은_참여자_집합으로_알림_없이_보낸다() {
         Long beforeSetId = chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId();
 
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
 
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(room.getActiveMemberCount()).isEqualTo(1);
@@ -180,8 +180,8 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 마지막_참여자가_나가_방이_끝나면_빈_집합만_남고_전달_작업은_만들지_않는다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, HOST_ID, null);
 
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(room.isEnded()).isTrue();
@@ -192,10 +192,10 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 재입장_안내는_재입장_전_집합으로_보내고_재입장_뒤_새_집합에_재입장한_회원이_들어간다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         Long beforeRejoinSetId = chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId();
 
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
 
         // 퇴장 안내 다음의 전달 작업이 재입장 안내다
         List<ChatOutbox> outboxes = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
@@ -214,13 +214,13 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 재입장한_회원은_재입장_전_메시지의_수신자_집합에_추가되지_않는다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
         // 상대가 없는 동안에는 보낼 수 없으므로 퇴장 안내를 이전 메시지로 본다
         Long leftNoticeSetId = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId).getLast()
                 .getRecipientSetId();
 
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
-        SentChatMessage after = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔네요", null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
+        SentChatMessage after = chatMessageService.send(chatRoomId, HOST_ID, "다시 왔네요", null);
 
         assertThat(recipientUserIds(leftNoticeSetId)).containsExactly(HOST_ID);
         assertThat(recipientUserIds(
@@ -231,7 +231,7 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 출연_알림은_현재_집합과_보낸사람_제외_알림_규칙으로_남긴다() {
-        chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
+        chatNotificationService.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
                 GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3)));
 
         ChatOutbox outbox = chatOutboxTestRepository.findByChatRoomIdOrderByIdAsc(chatRoomId).getLast();
@@ -245,7 +245,7 @@ class ChatDeliveryOutboxRecordTest {
     void outbox_저장이_실패하면_메시지도_체크포인트도_남지_않는다() {
         doThrow(new IllegalStateException("outbox 저장 실패")).when(chatOutboxRepository).save(any(ChatOutbox.class));
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
+        assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
@@ -260,7 +260,7 @@ class ChatDeliveryOutboxRecordTest {
         doThrow(new IllegalStateException("저장 실패")).when(chatMessageRepository)
                 .save(argThat((ChatMessage message) -> message.getMessageType() == ChatMessageType.SYSTEM));
 
-        assertThatThrownBy(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null))
+        assertThatThrownBy(() -> chatRoomService.leave(chatRoomId, GUEST_ID, null))
                 .isInstanceOf(IllegalStateException.class);
 
         ChatRoom after = chatRoomRepository.findById(chatRoomId).orElseThrow();
@@ -276,7 +276,7 @@ class ChatDeliveryOutboxRecordTest {
         doThrow(new IllegalStateException("복사 실패")).when(chatRecipientSetMemberRepository)
                 .copyActiveMembers(anyLong(), eq(chatRoomId));
 
-        assertThatThrownBy(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null))
+        assertThatThrownBy(() -> chatRoomService.leave(chatRoomId, GUEST_ID, null))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, GUEST_ID)
@@ -290,22 +290,22 @@ class ChatDeliveryOutboxRecordTest {
         sql.update("update chats.chat_room set current_recipient_set_id = null where id = :id",
                 Map.of("id", chatRoomId));
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
+        assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_READY);
         assertThat(chatMessageTestRepository.findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId)).isEmpty();
 
-        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        chatRoomService.createOrGet(HOST_ID, GUEST_ID);
 
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().hasRecipientSet()).isTrue();
-        assertThat(chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId())
+        assertThat(chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요", null).message().messageId())
                 .isNotNull();
     }
 
     @Test
     void 집합_버전은_방_안에서_1씩_늘어난다() {
-        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
-        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomService.createOrGet(GUEST_ID, HOST_ID);
 
         List<Integer> versions = sql.list("""
                         select set_version from chats.chat_recipient_set where chat_room_id = :id order by set_version
