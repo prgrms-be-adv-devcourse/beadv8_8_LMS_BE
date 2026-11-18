@@ -225,7 +225,7 @@ public class DefaultChatRoomQueryService implements ChatRoomQueryService {
      * 채팅방 응답 (조회한 회원 기준 마지막 메시지·안 읽은 수 포함). 1:1 방은 참여자·닉네임을 싣고, 단체방은 참여자 대신 조회한 회원의
      * 참여 세대를 싣는다(참여 중이 아니면 null).
      */
-    public ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
+    private ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
         List<Long> roomIds = List.of(chatRoom.getId());
         ChatMessageResponse lastMessage = findLastMessages(userId, roomIds).get(chatRoom.getId());
         long unreadCount = countUnread(userId, roomIds).getOrDefault(chatRoom.getId(), 0L);

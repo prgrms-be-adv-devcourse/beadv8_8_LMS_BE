@@ -273,6 +273,7 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
             }
         }
         try {
+            MessageListener listener = listenerHolder.listener();
             container.stop();
             List<ChannelTopic> wanted;
             synchronized (this) {
@@ -280,7 +281,6 @@ public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, 
                 registered.addAll(channels.keySet());
                 wanted = registered.stream().map(this::topic).toList();
             }
-            MessageListener listener = listenerHolder.listener();
             container.removeMessageListener(listener);
             container.addMessageListener(listener, ChatRealtimeRedisConfig.serverTopics(chatRedisKeys));
             if (!wanted.isEmpty()) {
