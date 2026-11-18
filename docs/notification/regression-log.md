@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-120 · 2026-11-18 · 통과 (N17-1 #989 PR 리뷰 반영: Error·interrupt 뒤에도 발행 스레드 유지)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-120 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-989` |
+| 커밋 | `de9a9167` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeWorker.loop`: `Error`는 `[NOTIFICATION_REALTIME_ERROR]` ERROR를 남기고 다음 묶음으로, 멈춤 요청 없는 `InterruptedException`은 WARN을 남기고 계속 돈다. 시험 Worker 2개 추가. module.md 3.8, test-spec 4장 |
+| 대상 기능 | 발행 스레드가 멈춤 요청 없이 끝나지 않음(이전 `ThreadPoolTaskExecutor`가 죽은 worker를 새로 띄우던 동작과 같게) |
+| 관련 NT ID | NT-RT-10 |
+| 명령 | `:notification:test --tests "*NotificationRealtimeWorkerTest"`(RED), `--tests "*NotificationRealtimeWorkerTest" --tests "*NotificationRealtimeOrderTest" --rerun` 3번, `./gradlew :notification:test verifyModuleStructure --rerun :auxiliary-app:check :auxiliary-app:test --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 첫 묶음에서 `NoClassDefFoundError`·`InterruptedException`을 던지면 스레드가 끝나 `deliverPending`이 다시 불리지 않음(2건). GREEN: Worker 11·Order 2를 3번 연속 통과. 전체 `:notification:test` 575/0/0/2(573 + 2), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:test` 17/0, `:auxiliary-app:check` BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | `[NOTIFICATION_REALTIME_ERROR]`를 찾는 alert 규칙은 더하지 않았다(팀 공유 `k8s/platform/base/alerting/rules.yaml`, 승인 필요, module.md 4.3 후속). `realtime.dropped`를 보는 alert도 없다. 같은 `Error`가 묶음마다 나면 묶음마다 ERROR가 남고 그 묶음 프레임은 지표에 잡히지 않는다(이전 실행기와 같음). 사용자 결정(2026-11-18): 모든 `Error`를 잡고 계속 돈다. 근거: 운영 `-XX:+ExitOnOutOfMemoryError`가 JVM이 던진 OOM에서 catch 전에 종료(충돌 없음), `TransactionTemplate`은 `Error`에도 롤백(spring-tx 7.0.9 예외 표 확인) |
+| 관련 변경 | #989 |
+
 #### NR-119 · 2026-11-18 · 통과 (N17-1 #989 ND-211 순서 보장 범위 반영 뒤 회귀)
 
 | 항목 | 값 |
