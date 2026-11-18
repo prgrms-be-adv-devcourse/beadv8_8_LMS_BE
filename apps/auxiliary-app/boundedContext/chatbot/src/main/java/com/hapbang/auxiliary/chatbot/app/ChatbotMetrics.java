@@ -1,12 +1,15 @@
 package com.hapbang.auxiliary.chatbot.app;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +24,9 @@ import lombok.RequiredArgsConstructor;
  *     <li>{@code hapbang.chatbot.recommend.search.errors{feature}}: 추천 검색(ES·임베딩)이 실패해 인기순으로 대신 답한 수</li>
  *     <li>{@code hapbang.chatbot.rate.limit.rejected{feature}}: 회원별 호출 제한으로 429를 준 수</li>
  *     <li>{@code hapbang.chatbot.index.tasks{type, result}}: 색인 요청 실행기({@link IndexTaskRunner})가 처리한 문서 수</li>
+ *     <li>{@code hapbang.chatbot.recommend.similarity{type, path}}: 추천 후보(벡터 검색 결과 중 코드 제외 규칙을 지난 것)의 유사도
+ *     점수 분포(#1007). 경로({@link RecommendPath})마다 관심사 비율·풀 크기가 달라 나눠 센다. 0.05 간격 구간을 둔다.
+ *     하한을 정하려고 보는 값이고 결과를 거르지 않는다</li>
  * </ul>
  */
 @Component
@@ -28,8 +34,15 @@ import lombok.RequiredArgsConstructor;
 public class ChatbotMetrics {
 
     static final String INDEX_TASKS = "hapbang.chatbot.index.tasks";
+    static final String RECOMMEND_SIMILARITY = "hapbang.chatbot.recommend.similarity";
+
+    // 유사도(ES 코사인 점수 0~1)의 분포 구간: 0.05 간격
+    private static final double[] SIMILARITY_BUCKETS = similarityBuckets();
 
     private final MeterRegistry registry;
+
+    // 유사도 지표(태그 조합 → 지표). 후보마다 레지스트리를 다시 찾지 않게 둔다
+    private final Map<String, DistributionSummary> similarity = new ConcurrentHashMap<>();
 
     public void request(Feature feature) {
         counter("hapbang.chatbot.requests", "기능별 챗봇 사용 수", "feature", feature.tag()).increment();
@@ -69,6 +82,23 @@ public class ChatbotMetrics {
         }
     }
 
+    /** 추천 후보 하나의 유사도 점수(#1007). 하한을 정하려고 분포를 본다. 요청마다 후보 수만큼 불려 태그 조합별로 한 번만 만든다 */
+    void recommendSimilarity(IndexType type, RecommendPath path, double score) {
+        similarity.computeIfAbsent(type.name() + "/" + path.tag(), key -> DistributionSummary.builder(RECOMMEND_SIMILARITY)
+                .description("추천 후보의 유사도 점수")
+                .tags("type", type.name(), "path", path.tag())
+                .serviceLevelObjectives(SIMILARITY_BUCKETS)
+                .register(registry)).record(score);
+    }
+
+    private static double[] similarityBuckets() {
+        double[] buckets = new double[20];
+        for (int i = 0; i < buckets.length; i++) {
+            buckets[i] = (i + 1) / 20.0;
+        }
+        return buckets;
+    }
+
     private Counter counter(String name, String description, String... tags) {
         return Counter.builder(name).description(description).tags(tags).register(registry);
     }
@@ -103,6 +133,16 @@ public class ChatbotMetrics {
         CHAT,
         /** 자유 질문(스트림) */
         CHAT_STREAM
+    }
+
+    /** 추천 경로 태그(#1007). 경로마다 관심사 비율·후보 풀 크기가 다르다 */
+    public enum RecommendPath implements Tagged {
+        /** 추천 위젯 API(관심사 비율 {@code interest-weight}, 풀 = 추천 수) */
+        WIDGET,
+        /** 챗봇 추천 버튼(관심사 비율 {@code interest-weight}, 큰 풀에서 LLM이 고름) */
+        BUTTON,
+        /** 자유 질문 대화의 Tool(강의는 관심사 비율 {@code chat-interest-weight}) */
+        CHAT
     }
 
     /** fallback 이유 */

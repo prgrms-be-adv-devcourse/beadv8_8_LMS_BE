@@ -58,7 +58,7 @@ public class InfluencerRecommendTools {
         ChatCardCollector cards = ChatToolContext.cards(toolContext, TOOL_NAME);
         metrics.toolCall(TOOL_NAME);
         cards.called(TOOL_NAME);
-        InfluencerRecommendResDto response = mapper.response(useCase.recommend(memberId, normalize(interest)));
+        InfluencerRecommendResDto response = mapper.response(useCase.recommendInChat(memberId, normalize(interest)));
         cards.influencers(new ChatCardsResDto.InfluencerCards(response.basis(), response.items()));
         List<Item> items = response.items().stream().map(Result::item).toList();
         return new Result(items, response.needsInterest(), response.basis(), RecommendGuide.of(response.basis()),

@@ -18,6 +18,7 @@ import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.Sha256;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -83,10 +84,33 @@ class LectureIndexTest extends ChatbotIntegrationTestBase {
         Map<String, LectureIndexDocument> stored = index.documents(IndexType.LECTURE, List.of("1", "2"),
                 LectureIndexDocument.class);
         assertThat(stored.get("1")).isEqualTo(new LectureIndexDocument(true, false, false, 100L,
-                lecture(1).textHash()));
-        assertThat(stored.get("2")).isEqualTo(new LectureIndexDocument(false, true, true, 200L, lecture(2).textHash()));
+                lecture(1).textHash(0)));
+        assertThat(stored.get("2")).isEqualTo(new LectureIndexDocument(false, true, true, 200L, lecture(2).textHash(0)));
         assertThat(lecture(1).indexText()).isEqualTo("스프링 입문\n웹 개발\n1강 설정\n2강 MVC");
         assertThat(index.vectors(IndexType.LECTURE, List.of("1")).get("1")).containsExactly(FakeEmbeddingModel.axis(0));
+        // 제목 비율 0(기본값, #1007): 제목을 따로 임베딩하지 않고 글 벡터 그대로, 해시도 #1007 전과 같다
+        assertThat(embedding.texts()).containsExactly(lecture(1).indexText(), lecture(2).indexText());
+        assertThat(lecture(1).textHash(0)).isEqualTo(Sha256.hex(lecture(1).indexText()));
+    }
+
+    @Test
+    @DisplayName("되돌리기(#1007): 제목 비율 0.3으로 색인한 문서는 비율을 0으로 돌리면 정합 점검이 모두 요청하고, 실행기가 글 벡터로 되돌린다")
+    void reconcileReindexesWhenWeightReturnsToZero() {
+        data.lecture(1, 100, "스프링 입문");
+        data.lecture(2, 100, "파이썬 기초");
+        for (long id : List.of(1L, 2L)) {
+            assertThat(index.upsertAll(IndexType.LECTURE, List.of(new RecommendVectorIndex.Upsert(String.valueOf(id),
+                    FakeEmbeddingModel.axis(5), LectureIndexDocument.of(lecture(id), 0.3).allFields())))).isEmpty();
+        }
+        index.refresh(IndexType.LECTURE);
+
+        assertThat(reconciler.check()).isEqualTo(2);
+        assertThat(runner.runOnce()).isEqualTo(2);
+        index.refresh(IndexType.LECTURE);
+
+        assertThat(index.vectors(IndexType.LECTURE, List.of("1")).get("1")).containsExactly(FakeEmbeddingModel.axis(0));
+        assertThat(embedding.embeddedTexts()).isEqualTo(2);
+        assertThat(reconciler.check()).isZero();
     }
 
     @Test

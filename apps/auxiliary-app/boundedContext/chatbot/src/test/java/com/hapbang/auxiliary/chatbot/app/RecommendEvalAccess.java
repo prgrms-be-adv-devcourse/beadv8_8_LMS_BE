@@ -209,10 +209,10 @@ public final class RecommendEvalAccess {
         index.ensureIndex(IndexType.INFLUENCER, InfluencerIndexPlan.FIELDS);
     }
 
-    /** 강의 문서를 운영 처리기와 같은 필드로 넣는다 */
+    /** 강의 문서를 운영 처리기와 같은 필드로 넣는다. 벡터는 호출 쪽이 만들어 넘기므로 해시는 제목 비율 0으로 둔다(평가는 해시를 보지 않는다) */
     public void upsertLecture(LectureSnapshot lecture, float[] vector) {
         upsert(IndexType.LECTURE, new RecommendVectorIndex.Upsert(LectureIndexDocument.docIdOf(lecture.id()), vector,
-                LectureIndexDocument.of(lecture).allFields()));
+                LectureIndexDocument.of(lecture, 0).allFields()));
     }
 
     /** 인플루언서 문서를 운영 처리기와 같은 필드로 넣는다 */

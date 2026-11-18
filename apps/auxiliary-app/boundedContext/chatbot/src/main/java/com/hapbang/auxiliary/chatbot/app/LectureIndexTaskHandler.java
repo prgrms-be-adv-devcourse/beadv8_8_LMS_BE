@@ -10,9 +10,11 @@ import java.util.SequencedMap;
 
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.chatbot.config.ChatbotLectureRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureSnapshot;
+import com.hapbang.auxiliary.chatbot.domain.TasteVectors;
 import com.hapbang.auxiliary.chatbot.out.LectureRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 
@@ -22,9 +24,14 @@ import lombok.RequiredArgsConstructor;
  * 강의 추천 index 처리기 (#718). 요청 값이 아니라 지금 강의 사본({@code lecture_copy}) 상태로 문서를 맞춘다.
  * <ul>
  *     <li>모든 강의를 색인한다(판매 중이 아니거나 삭제돼도). 산 강의의 벡터가 취향 계산에 필요하다. 추천 후보는 kNN 필터로 거른다.</li>
- *     <li>임베딩하는 글(제목 + 소개 + 콘텐츠 제목)의 해시를 문서에 둔다. 해시가 같으면 다시 임베딩하지 않고 상태 필드만 바꾼다.
+ *     <li>강의 벡터는 글(제목 + 소개 + 콘텐츠 제목) 벡터에 제목 벡터를 비율 {@code title-weight}만큼 섞는다
+ *     ({@link TasteVectors#mix}, #1007). 긴 소개가 제목·주제를 묻는 것을 줄인다. 비율이 0이면 제목을 임베딩하지 않고 글 벡터 그대로다.
+ *     섞은 벡터는 크기 1로 맞춰 저장한다. 취향 벡터는 신호 강의 벡터를 정규화 없이 가중 평균하므로({@link TasteVectors#weightedAverage}),
+ *     크기가 강의마다 다르면 신호 가중치(#867)가 강의마다 달라진 것처럼 된다(글과 제목이 멀수록 짧아진다).</li>
+ *     <li>글과 제목 비율의 해시를 문서에 둔다. 해시가 같으면 다시 임베딩하지 않고 상태 필드만 바꾼다. 비율을 바꾸면 해시가 달라져
+ *     정합 점검이 모든 강의를 다시 색인하게 한다.
  *     문서는 검색으로 읽으므로 방금 넣은 문서(refresh 전, 기본 1초)는 없다고 보고 다시 임베딩할 수 있다. 결과는 같고 비용만 든다.</li>
- *     <li>새로 임베딩할 강의는 한 번의 공급자 호출로 묶는다. 묶음 호출이 실패하면 그 강의들만 실패로 돌려준다.</li>
+ *     <li>새로 임베딩할 강의는 한 번의 공급자 호출로 묶는다(제목도 같은 호출에 글 뒤로 붙인다). 묶음 호출이 실패하면 그 강의들만 실패로 돌려준다.</li>
  *     <li>사본에 없는 문서는 할 일이 없다(강의 사본은 지우지 않고 원본 없음만 표시한다).</li>
  *     <li>index가 없으면 만든다. 새로 만든 index를 모두 채우는 일은 정합 점검({@link LectureIndexReconciler})이 한다.</li>
  * </ul>
@@ -36,6 +43,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
     private final LectureRecommendStore store;
     private final RecommendVectorIndex index;
     private final ChatbotEmbedder embedder;
+    private final ChatbotLectureRecommendProperties properties;
 
     @Override
     public IndexType type() {
@@ -66,7 +74,7 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
         List<LectureSnapshot> toEmbed = new ArrayList<>();
         for (LectureSnapshot lecture : lectures) {
             String docId = docIds.get(lecture.id());
-            LectureIndexDocument current = LectureIndexDocument.of(lecture);
+            LectureIndexDocument current = LectureIndexDocument.of(lecture, properties.titleWeight());
             LectureIndexDocument previous = stored.get(docId);
             if (previous == null || !previous.sameText(current)) {
                 toEmbed.add(lecture);
@@ -88,10 +96,32 @@ class LectureIndexTaskHandler implements IndexTaskHandler {
     }
 
     private void embedAndUpsert(List<LectureSnapshot> lectures, Map<Long, String> docIds, Map<String, RuntimeException> failures) {
-        IndexEmbedBatch.embedAndUpsert(embedder, index, IndexType.LECTURE, lectures,
+        double titleWeight = properties.titleWeight();
+        IndexEmbedBatch.embedAndUpsert(index, IndexType.LECTURE, lectures,
                 lecture -> docIds.get(lecture.id()),
-                LectureSnapshot::indexText,
-                lecture -> LectureIndexDocument.of(lecture).allFields(),
+                // 비율이 0이면 글만 임베딩한다(#1007 전과 같은 벡터·호출)
+                titleWeight == 0
+                        ? IndexEmbedBatch.documentVectors(embedder, LectureSnapshot::indexText)
+                        : batch -> titleMixedVectors(batch, titleWeight),
+                lecture -> LectureIndexDocument.of(lecture, titleWeight).allFields(),
                 failures);
+    }
+
+    // 글 N개 뒤에 제목 N개를 붙여 공급자 호출 한 번에 임베딩하고 강의마다 섞는다
+    private List<float[]> titleMixedVectors(List<LectureSnapshot> lectures, double titleWeight) {
+        List<String> texts = new ArrayList<>();
+        for (LectureSnapshot lecture : lectures) {
+            texts.add(lecture.indexText());
+        }
+        for (LectureSnapshot lecture : lectures) {
+            texts.add(lecture.title());
+        }
+        List<float[]> embedded = embedder.embedDocuments(texts);
+        int size = lectures.size();
+        List<float[]> vectors = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            vectors.add(TasteVectors.normalize(TasteVectors.mix(embedded.get(i), embedded.get(size + i), titleWeight)));
+        }
+        return vectors;
     }
 }

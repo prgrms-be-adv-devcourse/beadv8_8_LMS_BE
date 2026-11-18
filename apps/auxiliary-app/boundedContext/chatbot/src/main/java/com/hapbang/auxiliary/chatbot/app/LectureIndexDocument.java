@@ -14,7 +14,7 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 /**
  * 강의 추천 index 문서의 벡터 밖 필드 (#718). 처리기가 쓰고, 정합 점검이 사본과 비교한다.
  *
- * @param textHash 임베딩한 글의 해시. 같으면 다시 임베딩하지 않는다
+ * @param textHash 벡터를 만든 재료(글·제목 비율)의 해시({@link LectureSnapshot#textHash(double)}). 같으면 다시 임베딩하지 않는다
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 record LectureIndexDocument(
@@ -51,10 +51,10 @@ record LectureIndexDocument(
         return Long.parseLong(docId);
     }
 
-    /** 사본의 지금 상태로 만든 문서 */
-    static LectureIndexDocument of(LectureSnapshot lecture) {
+    /** 사본의 지금 상태와 지금 제목 비율로 만든 문서 */
+    static LectureIndexDocument of(LectureSnapshot lecture, double titleWeight) {
         return new LectureIndexDocument(lecture.onSale(), lecture.deleted(), lecture.missingInSource(), lecture.sellerId(),
-                lecture.textHash());
+                lecture.textHash(titleWeight));
     }
 
     /** 상태 필드(벡터를 다시 만들지 않고 바꿀 수 있는 값) */

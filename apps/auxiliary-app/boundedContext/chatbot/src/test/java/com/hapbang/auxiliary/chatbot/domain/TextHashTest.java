@@ -37,6 +37,18 @@ class TextHashTest {
     void lectureSnapshot() {
         LectureSnapshot snapshot = new LectureSnapshot(1L, 2L, "강의", "소개글", List.of("첫째"), true, false, false);
 
-        assertThat(snapshot.textHash()).isEqualTo("1f083d68395ee70febd4aaa3c1a4f52ce29330f1d848bf45f02644f7272d84eb");
+        assertThat(snapshot.textHash(0)).isEqualTo("1f083d68395ee70febd4aaa3c1a4f52ce29330f1d848bf45f02644f7272d84eb");
+    }
+
+    @Test
+    @DisplayName("강의 색인 해시에 제목 비율이 들어간다(#1007): 0은 위 값 그대로, 0이 아니면 달라지고 비율마다 다르다. 0.3과 0.30은 같다")
+    void lectureSnapshotTitleWeight() {
+        LectureSnapshot snapshot = new LectureSnapshot(1L, 2L, "강의", "소개글", List.of("첫째"), true, false, false);
+
+        assertThat(snapshot.textHash(0.3)).isNotEqualTo(snapshot.textHash(0))
+                .isNotEqualTo(snapshot.textHash(0.5))
+                .isEqualTo(snapshot.textHash(Double.parseDouble("0.30")))
+                .isEqualTo(Sha256.hex("강의\n소개글\n첫째" + LectureSnapshot.TITLE_WEIGHT_MARK + "0.3"));
+        assertThat(LectureSnapshot.TITLE_WEIGHT_MARK).isEqualTo("\n\u0000title-weight=");
     }
 }
