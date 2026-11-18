@@ -86,6 +86,54 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-123 · 2026-11-18 · 통과 (N17-3 #991 `synchronous_commit` off/on 교차 진단 측정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-123 |
+| 실행 날짜 | 2026-11-18 14:30~15:38 (KST). setup(이미지 재빌드) 14:30~14:33, 회차 14:33~15:38, 끝난 뒤 복구 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-991` |
+| 커밋 | `434da7c2` 위 작업 트리 미커밋. 앱 이미지 `b0.sh setup`으로 빌드, docker `46a36e44…`, pod imageID `962c7a84…`(6회 모두 같음) |
+| 작업 트리 변경 | 측정 때 10개 경로: loadtest 5개(NR-122), decisions·test-spec, PROGRESS, `__pycache__` 2개. 이미지 빌드 입력(`apps`·`common`·`shared`·Gradle 설정) 중 변경은 `apps/auxiliary-app/boundedContext/notification/PROGRESS.md` 하나로 문서뿐이고, 코드·빌드 설정 변경은 없다. 측정을 감싼 스크립트는 커밋하지 않았다(절차는 명령 칸) |
+| 대상 기능 | 저장 트랜잭션마다 commit하는 구조(ND-216)의 fsync 비용, ND-217 판단 |
+| 관련 NT ID | NT-B0-12(인자 실제 적용), 공식 B0(NT-B0) 판정 아님 |
+| 명령 | 진단 측정이라 1.1의 8번대로 절차와 확인 방법을 적는다. `bash loadtest/notification/b0.sh setup` → `B0_DIAG=1 B0_SYNC_COMMIT=<설정> bash loadtest/notification/b0.sh run <번호>`를 off(301)·on(302)·off(303)·on(304)·off(305)·on(306) 순서로 실행. 회차마다 전에 호스트 여유 메모리(2,000MB 미만이면 멈춤)·로컬 이미지 ID, 뒤에 pod imageID·재시작 수·OOMKilled·호스트 CPU·여유 메모리를 남기고, 종료 코드가 0이 아니거나 OOMKilled면 멈추게 했다. 끝나면(멈춰도) `commit_setting.sql`을 `-v sync_commit=off`로 적용하고 `postgres`·`auxiliary` 역할 새 연결의 `show synchronous_commit`을 확인한 뒤 `kubectl --context k3d-hapbang-b0 -n hapbang-prod scale deploy/auxiliary-app --replicas=0`. 대기 분석: 회차의 `diag/pg.tsv`에서 cluster 시계 정상 단계 구간(`normalInjectStartAt`~`normalCompletedAt`) 안 `active` 표본을 대기 범주로 센다(WAL = `IO/WalSync`+`LWLock/WALWrite`, 대기 없음 = `wait_event` 없음) |
+| 실행 환경 | 로컬 Windows 10, 호스트 여유 메모리 시작 4,919MB(회차 전·후 값: r301 3,002→3,243, r302 3,243→3,712, r303 3,709→3,742, r304 3,752→4,454, r305 4,462→4,544, r306 4,541→4,442MB), 호스트 CPU 부하(회차 전·후 %: 35→23, 27→22, 18→30, 18→19, 32→31, 23→34), 회차 시작 14:33·14:43·14:54·15:05·15:16·15:27, Docker Desktop 12 CPU·7.7GiB, B0 cluster `k3d-hapbang-b0`(다시 만들지 않음), limit 832Mi·`-Xmx256m`·Hikari 5, Kafka 700Mi, fixture `bea6c107…`. 운영 manifest·앱 설정 변경 없음 |
+| 결과 | 통과 |
+| 건수 | 회차 6회 모두 종료 코드 0, 유효(V0~V8 통과) 6, F 6회 같음(`5a7ab852…`), OOMKilled 0, 회차 중 재시작 0(앱 pod 재시작 수 0, platform pod 재시작 수는 측정 전 값 1에서 그대로). 커밋 설정: off 회차 3회 모두 인자·관리자 연결·앱 역할 연결 off, on 회차 3회 모두 on, 역할별 덮어쓰기 없음. 복구: `ALTER DATABASE`, `(모든 역할)@auxiliary=synchronous_commit=off`, 새 연결 `postgres=off auxiliary=off`, 앱 replicas 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | (원본 보존) 회차 원본은 `~/.hapbang/load-tests/runs/b0-20261118-*-r301~r306`, 교차 실행 기록(`runs.tsv`·`env.txt`·회차 로그·복구 확인)과 감싼 스크립트·분석 스크립트·`analysis.json`은 `~/.hapbang/load-tests/n17-3/`에 남겼다(레포 밖). 운영 디스크(EBS)에서의 on 비용, 실패 단계(재시도·DLT) 구간의 대기, L4 같은 긴 백로그 회복 구간. PostgreSQL 표본은 회차당 24~27개(약 1.07초 간격)라 active 표본이 4~14개로 적다 |
+| 관련 변경 | #991 |
+
+**메모(측정 수치, 판정은 ND-217 기준)**: 처리량(건/초) off 191.54·183.30·184.08(중앙값 184.08, CV 2.44%), on 177.97·167.42·181.07(중앙값 177.97, CV 4.08%). on/off 중앙값 비율 0.967 → 조건 1(0.80 이하) 미충족. on active 표본 39개 중 WAL 26·대기 없음 12·`Client/ClientRead` 1 → 조건 2(WAL 최다) 충족. off는 WAL 0. 두 조건을 함께 충족하지 않아 개선 검토 대상으로 선정하지 않는다. 수치와 해석은 [notification-load](../load-test/notification-load.md) "N17-3 측정"
+
+#### NR-122 · 2026-11-18 · 통과 (N17-3 #991 측정 도구 커밋 설정 인자 `B0_SYNC_COMMIT`)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-122 |
+| 실행 날짜 | 2026-11-18 14:26~14:40 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-991` |
+| 커밋 | `434da7c2` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `loadtest/notification/queries/commit_setting.sql`, `b0.sh`, `n15.sh`, `tests/test_b0_scripts.py`, `tests/test_n15_scripts.py`, decisions(ND-216·217), PROGRESS, test-spec(NT-B0-12) |
+| 대상 기능 | B0·N15 스크립트의 커밋 설정 인자(기본 off, on은 진단 회차만), 관리자·앱 역할 새 연결 값 확인, 실행 전 거절 |
+| 관련 NT ID | NT-B0-12, NT-B0-10(회귀) |
+| 명령 | RED·GREEN: `PYTHONIOENCODING=utf-8 python -m unittest discover -s loadtest/notification/tests -k SyncCommitArgTest`. 회귀: `python -I -m unittest discover -s loadtest/notification/tests`, `bash loadtest/notification/tests/b0_guard_test.sh`. 실제 DB 확인: B0 cluster `postgres-0`에 `psql -v sync_commit=off < commit_setting.sql`(지금 값과 같은 off) |
+| 실행 환경 | Windows 10, Git Bash, Python 3(anaconda), k3d `k3d-hapbang-b0`(dry-run 시험은 context가 있을 때만 돈다), 앱 replicas 0 |
+| 결과 | 통과 |
+| 건수 | RED: 10건 중 실패 5·오류 5(함수 없음, 인자 검사 없음). GREEN: `SyncCommitArgTest` 10건 통과. 회귀: loadtest 시험 90건 통과, `b0_guard_test.sh` PASS 7·SKIP 1(cluster 없음 시험, cluster가 있어 건너뜀). 실제 DB: `ALTER DATABASE`와 `(모든 역할)@auxiliary=synchronous_commit=off` 한 줄 |
+| 실패 원인 분류 | RED는 의도한 실패(기능 없음). GREEN 뒤 실패 없음 |
+| 수정 내용 | GREEN 중 `n15.sh`를 `bash -c`로 불러오면 `$0`이 bash라 `DIR`이 스크립트 위치가 아니어서 dry-run 적용 시험이 실패했다(시험 하네스 원인). 시험에서 직접 실행과 같은 `DIR`을 넣었다. 스크립트 `DIR` 계산은 바꾸지 않았다 |
+| 재실행 결과 | 위 GREEN·회귀 명령 통과 |
+| 미검증 항목 | on 값의 실제 DB 적용과 앱 역할 연결 확인은 측정 회차(NR-123)에서 본다. 시험은 셸·dry-run 수준이다 |
+| 관련 변경 | #991 |
+
+**메모**: 시험 클래스는 `SyncCommitArgTest`(b0 7건: 실행 전 거절, 확인 함수 5가지, dry-run 기본 off·지정 on / n15 3건: 실행 전 거절, 앱 역할 연결 확인, dry-run 적용). 확인 함수는 `b0.sh`를 불러오지 않고 함수 본문만 꺼내 실행한다(불러오면 바로 실행되므로).
+
 #### NR-121 · 2026-11-18 · 실패 (N17-2 #990 메모리 진단 측정: 1차 NMT 끔, 2차·재측정 NMT 켬. 재실행 통과)
 
 | 항목 | 값 |

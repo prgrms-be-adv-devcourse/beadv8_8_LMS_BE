@@ -306,6 +306,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
   - 설정 `hapbang.chatbot.recommend.rerank.*`(`enabled`·`model`·`timeout` 12s·`pool-size` 20·`reason-max-length` 80·`description-max-length` 300·`taste` NONE·`temperature` 없음), `hapbang.chatbot.recommend.query-expansion.*`(`model`·`timeout` 5s·`max-expansions` 3). 시간 상한은 출발값이다(리랭킹 prod는 평가로 15s, #948). 호출 제한은 강의 버튼 분당 10회(`button-rate-limit`), 인플루언서 버튼 분당 10회(`rate-limit`).
 - **자유 질문**(`ChatbotConversationUseCase`)
   - Tool 3개(`searchFaq`·`recommendLectures`·`recommendInfluencers`)를 요청마다 등록하고, 회원 ID·FAQ 근거·카드 수집기는 `ChatToolContext`로 넘긴다. 시스템 프롬프트는 서버 것만 쓴다.
+  - 답은 마크다운 없는 일반 글이다. 합방의 정책·금액·기간·절차와 강의·인물은 Tool 결과로만 말하고, FAQ에 답이 없는 정책·금액·기간이나 이용 방법·절차 질문은 정해진 문장으로 답한다. 방송·합방 기획, 콘텐츠 제작, 강의 고르기와 학습 방법은 짧은 일반 조언 뒤 합방 기능으로 이어 주고, 그 밖의 주제는 거절한다. 무엇을 원하는지 모르면 한 번 되묻고, 같은 요청에 다시 묻지 않는다. 추천 Tool의 관심사 인자는 비유적·애매한 말을 구체적인 분야로 풀어 쓴다(#1006).
   - `history`는 FE가 보낸다(서버 저장 없음, 11/09 결정). 최근 12개만 쓰고, role은 `USER`·`ASSISTANT`만, 내용은 USER 1~500자·ASSISTANT 1~2,000자, 쓰는 대화의 글자 수 합 8,000자까지. 어기면 400(`INVALID_CHAT_HISTORY`, 역할 값 자체가 틀리면 `INVALID_REQUEST`). 설정 `hapbang.chatbot.chat.*`.
   - 추천 카드는 Tool 결과(코드가 만든 것)만이다. 비스트림은 응답 `cards`, 스트림은 글이 끝난 뒤 `cards` 이벤트다. LLM 글은 설명이다. 강의 카드의 이유 문장은 기준 강의 제목 없이 쓴다(위젯 API의 문장과 다를 수 있다). Tool 결과에는 근거 코드와, 검색이 잠시 실패했으면(`POPULAR_TEMPORARY`) LLM이 그 사실을 말하게 하는 안내 한 줄(`guide`)이 있다.
   - LLM이 실패하면 카드가 있으면 카드 + "추천 결과를 아래에 보여 드려요." + `fallback=true`, 없으면 FAQ 대화와 같이 FAQ 상위 1건 또는 안내 문구(+ FAQ 모아보기 안내). 스트림에서 조각을 보낸 뒤 실패하면 `cards`를 보낸 뒤 `error`로 끝낸다.
@@ -327,6 +328,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
 | 버튼: 풀이 비면 LLM 호출 0회. 관심사가 있으면 쿼리 확장 1회 + 리랭킹 1회, 쿼리 확장이 실패해도 계속 | 쿼리 확장 실패 | `emptyPoolSkipsLlm`, `interestCallsQueryExpansionThenRerank`, `InfluencerRecommendApiTest.explainedWithInterest` |
 | 버튼 프롬프트에 회원 ID·회원이 산 강의가 없다 | | `LectureRecommendButtonTest.promptHasNoMemberInfo` |
 | 자유 질문: 요청마다 Tool 3개를 등록하고 ToolContext에 회원 ID를 넣는다 | | `ChatbotConversationApiTest.registersThreeTools` |
+| 자유 질문: 지시문에 일반 글·관련 주제·한 번 되묻기 규칙, 추천 Tool 설명에 관심사 풀어 쓰기·다시 묻지 않기가 실린다(#1006) | | `ChatbotConversationApiTest.promptAndToolDescriptions` |
 | 자유 질문: 추천 카드는 비스트림 `cards`·SSE `cards` 이벤트로 나간다 | | `cardsInResponse`, `streamSendsCards` |
 | 자유 질문: Tool이 카드를 만든 뒤 LLM이 실패해도 카드 + 정해진 문장 + `fallback=true`. 조각 뒤 실패는 `cards` 뒤 `error` | LLM 실패(스트림·비스트림) | `cardsSurviveLlmFailure`, `streamCardsBeforeFirstToken`, `streamCardsThenError` |
 | 자유 질문: Tool 호출이 3회를 넘으면 더 부르지 않고 실패로 처리한다(회로 실패 아님) | 모델이 Tool을 계속 요청(스트림·비스트림) | `toolCallLimit`, `streamToolCallLimit` |

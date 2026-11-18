@@ -31,6 +31,7 @@ public interface ApiV1SearchSpec {
             sort는 followers,desc(팔로워 많은 순)·rating,desc(출연 평점 높은 순, 리뷰가 적으면 전체 평균 쪽으로 보정) 하나만 쓸 수 있고 \
             그 밖은 400 UNSUPPORTED_SORT. 앞에서 1,000건까지만 볼 수 있고(totalElements도 1,000까지) 넘으면 400 PAGE_TOO_DEEP. \
             검색할 수 없으면 503 SEARCH_UNAVAILABLE(회원 앱의 인플루언서 목록은 그대로 쓸 수 있다). \
+            회원마다 1분에 60번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS(Retry-After 초). \
             팔로워·채널·평점은 대개 10분 안에 회원 앱 값을 따라간다. 프로필 사진은 없다(회원 사진 일괄 API로 채운다). \
             correctedKeyword는 검색어에 오타가 있을 때 고친 검색어다("이 검색어를 찾으셨나요?", 누르면 그 검색어로 다시 검색한다). \
             결과 수·분야 같은 조건과 상관없이 검색어만 보고 붙고, 고친 검색어로 결과가 있을 때만 준다. 없으면 null이고 결과는 원래 검색어 그대로다. \
@@ -69,9 +70,12 @@ public interface ApiV1SearchSpec {
     @Operation(summary = "인플루언서 검색어 자동완성", description = """
             입력 중인 검색어로 인플루언서 후보를 최대 5개 준다(로그인 회원). 닉네임 낱말 앞부분으로 찾고, 치는 도중의 글자(방ㅅ·방소)도 잇는다. \
             초성만 치면(ㅊㅊㅁ) 닉네임 초성으로 찾는다. 순서는 맞은 정도 → 팔로워 → 회원 ID다. \
-            검색어는 꼭 넘기고(최대 50자), 공백뿐이면 빈 목록이다. 검색할 수 없으면 503 SEARCH_UNAVAILABLE(후보를 숨기면 된다). \
+            검색어는 꼭 넘기고(최대 50자), 공백뿐이면 빈 목록이다. \
+            본 검색과 따로 회원마다 1분에 120번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS(Retry-After 초). \
+            입력할 때마다 부르지 말고 잠깐 멈췄을 때(예: 300ms) 부른다. 검색할 수 없거나(503 SEARCH_UNAVAILABLE) 429면 후보를 숨기면 된다. \
             누르면 userId로 프로필에 가거나 nickname으로 인플루언서 검색을 하면 된다.""")
     RsData<List<InfluencerSuggestion>> suggestInfluencers(
+            Long userId,
             @Parameter(description = "입력 중인 검색어(최대 50자)", example = "침착") @Size(max = 50) String keyword);
 
     @Operation(summary = "강의 검색어 자동완성 (비회원 가능)", description = """

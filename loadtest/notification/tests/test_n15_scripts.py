@@ -414,5 +414,45 @@ class N15GuardTest(unittest.TestCase):
             self.assertNotIn("kubectl --context hapbang-k3s", result.stderr.decode("utf-8"))
 
 
+class SyncCommitArgTest(unittest.TestCase):
+    """N17-3 커밋 설정 인자(ND-217, test-spec NT-B0-12): n15.sh도 b0.sh와 같은 규칙이다"""
+
+    SETTING_ON = "(모든 역할)@auxiliary=synchronous_commit=on"
+
+    def bash(self, code, **env_extra):
+        import os
+        import shutil
+        import subprocess
+        env = dict(os.environ)
+        env["MSYS_NO_PATHCONV"] = "1"
+        env.pop("B0_SYNC_COMMIT", None)
+        env.update(env_extra)
+        return subprocess.run([shutil.which("bash"), "-c", code], env=env, capture_output=True, timeout=60)
+
+    def source(self):
+        # bash -c로 불러오면 $0이 bash라 DIR이 스크립트 위치가 아니다. 직접 실행할 때와 같은 DIR로 맞춘다
+        return f'source "{(HERE / "n15.sh").as_posix()}"\nDIR="{HERE.as_posix()}"\n'
+
+    def test_허용하지_않는_값은_context_검사보다_먼저_거절한다(self):
+        result = self.bash(f'bash "{(HERE / "n15.sh").as_posix()}" --dry-run l4 1', B0_SYNC_COMMIT="yes",
+                           N15_CONTEXT="hapbang-k3s")
+        self.assertEqual(result.returncode, 2)
+        stderr = result.stderr.decode("utf-8")
+        self.assertIn("B0_SYNC_COMMIT", stderr)
+        self.assertNotIn("k3d-hapbang-b0만 허용", stderr)
+
+    def test_확인_함수는_앱_역할_연결_값까지_본다(self):
+        ok = self.bash(self.source() + 'check_commit_setting on on on "$SETTING"', SETTING=self.SETTING_ON)
+        self.assertEqual(ok.returncode, 0, ok.stderr.decode("utf-8"))
+        bad = self.bash(self.source() + 'check_commit_setting on on off "$SETTING"', SETTING=self.SETTING_ON)
+        self.assertEqual(bad.returncode, 2)
+
+    def test_dry_run_적용은_지정한_값을_psql_변수로_넘기고_기본은_off다(self):
+        on = self.bash(self.source() + "DRY=1; apply_commit_setting", B0_SYNC_COMMIT="on")
+        self.assertIn("sync_commit=on", on.stderr.decode("utf-8"))
+        default = self.bash(self.source() + "DRY=1; apply_commit_setting")
+        self.assertIn("sync_commit=off", default.stderr.decode("utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
