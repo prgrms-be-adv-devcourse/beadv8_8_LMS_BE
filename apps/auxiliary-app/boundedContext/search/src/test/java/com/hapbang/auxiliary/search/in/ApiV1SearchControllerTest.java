@@ -2,13 +2,16 @@ package com.hapbang.auxiliary.search.in;
 
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
 import java.util.List;
 
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,10 +34,14 @@ import com.hapbang.auxiliary.search.support.SearchElasticsearchTestcontainersCon
 import com.hapbang.testsupport.IntegrationTest;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * 인플루언서 검색 API(#771). Gateway 사용자 헤더로 로그인해 보안 설정·메서드 보안·검증·공통 오류 처리를 그대로 거친다. ES는 nori 컨테이너다.
  * 순위 자체는 golden query 테스트가 본다.
+ * <p>
+ * 호출 제한(#1012)은 기본값(본 검색 60, 자동완성 120) 그대로 본다. 한도 테스트는 저마다 다른 회원 ID를 써서, 회원 100으로 부르는 다른 테스트와
+ * 한도가 섞이지 않는다.
  */
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -55,6 +62,9 @@ class ApiV1SearchControllerTest {
 
     @Autowired
     private InfluencerZeroResultKeywords zeroResultKeywords;
+
+    @Autowired
+    private MeterRegistry registry;
 
     @BeforeEach
     void seed() throws Exception {
@@ -241,6 +251,56 @@ class ApiV1SearchControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
+    @Test
+    @DisplayName("본 검색은 회원 ID마다 분당 60회다. 같은 회원의 61번째는 429와 Retry-After이고, 다른 회원은 그대로 쓴다(#1012)")
+    void memberRateLimit() throws Exception {
+        double before = rejected("influencer");
+        for (int i = 0; i < 60; i++) {
+            mockMvc.perform(as(get(URL), 501L)).andExpect(status().isOk());
+        }
+        mockMvc.perform(as(get(URL), 501L))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(header().exists("Retry-After"));
+        mockMvc.perform(as(get(URL), 502L)).andExpect(status().isOk());
+
+        Assertions.assertThat(rejected("influencer") - before).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("자동완성은 본 검색과 따로 회원 ID마다 분당 120회다. 121번째는 429여도 본 검색은 된다. 지표는 target=influencer_suggestion이다(#1012)")
+    void suggestionRateLimitSeparate() throws Exception {
+        String url = URL + "/suggestions";
+        double before = rejected("influencer_suggestion");
+        for (int i = 0; i < 120; i++) {
+            mockMvc.perform(as(get(url).param("keyword", "메"), 503L)).andExpect(status().isOk());
+        }
+        mockMvc.perform(as(get(url).param("keyword", "메"), 503L))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(header().exists("Retry-After"));
+        mockMvc.perform(as(get(URL), 503L)).andExpect(status().isOk());
+        mockMvc.perform(as(get(url).param("keyword", "메"), 504L)).andExpect(status().isOk());
+
+        Assertions.assertThat(rejected("influencer_suggestion") - before).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Swagger 설명에 인플루언서 검색·자동완성의 호출 한도와 429를 적는다(#1012)")
+    void swaggerDescribesRateLimit() throws Exception {
+        // 모듈 테스트 설정은 swagger.yml(앱 경로)을 읽지 않아 springdoc 기본 경로다. 그 경로는 permitAll이 아니라 로그인해서 부른다
+        mockMvc.perform(as(get("/v3/api-docs")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/search/influencers'].get.description",
+                        containsString("1분에 60번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS")))
+                .andExpect(jsonPath("$.paths['/api/v1/search/influencers/suggestions'].get.description",
+                        containsString("1분에 120번까지 부를 수 있고 넘으면 429 TOO_MANY_REQUESTS")));
+    }
+
+    private double rejected(String target) {
+        return registry.counter("hapbang.search.rate.limit.rejected", "target", target, "requester", "member").count();
+    }
+
     private void influencer(long id, String nickname, String role, List<String> codes, String bio, InfluencerStats stats) {
         store.show(id, 1L, new MemberProfile(nickname, bio, role, "VERIFIED_INFLUENCER".equals(role),
                 codes.stream().map(code -> new MemberProfile.Category(code, switch (code) {
@@ -252,6 +312,11 @@ class ApiV1SearchControllerTest {
     }
 
     private static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request) {
-        return request.header(GatewayUserHeaderFilter.USER_ID, "100").header(GatewayUserHeaderFilter.USER_ROLE, "USER");
+        return as(request, 100L);
+    }
+
+    private static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, long userId) {
+        return request.header(GatewayUserHeaderFilter.USER_ID, String.valueOf(userId))
+                .header(GatewayUserHeaderFilter.USER_ROLE, "USER");
     }
 }
