@@ -62,16 +62,21 @@ class InfluencerRecommendStoreTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("추천 가능한 전원의 인기 재료: 정지·일반 회원·마스킹은 빠지고, 출연이 없는 회원은 0")
+    @DisplayName("추천 가능한 전원의 인기 재료: 정지·일반 회원·마스킹은 빠지고(그 회원이 받은 리뷰도), 출연이 없는 회원은 0")
     void statsOfRecommendable() {
         influencer(1L, "GAME", "롤");
         influencer(2L, "MUSIC", "노래");
         member(3L, Role.INFLUENCER, UserStatus.SUSPENDED, List.of("GAME"), "롤");
         member(4L, Role.USER, UserStatus.ACTIVE, List.of(), null);
+        influencer(5L, "GAME", "롤");
+        rows.masked(5L);
         completed(100L, 1L, 3L);
+        completed(101L, 5L, 2L);
+        review(1L, 100L, 1L, 5);
+        review(2L, 101L, 5L, 3);
 
         assertThat(store.popularityStatsOfRecommendable())
-                .containsExactly(new Stats(1L, 1, 0, 0), new Stats(2L, 0, 0, 0));
+                .containsExactly(new Stats(1L, 1, 1, 5), new Stats(2L, 1, 0, 0));
     }
 
     @Test
@@ -99,7 +104,7 @@ class InfluencerRecommendStoreTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("주어진 회원의 인기 재료는 주어진 순서로, 사본이 없거나 출연이 없으면 0 (#1003)")
+    @DisplayName("주어진 회원의 인기 재료는 주어진 순서로(중복 ID는 한 번), 사본이 없거나 출연이 없으면 0 (#1003)")
     void statsInGivenOrder() {
         influencer(1L, "GAME", "롤");
         influencer(2L, "MUSIC", "노래");
@@ -107,7 +112,7 @@ class InfluencerRecommendStoreTest extends InfluencerIntegrationTestBase {
         completed(101L, 2L, 3L);
         review(1L, 101L, 2L, 4);
 
-        assertThat(store.popularityStats(List.of(2L, 99L, 1L)))
+        assertThat(store.popularityStats(List.of(2L, 99L, 1L, 2L)))
                 .containsExactly(new Stats(2L, 2, 1, 4), new Stats(99L, 0, 0, 0), new Stats(1L, 1, 0, 0));
         assertThat(store.popularityStats(List.of())).isEmpty();
     }

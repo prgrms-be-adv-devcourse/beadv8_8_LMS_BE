@@ -103,7 +103,8 @@ class LectureRecommendStoreTest extends ChatbotIntegrationTestBase {
         assertThat(mine.excluded()).containsExactlyInAnyOrder(1L, 2L, 10L, 8L);
         assertThat(mine.activities()).containsExactlyInAnyOrder(new Activity(1L, Source.PURCHASED, T1),
                 new Activity(10L, Source.PURCHASED, T2), new Activity(8L, Source.CART, T3));
-        assertThat(mine.activities().getLast().source()).isEqualTo(Source.CART);
+        assertThat(mine.activities()).extracting(Activity::source)
+                .containsExactly(Source.PURCHASED, Source.PURCHASED, Source.CART);
         assertThat(store.memberLectures(999L).excluded()).isEmpty();
     }
 
