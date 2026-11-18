@@ -5,8 +5,12 @@ import static org.awaitility.Awaitility.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.lang.management.LockInfo;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -125,6 +130,77 @@ class ChatInboundLifecycleRaceTest {
             soft.assertThat(handled).as("SUBSCRIBE ran after cleanup").doesNotContain("h2:sub");
             soft.assertThat(queues(budget)).as("queue leaked").doesNotContainKey("s-1");
         });
+    }
+
+    /**
+     * 확인 (5): 두 번째 넣기는 REMOVED를 보지 않는다. 시험 쪽에서만 엇갈림을 만든다: 시험 스레드가 찾은 줄의 모니터를 쥐고, 넣는
+     * 스레드가 그 모니터에 막힐 때까지(찾기와 첫 넣기 사이) 기다린다. 그동안 실제 거절 경로가(시험 스레드에서 모니터에 재진입해) 줄을
+     * 비우고 지우며, 다른 처리기의 세션 종료 정리가 살아 있는 새 줄을 만들어 처리 중에 붙잡힌다. 다시 넣기는 그 새 줄에 넣어야 한다:
+     * 예외가 없고, 작업을 잃지 않고, 앞선 정리 뒤에 처리되며, 그 사이 다른 줄 비우기가 처리하지 않는다.
+     */
+    @Test
+    void retryNeverSeesRemoved() throws Exception {
+        ChatInboundReceiveBudget budget = budget(1, 1, 20);
+        Executor executor = budget.channelExecutor();
+        List<String> log = new CopyOnWriteArrayList<>();
+        MessageHandler h1 = m -> log.add("h1:" + payloadOf(m));
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        CountDownLatch replacementRelease = new CountDownLatch(1);
+        MessageHandler h2 = m -> {
+            log.add("h2:" + payloadOf(m));
+            replacementStarted.countDown();
+            awaitLatch(replacementRelease);
+        };
+        MessageHandler h3 = m -> log.add("h3:" + payloadOf(m));
+
+        // s-1에 살아 있고 비어 있는 줄을 만든다
+        executor.execute(task(message(SimpMessageType.SUBSCRIBE, "s-1", "sub"), h1));
+        Object oldQueue = queues(budget).get("s-1");
+        assertThat(oldQueue).isNotNull();
+        await().atMost(Duration.ofSeconds(5)).until(() -> log.contains("h1:sub") && !draining(oldQueue));
+        // 처리 스레드 하나가 붙잡히고 공용 대기열(1칸)도 찬다
+        blockWorker(budget);
+        CountDownLatch filled = new CountDownLatch(1);
+        executor.execute(task(message(SimpMessageType.MESSAGE, "s-fill", "fill"), m -> filled.countDown()));
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread submitter = new Thread(() -> {
+            try {
+                executor.execute(task(message(SimpMessageType.DISCONNECT, "s-1", "late"), h3));
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        });
+        Object replacement;
+        synchronized (oldQueue) {
+            submitter.start();
+            awaitBlockedOn(submitter, oldQueue);
+            // 클라이언트 DISCONNECT가 공용 실행기에 거절당해 이 스레드에서 실행되고 옛 줄이 지워진다
+            executor.execute(task(message(SimpMessageType.DISCONNECT, "s-1", "client"), h1));
+            assertThat(log).contains("h1:client");
+            assertThat(queues(budget)).doesNotContainKey("s-1");
+            release.countDown();
+            assertThat(filled.await(5, TimeUnit.SECONDS)).isTrue();
+            // 다른 처리기의 서버 DISCONNECT가 살아 있는 새 줄을 만들고 처리 중에 붙잡힌다
+            executor.execute(task(message(SimpMessageType.DISCONNECT, "s-1", "server"), h2));
+            assertThat(replacementStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            replacement = queues(budget).get("s-1");
+            assertThat(replacement).isNotNull().isNotSameAs(oldQueue);
+        }
+
+        // 다시 넣기는 처리 중인 정리 뒤에 줄을 세웠다(바로 실행하거나 다른 줄 비우기로 돌리지 않았다)
+        submitter.join(5_000);
+        assertThat(submitter.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(queues(budget).get("s-1")).isSameAs(replacement);
+        assertThat(queuedEntries(budget, "s-1")).isEqualTo(1);
+        await().during(Duration.ofMillis(200)).atMost(Duration.ofSeconds(1)).until(() -> !log.contains("h3:late"));
+        replacementRelease.countDown();
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> log.contains("h3:late"));
+        assertThat(log).containsExactly("h1:sub", "h1:client", "h2:server", "h3:late");
+        assertThat(meterRegistry.counter(ChatInboundReceiveBudget.CLOSED_SESSION_DROPPED_METRIC).count()).isZero();
+        await().atMost(Duration.ofSeconds(5)).until(() -> !queues(budget).containsKey("s-1"));
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -390,6 +466,34 @@ class ChatInboundLifecycleRaceTest {
             awaitLatch(release);
         }));
         assertThat(blocking.await(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    /** 줄 비우기 차례를 쥐고 있는지. 줄 모니터 안에서 읽는다 */
+    private static boolean draining(Object queue) {
+        synchronized (queue) {
+            return (boolean) ReflectionTestUtils.getField(queue, "draining");
+        }
+    }
+
+    private static int queuedEntries(ChatInboundReceiveBudget budget, String sessionId) {
+        Object queue = queues(budget).get(sessionId);
+        if (queue == null) {
+            return 0;
+        }
+        synchronized (queue) {
+            return ((Collection<?>) ReflectionTestUtils.getField(queue, "entries")).size();
+        }
+    }
+
+    /** 그 스레드가 이 객체의 모니터를 잡으려고 막혀 있을 때까지 기다린다 */
+    private static void awaitBlockedOn(Thread thread, Object monitor) {
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            ThreadInfo info = ManagementFactory.getThreadMXBean().getThreadInfo(thread.threadId());
+            LockInfo lock = info == null ? null : info.getLockInfo();
+            return info != null && info.getThreadState() == Thread.State.BLOCKED && lock != null
+                    && lock.getIdentityHashCode() == System.identityHashCode(monitor)
+                    && lock.getClassName().equals(monitor.getClass().getName());
+        });
     }
 
     private static int lastIndexOf(List<String> log, String part) {

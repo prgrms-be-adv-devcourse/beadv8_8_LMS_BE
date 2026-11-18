@@ -5,6 +5,9 @@ import static org.awaitility.Awaitility.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.lang.management.LockInfo;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,6 +19,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -236,6 +240,90 @@ class ChatInboundReceiveBudgetTest {
         assertThat(queues(budget)).doesNotContainKey("s-3");
         await().during(Duration.ofMillis(200)).atMost(Duration.ofSeconds(1))
                 .until(() -> !handled.contains("first:late"));
+    }
+
+    /**
+     * 줄을 찾은 뒤 넣기 전에(줄 모니터를 기다리는 동안) 그 줄이 지워져도, 작업은 지워진 줄에 들어가지 않고 새 줄에 들어간다. 같은
+     * 읽기 스레드의 다음 작업도 같은 새 줄에 들어가 줄 비우기가 둘 생기지 않고, 보낸 순서대로 하나씩 처리된다. 세션 종료 정리를 받은
+     * 연결은 정리만 받으므로 이어지는 작업은 서버·클라이언트의 DISCONNECT다.
+     * <p>
+     * 엇갈림은 시험 쪽에서만 만든다: 시험 스레드가 줄 모니터를 쥐어 읽기 스레드를 찾기와 넣기 사이에 세우고(그 모니터에 막혔는지
+     * 스레드 정보로 확인), 모니터를 쥔 채 공용 실행기가 거절한 세션 종료 정리를 이 스레드에서 실행해(모니터 재진입) 줄을 지운다.
+     */
+    @Test
+    void 줄을_찾은_뒤_넣기_전에_줄이_지워져도_줄_비우기가_둘_생기지_않고_순서가_지켜진다() throws Exception {
+        ChatInboundReceiveBudget budget = budget(1, 1, 10, 20);
+        Executor executor = budget.channelExecutor();
+        List<String> handled = new CopyOnWriteArrayList<>();
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger maxInFlight = new AtomicInteger();
+        CountDownLatch firstFrameRelease = new CountDownLatch(1);
+        MessageHandler handler = message -> {
+            maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+            try {
+                String payload = payloadOf(message);
+                if (payload.equals("d1")) {
+                    awaitLatch(firstFrameRelease);
+                }
+                handled.add(payload);
+            } finally {
+                inFlight.decrementAndGet();
+            }
+        };
+        // d2는 다른 처리기의 정리다(같은 처리기면 d1이 시작되기 전에 들어올 때 합쳐진다)
+        MessageHandler otherHandler = handler::handleMessage;
+        // 살아 있는 빈 줄을 만든다(줄 비우기 차례도 내려놓았다)
+        executor.execute(task(frame("s-1", "hello"), handler));
+        Object oldQueue = queues(budget).get("s-1");
+        assertThat(oldQueue).isNotNull();
+        await().atMost(Duration.ofSeconds(5)).until(() -> handled.contains("hello") && !draining(oldQueue));
+        // 처리 스레드가 붙잡히고 공용 대기열(1칸)도 찬다
+        List<String> others = new CopyOnWriteArrayList<>();
+        CountDownLatch blocking = new CountDownLatch(1);
+        executor.execute(task(frame("s-2", "block"), message -> {
+            blocking.countDown();
+            awaitLatch(release);
+        }));
+        assertThat(blocking.await(5, TimeUnit.SECONDS)).isTrue();
+        executor.execute(task(frame("s-3", "queued"), message -> others.add(payloadOf(message))));
+
+        List<Throwable> failures = new CopyOnWriteArrayList<>();
+        Thread read = new Thread(() -> {
+            try {
+                executor.execute(task(disconnect("s-1", "d1"), handler));
+                executor.execute(task(disconnect("s-1", "d2"), otherHandler));
+            } catch (Throwable failure) {
+                failures.add(failure);
+            }
+        });
+        synchronized (oldQueue) {
+            // 읽기 스레드가 그 줄을 찾은 뒤 넣기 직전(줄 모니터)에서 멈춘다
+            read.start();
+            awaitBlockedOn(read, oldQueue);
+            // 그 사이 세션 종료 정리가 들어와 공용 실행기에 거절당하고 이 스레드에서 실행돼 줄을 지운다
+            executor.execute(task(disconnect("s-1", "d0"), handler));
+            assertThat(handled).containsExactly("hello", "d0");
+            assertThat(queues(budget)).doesNotContainKey("s-1");
+            // 공용 실행기에 여유가 생긴 뒤 읽기 스레드를 놓아 준다
+            release.countDown();
+            await().atMost(Duration.ofSeconds(5)).until(() -> others.contains("queued"));
+        }
+
+        // d1은 지워진 줄에 들어가지 않고 새 줄에 들어가 처리 중에 붙잡힌다. d2는 같은 새 줄에서 기다린다
+        await().atMost(Duration.ofSeconds(5)).until(() -> inFlight.get() == 1 && queuedEntries(budget, "s-1") == 1);
+        assertThat(queues(budget).get("s-1")).isNotSameAs(oldQueue);
+        // d1이 붙잡힌 동안 d2는 처리되지 않는다(d2를 비우는 다른 줄 비우기가 없다)
+        await().during(Duration.ofMillis(200)).atMost(Duration.ofSeconds(1)).until(() -> !handled.contains("d2"));
+        firstFrameRelease.countDown();
+        read.join(5_000);
+        await().atMost(Duration.ofSeconds(5)).until(() -> handled.size() == 4);
+
+        assertThat(read.isAlive()).isFalse();
+        assertThat(failures).isEmpty();
+        assertThat(handled).containsExactly("hello", "d0", "d1", "d2");
+        assertThat(maxInFlight.get()).isEqualTo(1);
+        assertThat(meterRegistry.counter(ChatInboundReceiveBudget.CLOSED_SESSION_DROPPED_METRIC).count()).isZero();
+        await().atMost(Duration.ofSeconds(5)).until(() -> !queues(budget).containsKey("s-1"));
     }
 
     /**
@@ -659,6 +747,24 @@ class ChatInboundReceiveBudgetTest {
     private static int queuedEntries(ChatInboundReceiveBudget budget, String sessionId) {
         Object queue = queues(budget).get(sessionId);
         return queue == null ? 0 : ((Collection<?>) ReflectionTestUtils.getField(queue, "entries")).size();
+    }
+
+    /** 줄 비우기 차례를 쥐고 있는지. 줄 모니터 안에서 읽는다 */
+    private static boolean draining(Object queue) {
+        synchronized (queue) {
+            return (boolean) ReflectionTestUtils.getField(queue, "draining");
+        }
+    }
+
+    /** 그 스레드가 이 객체의 모니터를 잡으려고 막혀 있을 때까지 기다린다 */
+    private static void awaitBlockedOn(Thread thread, Object monitor) {
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            ThreadInfo info = ManagementFactory.getThreadMXBean().getThreadInfo(thread.threadId());
+            LockInfo lock = info == null ? null : info.getLockInfo();
+            return info != null && info.getThreadState() == Thread.State.BLOCKED && lock != null
+                    && lock.getIdentityHashCode() == System.identityHashCode(monitor)
+                    && lock.getClassName().equals(monitor.getClass().getName());
+        });
     }
 
     private static ExecutorSubscribableChannel channel(ChatInboundReceiveBudget budget) {
