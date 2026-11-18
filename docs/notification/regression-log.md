@@ -86,6 +86,34 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-121 · 2026-11-18 · 실패 → 재실행 통과 (N17-2 #990 메모리 진단 측정: 1차 NMT 끔, 2차·재측정 NMT 켬)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-121 |
+| 실행 날짜 | 2026-11-18 11:27~13:00 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-990` |
+| 커밋 | `6f7d7d67`(dev) 위 작업 트리 미커밋(문서만). 앱 이미지 `b0.sh setup`으로 빌드, docker `b536871b…`, pod imageID `b8d7843f…`(회차 모두 같음) |
+| 작업 트리 변경 | 코드 없음. decisions ND-212~214, PROGRESS, notification-load |
+| 대상 기능 | auxiliary-app 메모리 영역별 사용과 알림 몫(ND-212·ND-214) |
+| 관련 NT ID | NT-RES-03(판정 아님, 진단) |
+| 명령 | 커밋하지 않은 진단 스크립트로 아래 절차를 실행했다(재현은 이 절차대로). 1차(NMT 끔): `kubectl scale --replicas=1` 뒤 대기 10분 → `loadtest/notification/n15.sh l3 n1721` → `n15.sh l4 n1721`(회차 태그 `rn1721`). 2차(NMT 켬): 같은 순서, 태그 `n1722`. 재측정(NMT 켬, 클래스 기록만 다시): 대기 → `n15.sh l3 n1722b`. 모든 단계에서 Actuator JVM 지표·`kubectl top` 5초 표본. 2차·재측정은 `kubectl set env`로 `JAVA_TOOL_OPTIONS`에 `-XX:NativeMemoryTracking=summary -XX:+UnlockDiagnosticVMOptions -XX:+PrintNMTStatistics -Xlog:class+load=info:file=/tmp/classload.log`를 덧씌우고 시나리오마다 replicas 0으로 내려 종료 요약을 받음. 끝나면 덧씌움 제거·replicas 0 |
+| 실행 환경 | 로컬 Windows(재부팅 뒤, 호스트 여유 4.1~4.8GB), 앱 JVM Temurin 25.0.5(이미지 `eclipse-temurin:25-jre`), Docker Desktop 12 CPU·7.7GiB, B0 cluster `k3d-hapbang-b0` limit 832Mi·`-Xmx256m`. `b0.sh`·`n15.sh`·fixture·manifest 변경 없음. 공식 B0 판정과 무관 |
+| 결과 | 실패(2차의 클래스 로드 기록 수집 1건). 메모리는 진단이라 합격·불합격으로 판정하지 않는다. L3·L4 판정은 모든 회차 통과 |
+| 건수 | **1차(NMT 끔)** 대기·L3 `n15-l3-20261118-113806-rn1721`·L4 `n15-l4-20261118-114517-rn1721`: L3·L4(V0~V8) 판정 통과, 재시작 0. working set 최대 647·631·628Mi(대기는 10분 동안 366→647로 계속 오름), 스레드 151·249·158, 클래스 33,396·35,021·34,261, heap committed 약 222·247·246Mi, JVM nonheap 약 228·258·261Mi(Metaspace 167~177, 코드 캐시 37~61), direct buffer 0.6Mi, GC Serial. GC 직후 Tenured 사용률 55~69%(Tenured committed 최대 약 171Mi 기준 약 94~118Mi). **2차(NMT 켬)** L3 `rn1722`·L4 `rn1722` 판정 통과, 재시작 0. 종료 때 NMT committed 합계 536·610·615MiB(Heap 230·256·255, Metaspace 145·154·153, Class 27~28, Symbol 36~37, Shared 13, Code 60·93·100, NMT 12~14, Thread 3~4(stack 최대 3~4)). working set 최대 557·665·639Mi. **재측정(NMT 켬, 클래스 기록)** 대기·L3 `rn1722b` 판정 통과, 클래스 기록 32,994·35,214줄 |
+| 실패 원인 분류 | F-TEST(측정 도구의 가정 결함): 2차에서 `kubectl cp`가 저장 경로 `C:/…`의 `C:`를 pod 이름으로 읽어 클래스 로드 기록 3회를 받지 못했다(경고로 넘어감). 상대 경로로 고치고 실패 시 멈추게 해 대기·L3만 다시 쟀다(사용자 승인). 2차의 NMT 결과는 유효하다 |
+| 수정 내용 | scratchpad 스크립트만(커밋 대상 아님) |
+| 재실행 결과 | 재측정(대기·L3, NMT 켬) 통과: L3 `n15-l3-20261118-125252-rn1722b` 판정 통과, 클래스 기록 32,994·35,214줄 |
+| 미검증 항목 | 챗봇·검색 기능 첫 호출(운영 #996에서 클래스가 늘어난 원인)은 B0에서 부르지 않았다. heap 안 객체별 사용(히스토그램)은 `jcmd`가 없어 재지 않았다. 1차·2차 working set 차이는 NMT 부담과 시간 증가가 섞여 해석하지 않는다(ND-214) |
+| 관련 변경 | #990 |
+
+**실패 목록**
+
+| 테스트 (클래스#메서드) | NT | 오류 요약 (첫 줄) | 원인 분류 | 근거 | 조치·Issue |
+| --- | --- | --- | --- | --- | --- |
+| 진단 스크립트 2차 클래스 로드 기록 꺼내기(대기·L3·L4) | NT-RES-03(진단) | `kubectl cp` 실패(저장 경로 `C:/…`의 `C:`를 pod 이름으로 읽음) | F-TEST | 2차 상태 기록 WARN 3건, 상대 경로로 바꾼 재측정은 성공 | 상대 경로·실패 시 멈춤으로 고쳐 대기·L3 재측정(사용자 승인) |
+
 #### NR-120 · 2026-11-18 · 통과 (N17-1 #989 PR 리뷰 반영: Error·interrupt 뒤에도 발행 스레드 유지)
 
 | 항목 | 값 |
