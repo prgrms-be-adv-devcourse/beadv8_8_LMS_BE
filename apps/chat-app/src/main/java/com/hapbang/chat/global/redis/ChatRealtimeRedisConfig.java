@@ -14,7 +14,6 @@ import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.connection.MessageListener;
 
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 
 /**
  * 채팅 실시간 경로의 Redis Pub/Sub 구독. 서버 채널(알림 재료·제어·안 읽은 사람 수 변경)은 늘 구독하고, 방 채널은 그 방을 연 로컬 세션이 있을 때만
@@ -27,10 +26,8 @@ import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
  *     <li>Redis가 끊기면 Lettuce가 다시 연결하며 채널을 다시 구독한다. 컨테이너의 구독 재시도 간격은
  *     {@code hapbang.chat.realtime.listener.recovery-interval}이다.</li>
  * </ul>
- * {@link ConditionalOnChatRealtime}(기본 켜짐)일 때만 등록한다. Redis 없이 도는 모듈 테스트는 테스트 설정에서 끈다.
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnChatRealtime
 public class ChatRealtimeRedisConfig {
 
     /** 구독 진입 어댑터 빈 이름. {@code in/redis}의 어댑터가 이 이름으로 등록한다 */

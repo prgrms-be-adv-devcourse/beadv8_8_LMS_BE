@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.port.ChatReadCountPublisher;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.RequiredArgsConstructor;
@@ -16,7 +15,6 @@ import tools.jackson.databind.json.JsonMapper;
  * 자기 구독 단절은 알림 재료 채널이 알린다). 계약: {@code apps/chat-app/docs/contracts/unread-count.md}
  */
 @Component
-@ConditionalOnChatRealtime
 @RequiredArgsConstructor
 public class RedisChatReadCountPublisher implements ChatReadCountPublisher {
 

@@ -14,7 +14,6 @@ import com.hapbang.chat.app.dto.ChatIsolatedJobPage;
 import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.ChatReprocessResult;
 import com.hapbang.chat.global.auth.LoginUserId;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.global.response.RsData;
 
 import lombok.RequiredArgsConstructor;
@@ -24,7 +23,6 @@ import lombok.RequiredArgsConstructor;
  */
 @RestController
 @RequestMapping("/api/v1/chats/admin/delivery-jobs")
-@ConditionalOnChatDeliveryPipeline
 @RequiredArgsConstructor
 public class ApiV1ChatDeliveryAdminController implements ApiV1ChatDeliveryAdminSpec {
 

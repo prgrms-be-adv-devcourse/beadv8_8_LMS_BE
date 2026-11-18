@@ -92,7 +92,9 @@ class ChatUserEventListenerTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+        // 모듈 테스트 설정은 Kafka 리스너 자동 시작과 토픽 선언을 끈다. 이 컨텍스트는 Kafka 컨테이너를 쓰므로 운영처럼 켠다
+        registry.add("spring.kafka.listener.auto-startup", () -> "true");
+        registry.add("spring.kafka.admin.auto-create", () -> "true");
         // trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 모두 남긴다
         registry.add("management.tracing.sampling.probability", () -> "1.0");
     }

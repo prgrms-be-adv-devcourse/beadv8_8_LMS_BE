@@ -15,7 +15,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -33,7 +32,7 @@ import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * 읽기 전용(복제본·failover) Redis에서 PING만으로 재개하지 않는다 (Codex 리뷰). 전용 redis:8 컨테이너를 존재하지 않는
@@ -77,7 +76,7 @@ class RedisReadOnlyRecoveryTest {
         factory.start();
         redis = new StringRedisTemplate(factory);
         queue = new CountingQueue(redis, factory, new ChatRedisKeys("readonly-" + UUID.randomUUID()));
-        availability = new ChatDeliveryAvailability(queue, properties(), noMeterRegistry());
+        availability = new ChatDeliveryAvailability(queue, properties(), new SimpleMeterRegistry());
     }
 
     @AfterEach
@@ -169,7 +168,6 @@ class RedisReadOnlyRecoveryTest {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
-                new ChatDeliveryProperties.Pipeline(true),
                 "test",
                 new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50, Duration.ofSeconds(30), 10, backoff),
                 new ChatDeliveryProperties.Consumer(2, 1, 20, Duration.ofMillis(50), 10, backoff),
@@ -181,10 +179,4 @@ class RedisReadOnlyRecoveryTest {
                 Duration.ofSeconds(10));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> noMeterRegistry() {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }

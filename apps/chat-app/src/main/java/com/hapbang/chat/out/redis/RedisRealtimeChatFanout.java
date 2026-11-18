@@ -8,7 +8,6 @@ import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.RealtimeChatFanout;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import lombok.RequiredArgsConstructor;
@@ -30,7 +29,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Slf4j
 @Component
-@ConditionalOnChatRealtime
 @RequiredArgsConstructor
 public class RedisRealtimeChatFanout implements RealtimeChatFanout {
 

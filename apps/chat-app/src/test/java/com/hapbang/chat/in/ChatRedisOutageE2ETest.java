@@ -73,8 +73,6 @@ import jakarta.persistence.EntityManager;
                 "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
                 "hapbang.scheduling.enabled=true",
                 // 장애 중 relay 시도가 상한(DEAD)에 닿지 않고 복구 뒤 곧 다시 시도하도록 backoff를 줄인다
                 "hapbang.chat.delivery.relay.backoff.initial=200ms",

@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.port.ChatLogoutMarkers;
 import com.hapbang.chat.app.port.ChatPresence;
 import com.hapbang.chat.app.port.LocalChatConnections;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;
@@ -29,7 +28,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatRealtime
 @ConditionalOnSchedulingEnabled
 @RequiredArgsConstructor
 class ChatPresenceHeartbeat {

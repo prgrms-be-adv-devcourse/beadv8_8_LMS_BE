@@ -3,7 +3,6 @@ package com.hapbang.chat.out.appearance;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,8 +21,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 출연 내부 API HTTP Interface({@link ChatAppearanceInternalApi}) 프록시. {@code hapbang.clients.appearance.base-url}이 있을 때만
- * 만든다. 회원 내부 API 프록시({@code ChatMemberApiConfig})와 같은 방식이다.
+ * 출연 내부 API HTTP Interface({@link ChatAppearanceInternalApi}) 프록시. 주소는 {@code hapbang.clients.appearance.base-url}이다.
+ * 회원 내부 API 프록시({@code ChatMemberApiConfig})와 같은 방식이다.
  * <ul>
  *     <li>모든 요청에 내부 API 키 헤더({@link InternalApiHeaders#API_KEY}, 값 {@code hapbang.internal-api.key})를 붙인다.</li>
  *     <li>오류 상태는 여기서 {@link ChatRecruitSourceException}으로 바꾼다: 404는 모집글 없음(NOT_FOUND), 그 밖의 4xx는
@@ -32,7 +31,6 @@ import tools.jackson.databind.json.JsonMapper;
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "hapbang.clients.appearance", name = "base-url")
 @EnableConfigurationProperties(ChatAppearanceApiProperties.class)
 public class ChatAppearanceApiConfig {
 

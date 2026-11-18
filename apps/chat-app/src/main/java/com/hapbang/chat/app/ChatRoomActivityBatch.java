@@ -3,14 +3,12 @@ package com.hapbang.chat.app;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;
 
 // 새 메시지 알림 묶음을 주기마다 보낸다(설계 Q15). 처리는 ChatRoomActivityNotifier가 한다.
 @Component
-@ConditionalOnChatRealtime
 @ConditionalOnSchedulingEnabled
 @RequiredArgsConstructor
 class ChatRoomActivityBatch {

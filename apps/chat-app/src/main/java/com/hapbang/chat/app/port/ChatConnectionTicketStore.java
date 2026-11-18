@@ -7,7 +7,7 @@ import com.hapbang.chat.app.dto.ChatConnectionTicket;
 
 /**
  * 웹소켓 연결 티켓(일회용) 저장소(설계 문서 6장). 티켓 원문을 저장 키로 쓰지 않는 것, 꺼내면서 지우는 원자성, 만료는 구현이 맡는다.
- * Redis가 없는 실행(실시간 전달을 끈 테스트)에는 빈이 없다. 실패는 예외로 알린다.
+ * 실패는 예외로 알린다.
  */
 public interface ChatConnectionTicketStore {
 

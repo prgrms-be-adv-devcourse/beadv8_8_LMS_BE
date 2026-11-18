@@ -7,7 +7,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
-import com.hapbang.chat.app.port.RealtimeChatFanout;
 
 /**
  * 전달 파이프라인(outbox relay → Stream 소비·회수·재구성·정리) 설정 ({@code hapbang.chat.delivery.*}).
@@ -17,7 +16,6 @@ import com.hapbang.chat.app.port.RealtimeChatFanout;
  * 기본값은 이 클래스의 {@code @DefaultValue}가 원본이다(application.yaml에 두지 않는다). 환경별로 바꿀 때만 yaml·환경 변수로
  * 덮는다(예: {@code HAPBANG_CHAT_DELIVERY_RELAY_BATCH_SIZE=100}).
  *
- * @param pipeline    파이프라인 실행 여부
  * @param instanceId  consumer 이름의 앞부분(실행 인스턴스 식별자). 비우면 {@code HOSTNAME} 환경 변수, 없으면 {@code chat-app}
  * @param relay       DB outbox → Stream 적재
  * @param consumer    Stream 새 작업 소비와 Pub/Sub 발행 재시도
@@ -29,7 +27,6 @@ import com.hapbang.chat.app.port.RealtimeChatFanout;
  */
 @ConfigurationProperties("hapbang.chat.delivery")
 public record ChatDeliveryProperties(
-        @DefaultValue Pipeline pipeline,
         String instanceId,
         @DefaultValue Relay relay,
         @DefaultValue Consumer consumer,
@@ -40,8 +37,6 @@ public record ChatDeliveryProperties(
         @DefaultValue("10s") Duration shutdownAwait
 ) {
 
-    public static final String PIPELINE_ENABLED = "hapbang.chat.delivery.pipeline.enabled";
-
     /** 실제 consumer 이름에 쓸 인스턴스 식별자 */
     public String resolvedInstanceId() {
         if (StringUtils.hasText(instanceId)) {
@@ -49,13 +44,6 @@ public record ChatDeliveryProperties(
         }
         String hostname = System.getenv("HOSTNAME");
         return StringUtils.hasText(hostname) ? hostname : "chat-app";
-    }
-
-    /**
-     * @param enabled relay·worker·회수·재구성·정리를 실행한다. 운영 {@link RealtimeChatFanout} 구현과 합친 통합에서 기본을
-     *                켰다. 속성이 없으면 켠 것으로 본다({@code ConditionalOnChatDeliveryPipeline}과 같다)
-     */
-    public record Pipeline(@DefaultValue("true") boolean enabled) {
     }
 
     /**

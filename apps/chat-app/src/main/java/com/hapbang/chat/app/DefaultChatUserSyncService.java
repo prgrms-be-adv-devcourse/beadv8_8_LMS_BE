@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -37,14 +36,13 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
     private final ChatUserUseCase chatUserUseCase;
     private final ChatConnectionControl chatConnectionControl;
     private final ChatGroupRoomService chatGroupRoomService;
-    /** 실시간 전달을 끈 실행에는 없다(Redis) */
-    private final ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers;
+    private final ChatLogoutMarkers chatLogoutMarkers;
     private final TransactionTemplate backfillTransaction;
     private final TransactionTemplate logoutTransaction;
     private final int backfillMaxAttempts;
 
     public DefaultChatUserSyncService(ChatUserUseCase chatUserUseCase, ChatConnectionControl chatConnectionControl,
-            ChatGroupRoomService chatGroupRoomService, ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers,
+            ChatGroupRoomService chatGroupRoomService, ChatLogoutMarkers chatLogoutMarkers,
             PlatformTransactionManager transactionManager, ChatUserBackfillProperties backfillProperties) {
         this.chatUserUseCase = chatUserUseCase;
         this.chatConnectionControl = chatConnectionControl;
@@ -113,12 +111,8 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
         }
         Instant cutoff = logoutCutoff(userId, loggedOutAt, Instant.now()).truncatedTo(ChronoUnit.MILLIS);
         logoutTransaction.executeWithoutResult(status -> chatConnectionControl.requestLogout(userId, cutoff));
-        ChatLogoutMarkers markers = chatLogoutMarkers.getIfAvailable();
-        if (markers == null) {
-            return;
-        }
         try {
-            markers.markLoggedOut(userId, cutoff);
+            chatLogoutMarkers.markLoggedOut(userId, cutoff);
         } catch (RuntimeException exception) {
             log.warn("로그아웃 표식을 남기지 못함. 제어 경로와 연결 만료가 닫는다 userId={}", userId, exception);
         }

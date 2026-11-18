@@ -15,7 +15,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -58,7 +57,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
     private ChatOutboxStore outboxStore;
 
     @Autowired
-    private ObjectProvider<MeterRegistry> meterRegistry;
+    private MeterRegistry meterRegistry;
 
     @Test
     void 회수로_넘어간_작업을_멈췄던_옛_worker가_늦게_처리해도_다시_발행하지_않는다() {
@@ -222,8 +221,7 @@ class ChatStreamRaceTest extends ChatDeliveryTestSupport {
 
     @Test
     void 구독자_0명은_발행_실패와_별도의_지표로_남는다() {
-        MeterRegistry registry = meterRegistry.getIfAvailable();
-        assertThat(registry).isNotNull();
+        MeterRegistry registry = meterRegistry;
         double before = zeroSubscriberCount(registry);
         UUID deliveryId = send("구독 단절 중");
         relayAll(ChatJobStream.DELIVERY);

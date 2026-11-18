@@ -21,7 +21,6 @@ import com.hapbang.chat.app.port.ChatDeliveryUnavailableException;
 import com.hapbang.chat.app.port.OutboxJob;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +42,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnChatDeliveryPipeline
 @RequiredArgsConstructor
 public class ChatStreamReconstructor {
 

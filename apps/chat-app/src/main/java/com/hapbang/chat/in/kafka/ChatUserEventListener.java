@@ -3,7 +3,6 @@ package com.hapbang.chat.in.kafka;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -43,7 +42,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
 @KafkaListener(id = "chat-member-events", idIsGroup = false, topics = "#{__listener.topic}",
         groupId = "#{__listener.groupId}", containerFactory = ChatKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY)
 public class ChatUserEventListener {

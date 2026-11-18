@@ -86,9 +86,6 @@ class ChatRealtimeDeliveryE2ETest {
 
     @DynamicPropertySource
     static void realtimeProperties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.realtime.enabled", () -> "true");
-        // 이 테스트는 구독자만 검증한다. 발행은 테스트가 직접 하므로 outbox 파이프라인은 끈다
-        registry.add("hapbang.chat.delivery.pipeline.enabled", () -> "false");
         registry.add("hapbang.chat.redis.namespace", () -> NAMESPACE);
         // 방 채널 해제를 바로 확인한다
         registry.add("hapbang.chat.realtime.room.channel-grace", () -> "0s");

@@ -14,7 +14,6 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.QueryTimeoutException;
 
 import com.hapbang.chat.app.LocalRoomSubscriptions.Subscription;
@@ -30,7 +29,6 @@ import com.hapbang.chat.app.port.LocalChatConnections;
 import com.hapbang.chat.app.port.LocalChatSender.RoomTarget;
 import com.hapbang.chat.app.port.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.port.LocalChatSender;
-import com.hapbang.chat.app.port.RoomChannelSubscriptions;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.out.cache.CachedChatRoomMemberships;
@@ -49,8 +47,7 @@ class DefaultChatFanoutDeliveryServiceTest {
     private final ChatRoomMembershipLoader loader = mock(ChatRoomMembershipLoader.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     @SuppressWarnings("unchecked")
-    private final ObjectProvider<RoomChannelSubscriptions> noChannels = mock(ObjectProvider.class);
-    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels, 20);
+    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(new AcceptingRoomChannels(), 20);
     private final ChatRoomMemberships cache = new CachedChatRoomMemberships(loader, new SimpleMeterRegistry(), 100,
             Duration.ofHours(1));
     private final DefaultChatFanoutDeliveryService service = new DefaultChatFanoutDeliveryService(connections,

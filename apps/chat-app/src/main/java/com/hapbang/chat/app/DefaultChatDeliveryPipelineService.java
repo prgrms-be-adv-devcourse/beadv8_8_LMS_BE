@@ -4,7 +4,6 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import lombok.RequiredArgsConstructor;
 
@@ -12,7 +11,6 @@ import lombok.RequiredArgsConstructor;
  * {@link ChatDeliveryPipelineService} 구현. 각 작업을 그 일을 맡은 app 조정 서비스와 큐 계약에 그대로 넘긴다.
  */
 @Service
-@ConditionalOnChatDeliveryPipeline
 @RequiredArgsConstructor
 public class DefaultChatDeliveryPipelineService implements ChatDeliveryPipelineService {
 

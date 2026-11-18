@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -43,7 +42,7 @@ public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier
     private final ChatRoomMemberships chatRoomMemberships;
     private final LocalChatConnections localChatConnections;
     private final LocalRoomSubscriptions localRoomSubscriptions;
-    private final ObjectProvider<ChatPresence> chatPresence;
+    private final ChatPresence chatPresence;
     private final LocalChatSender localChatSender;
     private final int maxEntriesPerRoom;
     private final Map<Long, Batch> batches = new ConcurrentHashMap<>();
@@ -51,7 +50,7 @@ public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier
     /** 한 묶음에 기억하는 메시지 수 상한(1000)은 미확정 초기값(Q12)이다. 넘으면 오래된 것부터 세지 않는다 */
     public DefaultChatRoomActivityNotifier(ChatRoomMemberships chatRoomMemberships,
             LocalChatConnections localChatConnections, LocalRoomSubscriptions localRoomSubscriptions,
-            ObjectProvider<ChatPresence> chatPresence, LocalChatSender localChatSender,
+            ChatPresence chatPresence, LocalChatSender localChatSender,
             @Value("${hapbang.chat.realtime.activity.max-messages-per-batch:1000}") int maxEntriesPerRoom) {
         Assert.isTrue(maxEntriesPerRoom > 0, "hapbang.chat.realtime.activity.max-messages-per-batch는 1 이상이어야 합니다.");
         this.chatRoomMemberships = chatRoomMemberships;
@@ -109,8 +108,7 @@ public class DefaultChatRoomActivityNotifier implements ChatRoomActivityNotifier
         if (local.isEmpty()) {
             return;
         }
-        ChatPresence presence = chatPresence.getIfAvailable();
-        Set<Long> online = presence == null ? local : presence.onlineAmong(local);
+        Set<Long> online = chatPresence.onlineAmong(local);
         Set<String> subscribed = localRoomSubscriptions.subscribedSessions(roomId);
         for (Long userId : online) {
             ChatRecipientState state = candidates.get(userId);

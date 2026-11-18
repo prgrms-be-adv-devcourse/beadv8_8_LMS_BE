@@ -30,7 +30,7 @@ import com.hapbang.testsupport.IntegrationTest;
 import jakarta.persistence.EntityManager;
 
 /**
- * 전달 파이프라인 통합 테스트 공통. 파이프라인을 켜고(배치 실행은 끈 채) 처리 빈을 직접 부른다.
+ * 전달 파이프라인 통합 테스트 공통. 배치 실행은 끈 채(파이프라인 실행기가 돌지 않는다) 처리 빈을 직접 부른다.
  * <ul>
  *     <li>Redis는 공용 컨테이너를 쓰고, 테스트 클래스마다 고유한 namespace({@link #uniqueNamespace})를 둔다.
  *     테스트마다 자기 namespace의 Stream 키만 지운다. 전역 초기화(FLUSHALL·FLUSHDB)는 하지 않는다.</li>
@@ -40,7 +40,6 @@ import jakarta.persistence.EntityManager;
 @IntegrationTest
 @Import(ChatDeliveryTestConfig.class)
 @TestPropertySource(properties = {
-        "hapbang.chat.delivery.pipeline.enabled=true",
         "hapbang.chat.delivery.instance-id=test",
         "hapbang.chat.delivery.relay.max-attempts=2",
         "hapbang.chat.delivery.relay.backoff.initial=1ms",

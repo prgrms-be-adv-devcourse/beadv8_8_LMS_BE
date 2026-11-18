@@ -7,7 +7,6 @@ import static org.mockito.Mockito.*;
 import java.time.Duration;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
@@ -17,7 +16,6 @@ import com.hapbang.chat.app.port.ChatDeliveryBackpressureException;
 import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
@@ -30,7 +28,7 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
 
     private final ChatDeliveryQueue queue = mock(ChatDeliveryQueue.class);
     private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue, properties(),
-            noMeterRegistry());
+            new SimpleMeterRegistry());
 
     @Test
     void 늦게_끝난_비재확인_발행이_다른_호출의_시험_발행_권한을_지우지_않는다() {
@@ -98,7 +96,7 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
     @Test
     void 잠정적으로_다시_연_큐가_발행에_성공하면_이후의_별도_단절은_새_장애로_시작한다() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        ChatDeliveryAvailability counted = new ChatDeliveryAvailability(queue, properties(), meterRegistry(registry));
+        ChatDeliveryAvailability counted = new ChatDeliveryAvailability(queue, properties(), registry);
         // 첫 단절 → 재확인 시각에 시험 발행할 작업이 없어 잠정적으로 다시 연다(재확인 실패 0회)
         counted.noSubscriber(counted.tryAcquirePublish(ChatJobStream.CONTROL));
         await().pollDelay(PROBE_INITIAL.plusMillis(10)).atMost(Duration.ofSeconds(1)).until(() -> true);
@@ -131,12 +129,6 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
         return counter == null ? 0 : counter.count();
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> meterRegistry(MeterRegistry registry) {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(registry);
-        return provider;
-    }
 
     private PublishPermit awaitPublishProbe() {
         return awaitPublishProbe(ChatJobStream.DELIVERY);
@@ -174,7 +166,6 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
-                new ChatDeliveryProperties.Pipeline(true),
                 "test",
                 new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50, Duration.ofSeconds(30), 10, backoff),
                 new ChatDeliveryProperties.Consumer(2, 1, 20, Duration.ofMillis(50), 10, backoff),
@@ -186,10 +177,4 @@ class ChatDeliveryAvailabilityProbeOwnershipTest {
                 Duration.ofSeconds(10));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> noMeterRegistry() {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }

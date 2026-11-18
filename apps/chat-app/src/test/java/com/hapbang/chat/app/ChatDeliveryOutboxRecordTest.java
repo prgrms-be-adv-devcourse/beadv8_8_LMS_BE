@@ -11,7 +11,6 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,7 +19,6 @@ import com.hapbang.chat.app.dto.ChatJobStream;
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
-import com.hapbang.chat.app.port.ChatDeliveryQueue;
 import com.hapbang.chat.app.port.ChatMessageRepository;
 import com.hapbang.chat.app.port.ChatOutboxRepository;
 import com.hapbang.chat.app.port.ChatRecipientSetMemberRepository;
@@ -39,7 +37,6 @@ import com.hapbang.chat.domain.ChatRecipientSetMember;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
-import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 import com.hapbang.chat.support.ChatMessageTestRepository;
 import com.hapbang.chat.support.ChatOutboxTestRepository;
 import com.hapbang.chat.support.ChatPublishCheckpointTestRepository;
@@ -103,9 +100,6 @@ class ChatDeliveryOutboxRecordTest {
 
     @Autowired
     private ChatMessageTestRepository chatMessageTestRepository;
-
-    @Autowired
-    private ApplicationContext context;
 
     private Long chatRoomId;
 
@@ -311,14 +305,6 @@ class ChatDeliveryOutboxRecordTest {
                         select set_version from chats.chat_recipient_set where chat_room_id = :id order by set_version
                         """, Integer.class, Map.of("id", chatRoomId));
         assertThat(versions).containsExactly(1, 2, 3);
-    }
-
-    @Test
-    void 파이프라인을_켜지_않으면_relay_큐_실행기_빈을_만들지_않는다() {
-        assertThat(context.getBeanNamesForType(ChatOutboxRelay.class)).isEmpty();
-        assertThat(context.getBeanNamesForType(ChatStreamJobProcessor.class)).isEmpty();
-        assertThat(context.getBeanNamesForType(ChatDeliveryQueue.class)).isEmpty();
-        assertThat(context.getBeanNamesForType(ChatDeliveryPipelineRunner.class)).isEmpty();
     }
 
     /** 수신자 집합에 든 회원 ID(회원 ID 순) */

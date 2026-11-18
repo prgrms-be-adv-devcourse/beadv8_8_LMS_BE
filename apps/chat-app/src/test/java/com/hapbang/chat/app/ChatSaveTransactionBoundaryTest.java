@@ -21,10 +21,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.chat.app.port.ChatReadCountPublisher;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
@@ -40,7 +42,9 @@ import com.hapbang.testsupport.IntegrationTest;
  *     <li>메시지 전송은 방 잠금 → 발신자 참여 행 하나 → 자격 → 저장·outbox만 한다. 방 단위 참여 조회는 집계도 하지 않는다.</li>
  *     <li>채팅 시작의 방 응답(참여자·닉네임·마지막 메시지·안 읽은 수)은 저장 트랜잭션이 끝난 뒤 별도 읽기 전용 트랜잭션에서 만든다.
  *     Facade는 트랜잭션을 열지 않으므로 재시도마다 UseCase 프록시가 새 저장 트랜잭션을 연다.</li>
- *     <li>저장 중에 STOMP 전송·Redis 호출이 없다(외부 I/O는 커밋 뒤 relay·consumer·구독자가 한다).</li>
+ *     <li>저장 중에 STOMP 전송·Redis 호출이 없다(외부 I/O는 커밋 뒤 relay·consumer·구독자가 한다). 커밋 뒤 별도 실행기에서 내는
+ *     안 읽은 사람 수 변경 신호({@code ChatReadCountSignals}, 커밋 뒤에만 내는 것은 그 단위 테스트가 확인한다)는 이 시험의 대상이
+ *     아니라 발행 port를 대역으로 둔다. 그래서 Redis 호출 확인은 저장 경로만 본다.</li>
  * </ul>
  */
 @IntegrationTest
@@ -79,6 +83,9 @@ class ChatSaveTransactionBoundaryTest {
 
     @MockitoSpyBean
     private StringRedisTemplate stringRedisTemplate;
+
+    @MockitoBean
+    private ChatReadCountPublisher chatReadCountPublisher;
 
     private Long chatRoomId;
 

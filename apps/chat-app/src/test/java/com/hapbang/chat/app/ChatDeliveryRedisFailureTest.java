@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -56,7 +57,6 @@ import jakarta.persistence.EntityManager;
 @DirtiesContext
 @Import(ChatDeliveryRedisFailureTest.FanoutConfig.class)
 @TestPropertySource(properties = {
-        "hapbang.chat.delivery.pipeline.enabled=true",
         "hapbang.chat.delivery.instance-id=test",
         "hapbang.chat.delivery.relay.max-attempts=5",
         "hapbang.chat.delivery.relay.backoff.initial=1ms",
@@ -91,6 +91,7 @@ class ChatDeliveryRedisFailureTest {
     static class FanoutConfig {
 
         @Bean
+        @Primary
         InMemoryRealtimeChatFanout inMemoryRealtimeChatFanout() {
             return new InMemoryRealtimeChatFanout();
         }

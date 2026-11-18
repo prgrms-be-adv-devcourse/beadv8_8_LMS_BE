@@ -10,13 +10,12 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
 import org.springframework.boot.kafka.autoconfigure.metrics.KafkaMetricsAutoConfiguration;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.kafka.config.AbstractKafkaListenerContainerFactory;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -39,8 +38,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * Kafka 소비 설정은 설정 클래스와 상수({@link ChatKafkaConstants})로만 정하고, 설정 키는 소비를 켜고 끄는 {@code enabled} 둘뿐이다.
- * 소비자는 설정이 없으면 켜지고 소비자마다 따로 끈다. 브로커에 연결하지 않도록 토픽 자동 생성은 끈다.
+ * Kafka 소비 설정은 설정 클래스와 상수({@link ChatKafkaConstants})로만 정하고 chat 전용 설정 키를 두지 않는다. 두 소비자의 빈은 늘
+ * 만든다. 리스너 자동 시작은 Spring Boot 표준 키({@code spring.kafka.listener.auto-startup})를 따른다. 브로커에 연결하지 않도록 토픽
+ * 자동 생성은 끈다.
  */
 class ChatKafkaConfigTest {
 
@@ -165,10 +165,9 @@ class ChatKafkaConfigTest {
 
     @Test
     void 두_소비자를_함께_켜면_리스너가_각자의_토픽과_그룹과_컨테이너_팩토리를_쓴다() {
-        // 리스너 컨테이너를 만들기만 하고 시작하지 않는다. spring.kafka.listener.auto-startup은 Boot의 기본 팩토리에만
-        // 적용되므로 chat-app 팩토리에 직접 끈다. 로컬 Kafka가 떠 있어도 운영 토픽·그룹에 붙지 않도록 주소도 쓰지 않는 곳으로 둔다
-        runner.withPropertyValues("spring.kafka.bootstrap-servers=127.0.0.1:9")
-                .withBean("noListenerAutoStartup", BeanPostProcessor.class, ChatKafkaConfigTest::noListenerAutoStartup)
+        // 리스너 컨테이너를 만들기만 하고 시작하지 않는다(chat-app 팩토리도 spring.kafka.listener.auto-startup을 따른다).
+        // 로컬 Kafka가 떠 있어도 운영 토픽·그룹에 붙지 않도록 주소도 쓰지 않는 곳으로 둔다
+        runner.withPropertyValues("spring.kafka.bootstrap-servers=127.0.0.1:9", "spring.kafka.listener.auto-startup=false")
                 .withBean(ChatUserFacade.class, () -> mock(ChatUserFacade.class))
                 .withBean(ChatNotificationFacade.class, () -> mock(ChatNotificationFacade.class))
                 .withBean(StompLocalChatSender.class, () -> mock(StompLocalChatSender.class))
@@ -210,49 +209,39 @@ class ChatKafkaConfigTest {
     }
 
     @Test
-    void 회원_이벤트_소비를_끄면_그_소비자의_빈만_만들지_않고_Boot_기본_Kafka_빈은_그대로다() {
-        runner.withPropertyValues(ChatKafkaConstants.MEMBER_EVENTS_ENABLED + "=false").run(context -> {
+    void chat_Kafka_빈은_Boot_기본_Kafka_빈을_물러나게_하지_않고_오류_처리기는_기본_후보가_아니다() {
+        runner.run(context -> {
             assertThat(context).hasNotFailed()
-                    .doesNotHaveBean(ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
-                    .doesNotHaveBean(ChatKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY)
-                    .doesNotHaveBean(ChatKafkaErrorHandlerConfig.MEMBER_EVENT_ERROR_HANDLER)
-                    .doesNotHaveBean("chatMemberEventDeadLetterTopic")
-                    .doesNotHaveBean(ChatMemberEventTopicVerifier.class)
-                    .hasBean(ChatKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY)
                     .hasBean("kafkaTemplate")
                     .hasBean("kafkaConsumerFactory")
                     .hasBean("kafkaProducerFactory");
-            // 오류 처리기가 하나뿐이어도 기본 후보가 아니라 Boot의 기본 리스너 컨테이너 팩토리가 가져가지 않는다
+            for (String name : new String[] {ChatKafkaErrorHandlerConfig.MEMBER_EVENT_ERROR_HANDLER,
+                    ChatKafkaErrorHandlerConfig.APPEARANCE_EVENT_ERROR_HANDLER}) {
+                assertThat(((AbstractBeanDefinition) context.getBeanFactory().getBeanDefinition(name)).isDefaultCandidate())
+                        .isFalse();
+            }
             assertThat(ReflectionTestUtils.getField(context.getBean("kafkaListenerContainerFactory"),
                     "commonErrorHandler")).isNull();
         });
     }
 
     @Test
-    void 출연_이벤트_소비를_끄면_그_소비자의_빈만_만들지_않는다() {
-        runner.withPropertyValues(ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED + "=false").run(context ->
-                assertThat(context).hasNotFailed()
-                        .doesNotHaveBean(ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS)
-                        .doesNotHaveBean(ChatKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY)
-                        .doesNotHaveBean(ChatKafkaErrorHandlerConfig.APPEARANCE_EVENT_ERROR_HANDLER)
-                        .doesNotHaveBean("chatAppearanceEventDeadLetterTopic")
-                        .hasBean(ChatKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY)
-                        .hasSingleBean(ChatMemberEventTopicVerifier.class));
+    void 리스너_자동_시작은_Spring_Boot_표준_키를_따르고_없으면_켜진다() {
+        runner.run(context -> {
+            for (String name : new String[] {ChatKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY,
+                    ChatKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY}) {
+                assertThat(ReflectionTestUtils.getField(context.getBean(name), "autoStartup")).isEqualTo(true);
+            }
+        });
+        runner.withPropertyValues("spring.kafka.listener.auto-startup=false").run(context -> {
+            for (String name : new String[] {ChatKafkaConfig.MEMBER_EVENT_CONTAINER_FACTORY,
+                    ChatKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY}) {
+                assertThat(ReflectionTestUtils.getField(context.getBean(name), "autoStartup")).isEqualTo(false);
+            }
+        });
     }
 
     /** 모든 리스너 컨테이너 팩토리가 컨테이너를 자동으로 시작하지 않게 한다(시험 전용) */
-    private static BeanPostProcessor noListenerAutoStartup() {
-        return new BeanPostProcessor() {
-            @Override
-            public Object postProcessBeforeInitialization(Object bean, String beanName) {
-                if (bean instanceof AbstractKafkaListenerContainerFactory<?, ?, ?> factory) {
-                    factory.setAutoStartup(false);
-                }
-                return bean;
-            }
-        };
-    }
-
     private static ChatKafkaConsumerSettings settings(AssertableApplicationContext context, String name) {
         return context.getBean(name, ChatKafkaConsumerSettings.class);
     }

@@ -11,7 +11,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -28,7 +27,7 @@ class ChatReadCountSignalsTest {
     private static final long TIMEOUT_MILLIS = 2_000;
 
     private final ChatReadCountPublisher publisher = mock(ChatReadCountPublisher.class);
-    private final ChatReadCountSignals signals = new ChatReadCountSignals(provider(publisher), new ThreadPoolTaskExecutorBuilder(), 1, 1);
+    private final ChatReadCountSignals signals = new ChatReadCountSignals(publisher, new ThreadPoolTaskExecutorBuilder(), 1, 1);
 
     @AfterEach
     void tearDown() {
@@ -111,20 +110,9 @@ class ChatReadCountSignalsTest {
     }
 
     @Test
-    void 발행_빈이_없으면_아무것도_하지_않는다() {
-        ChatReadCountSignals disabled = new ChatReadCountSignals(provider(null), new ThreadPoolTaskExecutorBuilder(), 1, 1);
-        TransactionSynchronizationManager.initSynchronization();
-
-        disabled.readChanged(10L);
-
-        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
-        disabled.destroy();
-    }
-
-    @Test
     void 실행기는_Boot_builder의_task_decorator를_거쳐_신호를_넘긴_스레드의_trace를_이어받는다() {
         AtomicInteger decorated = new AtomicInteger();
-        ChatReadCountSignals decoratedSignals = new ChatReadCountSignals(provider(publisher),
+        ChatReadCountSignals decoratedSignals = new ChatReadCountSignals(publisher,
                 new ThreadPoolTaskExecutorBuilder().taskDecorator(task -> {
                     decorated.incrementAndGet();
                     return task;
@@ -139,9 +127,9 @@ class ChatReadCountSignalsTest {
 
     @Test
     void 실행기_수치는_1_이상이어야_한다() {
-        assertThatThrownBy(() -> new ChatReadCountSignals(provider(publisher), new ThreadPoolTaskExecutorBuilder(), 0, 1))
+        assertThatThrownBy(() -> new ChatReadCountSignals(publisher, new ThreadPoolTaskExecutorBuilder(), 0, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ChatReadCountSignals(provider(publisher), new ThreadPoolTaskExecutorBuilder(), 1, 0))
+        assertThatThrownBy(() -> new ChatReadCountSignals(publisher, new ThreadPoolTaskExecutorBuilder(), 1, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -154,10 +142,4 @@ class ChatReadCountSignalsTest {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<ChatReadCountPublisher> provider(ChatReadCountPublisher publisher) {
-        ObjectProvider<ChatReadCountPublisher> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(publisher);
-        return provider;
-    }
 }

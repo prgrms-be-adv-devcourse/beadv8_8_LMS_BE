@@ -106,7 +106,9 @@ class ChatUserBackfillKafkaRaceTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+        // 모듈 테스트 설정은 Kafka 리스너 자동 시작과 토픽 선언을 끈다. 이 컨텍스트는 Kafka 컨테이너를 쓰므로 운영처럼 켠다
+        registry.add("spring.kafka.listener.auto-startup", () -> "true");
+        registry.add("spring.kafka.admin.auto-create", () -> "true");
         registry.add("hapbang.clients.member.base-url", () -> "http://127.0.0.1:" + SERVER.getAddress().getPort());
         // 페이지 응답 직전에 Kafka 반영을 기다리므로 응답 제한 시간을 넉넉히 둔다
         registry.add("hapbang.clients.member.read-timeout", () -> "40s");

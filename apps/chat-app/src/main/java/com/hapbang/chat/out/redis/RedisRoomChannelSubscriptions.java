@@ -27,7 +27,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
 import com.hapbang.chat.app.port.RoomChannelSubscriptions;
-import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.global.redis.ChatRealtimeRedisConfig;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
@@ -58,7 +57,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatRealtime
 public class RedisRoomChannelSubscriptions implements RoomChannelSubscriptions, SmartLifecycle, DisposableBean {
 
     /** 구독 중인 방 채널 수 게이지 */

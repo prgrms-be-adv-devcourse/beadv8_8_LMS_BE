@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
@@ -26,7 +25,6 @@ import com.hapbang.chat.app.port.ReclaimedJobs;
 import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +47,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@ConditionalOnChatDeliveryPipeline
 public class ChatStreamJobProcessor {
 
     /** 회수 한 번에 cursor를 이어 갈 최대 횟수. 본문 없는 항목만 계속 나와도 끝나게 한다 */
@@ -68,7 +65,7 @@ public class ChatStreamJobProcessor {
     public ChatStreamJobProcessor(ChatDeliveryQueue chatDeliveryQueue, ChatPublishCheckpointStore checkpointStore,
             ChatFanoutPayloadLoader payloadLoader, RealtimeChatFanout realtimeChatFanout,
             ChatStreamReconstructor reconstructor, ChatDeliveryProperties properties,
-            ChatDeliveryAvailability availability, ObjectProvider<MeterRegistry> meterRegistry) {
+            ChatDeliveryAvailability availability, MeterRegistry meterRegistry) {
         this.chatDeliveryQueue = chatDeliveryQueue;
         this.checkpointStore = checkpointStore;
         this.payloadLoader = payloadLoader;
@@ -76,7 +73,7 @@ public class ChatStreamJobProcessor {
         this.reconstructor = reconstructor;
         this.properties = properties;
         this.availability = availability;
-        this.meterRegistry = meterRegistry.getIfAvailable();
+        this.meterRegistry = meterRegistry;
     }
 
     /** 항목 하나를 처리한 결과 */
@@ -427,8 +424,6 @@ public class ChatStreamJobProcessor {
     }
 
     private void count(String name, ChatJobStream stream, int amount) {
-        if (meterRegistry != null) {
-            meterRegistry.counter(name, "stream", stream.name()).increment(amount);
-        }
+        meterRegistry.counter(name, "stream", stream.name()).increment(amount);
     }
 }

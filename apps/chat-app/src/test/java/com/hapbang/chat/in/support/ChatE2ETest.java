@@ -40,10 +40,8 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 // 웹소켓 허용 출처 검사용 프론트 출처
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                // 운영과 같은 실시간 전달 경로
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
-                // 전달 파이프라인의 relay·Stream worker는 배치 실행이 켜져 있어야 돈다(@ConditionalOnSchedulingEnabled)
+                // 운영과 같은 실시간 전달 경로. 전달 파이프라인의 relay·Stream worker는 배치 실행이 켜져 있어야 돈다
+                // (@ConditionalOnSchedulingEnabled)
                 "hapbang.scheduling.enabled=true",
                 // 컨텍스트마다 다른 namespace로 Stream·채널을 나눈다(클래스마다 컨텍스트를 닫으므로 클래스마다 다르다)
                 "hapbang.chat.redis.namespace=test-chat-e2e-${random.uuid}",

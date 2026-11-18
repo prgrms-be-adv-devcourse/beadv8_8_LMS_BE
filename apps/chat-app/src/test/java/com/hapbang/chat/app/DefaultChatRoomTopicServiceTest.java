@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.QueryTimeoutException;
 
 import com.hapbang.chat.app.ChatRecipientStateReader.SubscriptionCheck;
@@ -28,7 +27,7 @@ class DefaultChatRoomTopicServiceTest {
     private final LocalChatConnections connections = mock(LocalChatConnections.class);
     private final LocalChatSender sender = mock(LocalChatSender.class);
     @SuppressWarnings("unchecked")
-    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(mock(ObjectProvider.class), 20);
+    private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(new AcceptingRoomChannels(), 20);
     private final DefaultChatRoomTopicService facade = new DefaultChatRoomTopicService(reader, subscriptions,
             connections, sender);
 

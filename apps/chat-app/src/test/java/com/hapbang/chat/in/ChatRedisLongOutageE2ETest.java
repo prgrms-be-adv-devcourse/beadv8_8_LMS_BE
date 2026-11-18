@@ -70,8 +70,6 @@ import jakarta.persistence.EntityManager;
                 "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
-                "hapbang.chat.realtime.enabled=true",
-                "hapbang.chat.delivery.pipeline.enabled=true",
                 "hapbang.scheduling.enabled=true",
                 // 장애를 시도로 셌다면 곧바로 격리됐을 상한·간격
                 "hapbang.chat.delivery.relay.max-attempts=2",

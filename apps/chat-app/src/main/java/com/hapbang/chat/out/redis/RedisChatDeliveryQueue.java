@@ -43,7 +43,6 @@ import com.hapbang.chat.app.port.QueueGroupState;
 import com.hapbang.chat.app.port.QueuePositions;
 import com.hapbang.chat.app.port.QueuedJob;
 import com.hapbang.chat.app.port.ReclaimedJobs;
-import com.hapbang.chat.global.config.ConditionalOnChatDeliveryPipeline;
 import com.hapbang.chat.global.redis.ChatRedisKeys;
 
 import io.lettuce.core.codec.ByteArrayCodec;
@@ -66,7 +65,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnChatDeliveryPipeline
 public class RedisChatDeliveryQueue implements ChatDeliveryQueue, DisposableBean {
 
     private final StringRedisTemplate redisTemplate;

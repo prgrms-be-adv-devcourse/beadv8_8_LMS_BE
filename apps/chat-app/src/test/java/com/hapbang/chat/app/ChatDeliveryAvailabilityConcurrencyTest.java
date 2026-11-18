@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability.PublishPermit;
 import com.hapbang.chat.app.ChatDeliveryAvailability.WriteGate;
@@ -35,7 +34,7 @@ import com.hapbang.chat.config.ChatDeliveryProperties;
 import com.hapbang.chat.domain.ChatDeliveryType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * {@link ChatDeliveryAvailability} 게이트의 동시성 (재검증). Spring·Redis 없이 PING을 흉내 내는 가짜 큐로
@@ -59,7 +58,7 @@ class ChatDeliveryAvailabilityConcurrencyTest {
     private final ChatDeliveryQueue queue = mock(ChatDeliveryQueue.class);
     private final ChatDeliveryProperties properties = properties();
     private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue, properties,
-            meterRegistry());
+            new SimpleMeterRegistry());
     private ExecutorService executor;
 
     ChatDeliveryAvailabilityConcurrencyTest() {
@@ -224,7 +223,6 @@ class ChatDeliveryAvailabilityConcurrencyTest {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
-                new ChatDeliveryProperties.Pipeline(true),
                 "test",
                 new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50, Duration.ofSeconds(30), 10, backoff),
                 new ChatDeliveryProperties.Consumer(2, 1, 20, Duration.ofMillis(50), 10, backoff),
@@ -236,10 +234,4 @@ class ChatDeliveryAvailabilityConcurrencyTest {
                 Duration.ofSeconds(10));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<MeterRegistry> meterRegistry() {
-        ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
-    }
 }
