@@ -114,7 +114,7 @@ FAQ 원본은 `boundedContext/chatbot/src/main/resources/chatbot/faq-seed.json`(
   - `hapbang.chatbot.tool.calls{tool}`: 대화 LLM이 부른 Tool 수(`searchFaq`, `recommendLectures`, `recommendInfluencers`).
   - `hapbang.chatbot.fallbacks{feature,reason}`: LLM 호출이 실패해 정해진 답으로 대신한 수. LLM 실패만 센다.
   - `hapbang.chatbot.recommend.search.errors{feature}`: 추천 검색(ES·임베딩)이 실패해 인기순(`POPULAR_TEMPORARY`)으로 답한 수.
-  - `hapbang.chatbot.recommend.similarity{type=LECTURE|INFLUENCER}`(#1007): 추천 후보(kNN 결과 중 코드 제외 규칙을 지난 것)마다 유사도 점수 하나. 0.05 간격 구간(`_bucket`)으로 분포를 본다. 하한은 두지 않았고 결과를 거르지 않는다.
+  - `hapbang.chatbot.recommend.similarity{type=LECTURE|INFLUENCER, path=widget|chat|button}`(#1007): 추천 후보(kNN 결과 중 코드 제외 규칙을 지난 것, 판매자당 상한·순위로 자르기 전)마다 유사도 점수 하나. 경로마다 관심사 비율·풀 크기가 달라 `path`로 나눈다. 0.05 간격 구간(`_bucket`)으로 분포를 본다. 하한은 두지 않았고 결과를 거르지 않는다.
   - `hapbang.chatbot.faq.unmatched{feature}`, `hapbang.chatbot.faq.search.errors`, `hapbang.chatbot.rate.limit.rejected{feature}`.
   - LLM 지연·토큰 수는 Spring AI 관측 지표(`gen_ai.client.*`)를 쓴다. 대화 내용은 저장하지 않고 로그에도 남기지 않는다.
 
