@@ -49,17 +49,17 @@ public class InfluencerRecommendStore {
             FROM chatbot.member_copy m
             """;
 
-    private static final String PROFILES = """
+    private static final String SELECT_PROFILES = """
             %s\
             WHERE m.id IN (:ids)
             """.formatted(PROFILE_SELECT);
 
-    private static final String RECOMMENDABLE_PROFILES = """
+    private static final String SELECT_RECOMMENDABLE_PROFILES = """
             %s\
             WHERE m.id IN (:ids) AND %s
             """.formatted(PROFILE_SELECT, RECOMMENDABLE);
 
-    private static final String PROFILES_AFTER = """
+    private static final String SELECT_PROFILES_AFTER = """
             %s\
             WHERE m.id > :afterId
             ORDER BY m.id
@@ -67,7 +67,7 @@ public class InfluencerRecommendStore {
             """.formatted(PROFILE_SELECT);
 
     // 함께 마친 출연의 상대(원본 없음 제외)
-    private static final String COMPLETED_PARTNERS = """
+    private static final String SELECT_COMPLETED_PARTNERS = """
             SELECT DISTINCT CASE WHEN a.host_id = :userId THEN a.guest_id ELSE a.host_id END
             FROM chatbot.appearance_copy a
             WHERE a.result = :completed AND NOT a.missing_in_source AND a.host_id <> a.guest_id
@@ -81,7 +81,7 @@ public class InfluencerRecommendStore {
             WHERE NOT r.missing_in_source AND (a.id IS NULL OR NOT a.missing_in_source)
             """;
 
-    private static final String OVERALL_MEAN_RATING = """
+    private static final String SELECT_OVERALL_MEAN_RATING = """
             SELECT coalesce(avg(r.rating), 0)
             %s""".formatted(COUNTED_REVIEWS);
 
@@ -112,11 +112,11 @@ public class InfluencerRecommendStore {
             ORDER BY m.id
             """;
 
-    private static final String STATS_OF_IDS = STATS.formatted("m.id IN (:ids)", COUNTED_REVIEWS);
+    private static final String SELECT_STATS_OF_IDS = STATS.formatted("m.id IN (:ids)", COUNTED_REVIEWS);
 
-    private static final String STATS_OF_RECOMMENDABLE = STATS.formatted(RECOMMENDABLE, COUNTED_REVIEWS);
+    private static final String SELECT_STATS_OF_RECOMMENDABLE = STATS.formatted(RECOMMENDABLE, COUNTED_REVIEWS);
 
-    private static final RowMapper<InfluencerProfile> PROFILE = (rs, row) -> {
+    private static final RowMapper<InfluencerProfile> PROFILE_MAPPER = (rs, row) -> {
         Array array = rs.getArray("categories");
         List<String> categories = array == null ? List.of() : List.of((String[]) array.getArray());
         return new InfluencerProfile(
@@ -128,11 +128,14 @@ public class InfluencerRecommendStore {
                 rs.getBoolean("masked"));
     };
 
-    private static final RowMapper<InfluencerPopularity.Stats> STATS_ROW = (rs, row) -> new InfluencerPopularity.Stats(
-            rs.getLong("id"),
-            rs.getLong("completed"),
-            rs.getLong("reviews"),
-            rs.getLong("rating_sum"));
+    private static final RowMapper<InfluencerPopularity.Stats> STATS_MAPPER = (rs, row) ->
+            new InfluencerPopularity.Stats(
+                    rs.getLong("id"),
+                    rs.getLong("completed"),
+                    rs.getLong("reviews"),
+                    rs.getLong("rating_sum"));
+
+    private static final List<String> INFLUENCER_ROLE_NAMES = roleNames();
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -141,12 +144,13 @@ public class InfluencerRecommendStore {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return byId(jdbc.query(PROFILES, new MapSqlParameterSource("ids", ids), PROFILE));
+        return byId(jdbc.query(SELECT_PROFILES, new MapSqlParameterSource("ids", ids), PROFILE_MAPPER));
     }
 
     /** 이 ID보다 큰 회원 사본의 프로필을 ID 오름차순으로 size개(정합 점검이 모든 회원을 훑는다) */
     public List<InfluencerProfile> profilesAfter(long afterId, int size) {
-        return jdbc.query(PROFILES_AFTER, new MapSqlParameterSource("afterId", afterId).addValue("size", size), PROFILE);
+        MapSqlParameterSource params = new MapSqlParameterSource("afterId", afterId).addValue("size", size);
+        return jdbc.query(SELECT_PROFILES_AFTER, params, PROFILE_MAPPER);
     }
 
     /** 주어진 회원 중 추천 가능한 회원의 프로필(회원 ID → 프로필) */
@@ -154,12 +158,13 @@ public class InfluencerRecommendStore {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return byId(jdbc.query(RECOMMENDABLE_PROFILES, params().addValue("ids", ids), PROFILE));
+        return byId(jdbc.query(SELECT_RECOMMENDABLE_PROFILES, params().addValue("ids", ids), PROFILE_MAPPER));
     }
 
     /** 이 회원과 출연을 함께 마친 상대(원본 없음 제외, 본인 제외) */
     public Set<Long> completedPartners(long userId) {
-        return new LinkedHashSet<>(jdbc.queryForList(COMPLETED_PARTNERS, params().addValue("userId", userId), Long.class));
+        MapSqlParameterSource params = params().addValue("userId", userId);
+        return new LinkedHashSet<>(jdbc.queryForList(SELECT_COMPLETED_PARTNERS, params, Long.class));
     }
 
     /** 주어진 회원들의 인기 재료. 출연·리뷰가 없는 회원도 0으로 들어간다(주어진 순서) */
@@ -168,7 +173,8 @@ public class InfluencerRecommendStore {
             return List.of();
         }
         Map<Long, InfluencerPopularity.Stats> found = new HashMap<>();
-        for (InfluencerPopularity.Stats one : jdbc.query(STATS_OF_IDS, params().addValue("ids", ids), STATS_ROW)) {
+        MapSqlParameterSource params = params().addValue("ids", ids);
+        for (InfluencerPopularity.Stats one : jdbc.query(SELECT_STATS_OF_IDS, params, STATS_MAPPER)) {
             found.put(one.memberId(), one);
         }
         List<InfluencerPopularity.Stats> stats = new ArrayList<>();
@@ -183,24 +189,28 @@ public class InfluencerRecommendStore {
      * 회원 ID 오름차순.
      */
     public List<InfluencerPopularity.Stats> popularityStatsOfRecommendable() {
-        return jdbc.query(STATS_OF_RECOMMENDABLE, params(), STATS_ROW);
+        return jdbc.query(SELECT_STATS_OF_RECOMMENDABLE, params(), STATS_MAPPER);
     }
 
     /** 모든 받은 출연 리뷰의 평균 별점(리뷰가 없으면 0) */
     public double overallMeanRating() {
-        Double mean = jdbc.queryForObject(OVERALL_MEAN_RATING, new MapSqlParameterSource(), Double.class);
+        Double mean = jdbc.queryForObject(SELECT_OVERALL_MEAN_RATING, new MapSqlParameterSource(), Double.class);
         return mean == null ? 0 : mean;
     }
 
     // SQL의 상태 값. 쓰지 않는 문장에 넘겨도 무시된다
     private static MapSqlParameterSource params() {
-        List<String> influencerRoles = new ArrayList<>();
-        for (Role role : InfluencerProfile.INFLUENCER_ROLES) {
-            influencerRoles.add(role.name());
-        }
-        return new MapSqlParameterSource("influencerRoles", influencerRoles)
+        return new MapSqlParameterSource("influencerRoles", INFLUENCER_ROLE_NAMES)
                 .addValue("active", UserStatus.ACTIVE.name())
                 .addValue("completed", AppearanceResult.COMPLETED.name());
+    }
+
+    private static List<String> roleNames() {
+        List<String> names = new ArrayList<>();
+        for (Role role : InfluencerProfile.INFLUENCER_ROLES) {
+            names.add(role.name());
+        }
+        return List.copyOf(names);
     }
 
     private static Map<Long, InfluencerProfile> byId(List<InfluencerProfile> profiles) {
