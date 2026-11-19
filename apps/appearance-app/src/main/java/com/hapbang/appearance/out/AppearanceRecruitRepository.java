@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,7 +19,9 @@ import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 
 import jakarta.persistence.LockModeType;
 
-public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRecruit, Long> {
+// 공개 목록은 선택 검색 조건을 Specification으로 조회한다 (AppearanceRecruitOpenQuery)
+public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRecruit, Long>,
+        JpaSpecificationExecutor<AppearanceRecruit> {
 
     /**
      * 지원용: 모집글 행을 공유 잠금({@code FOR SHARE})으로 읽는다. 지원끼리는 서로 막지 않고,
@@ -32,10 +35,6 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from AppearanceRecruit r where r.id = :id")
     Optional<AppearanceRecruit> findByIdForUpdate(@Param("id") Long id);
-
-    /** 공개 목록: 이 상태이면서 모집 마감 일시가 기준 시각 이후인 모집글 */
-    Page<AppearanceRecruit> findByStatusAndRecruitDeadlineAfter(AppearanceRecruitStatus status, LocalDateTime now,
-                                                                Pageable pageable);
 
     /** 내가 올린 모집글 목록 */
     Page<AppearanceRecruit> findByHostIdAndStatusIn(Long hostId, Collection<AppearanceRecruitStatus> statuses,

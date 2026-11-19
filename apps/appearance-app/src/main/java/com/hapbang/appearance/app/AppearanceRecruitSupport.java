@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
+import com.hapbang.appearance.out.AppearanceRecruitOpenQuery;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -29,7 +31,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class AppearanceRecruitSupport {
 
-    /** 목록은 최신순 고정. 클라이언트의 sort 값은 쓰지 않는다 */
+    /** 내 목록은 최신순 고정. 클라이언트의 sort 값은 쓰지 않는다 */
     private static final Sort LATEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt", "id");
 
     private final AppearanceRecruitRepository appearanceRecruitRepository;
@@ -95,16 +97,14 @@ public class AppearanceRecruitSupport {
         }
     }
 
-    // TODO(검색·필터): 플랫폼·카테고리·기간 등 조건이 정해지면 조건 객체(예: AppearanceRecruitSearchCondition)를 받아
-    //  조회 조건을 조합한다. 보이는 상태 제한과 최신순 정렬은 그대로 유지한다.
-
     /**
-     * 공개 목록. 모집 중이고 모집 마감 일시가 아직 지나지 않은 모집글, 최신순.
-     * 마감 처리 전이어도 마감 일시가 지난 모집글은 현재 시각으로 걸러 낸다.
+     * 공개 목록. 모집 중이고 모집 마감 일시가 아직 지나지 않은 모집글 중 검색 조건에 맞는 것을 검색 조건의 정렬로.
+     * 마감 처리 전이어도 마감 일시가 지난 모집글은 현재 시각으로 걸러 낸다. 요청의 필드 이름 정렬({@code pageable}의 sort)은 쓰지 않는다.
      */
-    public Page<AppearanceRecruit> findOpen(LocalDateTime now, Pageable pageable) {
-        return appearanceRecruitRepository.findByStatusAndRecruitDeadlineAfter(AppearanceRecruitStatus.RECRUITING,
-                now, latestFirst(pageable));
+    public Page<AppearanceRecruit> findOpen(LocalDateTime now, AppearanceRecruitSearch search, Pageable pageable) {
+        PageRequest page = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                AppearanceRecruitOpenQuery.orderOf(search.sort()));
+        return appearanceRecruitRepository.findAll(AppearanceRecruitOpenQuery.where(now, search), page);
     }
 
     /**

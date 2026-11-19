@@ -12,6 +12,7 @@ import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitContent;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 
 import lombok.RequiredArgsConstructor;
@@ -60,8 +61,8 @@ public class AppearanceRecruitFacade {
     }
 
     @Transactional(readOnly = true)
-    public Page<AppearanceRecruitSummaryResDto> getOpen(Pageable pageable) {
-        return appearanceRecruitQueryUseCase.getOpen(pageable);
+    public Page<AppearanceRecruitSummaryResDto> getOpen(AppearanceRecruitSearch search, Pageable pageable) {
+        return appearanceRecruitQueryUseCase.getOpen(search, pageable);
     }
 
     @PreAuthorize(INFLUENCER_ONLY)

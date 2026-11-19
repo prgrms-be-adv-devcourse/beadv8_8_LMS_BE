@@ -1,5 +1,6 @@
 package com.hapbang.appearance.in;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
@@ -7,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
+import com.hapbang.appearance.domain.AppearanceRecruitSort;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.in.dto.CancelAppearanceRecruitReqDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRecruitReqDto;
@@ -17,6 +19,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.PositiveOrZero;
 
 /**
  * 출연 모집글 API Swagger 명세. 매핑은 {@link ApiV1AppearanceRecruitController}
@@ -33,6 +36,20 @@ public interface ApiV1AppearanceRecruitSpec {
     String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=RECRUITING&status=CLOSED). "
             + "생략하면 보류 처리 중(HOLD_PENDING)·실패(HOLD_FAILED)를 포함한 전체. 없는 값이면 400";
 
+    String KEYWORD = "검색어. 제목·콘텐츠 설명·호스트 닉네임에서 부분 일치로 찾는다(대소문자 무시, %·_도 글자 그대로). "
+            + "앞뒤 공백은 지우고, 비면 조건 없음. 공백을 지운 뒤 50자를 넘으면 400";
+    String SCHEDULED_FROM = "방송 날짜 범위의 시작(yyyy-MM-dd, KST). 이 날짜를 포함한다. scheduledTo보다 늦으면 400";
+    String SCHEDULED_TO = "방송 날짜 범위의 끝(yyyy-MM-dd, KST). 이 날짜 하루 전체를 포함한다";
+    String MIN_FEE = "1인당 출연료(HP)의 최솟값(포함). 0 이상. maxFee보다 크면 400";
+    String MAX_FEE = "1인당 출연료(HP)의 최댓값(포함). 0 이상";
+    String HAS_SEATS = "true면 남은 자리가 있는(성립 인원 < 모집 인원) 모집글만. false·생략은 조건 없음";
+    String OPEN_SORT = """
+            정렬 (기준 값이 같으면 최신순)
+            - `LATEST`: 등록 최신순(기본)
+            - `SCHEDULED_SOON`: 방송 예정 일시가 빠른 순
+            - `DEADLINE_SOON`: 모집 마감 일시가 빠른 순
+            - `FEE_HIGH`: 1인당 출연료가 높은 순""";
+
     @Operation(summary = "출연 모집글 올리기", description = """
             모집글을 저장하고 1인당 출연료 × 모집 인원만큼 호스트의 HP를 보류한다. 보류에 성공하면 `RECRUITING`으로 201 응답한다.
             - 1인당 출연료가 최저 출연료(20,000 HP) 미만이면 400 `FEE_BELOW_MINIMUM`
@@ -45,10 +62,23 @@ public interface ApiV1AppearanceRecruitSpec {
               보류 재확인 배치가 보통 1~2분 안에 `RECRUITING` 또는 `HOLD_FAILED`로 바꾼다(1시간이 지나도 결과를 모르면 보류를 무효화해 `HOLD_FAILED`)""")
     RsData<AppearanceRecruitResDto> create(Long userId, @Valid CreateAppearanceRecruitReqDto request);
 
-    @Operation(summary = "모집 중인 모집글 목록", description = """
+    @Operation(summary = "모집 중인 모집글 목록 (검색·정렬)", description = """
             모집 중(`RECRUITING`)이고 모집 마감 일시가 지나지 않은 모집글. 로그인한 회원이면 누구나 볼 수 있다.
-            최신순 고정(sort 값은 무시), 페이지는 page·size(기본 20, 최대 100).""")
-    RsData<Page<AppearanceRecruitSummaryResDto>> getOpen(@Parameter(hidden = true) Pageable pageable);
+            검색 조건(keyword·scheduledFrom·scheduledTo·minFee·maxFee·hasSeats)은 모두 선택이고, 함께 보내면 모두 만족하는 모집글만 나온다.
+            조건 없이 부르면 모집 중인 모집글 전체가 최신순으로 나온다.
+            - 정렬은 `sort`에 정렬 이름으로만 정한다. 필드 이름 정렬(`sort=createdAt,desc`)은 받지 않는다(400)
+            - 페이지는 page·size(기본 20, 최대 100)
+            - 잘못된 값은 400 `INVALID_REQUEST`: 날짜 형식(yyyy-MM-dd)·숫자 형식 오류, 음수 출연료, 모르는 sort,
+              50자를 넘는 검색어, 시작이 끝보다 늦은 날짜 범위·최소가 최대보다 큰 출연료 범위""")
+    RsData<Page<AppearanceRecruitSummaryResDto>> getOpen(
+            @Parameter(description = KEYWORD) String keyword,
+            @Parameter(description = SCHEDULED_FROM) LocalDate scheduledFrom,
+            @Parameter(description = SCHEDULED_TO) LocalDate scheduledTo,
+            @Parameter(description = MIN_FEE) @PositiveOrZero Long minFee,
+            @Parameter(description = MAX_FEE) @PositiveOrZero Long maxFee,
+            @Parameter(description = HAS_SEATS) boolean hasSeats,
+            @Parameter(description = OPEN_SORT) AppearanceRecruitSort sort,
+            @Parameter(hidden = true) Pageable pageable);
 
     @Operation(summary = "내가 올린 모집글 목록", description = """
             내가 호스트인 모집글. 최신순 고정, 페이지는 page·size(기본 20, 최대 100).

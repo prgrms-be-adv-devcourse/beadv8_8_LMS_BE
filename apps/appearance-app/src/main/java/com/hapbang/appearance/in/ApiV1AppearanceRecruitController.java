@@ -1,9 +1,12 @@
 package com.hapbang.appearance.in;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.format.annotation.DateTimeFormat.ISO;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -18,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.appearance.app.AppearanceRecruitFacade;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
+import com.hapbang.appearance.domain.AppearanceRecruitSort;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.in.dto.CancelAppearanceRecruitReqDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRecruitReqDto;
@@ -53,10 +58,25 @@ public class ApiV1AppearanceRecruitController implements ApiV1AppearanceRecruitS
         return RsData.created("출연 모집글을 올렸습니다.", response);
     }
 
+    /**
+     * 공개 목록. {@code sort}는 정렬 이름({@link AppearanceRecruitSort})으로 받고, {@code pageable}에서는 page·size만 쓴다
+     * (같은 이름의 Pageable 필드 정렬은 쓰지 않는다).
+     */
     @Override
     @GetMapping
-    public RsData<Page<AppearanceRecruitSummaryResDto>> getOpen(Pageable pageable) {
-        Page<AppearanceRecruitSummaryResDto> open = appearanceRecruitFacade.getOpen(pageable);
+    public RsData<Page<AppearanceRecruitSummaryResDto>> getOpen(
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "scheduledFrom", required = false) @DateTimeFormat(iso = ISO.DATE)
+            LocalDate scheduledFrom,
+            @RequestParam(name = "scheduledTo", required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate scheduledTo,
+            @RequestParam(name = "minFee", required = false) Long minFee,
+            @RequestParam(name = "maxFee", required = false) Long maxFee,
+            @RequestParam(name = "hasSeats", defaultValue = "false") boolean hasSeats,
+            @RequestParam(name = "sort", defaultValue = "LATEST") AppearanceRecruitSort sort,
+            Pageable pageable) {
+        AppearanceRecruitSearch search = new AppearanceRecruitSearch(keyword, scheduledFrom, scheduledTo, minFee,
+                maxFee, hasSeats, sort);
+        Page<AppearanceRecruitSummaryResDto> open = appearanceRecruitFacade.getOpen(search, pageable);
         return RsData.ok("모집 중인 출연 모집글 목록을 조회했습니다.", open);
     }
 
