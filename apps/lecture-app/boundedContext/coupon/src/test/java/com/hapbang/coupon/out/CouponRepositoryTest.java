@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.app.port.BudgetWorkRepository;
@@ -214,6 +216,46 @@ class CouponRepositoryTest {
                 .containsExactly(newer, anyLecture, otherLecture, older);
         assertThat(couponRepository.findIssuableFor(null, now, Limit.of(3))).extracting(Coupon::getId)
                 .containsExactly(newer, anyLecture, otherLecture);
+    }
+
+    @Test
+    void 쿠폰_받기_목록은_고른_강의_대상과_모든_강의_대상만_최신순_쪽으로_읽고_같은_조건으로_센다() {
+        Instant now = ISSUE_START.plusSeconds(1);
+        long offSaleLecture = 8L;
+        long thirdLecture = 9L;
+        Long older = save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.OPEN);
+        // 고르지 않은 강의(판매 중이 아닌 강의) 대상
+        save(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(offSaleLecture).build(), NOW.plusSeconds(1)),
+                CouponStatus.OPEN);
+        Long anyLecture = save(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW.plusSeconds(2)),
+                CouponStatus.OPEN);
+        Long third = save(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(thirdLecture).build(),
+                NOW.plusSeconds(3)), CouponStatus.OPEN);
+        Long newer = save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW.plusSeconds(4)),
+                CouponStatus.OPEN);
+        // 받을 수 없는 쿠폰은 강의 ID에도 쪽에도 없다: 발급 중이 아님, 끝남(종료 시각 = now)
+        save(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(10L).build(), NOW), CouponStatus.SUSPENDED);
+        save(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().issuePeriod(NOW.plusSeconds(1), now).build(), NOW),
+                CouponStatus.OPEN);
+        entityManager.flush();
+        entityManager.clear();
+
+        // 같은 강의의 쿠폰이 둘이어도 한 번, 강의 ID 오름차순
+        assertThat(couponRepository.findIssuableLectureIds(now))
+                .containsExactly(LECTURE_ID, offSaleLecture, thirdLecture);
+
+        List<Long> onSale = List.of(LECTURE_ID, thirdLecture);
+        Page<Coupon> first = couponRepository.findIssuablePage(onSale, now, PageRequest.of(0, 2));
+        assertThat(first.getContent()).extracting(Coupon::getId).containsExactly(newer, third);
+        assertThat(first.getTotalElements()).isEqualTo(4);
+        assertThat(first.getTotalPages()).isEqualTo(2);
+        assertThat(couponRepository.findIssuablePage(onSale, now, PageRequest.of(1, 2)).getContent())
+                .extracting(Coupon::getId).containsExactly(anyLecture, older);
+
+        // 고른 강의가 없으면 모든 강의 대상만이다
+        Page<Coupon> anyOnly = couponRepository.findIssuablePage(List.of(), now, PageRequest.of(0, 20));
+        assertThat(anyOnly.getContent()).extracting(Coupon::getId).containsExactly(anyLecture);
+        assertThat(anyOnly.getTotalElements()).isEqualTo(1);
     }
 
     @Test

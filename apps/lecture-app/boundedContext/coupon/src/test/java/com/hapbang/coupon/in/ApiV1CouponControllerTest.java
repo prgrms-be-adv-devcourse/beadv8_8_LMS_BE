@@ -41,11 +41,13 @@ import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
+import com.hapbang.coupon.app.dto.IssuableCouponView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.app.exception.CouponErrorCode;
 import com.hapbang.coupon.app.exception.CouponException;
+import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.domain.CouponType;
@@ -228,6 +230,50 @@ class ApiV1CouponControllerTest {
         mockMvc.perform(get("/api/v1/coupons/{couponId}", 43L).with(member()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+    }
+
+    // 쿠폰 받기 화면 목록 ------------------------------------------------------------------------------------
+
+    @Test
+    void 쿠폰_받기_목록은_기본_크기_20_페이지를_Facade에_넘기고_강의_제목과_함께_페이지_모양으로_돌려준다() throws Exception {
+        Instant start = Instant.parse("2026-11-07T00:00:00Z");
+        IssuableCouponView view = new IssuableCouponView(COUPON_ID, "겨울 특강 할인", CouponType.SELLER,
+                CouponTargetType.LECTURE, 7L, "방송 장비 세팅", DiscountType.RATE, 10, null, false, start,
+                start.plusSeconds(86_400 * 7), ExpiryType.RELATIVE, 30, null, 100, 40, false, true, CouponStatus.OPEN);
+        given(couponIssueFacade.issuableCouponPage(eq(MEMBER_ID), any()))
+                .willReturn(new PageImpl<>(List.of(view), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/v1/coupons/issuable").with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.message").value("받을 수 있는 쿠폰을 조회했습니다."))
+                .andExpect(jsonPath("$.data.content[0].couponId").value(COUPON_ID))
+                .andExpect(jsonPath("$.data.content[0].targetType").value("LECTURE"))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(7))
+                .andExpect(jsonPath("$.data.content[0].lectureTitle").value("방송 장비 세팅"))
+                .andExpect(jsonPath("$.data.content[0].soldOut").value(false))
+                .andExpect(jsonPath("$.data.content[0].issued").value(true))
+                .andExpect(jsonPath("$.data.content[0].status").value("OPEN"))
+                .andExpect(jsonPath("$.data.page.size").value(20))
+                .andExpect(jsonPath("$.data.page.number").value(0))
+                .andExpect(jsonPath("$.data.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data.page.totalPages").value(1));
+
+        verify(couponIssueFacade).issuableCouponPage(eq(MEMBER_ID),
+                argThat(pageable -> pageable.getPageNumber() == 0 && pageable.getPageSize() == 20));
+    }
+
+    @Test
+    void 쿠폰_받기_목록은_page와_size를_넘기고_강의_정보를_확인하지_못하면_503이다() throws Exception {
+        given(couponIssueFacade.issuableCouponPage(eq(MEMBER_ID), any()))
+                .willThrow(new LectureCatalogUnavailableException("연결 실패", null));
+
+        mockMvc.perform(get("/api/v1/coupons/issuable").param("page", "2").param("size", "50").with(member()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("LECTURE_CATALOG_UNAVAILABLE"));
+
+        verify(couponIssueFacade).issuableCouponPage(eq(MEMBER_ID),
+                argThat(pageable -> pageable.getPageNumber() == 2 && pageable.getPageSize() == 50));
     }
 
     @Test

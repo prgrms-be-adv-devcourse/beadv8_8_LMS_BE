@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
+import com.hapbang.coupon.app.dto.IssuableCouponView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
@@ -47,6 +48,14 @@ public class ApiV1CouponController implements ApiV1CouponSpec {
                                                            @RequestParam(name = "lectureId", required = false)
                                                            Long lectureId) {
         return RsData.ok("받을 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.issuableCoupons(memberId, lectureId));
+    }
+
+    // 정렬은 받지 않고 최신순으로 고정한다(Query가 정렬 없는 페이지로 바꾼다)
+    @Override
+    @GetMapping("/issuable")
+    public RsData<Page<IssuableCouponView>> issuableCouponPage(@LoginUserId Long memberId,
+                                                               @PageableDefault(size = 20) Pageable pageable) {
+        return RsData.ok("받을 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.issuableCouponPage(memberId, pageable));
     }
 
     // 쿠폰 ID는 숫자만 받는다. /me 같은 이름 경로와 섞이지 않게 한다

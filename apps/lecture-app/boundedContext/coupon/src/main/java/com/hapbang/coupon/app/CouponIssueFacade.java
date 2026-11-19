@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.hapbang.coupon.app.dto.CouponQuoteSelection;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
+import com.hapbang.coupon.app.dto.IssuableCouponView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
@@ -39,6 +40,14 @@ public class CouponIssueFacade {
      */
     public List<CouponSummaryView> issuableCoupons(long memberId, Long lectureId) {
         return couponSummaryQuery.issuableFor(memberId, lectureId);
+    }
+
+    /**
+     * 쿠폰 받기 화면 목록 한 쪽(최신순 고정, 쪽 크기 상한 100). 특정 강의 대상은 판매 중인 강의의 쿠폰만 강의 제목과 함께 넣는다.
+     * 강의 앱에 닿지 못하면 503이다.
+     */
+    public Page<IssuableCouponView> issuableCouponPage(long memberId, Pageable pageable) {
+        return couponSummaryQuery.issuablePage(memberId, pageable);
     }
 
     /** 쿠폰 상세. OPEN·SUSPENDED·CLOSED만 보이고 그 밖은 404다 */

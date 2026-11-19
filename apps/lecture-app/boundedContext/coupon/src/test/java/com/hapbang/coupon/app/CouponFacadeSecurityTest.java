@@ -128,6 +128,14 @@ class CouponFacadeSecurityTest {
         verifyNoInteractions(couponUsageHistoryQuery);
     }
 
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 쿠폰_받기_목록은_회원_역할만_본다() {
+        assertThatThrownBy(() -> issueFacade.issuableCouponPage(1L, PageRequest.of(0, 20)))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(couponSummaryQuery);
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableMethodSecurity
     @Import({CouponSellerFacade.class, CouponAdminFacade.class, CouponIssueFacade.class})

@@ -7,6 +7,9 @@ import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.support.PageableExecutionUtils;
 
 import com.hapbang.coupon.app.port.CouponRepositoryCustom;
 import com.hapbang.coupon.app.port.RepublishTargetCoupon;
@@ -20,8 +23,10 @@ import com.hapbang.coupon.domain.QBudgetWork;
 import com.hapbang.coupon.domain.QCoupon;
 import com.hapbang.coupon.domain.QMemberCoupon;
 import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
+import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import jakarta.persistence.EntityManager;
@@ -77,6 +82,48 @@ class CouponRepositoryCustomImpl implements CouponRepositoryCustom {
                                 : c.targetType.eq(literal(CouponTargetType.LECTURE)).and(c.lectureId.eq(lectureId))
                                         .or(c.targetType.eq(literal(CouponTargetType.ANY_LECTURE))))
                 .orderBy(c.createdAt.desc(), c.id.desc()), limit);
+    }
+
+    @Override
+    public List<Long> findIssuableLectureIds(Instant now) {
+        QCoupon c = new QCoupon("c");
+        return query.select(c.lectureId).distinct().from(c)
+                .where(issuable(c, now), c.targetType.eq(literal(CouponTargetType.LECTURE)))
+                .orderBy(c.lectureId.asc())
+                .fetch();
+    }
+
+    /**
+     * 내용과 전체 수를 따로 읽는다. 전체 수는 Spring Data 페이지 조회와 같이 내용만으로 알 수 있으면(첫 페이지가 덜 찼거나 마지막 페이지)
+     * 세지 않는다.
+     */
+    @Override
+    public Page<Coupon> findIssuablePage(Collection<Long> lectureIds, Instant now, Pageable pageable) {
+        QCoupon c = new QCoupon("c");
+        BooleanExpression listed = c.targetType.eq(literal(CouponTargetType.ANY_LECTURE));
+        if (!lectureIds.isEmpty()) {
+            listed = listed.or(c.targetType.eq(literal(CouponTargetType.LECTURE)).and(c.lectureId.in(lectureIds)));
+        }
+        JPAQuery<Coupon> content = query.selectFrom(c)
+                .where(issuable(c, now), listed)
+                .orderBy(c.createdAt.desc(), c.id.desc());
+        if (pageable.isPaged()) {
+            // 첫 페이지는 offset을 걸지 않는다(Spring Data 페이지 조회와 같은 SQL)
+            if (pageable.getOffset() > 0) {
+                content.offset(pageable.getOffset());
+            }
+            content.limit(pageable.getPageSize());
+        }
+        BooleanExpression counted = listed;
+        return PageableExecutionUtils.getPage(content.fetch(), pageable, () -> {
+            Long total = query.select(c.count()).from(c).where(issuable(c, now), counted).fetchOne();
+            return total == null ? 0 : total;
+        });
+    }
+
+    /** 지금 받을 수 있는가: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료). {@code CouponAvailabilityRule.isListedFor}와 같다 */
+    private static BooleanExpression issuable(QCoupon c, Instant now) {
+        return c.status.eq(literal(CouponStatus.OPEN)).and(c.issueStartAt.loe(now)).and(c.issueEndAt.gt(now));
     }
 
     @Override

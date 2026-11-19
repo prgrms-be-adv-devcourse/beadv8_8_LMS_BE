@@ -9,8 +9,11 @@ import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,13 +21,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.app.port.LectureCatalog.LectureSummary;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.lecture.dto.LectureLookupDto;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 
-// 강의 조회 내부 API를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환·circuit breaker를 가짜 HTTP 서버로 확인한다
+// 강의 조회 내부 API(하나·일괄)를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환·circuit breaker를 가짜 HTTP 서버로 확인한다
 class HttpLectureCatalogTest {
 
     private static final String API_KEY = "unit-internal-api-key";
@@ -154,6 +159,85 @@ class HttpLectureCatalogTest {
                 {"status":404,"detail":"강의를 찾을 수 없습니다.","code":"LECTURE_NOT_FOUND"}""");
         assertThat(catalog.findLecture(99L)).isEmpty();
         assertThat(requests).hasSize(4);
+    }
+
+    // 일괄 조회 ---------------------------------------------------------------------------------------------
+
+    @Test
+    void 일괄_조회는_중복을_빼고_ids를_여러_번_보내며_없는_강의는_빼고_제목과_판매_상태를_돌려준다() {
+        respond(200, """
+                {"statusCode":200,"message":"강의를 조회했습니다.",
+                 "data":{"10":{"lectureId":10,"sellerId":3,"price":15000,"saleStatus":"ON_SALE","title":"방송 장비 세팅"},
+                         "11":null,
+                         "12":{"lectureId":12,"sellerId":3,"price":9000,"saleStatus":"PENDING_INSPECTION","title":"검수 중"}}}""");
+
+        assertThat(catalog(baseUrl()).findLectures(List.of(10L, 11L, 12L, 10L))).isEqualTo(Map.of(
+                10L, new LectureSummary(10L, "방송 장비 세팅", "ON_SALE"),
+                12L, new LectureSummary(12L, "검수 중", "PENDING_INSPECTION")));
+        assertThat(requests).containsExactly("GET /api/v1/internal/lectures?ids=10&ids=11&ids=12 key=" + API_KEY);
+    }
+
+    @Test
+    void 일괄_조회는_100개씩_나눠_차례로_부른다() {
+        List<Long> ids = LongStream.rangeClosed(1, LectureLookupDto.MAX_BATCH_SIZE + 1).boxed().toList();
+        respond(200, "{\"statusCode\":200,\"message\":\"\",\"data\":{" + ids.stream()
+                .map(id -> "\"" + id + "\":null").collect(Collectors.joining(",")) + "}}");
+
+        assertThat(catalog(baseUrl()).findLectures(ids)).isEmpty();
+        assertThat(requests).hasSize(2);
+        assertThat(requests.getFirst()).contains("ids=1&", "&ids=100 ").doesNotContain("ids=101");
+        assertThat(requests.getLast()).isEqualTo("GET /api/v1/internal/lectures?ids=101 key=" + API_KEY);
+    }
+
+    @Test
+    void 일괄_응답에_요청한_강의_키가_없거나_data가_없거나_오류_상태면_조회_불가다() {
+        // 요청한 11이 빠졌다: 없는 강의로 보지 않는다
+        respond(200, """
+                {"statusCode":200,"message":"",
+                 "data":{"10":{"lectureId":10,"sellerId":3,"price":15000,"saleStatus":"ON_SALE","title":"방송 장비 세팅"}}}""");
+        assertBatchUnavailable();
+
+        respond(200, "{\"statusCode\":200,\"message\":\"\"}");
+        assertBatchUnavailable();
+
+        respond(200, "깨진 JSON");
+        assertBatchUnavailable();
+
+        // 일괄 조회는 강의 없음을 null 값으로 답하므로 404 LECTURE_NOT_FOUND도 계약에 없는 응답이다
+        respond(404, """
+                {"status":404,"detail":"강의를 찾을 수 없습니다.","code":"LECTURE_NOT_FOUND"}""");
+        assertBatchUnavailable();
+
+        respond(500, "{\"status\":500,\"code\":\"INTERNAL_ERROR\"}");
+        assertBatchUnavailable();
+    }
+
+    @Test
+    void 일괄_조회는_따로_회로를_써서_열리면_일괄만_HTTP를_부르지_않고_하나_조회는_그대로_부른다() {
+        HttpLectureCatalog catalog = catalog(baseUrl(), smallWindow());
+        respond(500, "{\"status\":500,\"code\":\"INTERNAL_ERROR\"}");
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> catalog.findLectures(List.of(1L)))
+                    .isInstanceOf(LectureCatalogUnavailableException.class);
+        }
+        int sent = requests.size();
+
+        assertThatThrownBy(() -> catalog.findLectures(List.of(1L)))
+                .isInstanceOf(LectureCatalogUnavailableException.class)
+                .hasCauseInstanceOf(CallNotPermittedException.class);
+        assertThat(requests).hasSize(sent);
+
+        // 주문의 쿠폰 계산·쿠폰 발행이 쓰는 하나 조회는 일괄 회로가 열려도 강의 앱을 부른다
+        respond(200, """
+                {"statusCode":200,"message":"강의를 조회했습니다.",
+                 "data":{"lectureId":1,"sellerId":3,"price":15000,"saleStatus":"ON_SALE","title":"방송 장비 세팅"}}""");
+        assertThat(catalog.findLecture(1L)).contains(new LectureSnapshot(1L, 3L, 15_000L, "ON_SALE"));
+        assertThat(requests).hasSize(sent + 1);
+    }
+
+    private void assertBatchUnavailable() {
+        assertThatThrownBy(() -> catalog(baseUrl()).findLectures(List.of(10L, 11L)))
+                .isInstanceOf(LectureCatalogUnavailableException.class);
     }
 
     private void assertUnavailable() {
