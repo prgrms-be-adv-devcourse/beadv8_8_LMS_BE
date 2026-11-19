@@ -199,6 +199,24 @@ class ApiV1CouponControllerTest {
     }
 
     @Test
+    void 받을_수_있는_쿠폰의_빈_강의_ID는_없는_것으로_보고_조회한다() throws Exception {
+        given(couponIssueFacade.issuableCoupons(MEMBER_ID, null)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/coupons").param("lectureId", "").with(member()))
+                .andExpect(status().isOk());
+
+        verify(couponIssueFacade).issuableCoupons(MEMBER_ID, null);
+    }
+
+    @Test
+    void 받을_수_있는_쿠폰의_강의_ID가_숫자가_아니면_400이다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons").param("lectureId", "abc").with(member()))
+                .andExpect(status().isBadRequest());
+
+        verify(couponIssueFacade, never()).issuableCoupons(anyLong(), any());
+    }
+
+    @Test
     void 쿠폰_상세는_로그인_회원으로_조회하고_못_보는_쿠폰은_404다() throws Exception {
         given(couponIssueFacade.coupon(MEMBER_ID, COUPON_ID)).willReturn(summary(false, true));
         given(couponIssueFacade.coupon(MEMBER_ID, 43L)).willThrow(new CouponException(CouponErrorCode.COUPON_NOT_FOUND));
