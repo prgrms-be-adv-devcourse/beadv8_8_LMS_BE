@@ -1724,6 +1724,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceRecruitSearchTest` | `NONE` / 정렬 null | 조건 모두 null·`hasSeats` false·`LATEST` / `LATEST` |
 | `AppearanceRecruitSearchTest` | 검색어 앞뒤 공백 / 빈 문자열·공백뿐 | 지운 값 / null |
 | `AppearanceRecruitSearchTest` | 공백 + 50자 + 공백 / 51자 | 50자 그대로 / `INVALID_REQUEST` "검색어는 50자 이하여야 합니다." |
+| `AppearanceRecruitSearchTest` | NUL만·끝에 NUL·공백 사이 NUL·가운데 NUL | `INVALID_REQUEST` "검색어에 쓸 수 없는 문자(NUL)가 있습니다." |
 | `AppearanceRecruitSearchTest` | 날짜 범위 같은 날 | 하한 그날 0시, 상한(제외) 다음 날 0시. 한쪽만 있으면 다른 쪽 null |
 | `AppearanceRecruitSearchTest` | 시작 > 끝 / 0년·10000년 | `INVALID_REQUEST`와 이유 |
 | `AppearanceRecruitSearchTest` | 출연료 0~0·같은 값 / 음수·최소 > 최대 | 허용 / `INVALID_REQUEST`와 이유 |
@@ -1741,6 +1742,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceRecruitSearchApiE2ETest` | 네 정렬 이름 + page·size | `FEE_HIGH` 첫 페이지 2건·`page.size` 2·전체 3, 둘째 페이지 1건, 정렬마다 다른 순서 |
 | `AppearanceRecruitSearchApiE2ETest` | `2026/10/21`·`2026-02-30`·`tomorrow`·`minFee=-1`·`maxFee=-1`·`minFee=1.5`·`hasSeats=maybe`·`sort=PRICE`·`sort=createdAt,desc` | 400 `INVALID_REQUEST`, `errors.field`에 그 파라미터 |
 | `AppearanceRecruitSearchApiE2ETest` | 뒤집힌 날짜·출연료 범위, 51자 검색어, `+10000-01-01` | 400 `INVALID_REQUEST`, `detail`에 이유 |
+| `AppearanceRecruitSearchApiE2ETest` | `keyword=롤%00` | 400 `INVALID_REQUEST` (막기 전에는 PostgreSQL `invalid byte sequence for encoding "UTF8": 0x00`로 500이었다) |
 | `AppearanceRecruitSearchApiE2ETest` | 비로그인 + 검색어 | 401 |
 | `AppearanceSwaggerDocsTest` | 공개 목록 파라미터 | 이름 7개(Pageable 정렬 없음), `scheduledFrom` 형식 `date`, `minFee` 최솟값 0, `sort` enum 4개 |
 

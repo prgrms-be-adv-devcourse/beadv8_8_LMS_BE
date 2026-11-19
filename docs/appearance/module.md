@@ -577,9 +577,9 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | POST | `/api/v1/appearances/recruits/{recruitId}/close` | 조기 마감 (#222, 10장) | 인플루언서 이상, 호스트만 | 출연 모집을 마감했습니다. |
 
 - 목록은 `Pageable`(page·size, 기본 20, 최대 100). 내 목록은 최신순 고정.
-- 공개 목록 검색 (#1020): 모두 선택 조건이며 함께 쓰면 모두 만족해야 한다. `keyword`(제목·콘텐츠 설명·호스트 닉네임 부분 일치, 대소문자 무시, 앞뒤 공백 정리 후 50자 이하), `scheduledFrom`·`scheduledTo`(방송 예정 일시 범위, `yyyy-MM-dd` KST, 양 끝 날짜 포함), `minFee`·`maxFee`(1인당 출연료 범위, 0 이상, 포함), `hasSeats=true`(남은 자리 있는 글만).
+- 공개 목록 검색 (#1020): 모두 선택 조건이며 함께 쓰면 모두 만족해야 한다. `keyword`(제목·콘텐츠 설명·호스트 닉네임 부분 일치, 대소문자 무시, 앞뒤 공백 정리 후 50자 이하, NUL 문자 불가), `scheduledFrom`·`scheduledTo`(방송 예정 일시 범위, `yyyy-MM-dd` KST, 양 끝 날짜 포함), `minFee`·`maxFee`(1인당 출연료 범위, 0 이상, 포함), `hasSeats=true`(남은 자리 있는 글만).
   정렬은 `sort` 이름으로만 받는다: `LATEST`(기본, 등록 최신순)·`SCHEDULED_SOON`(방송 임박순)·`DEADLINE_SOON`(마감 임박순)·`FEE_HIGH`(출연료 높은 순). 기준 값이 같으면 최신순으로 잇는다. Spring `Pageable`의 필드 이름 정렬(`sort=createdAt,desc`)은 받지 않는다.
-  잘못된 값(형식 오류, 음수, 모르는 정렬, 50자 초과, 뒤집힌 범위)은 400 `INVALID_REQUEST`.
+  잘못된 값(형식 오류, 음수, 모르는 정렬, 50자 초과·NUL 문자, 뒤집힌 범위)은 400 `INVALID_REQUEST`.
   조회는 `AppearanceRecruitOpenQuery`(Specification)가 만들고, 검색 앱(ES)을 쓰지 않는다(모집글은 마감되면 목록에서 빠져 양이 적다). 성공 응답은 `RsData`.
 - 역할 검사는 Facade 메서드마다 `@PreAuthorize`를 붙인다 (공개 조회와 호스트 기능의 권한이 달라서). 공개 조회는 출연 회원 자격도 확인하지 않는다.
 - **비회원 공개 목록은 아직 열지 않았다.** global `SecurityConfig`에 `GET /api/v1/appearances/recruits` 허용을 추가해야 해서 팀 합의 후 진행한다 (지금은 401).
@@ -1809,8 +1809,9 @@ Controller ─ 쿼리 파라미터 → domain.AppearanceRecruitSearch (정리·�
 | 같은 기준 값 | 최신순(`createdAt desc, id desc`)으로 잇는다 | 페이지를 넘겨도 순서가 흔들리지 않게 한다 |
 | `hasSeats=false` | 조건 없음 | 꽉 찬 글만 보는 화면은 없다 |
 | 검색어 길이 | 앞뒤 공백을 지운 뒤 50자(`String.length`, 다른 입력 제한과 같은 기준) | |
+| 검색어의 NUL 문자 | 400으로 막는다(다른 제어 문자는 그대로 찾는다) | PostgreSQL text는 NUL(0x00)을 받지 못해 조회가 500 `INTERNAL_ERROR`로 끝난다 |
 | 날짜 연도 | 0001~9999년만 | ISO 날짜는 `+10000-01-01`처럼 네 자리가 넘는 연도도 읽는데, DB 시각 범위를 넘으면 500이 되므로 400으로 막는다 |
-| 오류 코드 | 모두 `INVALID_REQUEST`(400) | 형식·타입 오류와 음수(Spec `@PositiveOrZero`)는 공통 핸들러가 `errors[{field}]`와 함께, 뒤집힌 범위·검색어 길이·연도는 `AppearanceRecruitSearch`가 `detail`에 이유를 담아 응답한다 |
+| 오류 코드 | 모두 `INVALID_REQUEST`(400) | 형식·타입 오류와 음수(Spec `@PositiveOrZero`)는 공통 핸들러가 `errors[{field}]`와 함께, 뒤집힌 범위·검색어 길이·NUL 문자·연도는 `AppearanceRecruitSearch`가 `detail`에 이유를 담아 응답한다 |
 
 ### 30.3 인덱스
 

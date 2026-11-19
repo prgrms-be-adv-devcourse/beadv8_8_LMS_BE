@@ -61,6 +61,13 @@ class AppearanceRecruitSearchTest {
         assertInvalid(() -> keyword(fifty + "나"), "검색어는 50자 이하여야 합니다.");
     }
 
+    @ParameterizedTest(name = "{index}")
+    @ValueSource(strings = {"\u0000", "롤\u0000", "  \u0000  ", "a\u0000b"})
+    @DisplayName("검색어에 NUL 문자가 있으면(공백을 지운 뒤에도 남음) INVALID_REQUEST")
+    void keywordWithNul(String keyword) {
+        assertInvalid(() -> keyword(keyword), "검색어에 쓸 수 없는 문자(NUL)가 있습니다.");
+    }
+
     @Test
     @DisplayName("방송 날짜 범위는 양 끝 날짜를 포함한다: 시작 날짜 0시 이상, 끝 날짜 다음 날 0시 미만")
     void scheduledRange() {

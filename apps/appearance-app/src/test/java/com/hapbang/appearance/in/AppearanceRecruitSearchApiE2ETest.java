@@ -201,6 +201,15 @@ class AppearanceRecruitSearchApiE2ETest {
     }
 
     @Test
+    @DisplayName("검색어에 NUL 문자(%00)가 있으면 DB에 보내지 않고 400 INVALID_REQUEST")
+    void keywordWithNul() {
+        search(Map.of("keyword", "롤\u0000"))
+                .statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"))
+                .body("detail", equalTo("검색어에 쓸 수 없는 문자(NUL)가 있습니다."));
+    }
+
+    @Test
     @DisplayName("검색 조건이 있어도 로그인하지 않으면 401")
     void anonymous() {
         given().queryParam("keyword", "롤").get(BASE).then().statusCode(401);

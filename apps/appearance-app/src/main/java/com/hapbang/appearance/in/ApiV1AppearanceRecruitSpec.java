@@ -37,7 +37,7 @@ public interface ApiV1AppearanceRecruitSpec {
             + "생략하면 보류 처리 중(HOLD_PENDING)·실패(HOLD_FAILED)를 포함한 전체. 없는 값이면 400";
 
     String KEYWORD = "검색어. 제목·콘텐츠 설명·호스트 닉네임에서 부분 일치로 찾는다(대소문자 무시, %·_도 글자 그대로). "
-            + "앞뒤 공백은 지우고, 비면 조건 없음. 공백을 지운 뒤 50자를 넘으면 400";
+            + "앞뒤 공백은 지우고, 비면 조건 없음. 공백을 지운 뒤 50자를 넘거나 NUL 문자(%00)가 있으면 400";
     String SCHEDULED_FROM = "방송 날짜 범위의 시작(yyyy-MM-dd, KST). 이 날짜를 포함한다. scheduledTo보다 늦으면 400";
     String SCHEDULED_TO = "방송 날짜 범위의 끝(yyyy-MM-dd, KST). 이 날짜 하루 전체를 포함한다";
     String MIN_FEE = "1인당 출연료(HP)의 최솟값(포함). 0 이상. maxFee보다 크면 400";
@@ -69,7 +69,7 @@ public interface ApiV1AppearanceRecruitSpec {
             - 정렬은 `sort`에 정렬 이름으로만 정한다. 필드 이름 정렬(`sort=createdAt,desc`)은 받지 않는다(400)
             - 페이지는 page·size(기본 20, 최대 100)
             - 잘못된 값은 400 `INVALID_REQUEST`: 날짜 형식(yyyy-MM-dd)·숫자 형식 오류, 음수 출연료, 모르는 sort,
-              50자를 넘는 검색어, 시작이 끝보다 늦은 날짜 범위·최소가 최대보다 큰 출연료 범위""")
+              50자를 넘거나 NUL 문자가 있는 검색어, 시작이 끝보다 늦은 날짜 범위·최소가 최대보다 큰 출연료 범위""")
     RsData<Page<AppearanceRecruitSummaryResDto>> getOpen(
             @Parameter(description = KEYWORD) String keyword,
             @Parameter(description = SCHEDULED_FROM) LocalDate scheduledFrom,

@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
  * <p>
  * 만들 때 값을 정리하고 확인한다. 틀리면 {@code INVALID_REQUEST}(400)다.
  *
- * @param keyword       제목·콘텐츠 설명·호스트 닉네임 부분 일치(대소문자 무시). 앞뒤 공백을 지우고, 비면 null. 50자 이하
+ * @param keyword       제목·콘텐츠 설명·호스트 닉네임 부분 일치(대소문자 무시). 앞뒤 공백을 지우고, 비면 null. 50자 이하, NUL 문자 불가
  * @param scheduledFrom 방송 예정 일시가 이 날짜(KST) 이후. 그 날짜를 포함한다
  * @param scheduledTo   방송 예정 일시가 이 날짜(KST) 이전. 그 날짜를 포함한다
  * @param minFee        1인당 출연료(HP)가 이 값 이상. 0 이상
@@ -39,13 +39,17 @@ public record AppearanceRecruitSearch(
             AppearanceRecruitSort.LATEST);
 
     /**
-     * @throws AppearanceException 검색어 50자 초과, 연도가 네 자리가 아닌 날짜, 음수 출연료, 뒤집힌 날짜·출연료 범위
+     * @throws AppearanceException 검색어 50자 초과·NUL 문자, 연도가 네 자리가 아닌 날짜, 음수 출연료, 뒤집힌 날짜·출연료 범위
      *                             ({@code INVALID_REQUEST})
      */
     public AppearanceRecruitSearch {
         keyword = normalize(keyword);
         if (keyword != null && keyword.length() > KEYWORD_MAX) {
             throw invalid("검색어는 %d자 이하여야 합니다.".formatted(KEYWORD_MAX));
+        }
+        // PostgreSQL text는 NUL(0x00)을 받지 못해 조회가 500으로 끝나므로 미리 400으로 막는다
+        if (keyword != null && keyword.indexOf('\0') >= 0) {
+            throw invalid("검색어에 쓸 수 없는 문자(NUL)가 있습니다.");
         }
         validateDate(scheduledFrom);
         validateDate(scheduledTo);
