@@ -43,7 +43,10 @@ class CouponSummaryQueryTest {
             Clock.fixed(ISSUE_START.plusSeconds(1), ZoneOffset.UTC));
 
     private static Coupon openCoupon(long id, int issuedCount) {
-        Coupon coupon = CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().quantity(10).build(), NOW);
+        return open(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().quantity(10).build(), NOW), id, issuedCount);
+    }
+
+    private static Coupon open(Coupon coupon, long id, int issuedCount) {
         ReflectionTestUtils.setField(coupon, "id", id);
         ReflectionTestUtils.setField(coupon, "status", CouponStatus.OPEN);
         ReflectionTestUtils.setField(coupon, "issuedCount", issuedCount);
@@ -65,6 +68,26 @@ class CouponSummaryQueryTest {
         assertThat(views).extracting(CouponSummaryView::couponId, CouponSummaryView::soldOut, CouponSummaryView::issued)
                 .containsExactly(tuple(COUPON_ID, false, true), tuple(SECOND_COUPON_ID, true, true));
         assertThat(views.getFirst().name()).isEqualTo(COUPON_NAME);
+    }
+
+    @Test
+    void 강의_없이_부르면_강의_조건_없이_조회하고_매진과_받음을_표시한다() {
+        // 다른 강의 대상 쿠폰도 강의를 정하지 않았으므로 목록에 남는다
+        Coupon otherLecture = open(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(8L).quantity(10).build(),
+                NOW), SECOND_COUPON_ID, 0);
+        when(couponRepository.findIssuableFor(isNull(), any(), any()))
+                .thenReturn(List.of(openCoupon(COUPON_ID, 10), otherLecture));
+        when(memberCouponRepository.findCouponIdsOwnedBy(MEMBER_ID, List.of(COUPON_ID, SECOND_COUPON_ID)))
+                .thenReturn(List.of(SECOND_COUPON_ID));
+        when(issueStore.readSnapshots(List.of(COUPON_ID, SECOND_COUPON_ID), MEMBER_ID)).thenReturn(Map.of(
+                SECOND_COUPON_ID, new IssueSnapshot(4L, false)));
+
+        List<CouponSummaryView> views = query.issuableFor(MEMBER_ID, null);
+
+        verify(couponRepository).findIssuableFor(null, ISSUE_START.plusSeconds(1), CouponSupport.LIST_LIMIT);
+        assertThat(views).extracting(CouponSummaryView::couponId, CouponSummaryView::lectureId,
+                        CouponSummaryView::soldOut, CouponSummaryView::issued)
+                .containsExactly(tuple(COUPON_ID, null, true, false), tuple(SECOND_COUPON_ID, 8L, false, true));
     }
 
     @Test

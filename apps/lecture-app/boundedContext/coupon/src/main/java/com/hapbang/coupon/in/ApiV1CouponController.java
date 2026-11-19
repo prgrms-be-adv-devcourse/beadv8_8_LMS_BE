@@ -44,7 +44,8 @@ public class ApiV1CouponController implements ApiV1CouponSpec {
     @Override
     @GetMapping
     public RsData<List<CouponSummaryView>> issuableCoupons(@LoginUserId Long memberId,
-                                                           @RequestParam(name = "lectureId") Long lectureId) {
+                                                           @RequestParam(name = "lectureId", required = false)
+                                                           Long lectureId) {
         return RsData.ok("받을 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.issuableCoupons(memberId, lectureId));
     }
 

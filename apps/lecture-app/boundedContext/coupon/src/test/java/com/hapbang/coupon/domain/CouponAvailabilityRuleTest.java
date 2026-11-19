@@ -46,6 +46,21 @@ class CouponAvailabilityRuleTest {
     }
 
     @Test
+    void 강의를_정하지_않으면_특정_강의_대상과_모든_강의_대상을_모두_넣는다() {
+        assertThat(CouponAvailabilityRule.isListedFor(openLectureCoupon(), null, IN_PERIOD)).isTrue();
+        assertThat(CouponAvailabilityRule.isListedFor(openAnyLectureCoupon(), null, IN_PERIOD)).isTrue();
+    }
+
+    @Test
+    void 강의를_정하지_않아도_발급_기간_밖이면_넣지_않는다() {
+        Coupon coupon = openLectureCoupon();
+
+        assertThat(CouponAvailabilityRule.isListedFor(coupon, null, ISSUE_START.minusMillis(1))).isFalse();
+        assertThat(CouponAvailabilityRule.isListedFor(coupon, null, ISSUE_START)).isTrue();
+        assertThat(CouponAvailabilityRule.isListedFor(coupon, null, ISSUE_END)).isFalse();
+    }
+
+    @Test
     void 발급_기간은_시작_시각을_포함하고_종료_시각은_빼며_발급_접수와_같다() {
         Coupon coupon = openAnyLectureCoupon();
 
@@ -57,10 +72,11 @@ class CouponAvailabilityRuleTest {
 
     @ParameterizedTest
     @EnumSource(value = CouponStatus.class, names = "OPEN", mode = EnumSource.Mode.EXCLUDE)
-    void 발급_중이_아닌_쿠폰은_목록에_넣지_않는다(CouponStatus status) {
+    void 발급_중이_아닌_쿠폰은_강의를_정했든_아니든_목록에_넣지_않는다(CouponStatus status) {
         Coupon coupon = withStatus(openAnyLectureCoupon(), status);
 
         assertThat(CouponAvailabilityRule.isListedFor(coupon, LECTURE_ID, IN_PERIOD)).isFalse();
+        assertThat(CouponAvailabilityRule.isListedFor(coupon, null, IN_PERIOD)).isFalse();
     }
 
     @ParameterizedTest

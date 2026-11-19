@@ -68,13 +68,14 @@ class CouponRepositoryCustomImpl implements CouponRepositoryCustom {
     }
 
     @Override
-    public List<Coupon> findIssuableFor(long lectureId, Instant now, Limit limit) {
+    public List<Coupon> findIssuableFor(Long lectureId, Instant now, Limit limit) {
         QCoupon c = new QCoupon("c");
         return CouponQuerydslSupport.fetch(query.selectFrom(c)
                 .where(c.status.eq(literal(CouponStatus.OPEN)),
                         c.issueStartAt.loe(now), c.issueEndAt.gt(now),
-                        c.targetType.eq(literal(CouponTargetType.LECTURE)).and(c.lectureId.eq(lectureId))
-                                .or(c.targetType.eq(literal(CouponTargetType.ANY_LECTURE))))
+                        lectureId == null ? null
+                                : c.targetType.eq(literal(CouponTargetType.LECTURE)).and(c.lectureId.eq(lectureId))
+                                        .or(c.targetType.eq(literal(CouponTargetType.ANY_LECTURE))))
                 .orderBy(c.createdAt.desc(), c.id.desc()), limit);
     }
 

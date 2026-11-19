@@ -26,10 +26,10 @@ public interface CouponRepositoryCustom {
     List<Long> findPlatformMemberBudgetCouponIds(Instant now, long afterId, Limit limit);
 
     /**
-     * 이 강의에 지금 받을 수 있는 쿠폰: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료)이며, 그 강의 대상이거나 모든 강의 대상.
-     * 판정 규칙은 {@code CouponAvailabilityRule.isListedFor}와 같다.
+     * 지금 받을 수 있는 쿠폰: 발급 중(OPEN)이고 발급 기간 안(시작 ≤ now &lt; 종료)이며, 강의를 정했으면 그 강의 대상이거나 모든 강의 대상.
+     * {@code lectureId}가 {@code null}이면 대상을 가리지 않는다. 판정 규칙은 {@code CouponAvailabilityRule.isListedFor}와 같다.
      */
-    List<Coupon> findIssuableFor(long lectureId, Instant now, Limit limit);
+    List<Coupon> findIssuableFor(Long lectureId, Instant now, Limit limit);
 
     /**
      * 이 강의의 가격 인상을 막는 플랫폼 쿠폰이 있는가: 그 강의 대상 플랫폼 쿠폰이 발급 중(OPEN)이거나, 그 쿠폰의 발급 쿠폰 중 RESERVED이거나

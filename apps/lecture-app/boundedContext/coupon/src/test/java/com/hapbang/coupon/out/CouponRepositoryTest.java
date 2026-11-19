@@ -187,14 +187,16 @@ class CouponRepositoryTest {
     }
 
     @Test
-    void 강의에_받을_수_있는_쿠폰은_발급_중이고_기간_안인_그_강의_또는_모든_강의_대상이며_최신순이다() {
+    void 받을_수_있는_쿠폰은_발급_중이고_기간_안이며_최신순이고_강의를_정하면_그_강의_또는_모든_강의_대상만이다() {
         Instant now = ISSUE_START.plusSeconds(1);
         Long older = save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.OPEN);
+        // 강의를 정하지 않을 때만 넣는 쿠폰: 다른 강의 대상(older와 같은 시각이라 ID 역순으로 앞선다)
+        Long otherLecture = save(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(8L).build(), NOW),
+                CouponStatus.OPEN);
         Long anyLecture = save(CouponFixture.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW.plusSeconds(1)),
                 CouponStatus.OPEN);
         Long newer = save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW.plusSeconds(2)), CouponStatus.OPEN);
-        // 넣지 않는 쿠폰: 다른 강의, 발급 중이 아님, 시작 전, 끝남(종료 시각 = now)
-        save(CouponFixture.createSeller(SELLER_ID, lectureRate().lectureId(8L).build(), NOW), CouponStatus.OPEN);
+        // 어느 쪽에도 넣지 않는 쿠폰: 발급 중이 아님, 시작 전, 끝남(종료 시각 = now)
         save(CouponFixture.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.SUSPENDED);
         save(CouponFixture.createSeller(SELLER_ID, lectureRate().issuePeriod(now.plusMillis(1), ISSUE_END).build(), NOW),
                 CouponStatus.OPEN);
@@ -208,6 +210,10 @@ class CouponRepositoryTest {
         assertThat(found).extracting(Coupon::getId).containsExactly(newer, anyLecture, older);
         assertThat(couponRepository.findIssuableFor(LECTURE_ID, now, Limit.of(2))).extracting(Coupon::getId)
                 .containsExactly(newer, anyLecture);
+        assertThat(couponRepository.findIssuableFor(null, now, Limit.unlimited())).extracting(Coupon::getId)
+                .containsExactly(newer, anyLecture, otherLecture, older);
+        assertThat(couponRepository.findIssuableFor(null, now, Limit.of(3))).extracting(Coupon::getId)
+                .containsExactly(newer, anyLecture, otherLecture);
     }
 
     @Test
