@@ -87,13 +87,13 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 | 헬스체크 | `GET /actuator/health` (k8s는 관리 포트의 liveness·readiness) |
 | Swagger | `/api/v1/auxiliary/swagger-ui.html` (`global/src/main/resources/swagger.yml`). 모듈 셋의 API가 한 명세에 있고 컨트롤러 `@Tag`로 나뉜다 |
 | DB 연결 풀 | Hikari 5. PostgreSQL `max_connections` 100을 다른 앱과 나눠 쓴다 |
-| 배치 스레드 | `spring.task.scheduling.pool.size` 2 |
+| 배치 스레드 | `spring.task.scheduling.pool.size` 2(앱 공통 `taskScheduler`). 알림 예약 배치만 알림 소유 스케줄러 1스레드에서 돈다(#992, `docs/notification/decisions.md` ND-219) |
 | Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`). 챗봇 회원 그룹(`auxiliary-app.chatbot-member-copy`)은 1분 간격으로 3번 다시 시도한 뒤 DLT로 보내고, 보내기 직전에 실패 기록(`chatbot.member_event_failure`)을 남긴다(#976. 마스킹은 이벤트로만 알 수 있어 다시 처리할 길이 있어야 한다). 기다리는 동안 이 그룹의 뒤 메시지도 기다린다(메시지 하나에 약 3분). 한 번 기다리는 1분은 `max.poll.interval.ms`(기본 5분)보다 짧다. 기록하면 `[CHATBOT_MEMBER_EVENT_DEAD_LETTER]` ERROR(회원 ID·종류·예외 클래스, 메시지·스택 없음)를 남기고, 관리자가 `GET /api/v1/chatbot/admin/member-event-failures`로 이유(예외 클래스·잘라 낸 메시지·시각)를 보고 `POST …/member-event-failures/retry`로 다시 처리한다(건별 결과, 고르지 않으면 다시 처리할 수 있는 처리 대기 기록을 오래된 순으로 최대 100건, `hapbang.chatbot.member-event-failure.retry-all-limit`). 기록이 실패하면(DB 장애) DLT로 넘기지 않고 처음부터 다시 시도한다(보통은 다시 1분 간격 3번을 기다린다. 다시 시도하지 않는 메시지(읽을 수 없음·필수 값 없음)는 기다림 없이 바로 다시 기록을 시도하므로, DB 장애 중에 이런 메시지가 오면 장애가 풀릴 때까지 기록 실패 로그가 빠르게 반복된다). 읽을 수 없는·필수 값이 빠진 메시지는 이 그룹도 바로 DLT(다시 처리할 수 없는 기록으로 남는다). 이 그룹의 DLT는 원본 토픽에 다시 넣지 않는다(kafka.md runbook) |
 | 배치 실행 락 | global `JobLock`(PostgreSQL advisory lock). database를 모듈이 함께 쓰므로 락 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번(`JobLockKey`) |
 | 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL` / 검색 통계 동기화: `MemberApiClient`, `MEMBER_API_BASE_URL`) |
 | 메모리 | large node, limit 832Mi(#996, 처음 #684 예산 704Mi), `-Xmx256m`, `MALLOC_ARENA_MAX=2` |
 
-DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
+DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다(배치 스레드는 알림 예약 배치를 뺀 모든 `@Scheduled`가 나눠 쓴다). 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
 
 STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 Gateway `claimToHeaders`가 넘기고(#847), global 필터는 읽지 않는다. 알림 연결 티켓 API만 직접 읽는다(`docs/notification/decisions.md` ND-056·ND-064). 알림 웹소켓 핸드셰이크가 받는 출처는 `hapbang.notification.websocket.allowed-origins`(local·prod 프로필)로 정한다.
 
@@ -210,7 +210,7 @@ $env:RECOMMEND_RERANK_MEMBERS = "5"; $env:RECOMMEND_RERANK_RUNS = "1"; $env:RECO
   - 실패한 문서는 30초부터 두 배씩 1시간까지 늘려 다시 한다. 실패 로그는 원인마다 한 줄이다(문서 하나만 실패하면 문서별 WARN, 처리기 전체 실패처럼 원인이 같으면 문서 수·예시 문서 ID를 담은 WARN 한 줄). 10번 이상 실패한 문서가 있으면 회차당 한 번 `[CHATBOT_INDEX_TASK_STUCK]` ERROR(건수·예시 문서 ID). 회차가 임대(5분)의 절반을 넘기면 남은 종류는 돌려준다. 끝난 요청은 7일 뒤 지운다. 지표 `hapbang.chatbot.index.tasks{type,result}`.
 - 강의 사본은 값이 바뀌었거나 원본 없음 표시가 바뀔 때만 요청을 적는다. 값이 같은 매시 싱크는 요청을 적지 않는다.
 - **JDBC 테이블은 `ddl-auto: validate` 밖이다**(예외): 사본(`*_copy`)·`masked_member`·`index_task`는 엔티티 없이 JDBC(`CopyTable`·`IndexTaskStore`·`MaskedMemberStore` 등)로 다룬다. 그래서 Flyway로 컬럼을 바꿔도 앱은 뜨고 그 SQL만 실행 때 깨진다. 대신 `JdbcTableColumnsTest`가 이 테이블들의 컬럼 이름·타입을 고정하고, 엔티티가 없는 새 chatbot 테이블도 그 표에 넣어야 통과한다. 컬럼을 바꾸면 Store의 SQL과 이 테스트를 같이 고친다. 엔티티 테이블(`faq`·`sync_run`·`sync_mismatch`)은 `validate`가 검사한다.
-- 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
+- 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다(알림 예약 배치는 자기 스케줄러라 기다리지 않는다, #992). DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
 - **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다. 회로 값은 `hapbang.chatbot.llm.circuit-breaker.*`이다(기본: 최근 10번 중 최소 5번 호출 뒤 실패율 50% 이상이면 열고, 30초 뒤 3번 시험).
 - **구조화 출력 응답 레코드**(리랭킹 `Picks`·`Pick`, 쿼리 확장 `Expansions`): OpenAI는 스키마를 strict로 받아 객체의 모든 필드가 `required`여야 한다. Spring AI 2.0.1은 `@Nullable` 필드를 `required`에서 빼므로 그대로 두면 OpenAI가 요청을 `400`으로 거절하고 매번 fallback이 된다(Ollama는 받아 줘서 로컬에서는 안 보인다). 응답 레코드의 nullable 필드에는 `@JsonProperty(required = true)`를 함께 달고(Spring AI가 `@Nullable`보다 먼저 본다), 새 응답 레코드는 `StructuredOutputSchemaTest`에 넣는다. 값은 여전히 null일 수 있다고 보고 읽는다.
 - **대화 Tool의 `ToolContext`**(`ChatToolContext`, #720): 키는 `memberId`(요청 회원 ID)와 `faqSources`(Tool이 찾은 FAQ를 담는 목록) 둘이다. 대화 쪽은 Map을 `ChatToolContext.of`로만 만들어 세 Tool(`searchFaq`, `recommendLectures`, `recommendInfluencers`)이 같은 키를 읽는다. 값이 없으면 Tool이 거절한다.

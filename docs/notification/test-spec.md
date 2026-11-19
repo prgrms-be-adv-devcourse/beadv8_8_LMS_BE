@@ -185,6 +185,9 @@
 | NT-SCH-22 | 예약 결과 지표 | 보낼 예약, 기한 지난 예약(회차 시작 때 끝냄), 받을 수 없는 회원의 예약, 계속 실패하는 예약, 실패 횟수 기록이 실패하는 예약, 이미 끝난 예약 | 예약 배치 회차 | `hapbang.notification.schedule.outcomes`가 결과마다 1씩 는다: `sent`, `skipped`(기한 경과·받을 수 없는 회원 각각), `retry`(1·2번째 실패), `abandoned`(3번째 실패), `record_failed`(`[NOTIFICATION_SCHEDULE_FAILED]` ERROR). 이미 끝난 예약은 세지 않는다 | 회차 시작 때 한꺼번에 끝낸 기한 경과는 그 건수만큼 `skipped`가 는다 | ND-147, ND-150 | — | Integration(PG) | 유효 |
 | NT-SCH-23 | 회차 결과 지표 | 정상 회차, 회차 예외, 잠금 시도 실패, 다른 실행이 잠금을 쥔 회차 | 예약 배치 호출 | `hapbang.notification.schedule.runs{outcome}`: 정상은 `completed`, 회차 예외·잠금 시도 실패는 `failed`가 1 는다. 다른 실행이 잠금을 쥐어 건너뛴 회차는 세지 않는다. 회차 예외·잠금 시도 실패는 ERROR로 남는다 | 회차 예외가 나도 배치는 다음 회차에 다시 돈다 | ND-150 | — | Unit, Integration(PG) | 유효 |
 | NT-SCH-24 | alert "예약 알림 발송 실패" | `k8s/platform/base/alerting/rules.yaml` | 규칙 정의 | warning, 지속 없음. `outcomes{result=abandoned\|record_failed}` 또는 `runs{outcome=failed}`가 10분 안에 늘었거나 새 series면 울린다. `retry`·`skipped`·`sent`만 늘면 울리지 않는다 | Grafana provisioning 형식(기존 규칙과 같은 구조) | ND-151 | `observability.md` "구성한 alert" | 설정 검토(정적) | 유효 |
+| NT-SCH-25 | 공용 풀이 차도 예약 회차가 제시각에 시작 | 스케줄링 켬, 앱 공통 `taskScheduler` 스레드 2개가 모두 막힘 | 예약 배치 cron 도래 | 예약 회차가 정해진 시각 + 1초 안에 시작한다. 실행 스레드는 `notification-schedule-`로 시작하고 공용 풀 스레드가 아니다 | 시험은 짧은 주기 cron(5초)을 쓰고, 시작 시각을 지연 지표(다음 발화 1초 안은 0, ND-221)가 아니라 cron 발화 시각과 직접 비교한다. 공용 풀 경쟁은 L5에서 재현하지 않는다(ND-222) | ND-219, ND-220 | — | Integration(컨텍스트, DB 없음) | 유효 |
+| NT-SCH-26 | 전용 스케줄러 구성과 조건부 생성 | 스케줄링 켬 / 끔, 다른 `@Scheduled` 배치와 다른 TaskScheduler 빈(STOMP 자리)이 함께 있음, cron 끔 값(`-`) | 컨텍스트 기동 | 켬: 전용 스케줄러는 스레드 1개·이름 `notification-schedule-`, 기본 `TaskScheduler`는 그대로 `taskScheduler`이고 다른 배치는 공통 스케줄러 스레드에서 돈다. 예약 회차 실행마다 `@Scheduled` 관측이 생긴다(trace의 바탕). 끔: 전용 스케줄러·시작 지연 빈이 없다. cron이 `-`여도 기동한다 | 종료 대기는 공용 스케줄러와 같다(builder가 앱 설정을 가져옴) | ND-219 | — | Integration(컨텍스트, DB 없음) | 유효 |
+| NT-SCH-27 | 회차 시작 지연 지표 | cron `35 * * * * *` KST | 회차 시작 | `hapbang.notification.schedule.start.delay` = 시작 시각 − 시작 시각 이전 가장 늦은 cron 발화 시각. 정시 0, 다음 발화까지 1초 이하로 남은 시각(일찍 깨어남, 예: 34.997초)은 0, 분 경계는 직전 발화 기준, cron은 KST로 읽는다. 버킷 100ms~300s 9개. 잠금 시도 실패·회차 예외 회차도 기록한다. 지표 저장소가 없거나 cron이 끔 값(`-`)이면 기록하지 않는다 | 한 주기 넘게 밀린 회차는 직전 발화 기준이라 짧게 보인다(L5 기준으로 봄) | ND-221 | — | Unit | 유효 |
 
 ### 2.9 USR — 회원 복제본·탈퇴
 
@@ -249,7 +252,7 @@
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-RES-01 | DB 연결 풀 공유 | Hikari 5(ND-204) | 알림 소비·API·예약 배치와 챗봇 요청을 동시에 | 예산(Hikari 5) 안에서 연결 대기 시간 초과가 없다 | PostgreSQL `max_connections` 100을 다른 앱과 나눔. N15 격리 측정은 챗봇 요청 없이 쟀다(ND-203) | ND-204 | auxiliary-app README "실행과 설정" | 부하 | 유효 |
-| NT-RES-02 | 배치 스레드 공유 | 앱 공통 스케줄러 스레드 2(ND-204) | 1분 예약 배치와 챗봇 배치가 겹침 | 예약 배치 지연이 NT-LOAD-L5S·L5B·L5M 기준(최대 지연 ⌈N/100⌉+1분) 안이다 | 챗봇 배치가 스레드를 오래 쥐면 예약 회차가 늦게 시작할 수 있다(ND-204). 알림 쪽 분리는 N17-4 | ND-029, ND-192, ND-204 | 위와 같음 | 부하 | 유효 |
+| NT-RES-02 | 배치 스레드 공유 | 앱 공통 스케줄러 스레드 2(ND-204) | 1분 예약 배치와 챗봇 배치가 겹침 | 예약 배치 지연이 NT-LOAD-L5S·L5B·L5M 기준(최대 지연 ⌈N/100⌉+1분) 안이다 | 챗봇 배치가 스레드를 오래 쥐면 예약 회차가 늦게 시작할 수 있다(ND-204). N17-4(#992)에서 예약 배치를 알림 전용 스케줄러로 옮겼다(ND-219). 공용 풀 경쟁은 L5가 아니라 시험 NT-SCH-25로 본다(ND-220·ND-222) | ND-029, ND-192, ND-204, ND-219, ND-220 | 위와 같음 | 부하 | 유효 |
 | NT-RES-03 | 메모리 | limit 832Mi(#996, ND-210. N15·N17-1 측정 때는 704Mi), `-Xmx256m`(ND-204) | STOMP 연결 여럿 + 소비 + 챗봇 | OOMKilled 없이 예산 안이다 | `-Xmx`를 함께 올릴지는 ND-210·ND-215 | ND-204, ND-210, ND-215 | 위와 같음 | 부하, E2E | 유효 |
 
 ### 2.15 OBS — 계측
@@ -350,7 +353,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | READ 읽음 | 6 | 6 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 5 | 5 | 0 | 0 | 0 |
 | BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
-| SCH 예약 | 24 | 24 | 0 | 0 | 0 |
+| SCH 예약 | 27 | 27 | 0 | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
 | RT 실시간·재접속 | 11 | 11 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
@@ -361,7 +364,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | B0 부하 도구·기준선 | 12 | 12 | 0 | 0 | 0 |
 | REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
 | LOAD 본 부하 시험 | 10 | 10 | 0 | 0 | 0 |
-| **합계** | **164** | **163** | **1** | **0** | **0** |
+| **합계** | **167** | **166** | **1** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -410,6 +413,9 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-SCH-22 (N11) | `app.ScheduleDispatcherTest`(보낸·건너뛴 예약 결과별 수, 같은 알림이 이미 있어도 sent, retry 두 번 뒤 abandoned, 실패 횟수 기록 실패는 record_failed), `app.ScheduleDispatcherMetricsTest`(결과값마다 0으로 미리 만듦, 고른 뒤 다른 실행이 끝낸 예약은 세지 않음) | 전부 |
 | NT-SCH-23 (N11) | `app.ScheduleDispatcherMetricsTest`(끝까지 돈 회차 completed, 회차 예외·잠금 시도 실패 failed, 잠금 경합은 세지 않음), `in.NotificationScheduleBatchTest`(잠금 시도 실패·회차 예외 ERROR, 예외를 밖으로 내보내지 않음) | 전부 |
 | NT-SCH-24 (N11) | 정적 확인: `rules.yaml` YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}`(CI `ci.yml`과 같은 검사), promtool로 새 규칙 식의 PromQL 문법(NR-085) | 일부(Grafana 적용·실제 통보는 운영 적용 뒤) |
+| NT-SCH-25 (N17-4) | `in.NotificationScheduleSchedulerTest`(공용 스레드 2개를 막은 채 5초 cron, 막은 뒤 시작한 회차만 판정: 전용 스레드에서 시작, 시작 1초 전 이후 첫 cron 발화와의 차이 1초 미만) | 전부 |
+| NT-SCH-26 (N17-4) | `in.NotificationScheduleSchedulerTest`(스레드 1개·이름, 기본 `TaskScheduler` 불변, 다른 배치는 `scheduling-` 스레드, 예약 회차 `ScheduledTaskObservationContext` 관측, 스케줄링 끄면 빈 없음, cron `-` 기동) | 일부(관측은 Boot 관측 자동 설정 대신 시험에서 등록기에 레지스트리를 넘겨 켠다. 이 모듈 시험 classpath에 그 자동 설정이 없다. traceId 로그는 보지 않는다) |
+| NT-SCH-27 (N17-4) | `in.NotificationScheduleStartDelayTest`(정시·일찍 깨어남·1초 경계·늦음·분 경계·한 주기 넘음·KST·버킷·cron 끔·지표 저장소 없음), `in.NotificationScheduleBatchTest`(정상·잠금 시도 실패·회차 예외 회차 모두 기록) | 전부 |
 | NT-SCH-17·18 (N10) | `app.ScheduleServiceTest`(시작 시각 전·같은 시각), `in.event.NotificationAppearanceProgressAlertTest`(받을 수 없는 호스트 + 게스트 복제본 없음은 DLT, 모두 받을 수 없음은 DLT 없음), `in.event.NotificationScheduleInputTest`(게스트 복제본 없음 → 예약·알림 0) | 전부 |
 | NT-GEN-12 (N10) | `app.ScheduleAlertTemplatesTest`(5종 종류 코드), `app.ScheduleDispatcherTest`(저장된 `kind`) | 전부 |
 | NT-USR-07 | `app.NotificationConcurrencyTest`(보존 정리와 파기의 겹침, B·C 두 파기의 겹침), `app.NotificationMaskingServiceTest`(저장된 알림·밀려난 알림, 파기 상태 복제본, 파기 뒤 옛 닉네임 초안 저장, 복제본 없는 회원의 파기와 저장 동시 처리), `in.event.NotificationMemberEventListenerTest`(파기 이벤트, 변경 이벤트와 순서, 재수신), `domain.NotificationUserTest`·`app.NotificationUserSyncServiceTest`(파기된 복제본은 가입·변경으로 바뀌지 않음) | 전부(ND-051·ND-054) |
@@ -463,6 +469,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-18 decisions.md ND-219~ND-222 반영(N17-4, #992): NT-RES-02 예외·근거 칸에 전용 스케줄러(ND-219)와 시험으로 보는 공용 풀 경쟁(ND-220·ND-222)을 적었다. 구현 뒤 NT-SCH-25(공용 풀이 차도 제시각 시작)·NT-SCH-26(전용 스케줄러 구성·조건부)·NT-SCH-27(회차 시작 지연 지표)과 4장 연결 행을 더하고 집계를 고쳤다(SCH 27, 합계 167/166). S6 리뷰 뒤 NT-SCH-26에 다른 배치·관측·cron 끔 값을, NT-SCH-27에 cron 끔 값을 더하고 연결 행을 고쳤다. L5-S 측정 뒤 NT-SCH-27에 일찍 깨어난 회차(지연 0)를 더했다. 2026-11-19 S6 재리뷰 뒤 NT-SCH-25 시험을 5초 cron과 cron 발화 시각 직접 비교로 바꿨다(2초 주기에서는 일찍 깨어남 규칙 때문에 1초 판정이 늘 통과). 요구사항 수는 그대로다.
 - 2026-11-18 decisions.md ND-217 반영(N17-3, #991): 2.16에 NT-B0-12(커밋 설정 인자 `B0_SYNC_COMMIT`)를 더하고 4장 집계(B0 12, 합계 164/163)와 연결 표를 고쳤다.
 - 2026-11-18 decisions.md ND-215 반영(#990): NT-RES-03 예외 칸을 ND-210·ND-215 참조로 바꿨다. 요구사항 수는 그대로다.
 - 2026-11-18 decisions.md ND-211 반영(#989): NT-RT-10 기대 결과의 순서를 "저장 commit 순서"에서 "commit 뒤 줄에 넣은 순서(한 스레드가 차례로 저장하면 commit 순서)"로 고쳤다.

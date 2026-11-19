@@ -44,5 +44,5 @@
 
 - 앱 실행 진입점 아래의 업무·global 패키지를 해당 앱이 스캔한다. 다른 앱의 global 패키지를 스캔하지 않는다.
 - 같은 타입의 특수 빈이 여러 개면 명시적 이름과 `@Qualifier`를 사용한다. 필요한 경우 기본 후보에서 제외한다.
-- 채팅 STOMP의 스케줄러와 앱 배치 스케줄러가 섞이지 않도록 각 앱의 `SchedulingConfig`를 사용한다.
+- 채팅 STOMP의 스케줄러와 앱 배치 스케줄러가 섞이지 않도록 각 앱의 `SchedulingConfig`를 사용한다. 다른 배치에 밀리면 안 되는 배치만 모듈 소유 스케줄러를 둘 수 있다: Boot builder로 만들고 `defaultCandidate = false`로 등록해 `@Scheduled(scheduler = "<빈 이름>")`로 쓴다(예: auxiliary-app 알림 예약 배치, #992).
 - 배치는 `@ConditionalOnSchedulingEnabled`를 붙인 얇은 `@Scheduled` 빈과 UseCase로 구성하고, 테스트는 [테스트 문서](testing.md)를 따른다.
