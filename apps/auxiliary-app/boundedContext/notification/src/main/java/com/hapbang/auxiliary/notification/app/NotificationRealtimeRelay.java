@@ -19,7 +19,6 @@ import java.util.stream.Stream;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -110,11 +109,9 @@ public class NotificationRealtimeRelay {
     public NotificationRealtimeRelay(NotificationRepository notifications,
             ObjectProvider<NotificationRealtimePublisher> publisher, PlatformTransactionManager transactionManager,
             MemberMaskLocks maskLocks, ObjectProvider<MeterRegistry> meterRegistry,
-            @Value("${hapbang.notification.realtime.publish.failure-backoff:5s}") Duration failureBackoff,
-            @Value("${hapbang.notification.realtime.publish.queue-capacity:1000}") int queueCapacity,
-            @Value("${hapbang.notification.realtime.publish.batch-size:100}") int batchSize) {
-        this(notifications, publisher, transactionManager, maskLocks, meterRegistry, failureBackoff, queueCapacity,
-                batchSize, Clock.systemUTC());
+            NotificationRealtimePublishProperties properties) {
+        this(notifications, publisher, transactionManager, maskLocks, meterRegistry, properties.failureBackoff(),
+                properties.queueCapacity(), properties.batchSize(), Clock.systemUTC());
     }
 
     /** 시계를 직접 넘긴다(테스트) */

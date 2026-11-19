@@ -21,7 +21,7 @@
 
 맡는 것과 맡지 않는 것은 [CONTEXT.md](CONTEXT.md) 1장에 있다(ND-001~004). 채팅 알림은 채팅 소유이며 이 모듈의 구조에 넣지 않는다(ND-004, decisions.md 12장).
 
-## 2. As-Is (기준: dev `cced81b7`(N1~N10 병합, 마지막 N10 PR #929))
+## 2. As-Is (기준: dev `336a4df9`(N1~N15·N17 병합, 마지막 N17-4 PR #1025) + N18 #1026 작업 트리)
 
 | 사실 | 근거 |
 | --- | --- |
@@ -61,7 +61,7 @@
 | 소비·실시간 지표(N12 #944, ND-159~ND-162): `NotificationKafkaMetrics`가 셋을 붙인다. 오류 처리기의 `RetryListener` → `hapbang.notification.consume.failures{topic,exception}`(실패 시도마다, 역직렬화 실패 포함), DLT 템플릿의 `CompositeProducerListener`(기존 로그 listener + 지표) → `hapbang.notification.dead_letter{topic,result=published\|failed}`(producer 응답 기준), 컨테이너의 `CompositeRecordInterceptor`(기존 MDC interceptor + 지표) → `hapbang.notification.consume.latency{topic}`(레코드 timestamp부터 `success`까지, 미설정 timestamp는 재지 않고 미래는 0)와 소비 문맥. `NotificationOutcomeRecorder`가 소비 문맥(ThreadLocal 토픽)이 있을 때만 `NotificationWriter.save`·`addDailyPayout` 결과와 `NotificationAlertService`의 받는 사람 사전 판단 건너뜀(`SKIPPED_RECEIVER`, 저장 서비스를 부르지 않으므로 겹치지 않음, ND-164)을 트랜잭션 안이면 `afterCommit`에, 트랜잭션 밖이면(요청 만료 리스너 등) 레코드 처리가 성공한 뒤 interceptor `success`에서 한 번(실패·재시도 시도는 버림, ND-177) `hapbang.notification.consume.outcomes{topic,result}`로 센다(롤백 시도 제외, 집계 실패는 WARN만). `NotificationRealtimeRelay`가 Redis 발행 성공 때 `hapbang.notification.realtime.publish.latency`(commit 뒤 넘긴 시각부터), `NotificationRealtimeRedisListener`가 받은 시각(`nanoTime`)을 내부 메시지 헤더 `notificationReceivedAt`(STOMP native 헤더 아님)로 넘기고 `clientOutboundChannel`의 `NotificationOutboundLatencyInterceptor.afterMessageHandled`가 예외 없을 때 `hapbang.notification.realtime.send.latency`를 잰다(서버 내부 STOMP outbound 처리 지연: 세션 버퍼·소켓 쓰기·클라이언트 수신 없음, STOMP 처리기가 안에서 처리한 세션 전송 오류도 완료로 잰다. 두 실시간 값의 합은 부분 구간 근사치이고 전체 지연이 아니다). Kafka client 지표(lag)는 알림 소비자 팩토리에 Boot의 customizer가 붙여 이미 나오고(테스트로 확인), Hikari 지표는 앱 공통(Boot actuator, `application.yaml` `health,prometheus` 노출, `observability.md`)이라 코드를 바꾸지 않았다. 운영 수집은 배포 뒤 확인한다. `NotificationWebSocketSessions`가 결합된 연결 수 Gauge `hapbang.notification.realtime.sessions`. 지표 저장소 빈이 없으면 아무것도 하지 않는다. 기존 Bean 이름·토픽·group·DLT·재시도·예외 분류, FE 프레임과 Redis 메시지 본문은 그대로다 | `in/event/kafka/NotificationKafkaMetrics.java`, `NotificationKafkaConfig`, `NotificationKafkaErrorHandlerConfig`, `app/NotificationOutcomeRecorder.java`, `app/NotificationWriter.java`, `app/NotificationAlertService.java`, `app/NotificationRealtimeRelay.java`, `in/redis/NotificationRealtimeRedisListener.java`, `in/websocket/NotificationOutboundLatencyInterceptor.java`, `NotificationWebSocketConfig`, `NotificationWebSocketSessions` |
 | 값 규칙: `v`(필수), `nicknames`(회원 ID → 닉네임). `nicknames`의 키가 언급 회원 ID가 된다. 파기되면 `탈퇴회원#{ID}`로 바꾸고 문구를 템플릿으로 다시 만든다(멱등). 파기(ND-054): `notification_user.masked_at`(Flyway `V202611101100`, 역할 null 허용)에 파기 표시를 남기고 복제본이 없으면 파기 상태로 만든다. 파기된 복제본은 가입·변경으로 바뀌지 않는다. 저장은 언급 회원마다 회원 단위 advisory lock 공유(ID 순), 파기는 배타 잠금 `(801, 회원 ID 해시)`를 잡고, 저장 때 파기된 언급 회원 닉네임을 바꾼다 | `.../domain/Notification.java`, `.../domain/NotificationPayload.java`, `.../domain/NotificationUser.java`, `.../app/NotificationMaskingService.java`, `.../out/MemberMaskLocks.java` |
 | REST `ApiV1NotificationController`(`/api/v1/notifications`, N2): 목록·안 읽은 수·읽음·전체 읽음. `@PreAuthorize`는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`(관리자 403), 남의·없는·밀려난 알림 읽음은 404 `NOTIFICATION_NOT_FOUND`(ND-052). 외부 경로는 Gateway route(N4, #847) | `.../in/ApiV1NotificationController.java`, `.../app/NotificationQueryFacade.java` |
-| 실시간 전달(N3, #829): `NotificationWriter`가 저장 뒤 `NotificationRealtimeRelay`에 맡기고, Relay는 트랜잭션 `afterCommit`에서만 Relay의 줄(줄 1000, 차면 버림)에 넣는다. 발행 스레드 1개(`NotificationRealtimeWorker`, N17-1 #989·ND-205)가 줄을 최대 100개씩 꺼내, 알림은 한 번에 읽고 안 읽은 수는 받는 사람별로 한 번에 센 뒤(밀려난·받는 사람이 다른 알림은 건너뜀) 꺼낸 순서대로 프레임 `{notification, unreadCount}`을 Redis 채널 `<prefix>:realtime`에 발행한다. 다른 회원의 닉네임이 든 알림은 그 자리에서 파기 순서 공유 잠금(ND-054) 안에서 다시 읽어 발행하고, 없는 알림은 묶음 읽기 트랜잭션을 끝낸 뒤 발행한다. 발행이 실패하면 5초(설정) 동안 DB 조회 전에 생략한다. 버린 프레임은 지표 `hapbang.notification.realtime.dropped{reason}`로 세고 저장을 되돌리지 않는다(ND-027·ND-059, 3.8). 구독자(`NotificationRealtimeRedisListener`, 전용 `RedisMessageListenerContainer`)가 `convertAndSendToUser(회원ID, /queue/notifications)`로 보낸다 | `.../app/NotificationRealtimeRelay.java`, `.../app/NotificationRealtimeWorker.java`, `.../app/NotificationRealtimeExecutorConfig.java`, `.../out/redis/RedisNotificationRealtimePublisher.java`, `.../in/redis/NotificationRealtime{RedisListener,RedisConfig}.java` |
+| 실시간 전달(N3, #829): `NotificationWriter`가 저장 뒤 `NotificationRealtimeRelay`에 맡기고, Relay는 트랜잭션 `afterCommit`에서만 Relay의 줄(줄 1000, 차면 버림)에 넣는다. 발행 스레드 1개(`NotificationRealtimeWorker`, N17-1 #989·ND-205)가 줄을 최대 100개씩 꺼내, 알림은 한 번에 읽고 안 읽은 수는 받는 사람별로 한 번에 센 뒤(밀려난·받는 사람이 다른 알림은 건너뜀) 꺼낸 순서대로 프레임 `{notification, unreadCount}`을 Redis 채널 `<prefix>:realtime`에 발행한다. 다른 회원의 닉네임이 든 알림은 그 자리에서 파기 순서 공유 잠금(ND-054) 안에서 다시 읽어 발행하고, 없는 알림은 묶음 읽기 트랜잭션을 끝낸 뒤 발행한다. 발행이 실패하면 5초(설정) 동안 DB 조회 전에 생략한다. 버린 프레임은 지표 `hapbang.notification.realtime.dropped{reason}`로 세고 저장을 되돌리지 않는다(ND-027·ND-059, 3.8). 줄 상한·묶음 크기·발행 실패 뒤 생략 시간은 `NotificationRealtimePublishProperties`(`hapbang.notification.realtime.publish.*`, 기본 1000·100·5초, 두 개수는 1 이상이어야 기동, #1026 ND-226)가 읽고 `NotificationRealtimeConfig`가 조건 없이 등록한다. 발행 스레드 빈만 실시간 전달을 켠 실행에 있다 구독자(`NotificationRealtimeRedisListener`, 전용 `RedisMessageListenerContainer`)가 `convertAndSendToUser(회원ID, /queue/notifications)`로 보낸다 | `.../app/NotificationRealtimeRelay.java`, `.../app/NotificationRealtimeWorker.java`, `.../app/NotificationRealtime{Config,PublishProperties}.java`, `.../out/redis/RedisNotificationRealtimePublisher.java`, `.../in/redis/NotificationRealtime{RedisListener,RedisConfig}.java` |
 | 연결 티켓(N3): `POST /api/v1/notifications/ws-tickets`(`@PreAuthorize` 받는 역할). 30초·1회용(Redis `GETDEL`, 키는 SHA-256), 회원마다 60초 10번(Lua INCR+PEXPIRE, 넘으면 공통 `RateLimitExceededException` → 429 `TOO_MANY_REQUESTS`·`Retry-After: 60`), 저장소 없음·실패 503 `CONNECTION_TICKET_UNAVAILABLE`. 연결 만료 `min(X-User-Token-Exp, 발급 + 15분)`, 헤더는 컨트롤러만 읽는다(ND-056·ND-058) | `.../app/NotificationConnection{TicketService,Facade}.java`, `.../in/ApiV1NotificationConnectionController.java`, `.../out/redis/RedisNotificationConnectionTicketStore.java`, `src/main/resources/notification/redis/ws-ticket-rate.lua` |
 | 자체 STOMP(N3): `@EnableWebSocketMessageBroker`, 엔드포인트 `/api/v1/notifications/ws`(출처 검사 → 티켓, 없거나 쓴 티켓 401), 메모리 브로커 `/queue`, 사용자 목적지 `/user`. 수신 검사는 CONNECT를 결합된 회원만, SUBSCRIBE를 `/user/queue/notifications`만 받고 SEND는 모두 거절한다. 연결별 만료 예약 + 30초 주기 대조로 4401 `TOKEN_EXPIRED` 종료(ND-057). 수신·송신 채널 실행기 각 2스레드(설정이 소유, 기동 때 미리 띄우고 컨텍스트가 닫힐 때 종료), 전송 10초·512KB. 서버 STOMP heart-beat 보내기·받기 `hapbang.notification.realtime.websocket.heartbeat`(기본 25초, ND-063) — 스케줄러 1스레드(같은 방식으로 소유·종료). STOMP 협상이라 클라이언트가 받기 0이면 서버도 보내지 않고(FE 계약, ND-068), 클라이언트 보내기가 끊기면 서버가 연결을 닫는다. 설정값이 0 이하이거나 5분(`MAX_HEARTBEAT`, Gateway stream idle) 이상이면 생성자가 `IllegalArgumentException`으로 기동을 막는다(ND-068, #847) | `.../in/websocket/Notification{WebSocketConfig,TicketHandshakeInterceptor,HandshakeHandler,StompInterceptor,WebSocketSessions}.java` |
 | `hapbang.notification.realtime.enabled`(기본 켜짐)로 위 빈을 켜고 끈다. 모듈 테스트 설정은 끄고 `@NotificationRealtimeTest`만 켠다. 모듈 빌드에 `spring-boot-starter-websocket`·`spring-boot-starter-data-redis` | `.../app/ConditionalOnNotificationRealtime.java`, `boundedContext/notification/build.gradle.kts`, `src/test/resources/hapbang-module-test.yaml` |
@@ -97,8 +97,8 @@
 | 받는 사람 확인(알림 회원 복제본, 탈퇴·정지 제외) | ND-018, ND-072 |
 | 복제본 만들기(가입, 또는 복제본이 없을 때 온 변경. 있으면 더 큰 버전만) | ND-018, ND-049 (첫 배포 Backfill은 ND-077, 5.4) |
 | 복제본이 아직 없는 받는 사람(블로킹 재시도 뒤 DLT) | ND-035 (첫 배포 Backfill은 ND-077·ND-078) |
-| 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033, ND-045 (새로 요청하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md), N5 11종은 ND-073, 그 밖의 이미 발행 중인 이벤트의 필드는 U5) |
-| 문구·값 저장 | ND-020, ND-039, ND-050 (종류별 문구는 그 종류를 소비하는 작업에서. N5 11종은 ND-075, 나머지는 U3) |
+| 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033, ND-045 (새로 요청하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md), 종류별 필드는 [알림 종류](notification-catalog.md) 각 행) |
+| 문구·값 저장 | ND-020, ND-039, ND-050 (종류별 문구는 그 종류를 소비하는 작업에서 정했고 [알림 종류](notification-catalog.md) 0.5~0.13·8장에 있다) |
 | 이동 대상(업무 자원 단위, 종류별 값은 알림 종류 문서) | ND-074 |
 | 알림 시작 시각 이전 사건은 알림 없이 커밋 | ND-076 |
 | 사건 시각 필드가 없는 이벤트는 Kafka 레코드 timestamp를 대체 시각으로(사건 시각과 같다고 보장하지 않음) | ND-081 |
@@ -241,9 +241,9 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 6. `gateway.yaml` 경로 추가 | REST와 WebSocket 경로(ND-062), 시간 제한(ND-063), `exp` claim(ND-064), WebSocket route는 JWT SecurityPolicy 대상 아님(ND-067). N4(#847)에서 한다(ND-055) |
 | 7. `verifyModuleStructure :auxiliary-app:check` | `AuxiliaryModularityTest`가 새 모듈을 찾는지 |
 
-### 4.3 N17-1 리뷰에서 남긴 정리 후보 (미채택, #989 S6)
+### 4.3 N17-1 리뷰에서 남긴 정리 후보 (#989 S6, #1026에서 처리)
 
-이번 Issue에서 하지 않은 구조 정리다. 동작은 바꾸지 않는다.
+N17-1 Issue에서 하지 않은 구조 정리다. 동작은 바꾸지 않는다. 네 후보를 #1026에서 ND-226·ND-228 범위로 처리했다: 설정 클래스와 설정값 묶기는 그대로, 시험 도우미는 `provider`·안 읽은 수만 모으고 저장 알림 도우미는 각 시험에 남겼으며, alert는 `queue_full` 지표만 보고 `[NOTIFICATION_REALTIME_ERROR]`는 설명의 Loki 검색어로만 적었다. 처리한 모습은 2장 As-Is 실시간 전달 행과 `rules.yaml`에 있다.
 
 | 후보 | 내용 |
 | --- | --- |
@@ -313,17 +313,13 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | ID | 걸리는 설계 | 막는 작업 |
 | --- | --- | --- |
-| U5 | N5 밖의 이미 발행 중인 이벤트의 원본 대상 ID 필드(원칙은 ND-033·ND-045, N5는 ND-073) | 각 이벤트 소비 작업(N6 이후)의 유일 인덱스 값 |
-| U14 | WebSocket 경로 Gateway 시간 제한. 알림 쪽은 ND-062·ND-063, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
-| U15 | Gateway `claimToHeaders`에 `exp` 추가. 알림 쪽은 ND-055·ND-056·ND-064, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
-| U3 | N5 밖 종류별 실제 문구(원칙은 ND-039·ND-050, N5는 ND-075) | 각 종류를 소비하는 작업(N6 이후) |
 | U12 | 채팅과 동시 표시(화면, FE 안건). 규칙 밖 종류 코드 U11은 ND-137로 끝났다 | FE |
-| T8 | chat-app 불변식과 ND-004의 방향 차이 | 채팅 소유, 이 모듈 구조에는 영향 없음 |
 
 ## 7. 갱신 이력
 
 | 날짜 | 내용 |
 | --- | --- |
+| 2026-11-19 | N17 뒤 정리(#1026, ND-224~ND-228): 2장 기준을 dev `336a4df9`로 고치고 실시간 전달 행에 설정값 묶기·설정 클래스를 반영했다. 3.2 표의 U3·U5 참조를 알림 종류 문서 참조로, 4.3을 처리 완료로, 6장은 U12만 남겼다(U3·U5·U14·U15·T8 해소) |
 | 2026-11-18 | N17-4 정책(#992): 결정 참조 표 예약 행에 ND-219~ND-221(전용 스케줄러, 목표, 회차 시작 지연 지표)을 더했다. 구현 뒤 2장 As-Is 예약 배치 행(전용 스케줄러)과 예약 배치 지표 행(회차 시작 지연 Timer, S6 리뷰 뒤 cron 끔 값, L5-S 뒤 일찍 깨어난 회차)을 고쳤다 |
 | 2026-11-18 | N17-1 PR 리뷰 반영(#989): 3.8 발행 스레드·묶음 행에 Error·interrupt 뒤에도 계속 도는 동작을 적었다 |
 | 2026-11-18 | ND-211 반영(#989): 3.8 발행 스레드·묶음 행의 순서 보장을 commit 뒤 줄에 넣은 순서로 고쳤다 |

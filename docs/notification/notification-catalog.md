@@ -9,6 +9,7 @@
 > - **구현 상태**: 이 문서의 내용은 정책 명세이고 구현·테스트 상태가 아니다. 구현 범위는 [module.md](module.md) 2장 As-Is에 있다.
 >
 > 변경 이력
+> - 2026-11-19 N18(#1026, U3·U5 해소): 9장에서 U3·U5 행을 지웠다. 0장 문구 안내에 N10 0.13을 더하고 원본 대상 ID 칸 설명의 "미정(U5)"를 지웠으며, 환전 송금 실패 행의 원본 대상 ID 참조(계약 상태·비고 칸)를 ND-073·ND-033으로 바꿨다.
 > - 2026-11-14 #935: 7장 운영 시간 줄의 U6 팀 확인 대기 표시를 policy.md 9장 참조로 바꿨다(U6은 #935로 팀 확인).
 > - 2026-11-14 문서 정리(#931): 9장에서 해소된 U19 행을 지웠다(decisions.md 10장 U19). 머리말 구현 상태 문장을 고쳤다. PR 리뷰 뒤 `LECTURE_ORDER_PAID` 행의 U2 참조를 고쳤다.
 > - 2026-11-13 decisions.md ND-133~ND-143 반영(N10 사전 결정, #928): 0.13 예약 5종 문구(ND-140)를 더했다. 7장 표를 확정 설계(업무 기한, 실제 생성·취소 이벤트, 원본 대상 ID·이동 대상)로 고치고, 2026-11-06 계약 판정과 U6·U11·U16 미결 서술을 ND-134~ND-143 참조로 바꿨다. 0.2 종류 코드 칸과 9장에서 U11·U16을 지웠다.
@@ -55,7 +56,7 @@
 | 미충족 | Kafka로 받을 수 있는 이벤트가 없거나, 있어도 받는 사람 ID가 없거나 사건을 식별할 수 없다 |
 
 - 공통 사실(2026-11-06 조사): 각 앱은 Modulith outbox + shared 레코드 `@Externalized`로 발행하고 헤더 `eventType`·`eventVersion=1`을 붙이며 앱별 재발행 배치가 있다. 이벤트 ID가 없어 받는 쪽은 (eventType, 대상 ID)로 중복을 거른다. 새 이벤트마다 shared 레코드 `@Externalized`, 발행 앱 외부화 설정의 eventType 헤더, [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표 갱신이 필요하다. customer-support-app은 `lecture.events.v1`의 모르는 타입을 무시해(`LectureEventTypeResolver`) 새 강의 이벤트가 DLT로 가지 않는다.
-- 토픽과 Kafka key는 [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표가 원본이다. Kafka key는 원본 대상 ID(U5)를 정한 것이 아니다.
+- 토픽과 Kafka key는 [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표가 원본이다. Kafka key는 원본 대상 ID(ND-033)를 정한 것이 아니다.
 
 ### 0.2 칸 설명
 
@@ -68,7 +69,7 @@
 | 발생 조건 | 알림을 만드는 사실. N 3장 표와 각 절 설명에서 옮겼다 |
 | 보내지 않는 경우 | 이 행에만 걸리는 조건. 모든 행에 걸리는 공통 조건은 0.3 |
 | 이동 대상 | 알림을 눌렀을 때 갈 대상(종류·ID, N 6.1). 원본에 종류별 값이 없어 모두 "미정" |
-| 원본 대상 ID | 중복 방지 유일 인덱스(원본 이벤트 종류, 원본 대상 ID, 받는 사람)의 대상 ID(ND-019). 원칙은 ND-033이고, 회차 ID가 없는 반복 사건은 `<대상 ID>:<회차>`다(ND-045). 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md)이 원본이다. 행별 칸은 그 이벤트를 소비하는 작업에서 구현된 계약을 확인한 뒤 적는다. 그 전까지 "미정(U5)" |
+| 원본 대상 ID | 중복 방지 유일 인덱스(원본 이벤트 종류, 원본 대상 ID, 받는 사람)의 대상 ID(ND-019). 원칙은 ND-033이고, 회차 ID가 없는 반복 사건은 `<대상 ID>:<회차>`다(ND-045). 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md)이 원본이다. 행별 칸은 그 이벤트를 소비하는 작업에서 구현된 계약을 확인한 뒤 적는다. 지금은 모든 종류에 적혀 있다 |
 | 이벤트 계약 상태 | 원본 표시 / 2026-11-06 코드 재확인 |
 | 관련 ND | 이 행에 직접 걸리는 결정. 모든 행에 걸리는 ND-011·012·018·019·020은 생략 |
 | 비고 | 관련 미결(U 번호), 이벤트 계약 요청 위치 등 |
@@ -79,7 +80,7 @@
 - 받는 사람의 `notification_user` 복제본이 아직 없으면(가입 이벤트가 늦게 옴) ND-035를 따른다(`NT-USR-04`). 첫 배포 전에 가입해 가입 이벤트가 토픽에 없는 회원의 복제본은 회원 목록 내부 API Backfill로 채우고, 알림을 만드는 소비자는 첫 Backfill 뒤 시작한다(ND-077·ND-078, `NT-USR-06`).
 - 업무 시각이 알림 시작 시각보다 이른 사건은 알림을 만들지 않는다(ND-076, `NT-KAF-04`). 운영의 알림 시작 시각은 앱이 처음 뜬 시각이다(ND-095).
 - 같은 이벤트를 다시 받아도 한 번만 만든다(ND-019).
-- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132), 하루 묶음은 8장(ND-100), 나머지는 미정(U3).
+- 문구는 알림 모듈이 만든다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-039·ND-050). N5 11종은 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132), 하루 묶음은 8장(ND-100), N10 예약 5종은 0.13(ND-140)이다.
 - 다른 회원의 닉네임이 들어간 문구·값은 그 회원이 파기되면 바꾼다(ND-036, `NT-USR-07`). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구를 다시 만든다(ND-051).
 - 목록은 이벤트의 업무 시각으로 정렬한다(ND-021). 사건 시각 필드가 없는 `AppearanceRequestSentEvent`·`UserJoinedEvent`·`UserModifiedEvent`는 Kafka 레코드 timestamp를 대체 시각으로 쓰며, 원래 사건 시각과 같다고 보장하지 않는다(ND-081).
 - 관리자는 알림센터 알림을 받지 않는다(ND-003).
@@ -101,7 +102,7 @@
 
 ### 0.5 문구 (N5 11종, ND-075)
 
-시각은 KST, 금액은 천 단위 쉼표다. `{닉네임}`은 언급 회원(ND-051)이라 파기되면 `탈퇴회원#{회원ID}`로 바뀐다(ND-054). 나머지 종류의 문구는 미정(U3).
+시각은 KST, 금액은 천 단위 쉼표다. `{닉네임}`은 언급 회원(ND-051)이라 파기되면 `탈퇴회원#{회원ID}`로 바뀐다(ND-054). 나머지 종류의 문구는 0.6~0.13과 8장에 있다.
 
 | 종류 코드 | 문구 |
 | --- | --- |
@@ -295,7 +296,7 @@
 | `EXCHANGE_REJECTED` | 환전 거절 | 신청한 회원 | `ExchangeRejectedEvent` | 환전 거절 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
 | `EXCHANGE_APPROVED` | 환전 승인 (정산일) | 신청한 회원 | `ExchangeApprovedEvent` | 환전 승인 | — | `EXCHANGE` / `exchangeId`(ND-107) | `exchangeId`(ND-106) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`ExchangeReviewUseCase` 54~71행 근처) / 2026-11-12 #873(M5)으로 발행(`@Externalized`, key `exchange:<환전 ID>`, `userId`·`requestedAmountHp`·`payoutScheduledAt`·`approvedAt`) | ND-021, ND-105 | 요청 값 3.1 |
 | `EXCHANGE_COMPLETED` | 환전 송금 완료 | 신청한 회원 | `ExchangeCompletedEvent` | 환전 송금 완료 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
-| `EXCHANGE_PAYOUT_FAILED` | 환전 송금 실패 (지연) | 신청한 회원 | `ExchangePayoutFailedEvent` | 환전 송금 실패(지연) | — | `EXCHANGE` / `exchangeId`(ND-074) | `payoutAttemptId`(ND-073, ND-033) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId`·`payoutAttemptId`·`attemptNo` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음. 원본 대상 ID는 U5 | ND-021 | 한 환전에서 여러 번 난다. 환전 ID를 원본 대상 ID로 쓰면 두 번째 실패가 막힌다(U5) |
+| `EXCHANGE_PAYOUT_FAILED` | 환전 송금 실패 (지연) | 신청한 회원 | `ExchangePayoutFailedEvent` | 환전 송금 실패(지연) | — | `EXCHANGE` / `exchangeId`(ND-074) | `payoutAttemptId`(ND-073, ND-033) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId`·`payoutAttemptId`·`attemptNo` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음. 원본 대상 ID는 ND-073 | ND-021 | 한 환전에서 여러 번 난다. 환전 ID를 원본 대상 ID로 쓰면 두 번째 실패가 막힌다(ND-033) |
 | `EXCHANGE_FINAL_FAILED` | 환전 최종 실패 (보류 HP 반환) | 신청한 회원 | `ExchangeFinalFailedEvent` | 환전 최종 실패, 보류 HP 반환 | — | `EXCHANGE` / `exchangeId`(ND-074) | `exchangeId`(ND-073) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(key `exchange:<환전 ID>`), `userId` 있음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`userId` 있음 | ND-021 | |
 
 - `PayoutCompletedEvent` 하나를 원천으로 출연 원천은 `PAYOUT_COMPLETED`, 강의 원천은 `PAYOUT_COMPLETED_DAILY`로 나눈다(ND-013).
@@ -407,6 +408,4 @@
 
 | ID | 질문 |
 | --- | --- |
-| U3 | 아직 문구가 없는 종류의 실제 문구(각 종류를 소비하는 작업, 원칙은 ND-039·ND-050. N5는 ND-075, N6는 ND-085, N7 지갑은 ND-108, N7 출연은 ND-113, N7 강의는 ND-117, N7 회원은 ND-121, N7 고객센터는 ND-126, N9 채팅은 ND-132, N10 예약은 ND-140) |
-| U5 | 아직 정하지 않은 종류의 원본 대상 ID 필드(N5는 ND-073, N6는 ND-083, N7 지갑은 ND-106, N7 출연은 ND-111, N7 강의는 ND-115, N7 회원은 ND-119, N7 고객센터는 ND-124, N9 채팅은 ND-130, N10 예약은 ND-139. 원칙은 ND-033·ND-045, 새로 요청하는 이벤트는 [이벤트 계약 요청](event-contracts.md)) |
 | U12 | 채팅과 알림센터에 같은 사건이 함께 뜰 때 화면 표시(서버는 양쪽에 만든다, ND-004) |

@@ -26,7 +26,7 @@
 | 테스트 종류(제안) | 아래 1.2 |
 | 명세 상태 | 아래 1.3. 실행 결과가 아니다 |
 
-- 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-050). N5 11종은 [알림 종류](notification-catalog.md) 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126)이고 나머지는 미결(U3)이다. 생성 항목은 "문구가 비어 있지 않다"까지만 보고, 문구 내용은 NT-GEN-10이 본다.
+- 종류별 문구는 그 종류를 소비하는 작업에서 정한다(ND-050). N5 11종은 [알림 종류](notification-catalog.md) 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132), N10 예약 5종은 0.13(ND-140)이다(U3는 2026-11-19 해소). 생성 항목은 "문구가 비어 있지 않다"까지만 보고, 문구 내용은 NT-GEN-10이 본다.
 - 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름은 역할 비교 승급 승인 ND-071, 하루 묶음 `PAYOUT_COMPLETED_DAILY` ND-098, 예약 5종 ND-137로 정해졌다(NT-GEN-12). `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
 - consumer group 이름은 ND-047(`auxiliary-app.notification-<목적>`)이다. 그룹 이름을 단언하는 항목은 NT-KAF-06, NT-ERR-03이고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
 
@@ -71,7 +71,7 @@
 | NT-GEN-07 | 보내지 않는 것 | 관리자 회원, 일반 회원 | 관리자 `UserJoinedEvent`, 같은 토픽의 알림 대상 아닌 이벤트(예: `AppearanceReviewPublishedEvent`, `AppearanceChangedEvent`), 정지·탈퇴·로그아웃 이벤트 | 알림 0, 예약 0. offset 커밋, DLT 0. 관리자는 어떤 알림도 받지 않는다 | 카탈로그의 "보내지 않는 것" 목록 전체를 대상으로 한다 | ND-002, ND-003, ND-011 | 카탈로그 "보내지 않는 것" | Integration(PG+Kafka) | 유효 |
 | NT-GEN-08 | 단체방 알림 3종의 받는 사람 | M8(`chat.events.v1`) | `GroupMembersInvitedEvent`, `GroupMemberKickedEvent`, `GroupRoomClosedEvent` | 초대: 이번 초대로 실제 참여한 회원마다 1건. 강퇴: 강퇴된 회원 1건. 폐쇄: 남은 참여자마다 1건, 폐쇄한 호스트 제외 | 종류 코드는 채팅 안내와 이름이 같지만 뜻·받는 사람이 다르다(ND-043) | ND-011, ND-043 | Kafka `chat.events.v1`, 카탈로그 단체방 3종 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-09 | 이의 제기 접수 한 번만 | M4, M7 | 바로 접수된 `LectureObjectionFiledEvent` / 재시도 배치 접수의 `LectureObjectionFiledEvent` / `LectureObjectionFileRejectedEvent` | 접수는 경로와 무관하게 이벤트 하나로 구매자·판매자 각 1건. 접수 불가는 재시도 배치가 끝낼 때만 구매자 1건 | 바로 거절된 접수는 알림 0(이벤트가 없다) | ND-015 | 카탈로그 `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_FILE_REJECTED` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-10 | 종류별 문구 | 그 종류를 소비하는 작업에서 문구 확정(ND-050). N5 11종은 카탈로그 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132) | 종류마다 대표 이벤트(전부 환불·일부 환불, `NORMAL`·`PENALTY`처럼 문구가 갈리는 값은 각각) | 저장된 문구가 확정된 문구와 같다(금액 쉼표, 시각 KST) | 문구가 아직 없는 종류(U3)는 그 소비 작업에서 더한다 | ND-020, ND-039, ND-050, ND-075 | 카탈로그 0.5, 각 소비 작업의 문구 코드 | Unit | 유효 |
+| NT-GEN-10 | 종류별 문구 | 그 종류를 소비하는 작업에서 문구 확정(ND-050). N5 11종은 카탈로그 0.5(ND-075), N6 7종은 0.6(ND-085), N7 지갑 4종은 0.7(ND-108), N7 출연 10종은 0.8(ND-113), N7 강의 7종은 0.9(ND-117), N7 회원 3종은 0.10(ND-121), N7 고객센터 2종은 0.11(ND-126), N9 채팅 3종은 0.12(ND-132), N10 예약 5종은 0.13(ND-140) | 종류마다 대표 이벤트(전부 환불·일부 환불, `NORMAL`·`PENALTY`처럼 문구가 갈리는 값은 각각) | 저장된 문구가 확정된 문구와 같다(금액 쉼표, 시각 KST) | 새 종류는 그 소비 작업에서 더한다 | ND-020, ND-039, ND-050, ND-075 | 카탈로그 0.5, 각 소비 작업의 문구 코드 | Unit | 유효 |
 | NT-GEN-11 | 지급 알림의 출연·강의 제목 | M5(`PayoutCompletedEvent.sourceTitle`, ND-040) | `PayoutCompletedEvent` | 지급 알림(`PAYOUT_COMPLETED`, 하루 묶음)에 이벤트의 `sourceTitle`이 제목으로 들어 있다 | 지금 이벤트에 `sourceTitle`이 없다(M5 전에는 실행할 수 없다) | ND-014, ND-040 | Kafka `billing.events.v1` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(승급 승인 `INFLUENCER_UPGRADE_REQUEST_APPROVED`(ND-071), `PAYOUT_COMPLETED_DAILY`(ND-098), 예약 5종(ND-137)) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08). 예약 5종 이름은 ND-137 | ND-012, ND-071, ND-098, ND-137 | 카탈로그 | Unit | 유효 |
 | NT-GEN-13 | 값 저장과 문구 재생성 | 아무 알림 | 알림 생성 | 값(`jsonb`)에 형식 버전 `v`가 있고, 저장된 값만으로 같은 문구를 다시 만들 수 있다 | — | ND-020, ND-025 | 테이블 `notification` | Unit, Integration(PG) | 유효 |
@@ -219,6 +219,7 @@
 | NT-RT-09 | Gateway 경로·인증과 `exp` claim | Gateway(로컬 k3d) 경유 | (1) JWT 없이 `GET /api/v1/notifications/ws`(티켓 있음·없음·틀림) (2) access token으로 티켓 발급 REST (3) 같은 발급 요청에 외부에서 `X-User-Token-Exp`를 붙임 (4) 다른 메서드·하위 경로 | (1) JWT가 없어도 Gateway JWT 인증에 막히지 않고 앱까지 간다. 유효한 1회용 티켓이 있으면 연결되고, 없거나 틀리면 앱이 핸드셰이크를 401로 거절한다 (2) 발급 요청에 Gateway가 access token `exp`를 `X-User-Token-Exp`로 넣는다 (3) 외부에서 붙인 헤더는 지워지고 Gateway가 넣은 값만 닿는다 (4) WebSocket route로 가지 않는다 | WebSocket route는 JWT SecurityPolicy 대상이 아니다(ND-067). 위조 헤더 제거와 `exp` 주입은 JWT 인증이 있는 REST 요청에서 확인한다 | ND-062, ND-064, ND-067, ND-056, ND-060 | `k8s/base/gateway.yaml` HTTPRoute·SecurityPolicy | E2E | 유효 |
 | NT-RT-10 | 받는 사람별 프레임 순서 | A 연결 | A에게 가는 알림 여러 건을 차례로 저장(사이에 다른 회원 알림이 섞임, 저장이 실시간 발행보다 빠름) | A가 받는 프레임의 알림 순서가 commit 뒤 줄에 넣은 순서와 같다. 이 시험처럼 한 스레드가 차례로 저장하면 저장 commit 순서와 같다(다른 스레드에서 거의 동시에 commit된 저장끼리는 보장하지 않는다, ND-211). 각 프레임의 안 읽은 수는 그 프레임 알림의 commit 뒤, 발행 전에 읽은 값이고(묶음 시점 차이는 ND-209), 같은 받는 사람의 프레임에서 앞 프레임보다 오래된 값이 뒤에 오지 않는다(그사이 읽음이 없을 때) | 버린 프레임(줄 포화 등)은 순서 비교에서 빼고 따로 센다. 프레임 형식은 ND-059 그대로 | ND-205, ND-211, ND-059, ND-027 | WebSocket `/user/queue/notifications` | Unit, Integration(PG+Redis) | 유효 |
 | NT-RT-11 | 다른 회원 닉네임이 든 알림의 순서·파기 잠금 | A 연결, 언급 회원 B | A에게 가는 알림 중 B 닉네임이 든 알림과 없는 알림을 섞어 저장, B 파기와 겹침 | NT-RT-10의 순서가 지켜진다. B 닉네임이 든 알림은 파기 순서 잠금 안에서 다시 읽어 보내고, 파기가 진행 중이면 끝난 뒤 파기된 닉네임으로 나간다 | — | ND-205, ND-054 | 위와 같음 | Unit, Integration(PG+Redis) | 유효 |
+| NT-RT-12 | alert "알림 실시간 전달 버림" | `k8s/platform/base/alerting/rules.yaml` | 규칙 정의 | warning, 지속 없음, 앱별. `hapbang_notification_realtime_dropped_total{reason="queue_full"}`가 10분 안에 늘었거나 새 series면 울린다. `read_failed`·`publish_failed`·`skipped`만 늘면 울리지 않는다 | Grafana provisioning 형식(NT-SCH-24와 같은 구조) | ND-228 | `observability.md` "구성한 alert" | 설정 검토(정적) | 유효 |
 
 ### 2.11 ERR — 실패·재시도·DLT
 
@@ -303,6 +304,7 @@ N14 리팩토링(ND-154) 전후의 구성·동작 동일성 기준이다. NT-REF
 | NT-REF-04 | 리스너 구성 | Kafka 시험 문맥 | 리스너 컨테이너 등록부 | 리스너 여섯 개의 컨테이너 ID·구독 토픽·group·사용 factory·autoStartup이 지금과 같다 | — | ND-181·ND-182 | — | 통합(Kafka) | 유효 |
 | NT-REF-05 | N14 재측정 | B0 cluster, fixture, N14 커밋 이미지 | `b0.sh run <n>` 5회 | V0~V8 통과, F의 SHA-256이 B0와 같고, 처리량 CV ≤ 10%, 정상 단계 처리량 중앙값 ≥ B0 중앙값의 90% | 불합격이면 `3f5f8319` 이미지 대조 5회 | ND-175·ND-183 | — | E2E(k3d) | 유효 |
 | NT-REF-06 | 등록기 빈의 의존 관계 | NT-REF-01 | 소비자 여섯 개 | 빈마다 예전 `@Bean` 메서드처럼 설정 클래스 빈과 받은 빈(소비자 값, 팩토리, 템플릿, 오류 처리기)에 의존한다고 기록돼 있다. DLT 토픽 선언은 `NotificationKafkaTopicConfig`에 의존한다 | — | ND-184 | — | 통합(문맥) | 유효 |
+| NT-REF-07 | 실시간 발행 설정값 묶기 동일성 | 알림 실시간 설정 클래스 + 가짜 Relay | 설정 없음, 키 세 개 설정, `queue-capacity`·`batch-size` 0, 실시간 전달 켬·끔 | 설정이 없으면 5초·1000·100, 설정하면 같은 키(`hapbang.notification.realtime.publish.*`)의 값을 쓴다. 두 개수가 0이면 기동 실패. 끈 실행에서도 설정값이 바인딩되고 발행 스레드 빈은 없으며, 켠 실행에는 `notificationRealtimeWorker` 하나가 있다 | — | ND-226·ND-227 | — | 통합(문맥) | 유효 |
 
 ### 2.18 LOAD — 본 부하 시험
 
@@ -355,16 +357,16 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | BUN 하루 묶음 | 9 | 9 | 0 | 0 | 0 |
 | SCH 예약 | 27 | 27 | 0 | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 10 | 10 | 0 | 0 | 0 |
-| RT 실시간·재접속 | 11 | 11 | 0 | 0 | 0 |
+| RT 실시간·재접속 | 12 | 12 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 3 | 0 | 0 | 0 |
 | OBS 계측 | 12 | 12 | 0 | 0 | 0 |
 | B0 부하 도구·기준선 | 12 | 12 | 0 | 0 | 0 |
-| REF 구조 리팩토링 동일성 | 6 | 6 | 0 | 0 | 0 |
+| REF 구조 리팩토링 동일성 | 7 | 7 | 0 | 0 | 0 |
 | LOAD 본 부하 시험 | 10 | 10 | 0 | 0 | 0 |
-| **합계** | **167** | **166** | **1** | **0** | **0** |
+| **합계** | **169** | **168** | **1** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -428,6 +430,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
 | NT-RT-10 (N17-1) | `app.NotificationRealtimeOrderTest`(발행 스레드가 밀린 동안 쌓인 300건, 받는 사람별 넘긴 순서, 안 읽은 수는 commit 뒤·발행 전에 읽은 값), `app.NotificationRealtimeBatchTest`(묶음당 알림·안 읽은 수 쿼리 1번씩, 꺼낸 순서대로 발행, 묶음 상한, 줄 포화, 묶음 읽기 실패 `read_failed`, 받는 사람이 다르거나 밀려난 알림 건너뜀, 잠금 경로 뒤 같은 받는 사람 프레임이 다시 센 값을 이어받음, 묶음 경계, 읽음으로 실제 값이 줄면 줄어든 최신 값, 잠금 경로 알림이 보이지 않으면(잠금을 잡은 뒤 다시 읽음) 보내지 않고 묶음 값 유지, 닫으면 남은 수 반환·닫힌 뒤 `queue_full` 거절·다시 열기), `app.NotificationRealtimeWorkerTest`(스레드 하나, 예외·Error·멈춤 요청 없는 interrupt 뒤 계속, 멈추면 끝나고 Relay를 닫음, 시작하면 다시 엶, 멈출 때 interrupt 없이 처리 중 묶음을 끝냄, 멈춘 뒤 재시작, 이전 스레드가 살아 있으면 시작 거절, 동시 시작·멈춤에도 발행 스레드 하나, Kafka보다 먼저 시작·나중에 멈춤), `in.NotificationRealtimeIntegrationTest`(닉네임 없는 알림 10건을 두 받는 사람에게 몰아 저장 → 순서·안 읽은 수) | 전부(단위·통합). 순서 시험은 실행기 스레드 4개로 바꾸면 RED(NR-110). 이어받기·닫힘 거절은 해당 코드를 끄면 RED(NR-115·NR-116) |
 | NT-RT-11 (N17-1) | `app.NotificationRealtimeOrderTest`(잠금 경로 알림이 섞인 순서), `app.NotificationRealtimeBatchTest`(닉네임 알림은 그 자리에서 잠금 경로로), 파기 중 닉네임은 기존 `in.NotificationRealtimeIntegrationTest`(파기가 끝난 뒤의 닉네임으로) | 전부 |
+| NT-RT-12 (N18) | 정적 확인: `rules.yaml` YAML 파싱, `kubectl kustomize k8s/platform/overlays/{local,prod}`, promtool로 새 규칙 식의 PromQL 문법(NR-085와 같은 방식) | 일부(Grafana 적용·실제 통보는 운영 적용 뒤) |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
 | (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패와 잠금 경로의 잠금 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`(잠금 경로·언급 회원 없는 경로 모두, 롤백이 실패해도 원래 원인으로 분류)와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
 | (자원 정리) | `in.websocket.NotificationWebSocketConfigTest`(컨텍스트가 닫히면 수신·송신 채널 실행기 스레드가 끝남) | test-spec 항목 없음(U13 보강, #829 Bot 리뷰 2차) |
@@ -453,6 +456,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 | NT-REF-04 (N14) | `in.event.NotificationKafkaListenerConfigurationTest`(Kafka 시험 문맥, 리스너 여섯 개) | 전부 |
 | NT-REF-05 (N14) | `loadtest/notification/b0.sh run <n>` 5회(N14 커밋 이미지, 결과는 regression-log·B0 기준선 문서) | 전부 |
 | NT-REF-06 (N14) | `in.event.kafka.NotificationKafkaConsumerDependencyTest`(S6 리뷰 뒤, DLT 토픽 의존 빠짐으로 RED 확인) | 전부 |
+| NT-REF-07 (N18) | `app.NotificationRealtimePublishPropertiesTest`(ApplicationContextRunner, 클래스가 없을 때 컴파일 RED 확인). 동작 동일성은 기존 실시간 시험(`app.NotificationRealtime{Relay,Batch,Order,Worker}Test`, `in.NotificationRealtime{Integration,Metrics}Test`) | 전부 |
 | NT-LOAD-L4 (N15) | `loadtest.L4FixtureGeneratorTest`(L4 fixture), `loadtest.B0FixtureInvarianceTest`(B0 기본 출력 구조 불변, ND-189·ND-201), `loadtest/notification/tests/test_n15_scripts.py`(회복 판정·lag 관측), 실행은 `loadtest/notification/n15.sh l4`(결과는 regression-log·본 부하 결과) | 일부(판정 부품). 전부는 실행 |
 | NT-LOAD-L5S·L5B·L5M (N15) | `loadtest.L5FixturesTest`, `test_n15_scripts.py`(회차·L5B 회차별 분포·지연·회차 누락·중복 판정), 실행은 `n15.sh l5 <S·B·M>` | 일부(판정 부품). 전부는 실행 |
 | NT-LOAD-L5F (N15) | `app.ScheduleDispatcherFailureSlotTest`(계산식 전제: 실패 예약 자리 차지와 3번째 시도 건너뜀, ND-194), `loadtest.L5FixturesTest`, `test_n15_scripts.py`, 실행은 `n15.sh l5 F` | 일부(전제·판정 부품). 전부는 실행 |
@@ -469,6 +473,7 @@ N15(#970) 본 부하 시험의 시나리오와 합격 기준이다(ND-187). 격�
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-19 decisions.md ND-224~ND-228 반영(N18 #1026): NT-RT-12(alert "알림 실시간 전달 버림", ND-228)와 NT-REF-07(실시간 발행 설정값 묶기 동일성, ND-226·ND-227)을 더했다. 집계 167 → 169, 유효 168. 2장 머리 문구 안내와 NT-GEN-10에 N9·N10 문구 위치를 더하고 U3 미결 서술을 지웠다(U3 해소).
 - 2026-11-18 decisions.md ND-219~ND-222 반영(N17-4, #992): NT-RES-02 예외·근거 칸에 전용 스케줄러(ND-219)와 시험으로 보는 공용 풀 경쟁(ND-220·ND-222)을 적었다. 구현 뒤 NT-SCH-25(공용 풀이 차도 제시각 시작)·NT-SCH-26(전용 스케줄러 구성·조건부)·NT-SCH-27(회차 시작 지연 지표)과 4장 연결 행을 더하고 집계를 고쳤다(SCH 27, 합계 167/166). S6 리뷰 뒤 NT-SCH-26에 다른 배치·관측·cron 끔 값을, NT-SCH-27에 cron 끔 값을 더하고 연결 행을 고쳤다. L5-S 측정 뒤 NT-SCH-27에 일찍 깨어난 회차(지연 0)를 더했다. 2026-11-19 S6 재리뷰 뒤 NT-SCH-25 시험을 5초 cron과 cron 발화 시각 직접 비교로 바꿨다(2초 주기에서는 일찍 깨어남 규칙 때문에 1초 판정이 늘 통과). 요구사항 수는 그대로다.
 - 2026-11-18 decisions.md ND-217 반영(N17-3, #991): 2.16에 NT-B0-12(커밋 설정 인자 `B0_SYNC_COMMIT`)를 더하고 4장 집계(B0 12, 합계 164/163)와 연결 표를 고쳤다.
 - 2026-11-18 decisions.md ND-215 반영(#990): NT-RES-03 예외 칸을 ND-210·ND-215 참조로 바꿨다. 요구사항 수는 그대로다.

@@ -4,9 +4,13 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.hapbang.auxiliary.notification.domain.NotificationDraft;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
-/** 알림 저장 테스트의 초안. 종류는 {@link TestNotificationTemplate}이다 */
+import com.hapbang.auxiliary.notification.domain.NotificationDraft;
+import com.hapbang.auxiliary.notification.out.NotificationRepository.ReceiverUnread;
+
+/** 알림 저장 테스트의 초안(종류는 {@link TestNotificationTemplate})과 실시간 시험이 함께 쓰는 도우미 */
 public final class NotificationFixtures {
 
     private NotificationFixtures() {
@@ -48,5 +52,25 @@ public final class NotificationFixtures {
         nicknames.put(String.valueOf(otherId), otherName);
         draft.payload().put("nicknames", nicknames);
         return draft;
+    }
+
+    /** 빈 하나만 돌려주는 {@link ObjectProvider}(실시간 시험의 발행기·지표 등록부) */
+    public static <T> ObjectProvider<T> provider(Class<T> type, T bean) {
+        return new StaticListableBeanFactory(Map.of("bean", bean)).getBeanProvider(type);
+    }
+
+    /** 받는 사람별 안 읽은 수 조회 결과 한 줄 */
+    public static ReceiverUnread unread(Long receiverUserId, long unread) {
+        return new ReceiverUnread() {
+            @Override
+            public Long getReceiverUserId() {
+                return receiverUserId;
+            }
+
+            @Override
+            public long getUnread() {
+                return unread;
+            }
+        };
     }
 }

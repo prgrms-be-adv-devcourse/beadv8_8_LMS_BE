@@ -23,7 +23,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 | 순서 | 문서 | 역할 |
 | --- | --- | --- |
 | 1 | [`docs/policy.md`](../../../../docs/policy.md) | 업무 규칙 원본(SoT). 알림센터 업무 규칙은 9장에 있고, 결정 이유·세부는 decisions.md에 있다 |
-| 2 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 결정·이유·상태(`ND-*`), 미결(U1~U20), 팀 결정 필요(T1~T8) |
+| 2 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 결정·이유·상태(`ND-*`), 미결(U1~U20), 팀 결정 필요(T1~T9) |
 | 3 | [`docs/notification/CONTEXT.md`](../../../../docs/notification/CONTEXT.md) | 배경과 도메인 맥락 |
 | 4 | [`docs/notification/module.md`](../../../../docs/notification/module.md) | 모듈 구조(현재 상태와 제안 To-Be) |
 | 5 | [`docs/notification/notification-catalog.md`](../../../../docs/notification/notification-catalog.md) | 알림 종류·받는 사람·발생 조건 |
@@ -58,8 +58,8 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ### 3.3 생성·저장
 
 - 같은 이벤트를 다시 받아도 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)로 한 번만 만든다. 묶음 알림은 (종류, 받는 사람, 묶음 키)다. 삭제된 행도 유일 인덱스에 남긴다(ND-019).
-- 원본 대상 ID는 ND-033·ND-045를 따른다. 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 `docs/notification/event-contracts.md`에 있다. N5 11종은 ND-073이고, 그 밖의 이미 발행 중인 이벤트의 필드는 미결(U5)이므로 그 이벤트를 소비하는 작업에서 발행 계약을 확인한 뒤 정한다.
-- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 코드로 정한다(ND-039·ND-050). 정한 문구는 `notification-catalog.md` 0.5(ND-075), 아직 없는 종류는 U3. 이동 대상은 업무 자원 단위다(ND-074).
+- 원본 대상 ID는 ND-033·ND-045를 따른다. 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 `docs/notification/event-contracts.md`에 있다. 종류별 필드는 `notification-catalog.md` 각 행에 있다. 새 이벤트를 소비하면 그 작업에서 발행 계약을 확인한 뒤 정한다.
+- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 코드로 정한다(ND-039·ND-050). 정한 문구는 `notification-catalog.md` 0.5~0.13과 8장(하루 묶음)에 있다. 이동 대상은 업무 자원 단위다(ND-074).
 - 다른 회원의 닉네임을 문구에 넣으면 값에 그 회원 ID를 함께 저장하고, 그 회원의 `UserMaskedEvent`를 받으면 문구·값의 닉네임을 바꾼다(ND-036). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구는 값으로 다시 만든다(ND-051, 멱등). 파기된 회원은 복제본에 파기 표시를 남기고, 그 뒤 저장되는 알림의 닉네임도 바꾼다. 저장은 언급 회원마다 회원 단위 advisory lock 공유, 파기는 배타 잠금으로 순서를 지킨다(ND-054).
 - 회원이 쓰는 알림 REST는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`만 쓴다(관리자 403). Backfill 재실행 API만 `ADMIN`이다(ND-079). 남의·없는·밀려난 알림은 모두 404 `NOTIFICATION_NOT_FOUND`로 같게 답한다(ND-052).
 - 알림을 저장할 때 받는 사람의 `notification_user` 행을 비관적 락으로 잡아 받는 사람별 저장을 줄 세운다(20개 보존, ND-053).
@@ -101,7 +101,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 
 ## 4. 임의로 정하지 않는 것
 
-- 미결 U1~U20과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
+- 미결 U1~U20과 팀 결정 필요 T1~T9는 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
 - **consumer group 이름**은 `auxiliary-app.notification-<목적>`이다(ND-047). 새 목적의 그룹은 kafka.md 토픽 표의 소비 그룹 칸에 적고 그 PR 리뷰로 팀 검토를 받는다(ND-128).
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
 - 발행 모듈 이벤트 계약은 알림 담당이 정해 이벤트 계약 요청 문서에 두고, 발행 담당이 Issue로 받아 구현한다(ND-037). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.

@@ -86,6 +86,160 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-138 · 2026-11-19 · 통과 (N18 #1026 S6 재리뷰 반영 뒤 확인, 문서만, NR-137 정정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-138 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `c2911f97` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | 문서만(9개, `.md`). NR-137 정정: 채팅 문서의 취소선 표시를 채팅 관례인 "2026-11-19 이 문장은 알림 ND-225·ND-229로 대체됐다" 문장형으로 바꿨다(`final-design.md` 430행은 지웠던 옛 문구 "(알림 모듈 전까지)"를 되살림). 알림센터가 받는 범위는 `invariants.md` 한 곳에만 "채팅이 다루는 사건 가운데 출연 요청·모집 지원 도착과 단체방 초대·강퇴·폐쇄만"으로 고쳐 적고, 다른 채팅 문서는 그곳을 가리킨다. 알림 `decisions.md` ND-229 재작성(경로 접두어, 범위, 표시 방식), T9(채팅 출연 알림 이관 서술과 ND-004, 미결) 추가, AGENTS·PROGRESS T9 반영 |
+| 대상 기능 | 리뷰 반영이 시험 입력을 바꾸지 않았는지, 채팅 문서에 취소선·잘못된 범위 문구가 남지 않았는지 |
+| 관련 NT ID | — |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `grep -rn "~~\|출연·단체방 사건만"`(채팅·알림 문서) |
+| 실행 환경 | 로컬 Windows |
+| 결과 | 통과 |
+| 건수 | BUILD SUCCESSFUL(5초). 시험 태스크 UP-TO-DATE(새 실행 아님, 마지막 실행 NR-136 599/0/0/2), `verifyModuleStructure` 새로 실행. grep: 새로 넣은 취소선·잘못된 범위 문구 0건(걸린 `~~` 2건은 이전부터 있던 `INQUIRY_REPLY_EDITED` 폐기 표시) |
+| 실패 원인 분류 | — |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #1026 PR Bot 리뷰, S6 재리뷰 |
+
+#### NR-137 · 2026-11-19 · 통과 (N18 #1026 PR Bot 리뷰 반영 뒤 확인, 문서만)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-137 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `c2911f97` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | 문서만(7개, `.md`): 채팅 `invariants.md`(알림센터가 받는 범위), 채팅 `docs/rules/decisions.md`·`docs/final-design.md`·`docs/contracts/resync-frame.md`의 옛 "`/user` 경로를 없앤다" 문장에 취소선과 바뀐 날짜(ND-229), 알림 `decisions.md` ND-229·T8 행, INDEX·PROGRESS 참조 |
+| 대상 기능 | 리뷰 반영이 시험 입력을 바꾸지 않았는지, 채팅 문서에 옛 방향 문장이 남지 않았는지 |
+| 관련 NT ID | — |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `grep -rn "경로를 없앤다\|큐를 옮기고 없앤다\|알림 모듈 전까지" apps/chat-app --include=*.md`(취소선 줄 제외) |
+| 실행 환경 | 로컬 Windows |
+| 결과 | 통과 |
+| 건수 | BUILD SUCCESSFUL(5초). 시험 태스크는 모두 UP-TO-DATE(문서만 바뀌어 입력 불변, 새 실행 아님. 마지막 실행은 NR-136 599/0/0/2), `verifyModuleStructure`는 새로 실행. grep 결과 취소선 없는 옛 문장 0건 |
+| 실패 원인 분류 | — |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #1026 PR Bot 리뷰 |
+
+#### NR-136 · 2026-11-19 · 통과 (N18 #1026 S6 리뷰 반영 뒤 알림 회귀)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-136 |
+| 실행 날짜 | 2026-11-19 (KST) 14:24~14:29 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `336a4df9` 위 작업 트리 미커밋(NR-135 변경 + 리뷰 반영) |
+| 작업 트리 변경 | S6 리뷰 반영: 카탈로그 환전 송금 실패 행의 원본 대상 ID 참조 ND-074 → ND-073·ND-033(내 오참조), module.md 4.3 처리 범위 문장, PROGRESS N18 행 문구, `NotificationRealtimePublishPropertiesTest.idleRelay` 주석(Supplier가 checked 예외를 못 던져 try/catch 유지) |
+| 대상 기능 | 리뷰 반영 뒤 알림 회귀 |
+| 관련 NT ID | NT-REF-07, 알림 전체 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | BUILD SUCCESSFUL(4분 24초). `:notification:test` 599/0/0/2(시험 파일이 바뀌어 새로 실행, 결과 파일 14:29), `verifyModuleStructure` 실행, `:auxiliary-app:test` UP-TO-DATE(입력 불변, NR-134의 18/0/0/0, 새 실행 아님) |
+| 실패 원인 분류 | — |
+| 수정 내용 | 위 리뷰 반영 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다) |
+| 관련 변경 | #1026 |
+
+#### NR-135 · 2026-11-19 · 통과 (N18 #1026 NT-REF-07 변이 확인과 알림 회귀 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-135 |
+| 실행 날짜 | 2026-11-19 (KST) 14:14~14:20 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `336a4df9` 위 작업 트리 미커밋(NR-134와 같음, 그 뒤 문서만 바뀜) |
+| 작업 트리 변경 | 변이: `NotificationRealtimePublishProperties.queueCapacity`의 `@Positive`를 잠깐 지움 → 실행 → 되돌림(`@Positive` 2곳 확인) |
+| 대상 기능 | 설정값 검증이 시험에 잡히는지(ND-226), 알림 회귀 |
+| 관련 NT ID | NT-REF-07, 알림 전체 |
+| 명령 | 변이 중 `./gradlew :notification:test --tests "*NotificationRealtimePublishPropertiesTest"`, 되돌린 뒤 `./gradlew :notification:test --rerun verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | 변이: 6건 중 1건 실패(`줄_상한이_0이면_기동에_실패한다`, 의도한 실패). 되돌린 뒤 BUILD SUCCESSFUL(4분 28초): `:notification:test` 599/0/0/2(결과 파일 14:19 새로 씀), `verifyModuleStructure` 실행, `:auxiliary-app:test`는 UP-TO-DATE(되돌린 코드가 NR-134와 같아 새 실행 아님, NR-134의 18/0/0/0) |
+| 실패 원인 분류 | 의도한 변이 실패 |
+| 수정 내용 | 변이를 되돌림 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다) |
+| 관련 변경 | #1026 |
+
+#### NR-134 · 2026-11-19 · 통과 (N18 #1026 알림 회귀: 설정값 묶기·도우미 정리 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-134 |
+| 실행 날짜 | 2026-11-19 (KST). 1차 14:00~14:12, 확인 실행 14:13 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `336a4df9` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `NotificationRealtimeExecutorConfig` 삭제(사용자가 `git rm`), `NotificationRealtimeConfig`·`NotificationRealtimePublishProperties` 새로, `NotificationRealtimeRelay` public 생성자가 record를 받음, `support.NotificationFixtures`에 `provider`·`unread`, `NotificationRealtime{Batch,Order,Relay}Test`의 같은 도우미 삭제, 새 시험 `NotificationRealtimePublishPropertiesTest`. 그 밖에 `rules.yaml`·문서·`apps/chat-app/docs/rules/invariants.md` 한 줄 |
+| 대상 기능 | 실시간 발행 설정값 묶기·설정 클래스 정리의 동작 동일성(ND-226·ND-227) |
+| 관련 NT ID | NT-REF-07, NT-RT-01~NT-RT-11(기존 실시간 시험), 알림 전체 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(1차, 출력은 `head`로 잘림). 확인 실행: 같은 명령을 출력 전체를 파일로 받아 다시 실행 |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | 1차 종료 코드 0. `:notification:test` 599/0/0/2(결과 파일 14:04 새로 씀), `:auxiliary-app:test` 18/0/0/0(14:05 새로 씀), `verifyModuleStructure` 실행. 확인 실행 BUILD SUCCESSFUL: `verifyModuleStructure`만 다시 돌고 나머지(`:notification:test`, `:auxiliary-app:test`·`check`, `:chatbot:test`, `:search:test`)는 UP-TO-DATE(1차가 끝까지 성공했다는 확인이며 새 실행 아님). chatbot·search 시험은 이번에 새로 돌지 않았다 |
+| 실패 원인 분류 | — |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행(⑤에서 묻는다). B0 성능 비교는 하지 않음(ND-227) |
+| 관련 변경 | #1026 |
+
+#### NR-133 · 2026-11-19 · 통과 (N18 #1026 alert "알림 실시간 전달 버림" 정적 확인)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-133 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `336a4df9` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | `k8s/platform/base/alerting/rules.yaml`에 uid `hapbang-notification-realtime-dropped` 규칙 추가 |
+| 대상 기능 | alert 규칙 정의(ND-228) |
+| 관련 NT ID | NT-RT-12 |
+| 명령 | YAML 파싱(PyYAML, uid로 규칙 1개 찾음), `docker run --rm --entrypoint promtool prom/prometheus:v2.53.0 check rules`(rules.yaml에서 새 규칙의 식을 뽑아 Prometheus 규칙 파일로 감쌈, Git Bash는 `MSYS_NO_PATHCONV=1`), 괄호를 하나 뺀 식으로 같은 검사, `kubectl kustomize k8s/platform/overlays/{local,prod}` |
+| 실행 환경 | 로컬 Windows, Docker |
+| 결과 | 통과 |
+| 건수 | YAML 파싱 성공. promtool `SUCCESS: 1 rules found`. 괄호를 뺀 식은 `parse error: unexpected right parenthesis`로 실패(검사가 문법 오류를 잡음). kustomize local·prod 종료 코드 0, 출력에 새 규칙이 각각 1개 |
+| 실패 원인 분류 | 의도한 실패(괄호를 뺀 식) |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | Grafana 적용과 실제 통보(운영 적용 뒤). 첫 버림의 새 series 갈래가 실제로 울리는지는 운영에서만 볼 수 있다 |
+| 관련 변경 | #1026 |
+
+#### NR-132 · 2026-11-19 · 통과 (N18 #1026 NT-REF-07 RED → GREEN)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-132 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `336a4df9` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | RED: 새 시험 `NotificationRealtimePublishPropertiesTest`만. GREEN: `NotificationRealtimeConfig`·`NotificationRealtimePublishProperties` 새로, Relay 생성자 변경 |
+| 대상 기능 | 실시간 발행 설정값 바인딩·검증, 발행 스레드 빈 조건(ND-226) |
+| 관련 NT ID | NT-REF-07 |
+| 명령 | `./gradlew :notification:test --tests "*NotificationRealtimePublishPropertiesTest"`(RED·GREEN 각 1번), 도우미 정리 뒤 `./gradlew :notification:compileTestJava` |
+| 실행 환경 | 로컬 Windows |
+| 결과 | 통과 |
+| 건수 | RED: `compileTestJava` 실패, `NotificationRealtimeConfig`·`NotificationRealtimePublishProperties` 기호를 찾을 수 없음(6곳, 의도한 실패). GREEN: 6/0/0/0. 도우미 정리 뒤 컴파일 성공 |
+| 실패 원인 분류 | 의도한 RED |
+| 수정 내용 | 위 GREEN 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 이 시점에는 옛 `NotificationRealtimeExecutorConfig`가 남아 있어 전체 시험을 돌리지 않았다(NR-134에서 실행) |
+| 관련 변경 | #1026 |
+
 #### NR-131 · 2026-11-19 · 실패 (N17-4 #992 전체 `./gradlew check`, 알림 밖 채팅 시험 1건)
 
 | 항목 | 값 |

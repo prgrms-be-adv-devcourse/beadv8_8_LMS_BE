@@ -39,7 +39,7 @@
 | 요청·응답 DTO 필드 | REST 4개(N2, #801, 모두 `RsData`): 목록 항목 `{id, kind, message, targetType, targetId, occurredAt, readAt}`(값 payload는 보내지 않음, 시각은 ISO-8601 UTC), 안 읽은 수 `{count}`, 읽음은 바뀐 목록 항목 하나, 전체 읽음 `{updatedCount}`. 연결 티켓(N3, `RsData`): `{ticket, expiresInSeconds, connectionExpiresAt}`. WebSocket 프레임(STOMP MESSAGE 본문, `RsData` 아님): `{notification: 목록 항목과 같은 모양, unreadCount}`(ND-059) |
 | HTTP 상태 코드(성공·실패) | 성공은 모두 200. 비로그인 401, 관리자 403, 남의·없는·밀려난(Soft Delete된) 알림 읽음 404, 이미 읽은 알림 다시 읽음 200(읽은 시각은 처음 값)(ND-052). 연결 티켓: 60초에 11번째 429 `TOO_MANY_REQUESTS`(공통 요청 한도 초과, `Retry-After: 60`), 티켓 저장소 장애 503 `CONNECTION_TICKET_UNAVAILABLE`(ND-058). WebSocket 핸드셰이크: 티켓 없음·틀림·만료·재사용 401 |
 | 오류 코드(`NotificationErrorCode`)와 상황 | 정한 것(ND-052): 남의·없는·밀려난 알림은 모두 `NOTIFICATION_NOT_FOUND`(응답으로 구분할 수 없다). 그 밖은 구현 때 정함. 작성법은 [API 규칙](conventions.md) |
-| 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5(N5 11종, ND-075)이고 나머지 종류는 그 종류를 소비하는 작업에서 정한다(ND-050, U3) |
+| 문구 형식 | 서버가 만든 완성 문장(`message`)을 그대로 보여 준다. 종류별 문구는 [알림 종류](../notification/notification-catalog.md) 0.5~0.13과 8장(하루 묶음)에 있다. 새 종류는 그 종류를 소비하는 작업에서 정한다(ND-050) |
 | 연결 티켓 유효 시간·발급 제한 | 채팅 초기값(ND-058) |
 
 ### 2.2 이동 대상 (FE 계약, ND-074·ND-084·ND-107·ND-112·ND-116·ND-120·ND-125·ND-131·ND-139)
@@ -95,3 +95,4 @@
 | 2026-11-12 | ND-131 반영(N9 채팅 사전 결정, #921): 2.2 이동 대상에 새 `targetType` `CHAT_ROOM`을 더하고 `null` 행에 단체방 강퇴를 더했다 |
 | 2026-11-13 | ND-139 반영(N10 사전 결정, #928): 2.2 이동 대상의 쓰는 종류에 예약 5종을 더했다(새 `targetType` 없음) |
 | 2026-11-14 | 문서 정리(#931): 머리말 구현 상태에 Backfill 재실행·실행 조회 API 구현(N5, #865)을 적었다 |
+| 2026-11-19 | U3 해소 반영(#1026): 문구 형식 행이 알림 종류 0.5~0.13·8장을 가리키게 고쳤다 |
