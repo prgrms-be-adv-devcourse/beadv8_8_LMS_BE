@@ -82,7 +82,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `redis.keys-expire-margin` | 7d | 쿠폰 key TTL = 발급 종료 + 이 값. DB 미확정 요청이 남아 있으면 재발행·대사 배치가 지금 + 이 값까지 만료를 늦춘다 |
 | `republish.max-consecutive-failures` | 3 | 한 쿠폰에서 연속 전송 실패가 이 수에 이르면 그 쿠폰의 남은 재발행을 다음 회차로 미룬다 |
 | `max-expiry-days` | 3650 | 만료 N일·고정 만료 상한. DB CHECK와 같으며 늘릴 때는 마이그레이션과 함께 |
-| `lecture-client.*` | 연결 2s·응답 5s, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s·open 30s·half-open 3 | 강의 조회 내부 API 클라이언트 |
+| `lecture-client.*` | 연결 2s·응답 5s, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s·open 30s·half-open 3 | 강의 조회 내부 API 클라이언트. 하나 조회 회로 `lecture`와 일괄 조회 회로 `lecture-batch`(쿠폰 받기 화면 목록)가 같은 값을 따로 쓴다 |
 | `publish-ack-timeout` | 1s | 쿠폰 producer `max.block.ms`. 접수 직후 전송은 ACK를 기다리지 않아(2026-11-12) 요청 스레드가 전송 때문에 기다리는 것은 전송 준비(메타데이터·버퍼)뿐이다. 이름은 설정 호환으로 유지 |
 | `producer-delivery-timeout` | 5s | 쿠폰 producer `delivery.timeout.ms` |
 | `republish-after` | 30s | 접수 뒤 이 시간이 지나고 DB에 없으면 재발행 대상 |
@@ -116,7 +116,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `budget-work.lease` | 1m | 예산 작업 한 시도의 DB 선점 시간. 기한 경과 뒤 같은 workId로 다시 확인 |
 | `budget-work.batch-size` | 100 | 예산 작업 조회 및 만료 잔액 등록의 묶음 크기 |
 
-코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건.
+코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건(쪽 크기 상한도 같음), 강의 일괄 조회 묶음 100(`LectureLookupDto.MAX_BATCH_SIZE`, 강의 계약의 상한).
 
 예산 HTTP는 공통 billing 클라이언트 설정을 사용한다. `hapbang.clients.billing.base-url`은 필수이고(없으면 앱이 뜨지 않는다) `hapbang.internal-api.key`를 내부 인증 헤더로 보낸다. `connect-timeout` 기본 2s, `read-timeout` 기본 5s다. `hapbang.clients.billing.resilience.circuit-breaker.*` 기본값은 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s/50%·open 30s·half-open 3이다. 쿠폰 어댑터 안에서는 짧은 retry나 TimeLimiter를 추가하지 않으며 영속 작업이 재시도한다. HTTP 결과 분류는 contracts.md "예산 HTTP 결과 분류"를 따른다.
 
@@ -241,7 +241,8 @@ Loki 쿼리는 `sum(count_over_time({namespace="hapbang-prod", app="lecture-app"
 - REVIEW에서 준비만 되고 OPEN 커밋에 실패해 Redis key가 남은 쿠폰은 고아로 보지 않는다. key TTL이 지날 때까지 용량 예약을 차지한다.
 - 배치(재발행·대사·프로세스 점검)는 lecture-app replica 1을 전제한다. 실행 표시가 앱 메모리라 분산 락이 없고, 중복 전달은 소비자 멱등이 흡수한다. replica를 늘리면 billing의 Postgres advisory lock 방식을 붙인다.
 - 조회 API의 목록 상한 100건을 설정으로 옮기고, 회원 목록 쿼리(status + 기간 + 대상)가 느려지면 인덱스를 새 마이그레이션으로 넣는다.
-- 강의 없는 받을 수 있는 쿠폰 목록(`GET /api/v1/coupons`, `lectureId` 없음)은 최신 100건에서 자르고 잘림 표시·페이지가 없다. 발급 중인 쿠폰이 100건을 넘으면 오래된 쿠폰이 쿠폰 받기 화면에서 빠진다. 넘기 시작하면 페이지 응답으로 바꾼다(응답 형식 변경이라 FE와 함께).
+- 강의 없는 받을 수 있는 쿠폰 목록(`GET /api/v1/coupons`, `lectureId` 없음)은 최신 100건에서 자르고 잘림 표시·페이지가 없다. 쿠폰 받기 화면은 쪽 단위 목록 `GET /api/v1/coupons/issuable`(2026-11-19)로 옮겨 이 한계가 없다. 기존 API는 응답을 바꾸지 않으려고 그대로 두었다(강의 상세 팝업은 `lectureId`와 함께 쓴다).
+- 쿠폰 받기 화면 목록(`GET /api/v1/coupons/issuable`)은 요청마다 받을 수 있는 특정 강의 대상 쿠폰의 강의 수만큼(100개씩 나눠 차례로) 강의 일괄 조회를 부른다. 무한 스크롤의 쪽마다 반복되고 캐시가 없다. 그런 강의가 수백 개를 넘거나, 쿠폰 오픈 순간처럼 목록 요청이 몰려 강의 조회가 목록 응답 시간을 크게 차지하면, 강의 ID → 제목·판매 상태를 몇 초 담는 메모리 캐시(이 모듈의 Caffeine. 계약상 판매 상태·제목은 조회한 때의 값이라 맞다)나 강의 판매 상태·제목 복제본(`lecture.events.v1`의 강의 이벤트 소비)으로 바꾼다. 강의 정보 장애 때 목록 전체가 503인 것도 그때 다시 본다. 강의 ID를 고르는 조회(OPEN·기간·LECTURE의 DISTINCT)와 쪽 조회에 맞춘 인덱스는 없다(쿠폰 수가 적어 위 "목록 상한" 항목과 같이 느려지면 넣는다).
 - 강의 조회 circuit breaker의 micrometer 지표는 붙이지 않았다.
 - 지표 이름: `coupon.issue.publish.failures`, `coupon.issue.republished`·`.republish.oldest.age`·`.republish.last`·`.republish.stale.epoch`, `coupon.issue.consume{result}`, `coupon.dlt.pending`(PENDING + REPLAYING)·`coupon.dlt.isolated`, `coupon.issue.compensations{result}`, `coupon.recovery.redis_check{result}`, `coupon.reconciliation.mismatches{kind}`, `coupon.issue.backlog_holds`, `coupon.capacity.reserved`. 매진 409 응답 수는 Counter `coupon.issue.sold_out`(매진 표시 캐시로 막은 것 + Lua 매진, #826. Prometheus `coupon_issue_sold_out_total`. 아래 매진 캐시 지표의 태그 값과 이름이 같으니 구분한다). 매진 캐시(Caffeine)는 Micrometer 바인더의 `cache.gets{cache=coupon.issue.sold_out,result}`(hit = Redis 미호출, miss = Redis 읽음. 예외: 쿠폰 시계가 Caffeine 만료 시계(단조 시계)와 어긋나 `freshAt` 검사에 걸리면(시계 역행 등) hit로 세고도 Redis를 읽는다)·`cache.size`·`cache.evictions{cache=coupon.issue.sold_out}`. 캐시에는 매진 신호와 Redis에서 읽은 매진 아님 결과가 함께 들어간다. 접수 경로는 쿠폰이 있는지 확인하기 전에 캐시를 보므로 없는 쿠폰 ID도 매진 아님으로 담겨, 없는 ID를 흩뿌리면 상한까지 찰 수 있다. 상한은 메모리 보호이고, 상한을 넘으면 W-TinyLFU가 덜 쓰는 항목을 내보내며 내보낸 쿠폰의 다음 요청은 Redis `sold_out`을 읽는다. 판정은 Lua가 지키므로 정합성 영향은 없다. 소비 실패·lag는 Spring Kafka 기본 지표. ERROR 로그 표식은 위 "ERROR 로그 alert 표식" 표. Grafana 대시보드·알림 등록은 운영 결정이다.
 - `prepare.lua`·`recovery-rebuild.lua`는 만료를 발급 종료 + 여유로 다시 써서 연장분을 줄일 수 있다. prepare는 열기 전에만, rebuild는 보관 기간 안에서만 실행되므로 위험은 낮다. 필요하면 `PEXPIREAT GT` 적용을 검토한다.
