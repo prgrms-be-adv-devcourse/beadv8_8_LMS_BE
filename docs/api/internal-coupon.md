@@ -104,7 +104,7 @@
 }
 ```
 
-- 강의마다 강의 조회 내부 API([강의 조회 계약](internal-lecture-lookup.md))로 가격·판매자를 다시 확인한다. 묶음 조회가 없어 강의마다 한 번 부른다. 강의가 없으면 404 `LECTURE_NOT_FOUND`, 가격·판매자가 다르면 409 `COUPON_LECTURE_PRICE_MISMATCH`(detail에 강의 ID)다.
+- 강의마다 강의 조회 내부 API([강의 조회 계약](internal-lecture-lookup.md))로 가격·판매자를 다시 확인한다. 강의마다 한 번 부른다(강의 일괄 조회(계약 2장)는 쿠폰 받기 화면 목록만 쓰고 계산에는 아직 쓰지 않는다). 강의가 없으면 404 `LECTURE_NOT_FOUND`, 가격·판매자가 다르면 409 `COUPON_LECTURE_PRICE_MISMATCH`(detail에 강의 ID)다.
 - 아무것도 바꾸지 않는다. 다시 불러도 된다(재계산도 같은 API).
 
 ## 4. 예약 `POST /api/v1/internal/coupons/reservations`
