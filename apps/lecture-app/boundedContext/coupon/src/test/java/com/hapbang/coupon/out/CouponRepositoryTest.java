@@ -252,6 +252,12 @@ class CouponRepositoryTest {
         assertThat(couponRepository.findIssuablePage(onSale, now, PageRequest.of(1, 2)).getContent())
                 .extracting(Coupon::getId).containsExactly(anyLecture, older);
 
+        // offset이 int 범위를 넘는 쪽(2,147,483,700)도 음수로 넘치지 않고 빈 쪽이며 전체 수는 그대로다
+        Page<Coupon> beyondInt = couponRepository.findIssuablePage(onSale, now, PageRequest.of(21_474_837, 100));
+        assertThat(beyondInt.getContent()).isEmpty();
+        assertThat(beyondInt.getTotalElements()).isEqualTo(4);
+        assertThat(beyondInt.getNumber()).isEqualTo(21_474_837);
+
         // 고른 강의가 없으면 모든 강의 대상만이다
         Page<Coupon> anyOnly = couponRepository.findIssuablePage(List.of(), now, PageRequest.of(0, 20));
         assertThat(anyOnly.getContent()).extracting(Coupon::getId).containsExactly(anyLecture);

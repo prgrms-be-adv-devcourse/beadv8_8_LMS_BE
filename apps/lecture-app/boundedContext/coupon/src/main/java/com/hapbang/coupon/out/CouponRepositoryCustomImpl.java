@@ -108,7 +108,9 @@ class CouponRepositoryCustomImpl implements CouponRepositoryCustom {
                 .where(issuable(c, now), listed)
                 .orderBy(c.createdAt.desc(), c.id.desc());
         if (pageable.isPaged()) {
-            // 첫 페이지는 offset을 걸지 않는다(Spring Data 페이지 조회와 같은 SQL)
+            // 첫 페이지는 offset을 걸지 않는다(Spring Data 페이지 조회와 같은 SQL).
+            // page 상한은 두지 않는다: offset이 int 범위를 넘으면 QueryDSL이 Integer.MAX_VALUE로 줄여 넘기므로(음수로 넘치지 않는다)
+            // 빈 쪽이 되고 전체 수는 그대로다. CouponRepositoryTest가 이 동작을 고정한다
             if (pageable.getOffset() > 0) {
                 content.offset(pageable.getOffset());
             }
