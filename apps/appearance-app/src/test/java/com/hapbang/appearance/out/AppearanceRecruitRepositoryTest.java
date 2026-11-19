@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 
 import com.hapbang.appearance.domain.AppearancePolicy;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.testsupport.RepositoryTest;
@@ -58,17 +59,24 @@ class AppearanceRecruitRepositoryTest {
     }
 
     @Test
-    @DisplayName("공개 목록 조회는 모집 중이고 마감 일시가 기준 시각 이후인 모집글만 가져온다")
+    @DisplayName("공개 목록 조회(조건 없음)는 모집 중이고 마감 일시가 기준 시각 이후인 모집글만 최신순으로 가져온다")
     void findOpen() {
         AppearanceRecruit open = saveRecruiting(HOST, NOW);
         saveRecruiting(OTHER, NOW.minusDays(3)); // 마감 일시(NOW - 1일)가 지났지만 아직 마감 처리 전
         AppearanceRecruit pending = AppearanceRecruit.create(HOST, AppearanceRecruitFixture.content(NOW), POLICY, NOW);
         appearanceRecruitRepository.saveAndFlush(pending);
+        AppearanceRecruit closed = saveRecruiting(HOST, NOW);
+        closed.closeEarly(HOST, NOW);
+        appearanceRecruitRepository.saveAndFlush(closed);
+        AppearanceRecruit newer = saveRecruiting(OTHER, NOW);
 
-        Page<AppearanceRecruit> found = appearanceRecruitRepository.findByStatusAndRecruitDeadlineAfter(
-                AppearanceRecruitStatus.RECRUITING, NOW, FIRST_PAGE);
+        Page<AppearanceRecruit> found = appearanceRecruitRepository.findAll(
+                AppearanceRecruitOpenQuery.where(NOW, AppearanceRecruitSearch.NONE),
+                PageRequest.of(0, 20, AppearanceRecruitOpenQuery.orderOf(AppearanceRecruitSearch.NONE.sort())));
 
-        assertThat(found.getContent()).extracting(AppearanceRecruit::getId).containsExactly(open.getId());
+        assertThat(found.getContent()).extracting(AppearanceRecruit::getId)
+                .containsExactly(newer.getId(), open.getId());
+        assertThat(found.getTotalElements()).isEqualTo(2);
     }
 
     @Test

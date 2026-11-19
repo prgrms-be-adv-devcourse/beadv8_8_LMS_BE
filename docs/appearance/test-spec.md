@@ -77,6 +77,7 @@
 | 저장소 | `AppearanceApplicationRepositoryTest` | `appearances.applications` 저장, 재지원 유니크, 지원자 수 | #195 |
 | 통합 | `AppearanceApplicationFacadeTest` | 지원·취소·수락·거절·조회, 동시 지원·동시 수락 | #195 |
 | E2E | `AppearanceApplicationApiE2ETest` | 출연 모집 지원 API 6개 (앱 전체) | #195 |
+| 단위·저장소·E2E | `AppearanceRecruitSearchTest`, `AppearanceRecruitOpenQueryTest`, `AppearanceRecruitSearchApiE2ETest` (+ `AppearanceSwaggerDocsTest`) | 모집 공개 목록 검색 조건·정렬, 잘못된 값 400 (43장) | #1020 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -418,7 +419,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 케이스 | 기대 결과 |
 |---|---|
 | 저장 후 조회 | 1인당 출연료·모집 인원·마감 일시 일치, 성립 인원 0, 마감 방식 null, 버전 기록 |
-| 공개 목록 조회 | 모집 중이고 마감 일시가 기준 시각 이후인 것만 (마감 일시 지난 모집 중·보류 처리 중 제외) |
+| 공개 목록 조회 (조건 없음) | 모집 중이고 마감 일시가 기준 시각 이후인 것만 최신순 (마감 일시 지난 모집 중·보류 처리 중·조기 마감 제외). #1020부터 `AppearanceRecruitOpenQuery`로 조회 |
 | 내 목록 조회 | 호스트·상태로 거름 |
 
 ### 8.3 흐름 — `AppearanceRecruitFacadeTest`
@@ -1713,3 +1714,36 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 - 핵심 보장은 운영 코드를 일부러 깨서 위 테스트가 실패하는지 확인했다: 모집 시작 한 번 가드 제거, 마감·모집 취소 때 미선정 누락, 헤더 등록 누락, 지급 작업 제목 저장 누락, 자동 확인 배치의 제목 미리 읽기 누락, 자동 확인 배치가 출연마다 제목 읽기(N+1), key 식의 접근자 이름 오류, 지갑 요청에 제목 싣기 누락.
 - 작업 실행: 확인 흐름(요청서·모집 출처)의 지급 요청과 호스트 일방 취소의 위약금 정산 요청에 작업의 출처 제목이 `sourceTitle`로 실린다.
+
+## 43. 출연 모집 공개 목록 검색 (#1020)
+
+검색 조건·정렬(`module.md` 30장)을 단위(값 정리·검증), 저장소(실제 PostgreSQL에서 조건·정렬), E2E(쿼리 파라미터 연결·400)로 나눠 확인한다. 기존 `getOpen` 호출(`AppearanceRecruitFacadeTest`·`AppearanceApplicationFacadeTest`·`AppearanceBatchUseCaseTest`)은 조건 없음(`AppearanceRecruitSearch.NONE`)으로 바꿨고 결과는 그대로다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRecruitSearchTest` | `NONE` / 정렬 null | 조건 모두 null·`hasSeats` false·`LATEST` / `LATEST` |
+| `AppearanceRecruitSearchTest` | 검색어 앞뒤 공백 / 빈 문자열·공백뿐 | 지운 값 / null |
+| `AppearanceRecruitSearchTest` | 공백 + 50자 + 공백 / 51자 | 50자 그대로 / `INVALID_REQUEST` "검색어는 50자 이하여야 합니다." |
+| `AppearanceRecruitSearchTest` | NUL만·끝에 NUL·공백 사이 NUL·가운데 NUL | `INVALID_REQUEST` "검색어에 쓸 수 없는 문자(NUL)가 있습니다." |
+| `AppearanceRecruitSearchTest` | 날짜 범위 같은 날 | 하한 그날 0시, 상한(제외) 다음 날 0시. 한쪽만 있으면 다른 쪽 null |
+| `AppearanceRecruitSearchTest` | 시작 > 끝 / 0년·10000년 | `INVALID_REQUEST`와 이유 |
+| `AppearanceRecruitSearchTest` | 출연료 0~0·같은 값 / 음수·최소 > 최대 | 허용 / `INVALID_REQUEST`와 이유 |
+| `AppearanceRecruitRepositoryTest` | 조건 없음: 모집 중 2·마감 일시 지남·보류 처리 중·조기 마감 | 모집 중 2건만 최신순, 전체 2 |
+| `AppearanceRecruitOpenQueryTest` | 검색어가 제목에 / 설명에(대소문자 다름) / 없음 | 두 글 최신순 / 붙은 낱말도 부분 일치 / 0건 |
+| `AppearanceRecruitOpenQueryTest` | 호스트 닉네임 `GameKing`·`요리왕`·복제 정보 없는 호스트 | `gameking`·`king`은 `GameKing` 호스트 글만 |
+| `AppearanceRecruitOpenQueryTest` | `50%`·`m_a`·`:\g` | 글자 그대로 들어간 글만 (`500명`·`teamXa`는 빠짐) |
+| `AppearanceRecruitOpenQueryTest` | 방송 일시 전날 23:59:59.999999·그날 0시·그날 23:59:59.999999·다음 날 0시 | 같은 날 범위는 가운데 2건, 시작만·끝만은 각각 3건 |
+| `AppearanceRecruitOpenQueryTest` | 출연료 20,000·30,000·50,000 | 최소·최대 포함, 범위 밖이면 0건 |
+| `AppearanceRecruitOpenQueryTest` | 빈자리 2/0·2/1·1/1(꽉 참) | `hasSeats`면 꽉 찬 글 빠짐, `NONE`은 3건 |
+| `AppearanceRecruitOpenQueryTest` | 조건 모두 + `FEE_HIGH`, 조건 하나씩만 어긋난 글 4건 | 1건, 전체 건수 1 |
+| `AppearanceRecruitOpenQueryTest` | 세 글의 방송·마감 일시·출연료가 일부 같음 | `LATEST`·`SCHEDULED_SOON`·`DEADLINE_SOON`·`FEE_HIGH`가 서로 다른 순서, 같은 값은 최신순 |
+| `AppearanceRecruitSearchApiE2ETest` | 조건 없음 / 빈 값 파라미터(`keyword=  `, `minFee=`, `sort=` 등) | 200, 메시지, 최신순 2건 / 같은 결과 |
+| `AppearanceRecruitSearchApiE2ETest` | 모든 조건 + `FEE_HIGH`(꽉 찬 글은 지원·수락으로 채움) / 검색어만 / `minFee` + `SCHEDULED_SOON` | 2건 / 빠졌던 글이 돌아옴 / 방송 일시 같은 글은 최신순 |
+| `AppearanceRecruitSearchApiE2ETest` | 네 정렬 이름 + page·size | `FEE_HIGH` 첫 페이지 2건·`page.size` 2·전체 3, 둘째 페이지 1건, 정렬마다 다른 순서 |
+| `AppearanceRecruitSearchApiE2ETest` | `2026/10/21`·`2026-02-30`·`tomorrow`·`minFee=-1`·`maxFee=-1`·`minFee=1.5`·`hasSeats=maybe`·`sort=PRICE`·`sort=createdAt,desc` | 400 `INVALID_REQUEST`, `errors.field`에 그 파라미터 |
+| `AppearanceRecruitSearchApiE2ETest` | 뒤집힌 날짜·출연료 범위, 51자 검색어, `+10000-01-01` | 400 `INVALID_REQUEST`, `detail`에 이유 |
+| `AppearanceRecruitSearchApiE2ETest` | `keyword=롤%00` | 400 `INVALID_REQUEST` (막기 전에는 PostgreSQL `invalid byte sequence for encoding "UTF8": 0x00`로 500이었다) |
+| `AppearanceRecruitSearchApiE2ETest` | 비로그인 + 검색어 | 401 |
+| `AppearanceSwaggerDocsTest` | 공개 목록 파라미터 | 이름 7개(Pageable 정렬 없음), `scheduledFrom` 형식 `date`, `minFee` 최솟값 0, `sort` enum 4개 |
+
+- 핵심 보장은 운영 코드를 일부러 깨서 위 테스트가 실패하는지 확인했다: 검색어 이스케이프 제거, 마감 임박순의 최신순 잇기 제거, 호스트 닉네임 하위 쿼리 제거.

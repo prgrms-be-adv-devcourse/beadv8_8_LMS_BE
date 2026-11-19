@@ -20,6 +20,7 @@ import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.HpTaskStatus;
 
@@ -51,10 +52,10 @@ public class AppearanceRecruitQueryUseCase {
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
-    /** 공개 목록. 모집 중이고 마감 일시가 지나지 않은 모집글, 최신순 */
-    public Page<AppearanceRecruitSummaryResDto> getOpen(Pageable pageable) {
+    /** 공개 목록. 모집 중이고 마감 일시가 지나지 않은 모집글 중 검색 조건에 맞는 것, 검색 조건의 정렬(기본 최신순) */
+    public Page<AppearanceRecruitSummaryResDto> getOpen(AppearanceRecruitSearch search, Pageable pageable) {
         LocalDateTime now = LocalDateTime.now(clock);
-        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findOpen(now, pageable);
+        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findOpen(now, search, pageable);
         return toSummaries(recruits);
     }
 

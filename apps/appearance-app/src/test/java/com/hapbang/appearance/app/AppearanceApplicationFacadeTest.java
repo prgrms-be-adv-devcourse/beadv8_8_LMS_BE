@@ -37,6 +37,7 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceSourceType;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
@@ -577,7 +578,7 @@ class AppearanceApplicationFacadeTest {
             appearanceApplicationFacade.withdraw(GUEST3, apply(GUEST3, recruitId).id());
 
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(2);
-            assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getContent())
+            assertThat(appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE, FIRST_PAGE).getContent())
                     .extracting(summary -> summary.id() + ":" + summary.applicantCount())
                     .containsExactly(emptyRecruitId + ":0", recruitId + ":2");
             assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getContent().get(1).applicantCount())

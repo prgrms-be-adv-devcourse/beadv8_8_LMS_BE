@@ -58,6 +58,7 @@
 | AI 추천용 출연 변경 이벤트(`AppearanceChangedEvent`)와 출연·공개 리뷰 동기화 내부 API | ✅ | #713 |
 | 출연 취소 요청 이벤트 3종 Kafka 발행(알림센터용, 사건 시각 추가) | ✅ | #817 |
 | 알림용 출연 이벤트 12종 Kafka 발행(요청서·지원·모집글·출연), 위약금·지급 작업에 출처 제목 보관 | ✅ | #871 |
+| 출연 모집 공개 목록 검색어·조건·정렬 (30장) | ✅ | #1020 |
 
 ---
 
@@ -156,7 +157,8 @@ com.hapbang.appearance
 | `in.ApiV1AppearanceController`, `ApiV1AppearanceSpec` | 출연 조회·취소 요청·호스트 일방 취소 REST API와 Swagger 명세 (#231, #239) |
 | `app.AppearanceHostCancelUseCase`, `AppearanceRecruitCancelUseCase`, `AppearanceHostCancelRecorder`, `domain.AppearanceCancelReasonRules` | 출연 일방 취소 / 모집 전체 취소 / 출연 1건 일방 취소 + 위약금 정산 작업 기록(둘이 함께 씀) / 취소 사유 규칙 (#239) |
 | `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
-| `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
+| `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175). 공개 목록은 `JpaSpecificationExecutor`로 조회 (#1020) |
+| `domain.AppearanceRecruitSearch`, `AppearanceRecruitSort`, `out.AppearanceRecruitOpenQuery` | 공개 목록 검색 조건(정리·검증)·정렬 이름 / 조건·정렬을 Specification·Sort로 바꿈 (#1020, 30장) |
 | `domain.AppearanceApplication`, `AppearanceApplicationStatus` | 출연 모집 지원과 상태. 지원·취소·수락·거절 (#195) |
 | `app.AppearanceApplicationFacade` | 출연 모집 지원 API 진입점 (`@PreAuthorize`, 기능별 트랜잭션) (#195) |
 | `app.AppearanceApplicationApplyUseCase`, `…WithdrawUseCase`, `…RespondUseCase`, `…QueryUseCase`, `AppearanceApplicationSupport` | 지원 / 지원 취소 / 수락·거절(출연 성립) / 지원자·내 지원 목록 / 저장소 접근·지원자 수 (#195) |
@@ -467,7 +469,7 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
 
 - 제약: `fee_per_person > 0`, `recruit_count > 0`, `0 <= selected_count <= recruit_count`, `expected_minutes > 0`, `recruit_deadline < scheduled_at`
-- 인덱스: 공개 목록 `(status, created_at)`, 내 목록 `(host_id, created_at)`, 기한 마감 배치 `(status, recruit_deadline)` (#222)
+- 인덱스: 공개 목록 `(status, created_at)`, 내 목록 `(host_id, created_at)`, 기한 마감 배치 `(status, recruit_deadline)` (#222). 공개 목록 검색(#1020)은 인덱스를 더하지 않았다(30.3)
 - 마이그레이션: `V202610141400__create_appearance_recruit_table.sql`, `V202610151153__add_appearance_recruit_deadline_index.sql`
 
 ---
@@ -568,13 +570,17 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
 |---|---|---|---|---|
 | POST | `/api/v1/appearances/recruits` | 모집글 올리기 (HP 보류), 201 | 인플루언서 이상 | 출연 모집글을 올렸습니다. |
-| GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 (검색 조건·정렬, #1020) | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
 | GET | `/api/v1/appearances/recruits/mine?status=` | 내가 올린 모집글 목록 (상태 필터, 여러 개) | 인플루언서 이상 | 내 출연 모집글 목록을 조회했습니다. |
 | GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만, 조회한 회원의 지원 `myApplication` #243) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
 | PATCH | `/api/v1/appearances/recruits/{recruitId}` | 기본 정보(제목·콘텐츠 설명·호스트 채널 URL) 수정 | 인플루언서 이상, 호스트만 | 출연 모집글을 수정했습니다. |
 | POST | `/api/v1/appearances/recruits/{recruitId}/close` | 조기 마감 (#222, 10장) | 인플루언서 이상, 호스트만 | 출연 모집을 마감했습니다. |
 
-- 목록은 `Pageable`(page·size, 기본 20, 최대 100), 최신순 고정. 성공 응답은 `RsData`.
+- 목록은 `Pageable`(page·size, 기본 20, 최대 100). 내 목록은 최신순 고정.
+- 공개 목록 검색 (#1020): 모두 선택 조건이며 함께 쓰면 모두 만족해야 한다. `keyword`(제목·콘텐츠 설명·호스트 닉네임 부분 일치, 대소문자 무시, 앞뒤 공백 정리 후 50자 이하, NUL 문자 불가), `scheduledFrom`·`scheduledTo`(방송 예정 일시 범위, `yyyy-MM-dd` KST, 양 끝 날짜 포함), `minFee`·`maxFee`(1인당 출연료 범위, 0 이상, 포함), `hasSeats=true`(남은 자리 있는 글만).
+  정렬은 `sort` 이름으로만 받는다: `LATEST`(기본, 등록 최신순)·`SCHEDULED_SOON`(방송 임박순)·`DEADLINE_SOON`(마감 임박순)·`FEE_HIGH`(출연료 높은 순). 기준 값이 같으면 최신순으로 잇는다. Spring `Pageable`의 필드 이름 정렬(`sort=createdAt,desc`)은 받지 않는다.
+  잘못된 값(형식 오류, 음수, 모르는 정렬, 50자 초과·NUL 문자, 뒤집힌 범위)은 400 `INVALID_REQUEST`.
+  조회는 `AppearanceRecruitOpenQuery`(Specification)가 만들고, 검색 앱(ES)을 쓰지 않는다(모집글은 마감되면 목록에서 빠져 양이 적다). 성공 응답은 `RsData`.
 - 역할 검사는 Facade 메서드마다 `@PreAuthorize`를 붙인다 (공개 조회와 호스트 기능의 권한이 달라서). 공개 조회는 출연 회원 자격도 확인하지 않는다.
 - **비회원 공개 목록은 아직 열지 않았다.** global `SecurityConfig`에 `GET /api/v1/appearances/recruits` 허용을 추가해야 해서 팀 합의 후 진행한다 (지금은 401).
 
@@ -600,11 +606,11 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 모집 마감 일시 | 현재 < 모집 마감 < 방송 예정 일시 | 요청서 수락 기한과 같은 규칙 |
 | 중복 | 같은 호스트의 모집글 수 제한 없음 | 사용자 결정 (2026-10-14) |
 | 입력 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 | 요청서와 같음 (`AppearanceBasicInfo`, `AppearanceContentRules`) |
-| 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
+| 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) + 검색 조건(7.1) | |
 | 상세·내 목록 | 다른 회원에게는 `RECRUITING`·`CLOSED`·`CANCELED`만. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트의 내 목록(기본 포함)·상세·지원자 목록(빈 목록)에만 보이고, 지원·수정·마감·취소는 호스트도 404 (27장, #306) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
 | 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 마감 방식·마감 시각(#222), 마감 반환 진행 상태(`hpReleaseStatus`, 호스트만, 마감 반환만 — 합의 취소 반환은 출연 상세, #222·#231), 버전 포함. 취소 시각은 모집 취소에서 채움 | |
-| 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
+| 미정 | 방송 플랫폼·카테고리 등 분류, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
 
 ---
 
@@ -1776,3 +1782,41 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 
 - 남긴 것: `AppearanceUser.from(UserDto)`(팀 공통 부모 `ReplicaUser` 생성자가 `UserDto`를 받음), `AppearanceEarningRule`의 shared 수익 enum(지갑과 같이 쓰는 값 타입).
 - HP 대사 enum 3개(`HpReconciliationRule`·`Status`·`Trigger`)에 다른 출연 enum과 같은 모양의 `description`을 더했다. `AppearanceWithdrawalBlock`은 `messageFormat`이 있어 제외.
+
+## 30. 출연 모집 공개 목록 검색 (#1020)
+
+`GET /api/v1/appearances/recruits`에 검색어·조건·정렬을 더했다. 계약은 7.1, 오류는 [error-codes.md](error-codes.md)의 `INVALID_REQUEST`다. 응답(`RsData<Page<AppearanceRecruitSummaryResDto>>`)·권한(로그인 회원)·page·size 규칙은 그대로다.
+
+### 30.1 구조
+
+```
+Controller ─ 쿼리 파라미터 → domain.AppearanceRecruitSearch (정리·검증, 틀리면 400)
+  → AppearanceRecruitFacade.getOpen(search, pageable) → QueryUseCase → AppearanceRecruitSupport.findOpen(now, search, pageable)
+  → out.AppearanceRecruitOpenQuery.where(now, search) + orderOf(sort) → AppearanceRecruitRepository.findAll(Specification, PageRequest)
+```
+
+- 조건은 값이 있을 때만 붙는다. 기본 조건(모집 중, 모집 마감 일시 > 지금)은 언제나 붙어 조건 없이 부르면 지금까지와 같은 결과·순서다.
+- 동적 조건은 Spring Data JPA의 Specification(`JpaSpecificationExecutor`)으로 만든다. 출연 모듈은 Querydsl을 쓰지 않아 새 의존성을 더하지 않았고, 강의 모듈의 관리자 HP 작업 필터(`LectureHpTaskSupport`)와 같은 방식이다.
+- 방송 날짜는 KST 날짜다. DB 시각이 KST라 `scheduledAt >= 시작 날짜 0시`, `scheduledAt < 끝 날짜 다음 날 0시`로 바꾼다(끝 날짜 하루 전체 포함).
+- 검색어는 Java에서 소문자로 바꾸고 `%`·`_`·`\`를 이스케이프한 뒤 `lower(컬럼) like … escape '\'`로 찾는다.
+
+### 30.2 결정
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 호스트 닉네임 검색 | 한다. 검색어가 제목·콘텐츠 설명·호스트 닉네임 중 하나에 들어 있으면 찾는다 | 출연 모듈에 회원 복제본(`appearances.users.nickname`, 4.1)이 있다. 같은 모듈 schema의 테이블이라 모듈 간 JOIN이 아니며, 모집글 호스트 ID로 찾는 `exists` 하위 쿼리다. 목록 화면은 호스트를 닉네임으로 보여 준다 |
+| `sort` 이름 | 정렬 이름(`AppearanceRecruitSort`)으로만 받고 `Pageable`의 정렬은 버린다(`PageRequest`를 다시 만든다) | 임의 필드 정렬을 막는다. 강의 목록(`LectureSort`)과 같은 방식이다. 이전에는 `sort=createdAt,desc`를 무시했지만 이제 400이다(FE는 `sort`를 보내지 않았다) |
+| 같은 기준 값 | 최신순(`createdAt desc, id desc`)으로 잇는다 | 페이지를 넘겨도 순서가 흔들리지 않게 한다 |
+| `hasSeats=false` | 조건 없음 | 꽉 찬 글만 보는 화면은 없다 |
+| 검색어 길이 | 앞뒤 공백을 지운 뒤 50자(`String.length`, 다른 입력 제한과 같은 기준) | |
+| 검색어의 NUL 문자 | 400으로 막는다(다른 제어 문자는 그대로 찾는다) | PostgreSQL text는 NUL(0x00)을 받지 못해 조회가 500 `INTERNAL_ERROR`로 끝난다 |
+| 날짜 연도 | 0001~9999년만 | ISO 날짜는 `+10000-01-01`처럼 네 자리가 넘는 연도도 읽는데, DB 시각 범위를 넘으면 500이 되므로 400으로 막는다 |
+| 오류 코드 | 모두 `INVALID_REQUEST`(400) | 형식·타입 오류와 음수(Spec `@PositiveOrZero`)는 공통 핸들러가 `errors[{field}]`와 함께, 뒤집힌 범위·검색어 길이·NUL 문자·연도는 `AppearanceRecruitSearch`가 `detail`에 이유를 담아 응답한다 |
+
+### 30.3 인덱스
+
+새 인덱스와 마이그레이션은 없다.
+
+- 공개 목록 대상은 모집 중이고 마감 전인 글뿐이다. 마감되면 빠지므로 양이 적고, 기본 조건이 기존 인덱스를 탄다: 최신순 `(status, created_at)`, 마감 임박순 `(status, recruit_deadline)`.
+- 방송 임박순·출연료순과 날짜·출연료·남은 자리 조건은 그 작은 집합 안에서 거르고 정렬한다.
+- 검색어는 앞쪽 와일드카드 부분 일치라 B-tree 인덱스로 줄일 수 없다. 모집 중인 글이 많아져 느려지면 실행 계획을 보고 `pg_trgm` GIN 인덱스(확장 설치, 팀 합의 필요)나 검색 앱을 검토한다.

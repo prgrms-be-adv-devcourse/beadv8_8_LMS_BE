@@ -29,6 +29,7 @@ import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
@@ -320,7 +321,8 @@ class AppearanceBatchUseCaseTest {
                     .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
             assertThat(BillingCalls.holds(billingClient)).hasSize(2)
                     .allSatisfy(hold -> assertThat(hold.referenceId()).isEqualTo(recruitId));
-            assertThat(appearanceRecruitFacade.getOpen(PageRequest.of(0, 10)).getContent()).isEmpty();
+            assertThat(appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE, PageRequest.of(0, 10))
+                    .getContent()).isEmpty();
             assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent())
                     .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status())

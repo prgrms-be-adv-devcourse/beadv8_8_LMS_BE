@@ -24,6 +24,7 @@ import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitSearch;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
@@ -134,7 +135,8 @@ class AppearanceRecruitFacadeTest {
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getContent())
                 .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
-        assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE, FIRST_PAGE).getTotalElements())
+                .isZero();
     }
 
     @Test
@@ -150,7 +152,8 @@ class AppearanceRecruitFacadeTest {
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getContent())
                 .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
-        assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE, FIRST_PAGE).getTotalElements())
+                .isZero();
     }
 
     @Test
@@ -194,7 +197,8 @@ class AppearanceRecruitFacadeTest {
         assertThatThrownBy(() -> appearanceRecruitFacade.updateBasicInfo(HOST, 1L, "새 제목", null, null))
                 .isInstanceOf(AccessDeniedException.class);
 
-        assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE, FIRST_PAGE).getTotalElements())
+                .isZero();
         assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, 1L), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
     }
 
@@ -208,7 +212,8 @@ class AppearanceRecruitFacadeTest {
         AppearanceRecruitResDto first = post(HOST);
         AppearanceRecruitResDto second = post(OTHER);
 
-        Page<AppearanceRecruitSummaryResDto> open = appearanceRecruitFacade.getOpen(FIRST_PAGE);
+        Page<AppearanceRecruitSummaryResDto> open = appearanceRecruitFacade.getOpen(AppearanceRecruitSearch.NONE,
+                FIRST_PAGE);
 
         assertThat(open.getContent()).extracting(AppearanceRecruitSummaryResDto::id)
                 .containsExactly(second.id(), first.id());
