@@ -86,6 +86,184 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-131 · 2026-11-19 · 실패 (N17-4 #992 전체 `./gradlew check`, 알림 밖 채팅 시험 1건)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-131 |
+| 실행 날짜 | 2026-11-19 (KST). 1차 11:22~11:53(중단), 2차 12:09~12:30 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-130과 같음) |
+| 작업 트리 변경 | NR-130과 같다. `apps/chat-app`·`common` 변경 없음 |
+| 대상 기능 | 커밋 전 전체 회귀(⑤ 승인 조건) |
+| 관련 NT ID | 알림 밖 전체 |
+| 명령 | `./gradlew check --continue`. 확인: `./gradlew :chat-app:test --tests "*ChatInboundSessionQueueE2ETest" --rerun`을 이 브랜치에서 2번, 변경 전 `7e687a5e` worktree(`beadv8_8_LMS_BE-n174control`)에서 1번 |
+| 실행 환경 | 로컬 Windows, Testcontainers. 1차는 B0 cluster를 켠 채 실행했다가 11:37쯤 Docker 엔진 무응답으로 멈춤(사용자가 Docker 재시작). 2차는 B0 cluster를 `k3d cluster stop`으로 내리고 실행(다시 만들지 않음) |
+| 결과 | 실패 |
+| 건수 | 2차 BUILD FAILED(20분 30초), 실패 task는 `:chat-app:test` 하나: 1,102건 중 `ChatInboundSessionQueueE2ETest.몫을_넘겨_서버가_닫은_연결의_처리_줄도_남지_않는다` 1건 실패(188행 `flooder.send`에서 `MessageDeliveryException`/`IllegalStateException`, 1차에서도 같은 시험과 `ChatPipelineDeliveryE2ETest` 1건 실패). 나머지 통과: appearance 943, billing 1,521, customer-support 236, lecture 1,038, coupon 1,099, member 884, shared 212, kafka 4, test-support 11(이번 실행), notification 593/0/0/2·auxiliary-app 17·chatbot 410·search 458·auxiliary-global 110(UP-TO-DATE, 입력 변경 없음). 확인 실행: 이 브랜치 2번·변경 전 1번 모두 6/0/0/0 |
+| 실패 원인 분류 | 환경·불안정 시험으로 봄(알림 변경과 무관): 서버가 몫 초과로 연결을 닫는 시점과 70개 연달아 보내는 반복의 경쟁. 단독 실행은 통과 |
+| 수정 내용 | 없음(`apps/chat-app/**`는 이 작업에서 고치지 않는다) |
+| 재실행 결과 | 실패 시험 클래스 단독 재실행 통과(위) |
+| 미검증 항목 | 전체 check 안에서 이 시험이 변경 전 코드로도 실패하는지는 보지 않았다(변경 전 전체 check 미실행) |
+| 관련 변경 | #992 |
+
+#### NR-130 · 2026-11-19 · 통과 (N17-4 #992 S6 재리뷰 반영: NT-SCH-25 1초 판정 보강)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-130 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-124~NR-126 변경 포함) |
+| 작업 트리 변경 | `NotificationScheduleSchedulerTest` 제시각 시험: 2초 cron에서 `delayAt < 1초`로 판정하던 것을 5초 cron과 "시작 1초 전 이후 첫 cron 발화"와의 차이 1초 미만으로 바꿈(2초 주기에서는 ND-221 일찍 깨어남 규칙 때문에 어떤 시작 시각도 1초 미만으로 계산돼 판정이 늘 통과). `NotificationScheduleStartDelay`의 `BUCKETS`·`EARLY_WAKE_TOLERANCE`를 `private`로. 문서: test-spec NT-SCH-25·4장 연결 행·이력, NR-129 메모와 notification-load "N17-4 교차 대조"의 A 처리량 문구, PROGRESS N17-4 행·갱신일 |
+| 대상 기능 | 공용 풀이 차도 예약 회차가 제시각에 시작(ND-220) |
+| 관련 NT ID | NT-SCH-25 |
+| 명령 | 변이 확인 `./gradlew :notification:test --tests "*NotificationScheduleSchedulerTest"`(시작 시각을 1.5초 늦게 기록하게 바꿔 실행 뒤 되돌림), `./gradlew :notification:test --rerun verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | 변이: 5건 중 1건 실패(차이 3.49초 > 1초, 의도한 실패). 되돌린 뒤 전체 `:notification:test` 593/0/0/2, `verifyModuleStructure` 포함 종료 코드 0, `:auxiliary-app:check` 17/0/0/0(결과 파일 11:18 새로 씀) |
+| 실패 원인 분류 | 의도한 변이 실패 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | traceId 로그는 여전히 시험하지 않았다(NR-124·NR-125와 같음) |
+| 관련 변경 | #992 |
+
+#### NR-129 · 2026-11-19 · 통과 (N17-4 #992 B0 교차 대조, 변경 전 `7e687a5e` 대 변경 후)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-129 |
+| 실행 날짜 | 2026-11-18 23:59 ~ 2026-11-19 01:09 (KST). 회차 시작 23:59·00:13·00:25·00:36·00:47·00:58 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | A(변경 전): `7e687a5e`를 형제 worktree(`beadv8_8_LMS_BE-n174control`, detached)에서 `:auxiliary-app:bootJar`로 빌드, docker `e58e2b53…`. B(변경 후): `7e687a5e` 위 작업 트리 미커밋(NR-124~NR-126), NR-127·NR-128과 같은 docker `c36eb25c…` |
+| 작업 트리 변경 | NR-126과 같다. 측정을 감싼 스크립트는 커밋하지 않았다(절차는 명령 칸) |
+| 대상 기능 | NR-128 공식 B0 불합격이 코드 때문인지 환경 때문인지 나눔(ND-222, ND-207 방식) |
+| 관련 NT ID | 공식 B0 판정 아님. 대조 기준 ND-222·ND-207 |
+| 명령 | 회차마다 이미지에 `hapbang/auxiliary-app:local` 태그를 붙여 `k3d image import -c hapbang-b0`(10분 제한) → Docker VM 파일 캐시 비움(`echo 1 > /proc/sys/vm/drop_caches`, 2회차부터) → 호스트 여유 메모리 2,048MB 미만이면 멈춤 → `bash loadtest/notification/b0.sh run n174x<번호>`(진단 끔, 커밋 설정 off 기본) → `kubectl --context k3d-hapbang-b0 -n hapbang-prod scale deploy/auxiliary-app --replicas=0`. 순서 A·B·A·B·A·B. 끝나면 B 이미지를 `:local`로 되돌려 import |
+| 실행 환경 | 로컬 Windows 10, Docker Desktop, B0 cluster `k3d-hapbang-b0`(다시 만들지 않음, 아래 중단 뒤 stop·start만), limit 832Mi·`-Xmx256m`·Hikari 5, Kafka 700Mi, fixture 그대로. 회차 전 호스트 여유 메모리 2,206 / 4,156 / 4,532 / 4,198 / 4,337 / 4,314MB |
+| 결과 | 통과 |
+| 건수 | 6회 모두 종료 코드 0, 유효(V0~V8 통과) 6, F 6회 같음(`5a7ab852…`). 처리량 A 203.81·213.05·213.19(중앙값 213.05, CV 2.56%), B 208.46·213.12·207.22(중앙값 208.46, CV 1.48%). B/A 0.9785 ≥ 0.9 → 통과. 끝난 뒤 노드 이미지 manifest `c36eb25c…`(B), replicas 0 |
+| 실패 원인 분류 | 측정 전 중단 3번(측정값에는 영향 없음): ① 20:56 첫 이미지 import 중 Docker 엔진 무응답(약 3시간, `docker version` 20초 초과) → 사용자가 Docker Desktop 재시작. ② 23:56 재시작 뒤 B0 노드 두 개의 IP가 서로 바뀌어 `kubectl exec`가 x509 오류로 실패(1회차 데이터 비우기 단계, 회차 폴더 `b0-20261118-235647-rn174x1`은 무효) → `k3d cluster stop`·`start`. ③ 00:10 2회차 전 여유 메모리 1,905MB(Docker VM 7.4GB 중 대부분 파일 캐시) → 캐시를 비우고 2회차부터 이어 돌림 |
+| 수정 내용 | 감싼 스크립트: import 10분 제한, 보존 태그가 있으면 덮어쓰지 않음, 시작 회차 인자, 회차 전 캐시 비움 |
+| 재실행 결과 | 위 6회(1회차는 ③ 전 결과를 그대로 씀) |
+| 미검증 항목 | 회차별 이미지 확인: 스크립트가 적은 crictl IMAGE ID는 1·2회차에 같은 값이 남아 근거로 쓰지 않았다. 대신 회차 지표로 확인했다. A 3회는 회차 시작 지연 지표가 없고(1회차 앱 로그의 예약 배치 스레드도 `scheduling-*`), B 3회는 지표가 있다(count 9·11·9). 두 이미지 jar의 알림 모듈은 A에 `NotificationScheduleStartDelay`가 없고 B에 있다. 1회차만 캐시를 비우지 않고 시작했다. 회차 원본은 `~/.hapbang/load-tests/runs/b0-*-rn174x1~6`, 감싼 스크립트와 상태 표는 세션 임시 폴더(레포 밖) |
+| 관련 변경 | #992 |
+
+**메모(측정 수치, 판정은 ND-222·ND-207 기준)**: 투입 속도 A 260.45·279.76·275.17, B 269.72·272.79·271.11. 처리량/투입 평균 A 0.773, B 0.773. 이 6회의 A·B 처리량(203.81~213.19)이 모두 공식 B0 기준(213.8)에 못 미쳐, NR-128 불합격은 이번 변경보다 측정 환경 쪽 원인에 가깝다. 수치와 해석은 [notification-load](../load-test/notification-load.md) "N17-4 교차 대조"
+
+#### NR-128 · 2026-11-18 · 불합격 (N17-4 #992 B0 공식 5회)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-128 |
+| 실행 날짜 | 2026-11-18 20:01~20:54 (KST). 회차 시작 20:01·20:12·20:22·20:33·20:43 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-124~NR-126). 앱 이미지 `b0.sh setup`(17:3x)으로 빌드, docker `c36eb25c…`(NR-127과 같음) |
+| 작업 트리 변경 | NR-126과 같다 |
+| 대상 기능 | 앱 전체 처리량 회귀(ND-222, ND-175 공식 판정) |
+| 관련 NT ID | 공식 B0 판정(ND-175·ND-222, 측정 도구 NT-B0-*) |
+| 명령 | 회차마다 호스트 여유 메모리 2,048MB 미만이면 멈춤 → `bash loadtest/notification/b0.sh run n174r<번호>`(진단 끔, 커밋 설정 off 기본) → replicas 0 확인. NR-127에 이어 같은 스크립트로 쉬지 않고 돌렸다(사용자 지시) |
+| 실행 환경 | 로컬 Windows 10, B0 cluster `k3d-hapbang-b0`(다시 만들지 않음), limit 832Mi·`-Xmx256m`·Hikari 5, Kafka 700Mi. 회차 전 호스트 여유 메모리 4,125 / 3,762 / 3,818 / 3,639 / 4,165MB, 회차 뒤 replicas 0 |
+| 결과 | 불합격 |
+| 건수 | 5회 모두 종료 코드 0, 유효(V0~V8 통과) 5, F 5회 같음(`5a7ab852…`). 처리량 201.89 / 203.48 / 202.70 / 202.77 / 197.95건/초, 중앙값 202.70(B0 237.52의 85.3%), CV 1.09%(표본 표준편차). 중앙값 ≥ 213.8 미충족 |
+| 실패 원인 분류 | 기준 미달(코드·환경 구분은 NR-129) |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함. ND-222대로 교차 대조(NR-129) |
+| 미검증 항목 | 회차 원본 `~/.hapbang/load-tests/runs/b0-20261118-*-rn174r1~5` |
+| 관련 변경 | #992 |
+
+#### NR-127 · 2026-11-18 · 통과 (N17-4 #992 L5 S·B·M·F 재측정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-127 |
+| 실행 날짜 | 2026-11-18 (KST). setup(이미지 재빌드) 17:3x, S 17:37~17:46, B 19:11~19:21, M 19:21~19:39, F 19:39~20:01 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-124~NR-126). docker `c36eb25c…` |
+| 작업 트리 변경 | NR-126과 같다 |
+| 대상 기능 | 예약 배치 전용 스케줄러로 바꾼 뒤 L5 합격 유지(ND-222·ND-192), 회차 시작 지연 지표(ND-221) |
+| 관련 NT ID | NT-LOAD-L5S, NT-LOAD-L5B, NT-LOAD-L5M, NT-LOAD-L5F, NT-RES-02 |
+| 명령 | `bash loadtest/notification/b0.sh setup` 뒤 `n15.sh` L5 S·B·M·F 각 1회(회차 이름 `rn174b`, 경쟁 없음). 시나리오마다 호스트 여유 메모리 2,048MB 미만이면 멈춤, 끝나면 replicas 0 확인 |
+| 실행 환경 | 로컬 Windows 10, B0 cluster `k3d-hapbang-b0`(다시 만들지 않음), Gradle 데몬 내림. 시작 전 호스트 여유 메모리 S 2,943 / B 3,839 / M 4,090 / F 4,204MB |
+| 결과 | 통과 |
+| 건수 | 4종 모두 유효·판정 통과. 최대 지연(기준): S 35.48초(120), B 95.00초(180), M 575.3초(660), F 635.07초(720). 회차 실행 최대 0.487·0.475·0.457·0.506초. 회차 누락·중복·누락·예상 밖 오류 0. F: 실패 10(abandoned 10, retry 20), 기한 지남 20, 실패 대상 복제본 150번 확인 모두 0. 예약 회차 실행 스레드 `notification-schedule-1`. 회차 시작 지연 count S 8·B 9·M 17·F 15, 합 0·0·0·0.00066초 |
+| 실패 원인 분류 | 앞선 회차 `n15-l5S-20261118-171450-rn174`(판정은 모두 통과)에서 지연 지표 결함 발견 → NR-126에서 고친 뒤 S부터 다시 쟀다 |
+| 수정 내용 | NR-126 |
+| 재실행 결과 | 위 4종 |
+| 미검증 항목 | 공용 풀 경쟁은 L5에서 재현하지 않았다(ND-222, 시험 NT-SCH-25로 봄). B는 S가 끝나고 약 1시간 25분 뒤 시작했다(사용자 확인 대기). 회차 원본 `~/.hapbang/load-tests/runs/n15-l5{S,B,M,F}-20261118-*-rn174b` |
+| 관련 변경 | #992 |
+
+#### NR-126 · 2026-11-18 · 통과 (N17-4 #992 회차 시작 지연: 일찍 깨어난 회차를 0으로)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-126 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-124·NR-125 변경 포함) |
+| 작업 트리 변경 | `NotificationScheduleStartDelay.delayAt`: 다음 발화까지 1초(`EARLY_WAKE_TOLERANCE`) 이하로 남았으면 0. 시험: 일찍 깨어남(34.997초·34초)·1초 경계 밖(33.9초 → 58.9초) 추가, "한 주기 넘게 밀림" 시험의 시각을 허용 오차 밖(02:20 → 45초)으로 옮김. decisions ND-221, test-spec NT-SCH-27, module 2장 |
+| 대상 기능 | 회차 시작 지연 지표(ND-221). 발견: L5-S(`n15-l5S-20261118-171450-rn174`, 판정은 모두 PASS)에서 start.delay 8회차 중 7회차가 30~60초 칸, 합 419.98초(회차마다 약 3ms 일찍 깨어나 직전 발화를 한 분 전으로 잡음) |
+| 관련 NT ID | NT-SCH-27 |
+| 명령 | `./gradlew :notification:test --tests "*NotificationScheduleStartDelayTest"`(RED), `--tests "*NotificationSchedule*"`, `./gradlew :notification:test --rerun verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: 34.997초 시작이 59.997초로 계산됨(10건 중 1건 실패). 첫 GREEN 실행에서 기존 "한 주기 넘게 밀림" 시험(34.9초 → 59.9초 기대)이 실패: 새 규칙(Q1 a)에서는 일찍 깨어남과 구분할 수 없는 시각이라 시각을 옮김. GREEN: `NotificationSchedule*` 28/0/0/0. 전체 `:notification:test` 593/0/0/2(591 + 2), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:check` 17/0/0/0(결과 파일 17:34 새로 씀) |
+| 실패 원인 분류 | 의도한 RED, 기존 시험 기대값이 바뀐 규칙과 충돌 |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 고친 이미지로 L5 재측정은 다음 기록 |
+| 관련 변경 | #992 |
+
+#### NR-125 · 2026-11-18 · 통과 (N17-4 #992 S6 리뷰 반영: cron 끔 값 회귀, 시험 판정 보강)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-125 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋(NR-124 변경 포함) |
+| 작업 트리 변경 | `NotificationScheduleStartDelay`: cron이 `-`(Spring 끔 값)이면 지표를 만들지 않고 `CronExpression.parse`를 부르지 않음. `NotificationScheduleSchedulerConfig` Javadoc에 종료 대기를 물려받는 이유. 시험: 제시각 시험은 막은 뒤 시작한 회차만 판정, 다른 배치·STOMP 자리 스케줄러·관측 시험, cron `-` 기동 시험, cron 끔 단위 시험, `TimeUnit` import. 문서: decisions ND-219·ND-221 문구, test-spec NT-SCH-26·27, module 2장, PROGRESS N17-4 행, 팀 공유 README 배치 스레드 서술·module-integration.md "빈과 배치"(사용자 승인) |
+| 대상 기능 | cron 끔 값으로 기동(ND-219 "cron 키·기본값 그대로"), 예약 회차 관측 유지, 다른 배치는 공통 스케줄러 |
+| 관련 NT ID | NT-SCH-25, NT-SCH-26, NT-SCH-27 |
+| 명령 | `./gradlew :notification:test --tests "*NotificationScheduleSchedulerTest" --tests "*NotificationScheduleStartDelayTest"`(RED), `--tests "*NotificationSchedule*"`(GREEN), `./gradlew :notification:test --rerun verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED: cron `-`에서 `IllegalArgumentException`(단위 1, 컨텍스트 기동 1, 13건 중 2건 실패). 관측·다른 배치 시험은 지금 동작을 확인하는 시험이라 처음부터 통과. GREEN: `NotificationSchedule*` 26/0/0/0. 전체 `:notification:test` 591/0/0/2(588 + 3), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:check` 17/0/0/0(결과 파일 이번 실행에서 새로 씀) |
+| 실패 원인 분류 | 의도한 RED |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 관측은 Boot 관측 자동 설정 대신 시험에서 등록기에 레지스트리를 넘겨 켰다(모듈 시험 classpath에 없음). traceId 로그는 보지 않았다. L5·B0 측정(ND-222)은 별도 승인 뒤 |
+| 관련 변경 | #992 |
+
+#### NR-124 · 2026-11-18 · 통과 (N17-4 #992 예약 배치 전용 스케줄러와 회차 시작 지연 지표)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-124 |
+| 실행 날짜 | 2026-11-18 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-992` |
+| 커밋 | `7e687a5e` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | 새 `in/NotificationScheduleSchedulerConfig`(빈 `notificationScheduleTaskScheduler`, 1스레드 `notification-schedule-`, `defaultCandidate = false`, `@ConditionalOnSchedulingEnabled`)·`in/NotificationScheduleStartDelay`(Timer `hapbang.notification.schedule.start.delay`). `NotificationScheduleBatch`는 `@Scheduled(scheduler = …)`로 등록하고 회차 시작 때 지연을 기록. 시험 `NotificationScheduleSchedulerTest` 3·`NotificationScheduleStartDelayTest` 7·`NotificationScheduleBatchTest` 3 추가. decisions ND-219~222, module 2장, test-spec NT-SCH-25~27·NT-RES-02, PROGRESS |
+| 대상 기능 | 공용 풀이 차도 예약 회차가 제시각에 시작(ND-219·ND-220), 회차 시작 지연 지표(ND-221) |
+| 관련 NT ID | NT-SCH-25, NT-SCH-26, NT-SCH-27, NT-SCH-23(회귀) |
+| 명령 | `./gradlew :notification:test --tests "*NotificationSchedule*"`(RED 2번 → GREEN), 변이 확인 `--tests "*NotificationScheduleSchedulerTest"`, `./gradlew :notification:test --rerun verifyModuleStructure`, `./gradlew :auxiliary-app:check --rerun` |
+| 실행 환경 | 로컬 Windows, Testcontainers |
+| 결과 | 통과 |
+| 건수 | RED 1: 새 클래스가 없어 시험 컴파일 실패. RED 2: `scheduler` 지정 없이 공용 스레드 2개를 막자 10초 안에 예약 회차가 시작하지 않음(`NotificationScheduleSchedulerTest` 1건 실패, 나머지 22건 통과). GREEN: `NotificationSchedule*` 4개 클래스 23/0/0/0. 변이: `defaultCandidate = false`를 빼면 "기본 스케줄러는 그대로 taskScheduler" 시험이 실패(되돌림). 전체 `:notification:test` 588/0/0/2(575 + 13), `verifyModuleStructure` BUILD SUCCESSFUL, `:auxiliary-app:check` 17/0/0/0 BUILD SUCCESSFUL |
+| 실패 원인 분류 | 의도한 RED |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | 통과 |
+| 미검증 항목 | 예약 회차 trace(traceId)는 시험하지 않았다(`@Scheduled` 등록 경로가 같아 관측 처리가 그대로라고 봄, NT-SCH-26 일부). L5 S·B·M·F 재측정과 B0 판정(ND-222)은 별도 승인 뒤. 운영 지표 조회 안 함(ND-203) |
+| 관련 변경 | #992 |
+
 #### NR-123 · 2026-11-18 · 통과 (N17-3 #991 `synchronous_commit` off/on 교차 진단 측정)
 
 | 항목 | 값 |
