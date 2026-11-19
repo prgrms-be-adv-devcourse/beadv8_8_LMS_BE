@@ -22,6 +22,7 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
  * 강의 추천 index와 강의 사본을 맞추는 점검 (#718). 처음 전체 색인도 이것이 한다.
  * <ul>
  *     <li>강의 사본을 ID 순으로 나눠 읽고, index 문서가 없거나 상태·임베딩 글 해시가 사본과 다른 강의만 색인 요청({@code UPSERT})을 적는다.
+ *     해시에는 제목 비율({@code title-weight}, #1007)이 들어 있어 비율을 바꾼 배포 뒤 첫 점검은 모든 강의를 요청한다.
  *     index가 새로 생겼거나 비었으면 모든 강의가 "문서 없음"이라 전체 색인이 된다.</li>
  *     <li>요청을 적기만 한다. 처리는 색인 실행기가 하고, 같은 문서에 쌓인 요청은 한 번에 처리한다.
  *     그래서 두 pod가 함께 점검해도 결과가 같다(요청이 겹칠 뿐이다).</li>
@@ -76,7 +77,7 @@ public class LectureIndexReconciler {
             List<String> stale = new ArrayList<>();
             for (LectureSnapshot lecture : lectures) {
                 String id = LectureIndexDocument.docIdOf(lecture.id());
-                if (!LectureIndexDocument.of(lecture).equals(stored.get(id))) {
+                if (!LectureIndexDocument.of(lecture, properties.titleWeight()).equals(stored.get(id))) {
                     stale.add(id);
                 }
             }
