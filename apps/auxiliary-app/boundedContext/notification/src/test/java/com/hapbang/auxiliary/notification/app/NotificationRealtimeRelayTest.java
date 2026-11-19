@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.notification.app;
 
+import static com.hapbang.auxiliary.notification.support.NotificationFixtures.provider;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -20,8 +21,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -310,10 +309,6 @@ class NotificationRealtimeRelayTest {
 
     private static int countOf(CapturedOutput output, String text) {
         return output.getAll().split(java.util.regex.Pattern.quote(text), -1).length - 1;
-    }
-
-    private static <T> ObjectProvider<T> provider(Class<T> type, T bean) {
-        return new StaticListableBeanFactory(Map.of("bean", bean)).getBeanProvider(type);
     }
 
     private static final class MutableClock extends Clock {

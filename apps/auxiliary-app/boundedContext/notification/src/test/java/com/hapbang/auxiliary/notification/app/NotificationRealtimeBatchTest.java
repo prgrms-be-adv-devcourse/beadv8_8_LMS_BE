@@ -1,5 +1,7 @@
 package com.hapbang.auxiliary.notification.app;
 
+import static com.hapbang.auxiliary.notification.support.NotificationFixtures.provider;
+import static com.hapbang.auxiliary.notification.support.NotificationFixtures.unread;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
@@ -26,8 +28,6 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -306,16 +306,16 @@ class NotificationRealtimeBatchTest {
         when(notifications.countUnreadByReceivers(anyCollection())).thenAnswer(invocation -> {
             Collection<Long> receivers = invocation.getArgument(0);
             return receivers.stream().filter(counts::containsKey)
-                    .map(r -> (ReceiverUnread) new TestUnread(r, counts.get(r))).toList();
+                    .map(r -> unread(r, counts.get(r))).toList();
         });
     }
 
     /** 한 받는 사람의 묶음 안 읽은 수를 묶음을 읽을 때마다 차례로 돌려준다 */
     private void givenUnreadInOrder(Long receiver, Long... counts) {
-        List<ReceiverUnread> first = List.of(new TestUnread(receiver, counts[0]));
+        List<ReceiverUnread> first = List.of(unread(receiver, counts[0]));
         @SuppressWarnings("unchecked")
         List<ReceiverUnread>[] rest = java.util.Arrays.stream(counts).skip(1)
-                .map(count -> List.<ReceiverUnread>of(new TestUnread(receiver, count))).toArray(List[]::new);
+                .map(count -> List.<ReceiverUnread>of(unread(receiver, count))).toArray(List[]::new);
         when(notifications.countUnreadByReceivers(anyCollection())).thenReturn(first, rest);
     }
 
@@ -340,22 +340,5 @@ class NotificationRealtimeBatchTest {
     private double dropped(String reason) {
         var counter = registry.find(NotificationRealtimeRelay.DROPPED_METRIC).tag("reason", reason).counter();
         return counter == null ? 0.0 : counter.count();
-    }
-
-    private static <T> ObjectProvider<T> provider(Class<T> type, T bean) {
-        return new StaticListableBeanFactory(Map.of("bean", bean)).getBeanProvider(type);
-    }
-
-    private record TestUnread(Long receiverUserId, long unread) implements ReceiverUnread {
-
-        @Override
-        public Long getReceiverUserId() {
-            return receiverUserId;
-        }
-
-        @Override
-        public long getUnread() {
-            return unread;
-        }
     }
 }

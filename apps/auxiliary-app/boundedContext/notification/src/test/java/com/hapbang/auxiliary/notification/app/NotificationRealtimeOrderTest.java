@@ -1,5 +1,7 @@
 package com.hapbang.auxiliary.notification.app;
 
+import static com.hapbang.auxiliary.notification.support.NotificationFixtures.provider;
+import static com.hapbang.auxiliary.notification.support.NotificationFixtures.unread;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -24,8 +26,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -127,7 +127,7 @@ class NotificationRealtimeOrderTest {
         });
         when(notifications.countUnreadByReceivers(anyCollection())).thenAnswer(invocation -> {
             Collection<Long> receivers = invocation.getArgument(0);
-            return receivers.stream().map(r -> unreadOf(r, unread.get())).toList();
+            return receivers.stream().map(r -> unread(r, unread.get())).toList();
         });
         when(notifications.countByReceiverUserIdAndDeletedAtIsNullAndReadAtIsNull(anyLong()))
                 .thenAnswer(invocation -> unread.get());
@@ -154,23 +154,5 @@ class NotificationRealtimeOrderTest {
         stored.put(id, notification);
         when(notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(id, receiver))
                 .thenReturn(Optional.of(notification));
-    }
-
-    private static ReceiverUnread unreadOf(Long receiver, long count) {
-        return new ReceiverUnread() {
-            @Override
-            public Long getReceiverUserId() {
-                return receiver;
-            }
-
-            @Override
-            public long getUnread() {
-                return count;
-            }
-        };
-    }
-
-    private static <T> ObjectProvider<T> provider(Class<T> type, T bean) {
-        return new StaticListableBeanFactory(Map.of("bean", bean)).getBeanProvider(type);
     }
 }
