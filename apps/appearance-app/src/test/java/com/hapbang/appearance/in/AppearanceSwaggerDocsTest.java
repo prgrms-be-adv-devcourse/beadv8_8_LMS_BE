@@ -1,6 +1,8 @@
 package com.hapbang.appearance.in;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -94,6 +96,20 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataPageAppearanceRecruitSummaryResDto"))
                 .andExpect(jsonPath(SCHEMAS + "RsDataPageAppearanceRecruitSummaryResDto.properties.data['$ref']")
                         .value("#/components/schemas/PagedModelAppearanceRecruitSummaryResDto"));
+    }
+
+    @Test
+    @DisplayName("공개 목록은 검색 조건·정렬 이름을 쿼리 파라미터로 받고, Pageable의 필드 정렬은 명세에 없다")
+    void openSearchParameters() throws Exception {
+        String parameters = "$.paths['/api/v1/appearances/recruits'].get.parameters";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(parameters + "[*].name").value(containsInAnyOrder("keyword", "scheduledFrom",
+                        "scheduledTo", "minFee", "maxFee", "hasSeats", "sort")))
+                .andExpect(jsonPath(parameters + "[?(@.name == 'scheduledFrom')].schema.format").value(hasItem("date")))
+                .andExpect(jsonPath(parameters + "[?(@.name == 'minFee')].schema.minimum").value(hasItem(0)))
+                .andExpect(jsonPath(parameters + "[?(@.name == 'sort')].schema.enum[*]").value(containsInAnyOrder(
+                        "LATEST", "SCHEDULED_SOON", "DEADLINE_SOON", "FEE_HIGH")));
     }
 
     @Test
