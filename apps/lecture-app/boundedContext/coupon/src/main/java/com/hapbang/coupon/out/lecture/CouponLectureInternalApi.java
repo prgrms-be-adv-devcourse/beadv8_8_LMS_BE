@@ -1,7 +1,11 @@
 package com.hapbang.coupon.out.lecture;
 
+import java.util.Collection;
+import java.util.Map;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 
@@ -20,7 +24,18 @@ public interface CouponLectureInternalApi {
     @GetExchange("/{lectureId}")
     ResponseEntity<Envelope> getLecture(@PathVariable("lectureId") long lectureId);
 
+    /**
+     * 강의 여러 개({@code ids}를 여러 번 보낸다). {@link LectureLookupDto#MAX_BATCH_SIZE}개까지이고 넘으면 400이다.
+     * 요청한 ID마다 키가 있고 없거나 삭제된 강의는 값이 {@code null}이다
+     */
+    @GetExchange
+    ResponseEntity<BatchEnvelope> getLectures(@RequestParam("ids") Collection<Long> lectureIds);
+
     /** 강의 성공 응답(RsData)의 모양. 쿠폰은 강의 global에 의존하지 않아 같은 필드로 읽는다 */
     record Envelope(Integer statusCode, String message, LectureLookupDto data) {
+    }
+
+    /** 일괄 조회 성공 응답(RsData)의 모양. {@code data}는 강의 ID → 강의(없으면 {@code null}) */
+    record BatchEnvelope(Integer statusCode, String message, Map<Long, LectureLookupDto> data) {
     }
 }

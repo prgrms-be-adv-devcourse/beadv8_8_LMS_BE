@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 쿠폰이 강의 조회 내부 API를 부르는 호출의 제한 시간과 circuit breaker 설정 ({@code hapbang.coupon.lecture-client.*}).
- * 값을 주지 않으면 기본값이다. 기본값은 shared 강의 Client(제한 시간)와 지갑·회원의 나가는 호출 회로(circuit breaker)와 같다.
+ * 하나 조회 회로({@code lecture})와 일괄 조회 회로({@code lecture-batch})가 같은 값을 각자 쓴다. 값을 주지 않으면 기본값이다. 기본값은 shared 강의 Client(제한 시간)와 지갑·회원의 나가는 호출 회로(circuit breaker)와 같다.
  * 배포 뒤 지표를 보고 다시 맞춘다.
  *
  * @param connectTimeout        연결 제한 시간. 기본 2초

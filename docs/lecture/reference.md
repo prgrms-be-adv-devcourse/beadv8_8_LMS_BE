@@ -358,6 +358,15 @@ aux-app AI context가 주 1회 처음부터 끝까지 읽어 이벤트 누락을
 - 모두 ID 오름차순 키셋이다. `size` 1~500(기본 100), `afterId` 0 이상, 마지막 페이지면 `nextAfterId`가 빠진다.
 - 다른 모듈은 `LectureApiClient.getSync*`로 부른다.
 
+### 8.6.4 강의 조회 내부 API (쿠폰, #749)
+
+같은 lecture-app 안의 쿠폰 모듈이 HTTP로 부른다(JVM이 나뉜 것처럼). 인증·내부 포트는 8.6.1과 같다. 계약(필드, 오류, 쿠폰 클라이언트의 결과 분류·회로)은 `docs/api/internal-lecture-lookup.md`.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/internal/lectures/{lectureId}` | 강의 하나의 판매자·가격·판매 상태·제목(`LectureLookupDto`). 없거나 삭제된 강의는 404 `LECTURE_NOT_FOUND`. 쿠폰 발행의 소유 확인·가격 snapshot, 계산의 가격 재검증 |
+| GET | `/api/v1/internal/lectures?ids=` | 강의 1~100개를 `{강의 ID: LectureLookupDto \| null}`로. 없거나 삭제된 강의는 `null`, 판매 상태로 거르지 않는다. 쿠폰 받기 화면 목록의 판매 중 거르기·강의 제목 |
+
 ### 8.7 용어 ↔ 코드 이름 (제안)
 
 `glossary.md`의 "코드 레벨" 열이 비어 있어 강의 영역만 제안한다. 검수와 리뷰가 영어로 둘 다 review가 되지 않도록 **검수 = inspection, 리뷰 = review**로 나눈다.

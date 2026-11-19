@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -30,6 +32,20 @@ public interface CouponRepositoryCustom {
      * {@code lectureId}가 {@code null}이면 대상을 가리지 않는다. 판정 규칙은 {@code CouponAvailabilityRule.isListedFor}와 같다.
      */
     List<Coupon> findIssuableFor(Long lectureId, Instant now, Limit limit);
+
+    /**
+     * 지금 받을 수 있는(발급 중이고 발급 기간 안) 특정 강의 대상 쿠폰의 강의 ID. 중복 없이 강의 ID 오름차순이다.
+     * 쿠폰 받기 화면 목록이 판매 중인 강의를 고르기 전에 읽는다.
+     */
+    List<Long> findIssuableLectureIds(Instant now);
+
+    /**
+     * 쿠폰 받기 화면 목록 한 쪽: 지금 받을 수 있고(발급 중이고 발급 기간 안), 모든 강의 대상이거나 대상 강의가 {@code lectureIds} 안인 쿠폰.
+     * 최신순이고 {@code pageable}의 정렬은 쓰지 않는다. 전체 수도 같은 조건으로 센다.
+     *
+     * @param lectureIds 목록에 넣을 특정 강의 대상 쿠폰의 강의(판매 중인 강의). 비었으면 모든 강의 대상만이다
+     */
+    Page<Coupon> findIssuablePage(Collection<Long> lectureIds, Instant now, Pageable pageable);
 
     /**
      * 이 강의의 가격 인상을 막는 플랫폼 쿠폰이 있는가: 그 강의 대상 플랫폼 쿠폰이 발급 중(OPEN)이거나, 그 쿠폰의 발급 쿠폰 중 RESERVED이거나

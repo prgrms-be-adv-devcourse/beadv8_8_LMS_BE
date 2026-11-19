@@ -99,7 +99,7 @@ hapbang-backend/
 | 강의 → 쿠폰 (동기) | 내부 HTTP API, 팀 공통 HTTP Client(`@HttpExchange`) | calculate, reserve, release, reservationStatus, priceRaiseBlocked. `docs/api/internal-coupon.md`에 계약을 둔다 |
 | 강의 → 쿠폰 (비동기) | Kafka | `OrderItemPaid`, `OrderItemCancelCompleted`. 강의가 externalize, 쿠폰이 소비. 토픽 이름은 팀 규칙(`*.events.v1`) |
 | 쿠폰 작업자 → 쿠폰 소비자 | Kafka | `coupon.events.v1`의 `CouponIssueRequested`(발급 흐름) |
-| 쿠폰 → 강의 (동기, 조회만) | 내부 HTTP API | 강의 조회 `GET /api/v1/internal/lectures/{lectureId}`(가격, 판매자 ID, 판매 상태). 발행·승인 시 예산 계산(LECTURE 대상 가격 × 할인율 × 수량)과 판매자 소유 확인, 계산 API의 가격 재검증에 쓴다. 기존 내부 API에 같은 정보가 있으면 그것을 쓴다. 쿠폰 → 강의 이벤트는 없다 |
+| 쿠폰 → 강의 (동기, 조회만) | 내부 HTTP API | 강의 조회 `GET /api/v1/internal/lectures/{lectureId}`(가격, 판매자 ID, 판매 상태). 발행·승인 시 예산 계산(LECTURE 대상 가격 × 할인율 × 수량)과 판매자 소유 확인, 계산 API의 가격 재검증에 쓴다. 강의 일괄 조회 `GET /api/v1/internal/lectures?ids=`(같은 필드 + 제목, 한 번에 100개)는 쿠폰 받기 화면 목록의 판매 중 거르기와 강의 제목에 쓴다(2026-11-19). 기존 내부 API에 같은 정보가 있으면 그것을 쓴다. 쿠폰 → 강의 이벤트는 없다 |
 | 쿠폰 → billing | 내부 HTTP API | 예산 예약·해제·조회(계약은 사용자 담당) |
 
 - HTTP 호출은 호출자 트랜잭션 밖에서 한다. 강의는 `@Transactional` 메서드 안에서 쿠폰 API를 부르지 않는다(계산·주문 1~3단계 분리). 통신 실패를 성공으로 간주하거나 무조건 재시도하지 않고, `workId`·`reservationStatus`로 결과 불명을 복구한다.

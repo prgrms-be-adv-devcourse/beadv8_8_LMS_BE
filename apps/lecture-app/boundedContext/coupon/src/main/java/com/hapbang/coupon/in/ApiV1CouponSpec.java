@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.CouponUsageView;
+import com.hapbang.coupon.app.dto.IssuableCouponView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
@@ -30,10 +31,30 @@ public interface ApiV1CouponSpec {
                     + "lectureId가 있으면 그 강의 대상 쿠폰과 모든 강의 대상 쿠폰만, 없으면 대상을 가리지 않는다"
                     + "(특정 강의 대상은 targetType=LECTURE와 lectureId로 구분한다. 강의 제목은 싣지 않는다). "
                     + "최신순, 최대 100건. 매진이면 soldOut=true, 이미 받았거나 접수했으면 issued=true로 함께 준다. "
-                    + "매진·받음은 표시용이며 실제 발급 여부는 발급 접수 결과가 정한다.")
+                    + "매진·받음은 표시용이며 실제 발급 여부는 발급 접수 결과가 정한다. "
+                    + "쿠폰 받기 화면처럼 강의를 정하지 않고 볼 때는 쪽 단위·강의 제목·판매 중 거르기가 있는 GET /api/v1/coupons/issuable을 쓴다.")
     RsData<List<CouponSummaryView>> issuableCoupons(Long memberId,
                                                     @Parameter(description = "쿠폰을 볼 강의 ID. 없으면 강의를 가리지 않는다")
                                                     Long lectureId);
+
+    @Operation(summary = "쿠폰 받기 화면 목록 (쪽 단위)",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 발급 중(OPEN)이고 발급 기간 안(issueStartAt ≤ 지금 < issueEndAt)인 쿠폰 중 "
+                    + "모든 강의 대상(targetType=ANY_LECTURE)과, 대상 강의가 판매 중인 특정 강의 대상(targetType=LECTURE). "
+                    + "대상 강의가 판매 중이 아니면(검수 대기·반려·삭제·없음) 그 쿠폰은 넣지 않는다. 이 거르기는 화면 표시용이다: 판매 상태·"
+                    + "강의 제목은 조회한 때의 값이고, 발급 접수(POST …/issue-requests)는 강의 판매 상태를 보지 않아 목록에서 빠진 쿠폰도 "
+                    + "쿠폰 ID로 접수할 수 있다. 판매 중인 강의를 먼저 고른 뒤 쪽을 "
+                    + "읽으므로 content 수와 page.totalElements는 실제로 보이는 쿠폰 기준이다(마지막 쪽 말고는 size만큼 찬다). "
+                    + "각 항목은 받을 수 있는 쿠폰 목록(GET /api/v1/coupons)과 같은 필드에 lectureTitle(특정 강의 대상이면 지금 강의 "
+                    + "제목, 모든 강의 대상이면 null)을 더했다. 매진이면 soldOut=true, 이미 받았거나 접수했으면 issued=true로 함께 주며, "
+                    + "표시용이고 실제 발급 여부는 발급 접수 결과가 정한다. "
+                    + "최신순(createdAt 내림차순, 같으면 couponId 내림차순)으로 고정하며 sort는 무시한다. page는 0부터, size 기본 20·"
+                    + "최대 100(넘으면 100으로 자른다). page가 마지막 쪽을 넘으면 content가 비고 page 정보는 그대로다. "
+                    + "응답은 {content, page{size, number, totalElements, totalPages}}. "
+                    + "강의 정보를 확인하지 못하면(강의 앱 장애·설정 오류) 목록 전체가 503 LECTURE_CATALOG_UNAVAILABLE이다(판매 중인지 모르는 쿠폰을 "
+                    + "보이거나 조용히 빼지 않는다). 잠시 뒤 다시 부른다. 받을 수 있는 특정 강의 대상 쿠폰이 없으면 강의 앱을 부르지 않는다.")
+    RsData<Page<IssuableCouponView>> issuableCouponPage(Long memberId,
+                                                        @Parameter(description = "page(0부터)·size(기본 20, 최대 100). sort는 무시한다")
+                                                        Pageable pageable);
 
     @Operation(summary = "쿠폰 상세",
             description = "USER·INFLUENCER·VERIFIED_INFLUENCER. OPEN·SUSPENDED·CLOSED 쿠폰만 보인다. 없거나 그 밖의 상태면 404 COUPON_NOT_FOUND.")

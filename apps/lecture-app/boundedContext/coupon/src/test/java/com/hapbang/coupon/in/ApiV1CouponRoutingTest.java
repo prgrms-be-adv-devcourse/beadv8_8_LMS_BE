@@ -1,5 +1,7 @@
 package com.hapbang.coupon.in;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -61,6 +63,14 @@ class ApiV1CouponRoutingTest {
                 .andExpect(status().isOk());
 
         verify(couponIssueFacade).usableFor(7L, 3L);
+    }
+
+    @Test
+    void 쿠폰_받기_목록은_회원_Facade의_쪽_조회로만_가고_쿠폰_상세로_가지_않는다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/issuable").with(user("7").roles("USER")))
+                .andExpect(status().isOk());
+
+        verify(couponIssueFacade).issuableCouponPage(eq(7L), any());
     }
 
     @Test
