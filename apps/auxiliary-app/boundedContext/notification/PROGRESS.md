@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1~N15·N17-1~N17-4 완료, N16 보류, N18 진행 중(#1026) | 3장. 알림 종류 수는 [notification-catalog.md](../../../../docs/notification/notification-catalog.md) |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-136 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-138 |
 | Flyway | 작성 | `src/main/resources/db/migration/`의 6개 파일(`notification_user`, `notification`, 파기 표시, `notification_runtime_setting`, `notification_payout_item`, `notification_schedule`) |
 
 ## 2. 문서 구축 상태
@@ -76,7 +76,7 @@
 | N17-2 | P2 | 성능 개선: auxiliary-app 메모리 분석과 알림 쪽 사용량 | 알림 | N15 | 완료 | #990(PR #1011, dev `434da7c2`). 정책 ND-203·ND-204·ND-210·ND-212~ND-215 |
 | N17-3 | P2 | 성능 개선: Kafka 소비의 레코드마다 commit 구조 검토 | 알림 | N15 | 완료 | #991(PR #1016, dev `cf32fa4a`). 정책 ND-170·ND-203·ND-216~ND-218 |
 | N17-4 | P2 | 성능 개선: 예약 배치를 공용 스케줄러에서 분리 | 알림 | N15 | 완료 | #992(PR #1025, dev `336a4df9`, 관련 #987·#988). 정책 ND-203·ND-204·ND-219~ND-223. 테스트 NT-SCH-25~27(NR-124~NR-126·NR-130). 측정 NR-127~NR-129 |
-| N18 | P2 | N17 뒤 정리: 미결 정리, 실시간 전달 설정·시험 도우미 정리, alert "알림 실시간 전달 버림", 채팅 불변식 한 줄 | 알림 | N17 | 진행 중 | #1026. 정책 ND-224~ND-228(채팅 문서는 ND-225). 테스트 NT-REF-07·NT-RT-12(NR-132~NR-136) |
+| N18 | P2 | N17 뒤 정리: 미결 정리, 실시간 전달 설정·시험 도우미 정리, alert "알림 실시간 전달 버림", 채팅 불변식 한 줄 | 알림 | N17 | 진행 중 | #1026. 정책 ND-224~ND-229(채팅 문서는 ND-225·ND-229). 테스트 NT-REF-07·NT-RT-12(NR-132~NR-138) |
 
 - P0 완료 기준 문제(U2, T3)는 M4와 N7 강의 묶음이 끝나 해소됐다([decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)).
 
@@ -87,6 +87,7 @@
 | ID | 결정 주체 | 막는 작업 |
 | --- | --- | --- |
 | U12 | 팀 + FE | 화면 표시(FE). 서버 생성은 막지 않는다 |
+| T9 | 채팅 담당 | — (채팅 출연 알림 이관 서술과 ND-004, decisions.md 10장) |
 
 그 밖의 팀 승인 필요:
 

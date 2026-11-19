@@ -86,6 +86,50 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-138 · 2026-11-19 · 통과 (N18 #1026 S6 재리뷰 반영 뒤 확인, 문서만, NR-137 정정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-138 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `c2911f97` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | 문서만(9개, `.md`). NR-137 정정: 채팅 문서의 취소선 표시를 채팅 관례인 "2026-11-19 이 문장은 알림 ND-225·ND-229로 대체됐다" 문장형으로 바꿨다(`final-design.md` 430행은 지웠던 옛 문구 "(알림 모듈 전까지)"를 되살림). 알림센터가 받는 범위는 `invariants.md` 한 곳에만 "채팅이 다루는 사건 가운데 출연 요청·모집 지원 도착과 단체방 초대·강퇴·폐쇄만"으로 고쳐 적고, 다른 채팅 문서는 그곳을 가리킨다. 알림 `decisions.md` ND-229 재작성(경로 접두어, 범위, 표시 방식), T9(채팅 출연 알림 이관 서술과 ND-004, 미결) 추가, AGENTS·PROGRESS T9 반영 |
+| 대상 기능 | 리뷰 반영이 시험 입력을 바꾸지 않았는지, 채팅 문서에 취소선·잘못된 범위 문구가 남지 않았는지 |
+| 관련 NT ID | — |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `grep -rn "~~\|출연·단체방 사건만"`(채팅·알림 문서) |
+| 실행 환경 | 로컬 Windows |
+| 결과 | 통과 |
+| 건수 | BUILD SUCCESSFUL(5초). 시험 태스크 UP-TO-DATE(새 실행 아님, 마지막 실행 NR-136 599/0/0/2), `verifyModuleStructure` 새로 실행. grep: 새로 넣은 취소선·잘못된 범위 문구 0건(걸린 `~~` 2건은 이전부터 있던 `INQUIRY_REPLY_EDITED` 폐기 표시) |
+| 실패 원인 분류 | — |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #1026 PR Bot 리뷰, S6 재리뷰 |
+
+#### NR-137 · 2026-11-19 · 통과 (N18 #1026 PR Bot 리뷰 반영 뒤 확인, 문서만)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-137 |
+| 실행 날짜 | 2026-11-19 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-1026` |
+| 커밋 | `c2911f97` 위 작업 트리 미커밋 |
+| 작업 트리 변경 | 문서만(7개, `.md`): 채팅 `invariants.md`(알림센터가 받는 범위), 채팅 `docs/rules/decisions.md`·`docs/final-design.md`·`docs/contracts/resync-frame.md`의 옛 "`/user` 경로를 없앤다" 문장에 취소선과 바뀐 날짜(ND-229), 알림 `decisions.md` ND-229·T8 행, INDEX·PROGRESS 참조 |
+| 대상 기능 | 리뷰 반영이 시험 입력을 바꾸지 않았는지, 채팅 문서에 옛 방향 문장이 남지 않았는지 |
+| 관련 NT ID | — |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`, `grep -rn "경로를 없앤다\|큐를 옮기고 없앤다\|알림 모듈 전까지" apps/chat-app --include=*.md`(취소선 줄 제외) |
+| 실행 환경 | 로컬 Windows |
+| 결과 | 통과 |
+| 건수 | BUILD SUCCESSFUL(5초). 시험 태스크는 모두 UP-TO-DATE(문서만 바뀌어 입력 불변, 새 실행 아님. 마지막 실행은 NR-136 599/0/0/2), `verifyModuleStructure`는 새로 실행. grep 결과 취소선 없는 옛 문장 0건 |
+| 실패 원인 분류 | — |
+| 수정 내용 | 위 작업 트리 변경 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check` 미실행 |
+| 관련 변경 | #1026 PR Bot 리뷰 |
+
 #### NR-136 · 2026-11-19 · 통과 (N18 #1026 S6 리뷰 반영 뒤 알림 회귀)
 
 | 항목 | 값 |

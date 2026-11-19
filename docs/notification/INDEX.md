@@ -163,7 +163,7 @@
 ## 12. 채팅과 다른 도메인과의 경계
 
 - 알림센터와 채팅 알림은 다른 기능이다([ND-004](decisions.md), decisions 12장, [`CONTEXT.md`](CONTEXT.md)). 채팅의 `NOTIFICATION` 메시지 계약, SYSTEM 안내, FE 문구 규칙은 채팅이 관리하며 알림 문서에 옮기지 않는다.
-- 같은 종류 코드 이름(`GROUP_*`)이어도 같은 뜻으로 보지 않는다(ND-043). 채팅과 알림센터에 같은 사건이 함께 뜨는 문제는 U12다. 채팅 불변식과의 방향 차이(T8)는 ND-225로 해소했다.
+- 같은 종류 코드 이름(`GROUP_*`)이어도 같은 뜻으로 보지 않는다(ND-043). 채팅과 알림센터에 같은 사건이 함께 뜨는 문제는 U12다. 채팅 불변식과의 방향 차이(T8)는 ND-225·ND-229로 해소했다.
 - 알림센터가 채팅 이벤트를 소비할 때는 알림센터 쪽 발생 조건과 받는 사람만 알림 문서에서 관리한다.
 - 채팅 문서는 실제 연동이나 옛 설계와의 충돌을 확인할 때만 읽는다: [`notification-data.md`](../../apps/chat-app/docs/contracts/notification-data.md), [`final-design.md`](../../apps/chat-app/docs/final-design.md). 채팅 소유 정책은 채팅 담당 승인 없이 바꾸지 않는다.
 - 챗봇 모듈과는 코드로 직접 참조하지 않고 같은 database의 다른 schema를 쓴다(ND-007, auxiliary README).
