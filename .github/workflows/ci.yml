@@ -3,7 +3,7 @@
 # dev push 때는 publish.yml이 이 워크플로를 호출해 발행할 앱만 테스트하고, 앱별 jar를 artifact(app-jar-<앱>)로 넘겨받는다(#374, #559).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 #
-# changes: 바뀐 앱을 고른다(.github/scripts/apps.sh tested). 없으면 Gradle job을 건너뛴다.
+# changes: 바뀐 앱을 고른다(.github/scripts/apps.sh tested). 없으면 Gradle job을 건너뛴다. virtual thread 검사(#942)도 여기서 한다.
 # structure: 모듈 구조를 검사하고 common 라이브러리를 테스트한다.
 # test: 바뀐 앱마다 러너 하나(matrix)에서 테스트·jar·이미지 빌드. 앱끼리 CPU를 나눠 쓰지 않는다.
 # manifests: k8s manifest를 렌더링하고 schema로 검사한다.
@@ -54,6 +54,15 @@ jobs:
       - name: 바뀐 앱 판정 검사
         if: github.event_name == 'pull_request'
         run: .github/scripts/apps-test.sh
+
+      # main 코드·설정이 virtual thread를 만들지 않는지 본다(#942, docs/adr/0003-no-virtual-threads-on-jdk25.md).
+      # 앱 manifest·yaml만 바뀐 PR도 잡도록 Gradle job이 아니라 늘 도는 이 job에서 한다. 검사 규칙 자체의 사례는 PR마다 확인한다.
+      - name: virtual thread 검사 규칙 확인
+        if: github.event_name == 'pull_request'
+        run: .github/scripts/check-virtual-threads-test.sh
+
+      - name: virtual thread 검사
+        run: .github/scripts/check-virtual-threads.sh
 
       # PR은 base와 merge 커밋(GITHUB_SHA)을 비교한다. base가 그 뒤로 움직였으면 다른 PR의 변경까지 더 테스트할 뿐 빠뜨리지는 않는다.
       # dev 발행(workflow_call)은 호출한 쪽이 넘긴 앱(publish.yml이 고른 발행할 앱)을 테스트한다. 넘기지 않으면 여섯 앱 모두다.

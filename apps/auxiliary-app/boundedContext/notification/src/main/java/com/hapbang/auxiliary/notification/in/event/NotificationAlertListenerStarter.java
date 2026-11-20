@@ -80,7 +80,9 @@ public class NotificationAlertListenerStarter implements DisposableBean {
     public void onReady() {
         if (onStartup) {
             waiting.set(1);
-            worker = Thread.ofVirtual().name("notification-user-backfill").start(this::backfillThenStart);
+            // virtual thread가 아니라 daemon platform thread다. 기동 순간 클래스를 처음 읽는 virtual thread가 carrier를 붙잡아
+            // 앱 전체가 멈췄다(#942, docs/adr/0003-no-virtual-threads-on-jdk25.md)
+            worker = Thread.ofPlatform().name("notification-user-backfill").daemon(true).start(this::backfillThenStart);
         } else {
             log.info("기동 Backfill이 꺼져 있어 알림 소비자를 바로 시작한다 property={}", ON_STARTUP);
             startAlertListeners();

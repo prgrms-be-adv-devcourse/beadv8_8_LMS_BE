@@ -19,8 +19,10 @@ public class SearchConfig {
     public static final String REINDEX_EXECUTOR = "searchReindexExecutor";
 
     /**
-     * 처음 적재·재색인을 돌리는 스레드(가상 스레드). 몇 분 걸릴 수 있어 앱 공용 스케줄러 스레드(2개)에서 떼어 낸다.
+     * 처음 적재·재색인을 돌리는 스레드. 몇 분 걸릴 수 있어 앱 공용 스케줄러 스레드(2개)에서 떼어 낸다.
      * <ul>
+     *     <li>virtual thread가 아니라 daemon platform thread다. JDK 25에서는 클래스를 처음 읽는 virtual thread가 carrier를 붙잡아
+     *     앱 전체가 멈출 수 있다(#942, {@code docs/adr/0003-no-virtual-threads-on-jdk25.md}).</li>
      *     <li>Boot builder로 만들어 trace decorator가 붙는다. 10분 확인({@code @Scheduled})의 traceId가 재색인 로그에 이어진다
      *     ({@code docs/dev/logging.md} 스레드 경계, PR #845 리뷰).</li>
      *     <li>개수 제한은 두지 않는다(제한에 걸리면 넘기는 스케줄러 스레드가 기다린다). 같은 pod에서 겹쳐 도는 것은 lock(773_001)이 막는다.</li>
@@ -31,7 +33,8 @@ public class SearchConfig {
     @Bean(name = REINDEX_EXECUTOR, defaultCandidate = false)
     SimpleAsyncTaskExecutor searchReindexExecutor(SimpleAsyncTaskExecutorBuilder builder) {
         return builder.threadNamePrefix("search-reindex-")
-                .virtualThreads(true)
+                .virtualThreads(false)
+                .additionalCustomizers(executor -> executor.setDaemon(true))
                 .concurrencyLimit(SimpleAsyncTaskExecutor.UNBOUNDED_CONCURRENCY)
                 .rejectTasksWhenLimitReached(false)
                 .cancelRemainingTasksOnClose(true)
