@@ -46,7 +46,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | 계층 | 클래스 | 하는 일 |
 | --- | --- | --- |
 | config | `SearchElasticsearchConfig` | 검색 전용 `ElasticsearchClient`(빈 이름 `searchElasticsearchClient`, 기본 후보 아님). 챗봇은 Boot 자동 설정 client(`ES_API_KEY`)를 쓰고 검색은 같은 cluster에 `ES_SEARCH_API_KEY`로 따로 붙는다 |
-| config | `SearchConfig` | 처음 적재·재색인 실행기(`searchReindexExecutor`, 가상 스레드, 7장) |
+| config | `SearchConfig` | 처음 적재·재색인 실행기(`searchReindexExecutor`, daemon platform thread, 7장, #942) |
 | app | `exception/SearchErrorCode`·`SearchException` | 검색 오류 코드 |
 | in | `ApiV1SearchController`·`ApiV1SearchSpec` | 검색 API(대상별 경로, 인플루언서 8장·강의 14장) |
 | in | `ClientIpKey` | 비회원 검색자 키. `getRemoteAddr()`의 HMAC(IPv6 /64), 공인 주소가 아니면 키 없음(14장) |
@@ -244,7 +244,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 ### 언제 하나
 
-- 기동 뒤 다른 스레드에서 한 번(`SearchIndexStartup`, 기동을 막지 않는다), 그 뒤 10분마다 확인한다(`SearchBatch`, `hapbang.search.reindex-check-interval`). 둘 다 재색인 실행기(`SearchConfig.searchReindexExecutor`, 가상 스레드)로 넘긴다. 적재가 몇 분 걸려도 앱 공용 스케줄러 스레드 2개를 붙잡지 않고, Boot builder로 만들어 10분 확인의 `traceId`가 재색인 로그에 이어진다(`docs/dev/logging.md` 스레드 경계, PR #845 리뷰). 한 pod만(`JobLock` 773_001). 배포 중 두 pod가 겹쳐도 한 번만 돌고, 락을 놓친 pod는 건너뛴다.
+- 기동 뒤 다른 스레드에서 한 번(`SearchIndexStartup`, 기동을 막지 않는다), 그 뒤 10분마다 확인한다(`SearchBatch`, `hapbang.search.reindex-check-interval`). 둘 다 재색인 실행기(`SearchConfig.searchReindexExecutor`, daemon platform thread. virtual thread는 쓰지 않는다, #942)로 넘긴다. 적재가 몇 분 걸려도 앱 공용 스케줄러 스레드 2개를 붙잡지 않고, Boot builder로 만들어 10분 확인의 `traceId`가 재색인 로그에 이어진다(`docs/dev/logging.md` 스레드 경계, PR #845 리뷰). 한 pod만(`JobLock` 773_001). 배포 중 두 pod가 겹쳐도 한 번만 돌고, 락을 놓친 pod는 건너뛴다.
 - 아래 둘 중 하나면 한다. 그 밖에는 alias를 한 번 읽고 끝난다.
   - alias가 없다(처음 배포, ES를 새로 만듦): **처음 적재**(`reason=first_load`)
   - alias가 다른 설정 해시의 index를 가리킨다(mapping·분석기·사용자 사전이 바뀜): **재색인**(`reason=settings_changed`)
@@ -373,7 +373,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `IndexDefinitionTest`, `InfluencerIndexDefinitionTest`, `LectureIndexDefinitionTest` | 대상 이름으로 alias·index 이름, 동의어는 해시에 안 들어감, 사전 규칙, 레포 파일 읽기, **운영 index와 같은 설정 해시**(#868, 강의는 #973부터 `search-lectures-5f89a563885d`) |
 | `DocumentWritesRejectionTest`, `ZeroResultKeywordsTest` | 그 문서 값 때문의 거절만 건너뜀, 0건 검색어(서로 다른 검색자 2명·회원 1명 이상, 연락처 모양 제외, 비회원 IP 해시 키) |
 | `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
-| `SearchModuleIntegrationTest` | 모듈만으로 컨텍스트, search schema, 검색 전용 client(nori), 재색인 실행기가 가상 스레드에서 trace를 이어받음 |
+| `SearchModuleIntegrationTest` | 모듈만으로 컨텍스트, search schema, 검색 전용 client(nori), 재색인 실행기가 daemon platform thread에서 trace를 이어받음 |
 | `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이(DB, 25분 지나면 비움), kind별 건수 |
 | `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어, 기본 한도 그대로 같은 회원의 61번째 검색·121번째 자동완성은 429·`Retry-After`, 다른 회원과 본 검색은 그대로, 지표, Swagger 설명의 429(#1012) |
 | `RatingBaselineTest`, `InfluencerDocumentStoreBulkFailureTest` | 평균 C 실패 뒤 1분 대기, bulk 일부 실패 |

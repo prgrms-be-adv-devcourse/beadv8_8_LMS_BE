@@ -445,6 +445,31 @@ DLT 메시지를 원래 리스너에 다시 넣는 도구는 두지 않는다(BD
 - 외부에서 6개 모듈의 `/api/v1/<모듈>/v3/api-docs`가 모두 200이었다.
 - 이제 운영 이미지는 모두 Actions가 검증한 산출물로 만든 것이다. 사람이 올린 이미지는 남아 있지 않다. 산출물은 JVM 앱이 테스트한 jar(`Dockerfile`), customer-support-app이 2026-11-04부터 Native Image 실행 파일(`Dockerfile.native`, #609)이다.
 
+## JVM 앱 멈춤 진단
+
+앱이 `Started ...` 로그를 남긴 뒤 관리 포트의 `/actuator/health/liveness`가 응답하지 않고 CPU를 거의 쓰지 않으면, JVM 안의 스레드가 서로를 기다리는 것이다(#942). startup probe가 컨테이너를 다시 시작하면(앱은 5분 뒤) 풀리기도 하므로 그 전에 thread dump를 받는다.
+
+1. 네트워크 문제가 아닌지 본다. `kubectl --context hapbang-k3s -n hapbang-prod port-forward pod/<pod> 18082:8082` 뒤 `curl -m 10 localhost:18082/actuator/health/liveness`. port-forward는 NetworkPolicy를 거치지 않으므로 여기서도 timeout이면 앱이 멈춘 것이다.
+2. platform thread dump: `kubectl ... exec <pod> -- sh -c 'kill -3 1'` 뒤 `kubectl ... logs <pod> --since=30s > dump.txt`. carrier에서 내려간 virtual thread는 여기에 보이지 않는다. monitor를 쥔 스레드가 보이지 않으면 아래 3번으로 virtual thread까지 본다.
+3. virtual thread까지 담은 dump: 앱 이미지(`eclipse-temurin:25-jre`)에는 `jcmd`가 없다. `loadtest/jfr.sh`처럼 JDK 이미지의 임시 컨테이너(ephemeral container)를 앱과 같은 uid 10001·gid 999로 붙인다. 앱 JVM은 PID 1이고, dump 파일은 앱 컨테이너의 `/tmp`에 생기므로 `/proc/1/root`로 읽는다.
+
+```bash
+kk() { kubectl --context hapbang-k3s -n hapbang-prod "$@"; }
+POD=<pod>
+C=dump-$(date +%s)
+printf '{"securityContext":{"runAsUser":10001,"runAsGroup":999,"runAsNonRoot":true}}\n' > uid.json
+kk debug "$POD" --image=eclipse-temurin:25-jdk --target=app --container="$C" --profile=restricted --custom=uid.json -- sleep 1800
+# 임시 컨테이너가 Running이 된 뒤(이미지를 처음 받으면 수십 초)
+kk exec "$POD" -c "$C" -- jcmd -J-Xmx32m 1 Thread.vthread_scheduler
+# 같은 경로에 파일이 있으면 jcmd가 덮어쓰지 않고 실패하므로 회차마다 이름을 바꾼다
+kk exec "$POD" -c "$C" -- jcmd -J-Xmx32m 1 Thread.dump_to_file -format=json "/tmp/$C.json"
+kk exec "$POD" -c "$C" -- cat "/proc/1/root/tmp/$C.json" > "$C.json"
+```
+
+- `Thread.dump_to_file`은 carrier에서 내려간 virtual thread까지 모두 적는다. 스레드마다 `blockedOn`(기다리는 monitor)·`monitorsOwned`(쥔 monitor)·`carrier`가 있어, 같은 monitor를 기다리는 스레드들과 그 monitor를 쥔 채 carrier 없이 멈춘 virtual thread를 찾을 수 있다. `Thread.vthread_scheduler`가 `active = 2, running = 0`처럼 carrier가 모두 묶여 있는지 보여 준다. 멈춘 JVM에도 `jcmd`가 붙는다(2026-11-20 k3d 재현, #942).
+- 임시 컨테이너는 지울 수 없어 pod가 바뀔 때까지 남는다. resource limit을 줄 수 없으므로 `jcmd` heap을 `-Xmx32m`으로 묶는다. gid가 앱과 다르면 attach가 실패하고 JVM이 대신 thread dump를 앱 로그에 찍는다(`docs/load-test/README.md` "JFR").
+- virtual thread를 쓰지 않기로 했으므로([ADR 0003](../adr/0003-no-virtual-threads-on-jdk25.md)) 이 교착은 예외 목록에 남은 곳(chat-app #1028, shared `BillingApiClient` #1029)에서만 생길 수 있다.
+
 ## 로컬 k3d 검증
 
 EC2에는 prod만 있으므로 manifest는 로컬 k3d에서 먼저 띄워 본다. 실제 로그인·결제·S3 업로드는 하지 않고, pod 기동과 node별 메모리만 확인한다.
@@ -466,6 +491,8 @@ done
 k3d image import -c hapbang \
   $(for app in apps/*-app; do echo "hapbang/$(basename "$app"):local"; done)
 ```
+
+Docker Desktop의 containerd image store를 쓰면 `k3d image import`가 "Successfully imported"를 출력하고도 node에 이미지가 없을 수 있다(`--mode direct`로는 `content digest ... not found`). 그때는 node와 같은 platform 하나만 tar로 저장해 넣는다(Apple Silicon은 `linux/arm64`): `docker save --platform linux/arm64 -o images.tar <이미지...> && k3d image import -c hapbang images.tar`. 들어갔는지는 `docker exec k3d-hapbang-server-0 crictl images`로 본다.
 
 그다음 [적용 순서](#적용-순서)대로 local overlay를 적용한다. 끝나면 `k3d cluster delete hapbang`으로 지운다. Retain StorageClass의 데이터는 k3d node container와 함께 지워진다.
 

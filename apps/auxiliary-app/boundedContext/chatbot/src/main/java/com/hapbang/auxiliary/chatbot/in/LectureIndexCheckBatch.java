@@ -30,10 +30,13 @@ class LectureIndexCheckBatch {
     // 연속 실패 수(이 pod가 떠 있는 동안, 기동 점검 포함). 기동 점검 스레드와 정시 점검이 함께 셀 수 있다
     private final ConsecutiveFailures consecutiveFailures = new ConsecutiveFailures();
 
-    /** 기동과 readiness를 막지 않게 별도 스레드에서 돈다 */
+    /**
+     * 기동과 readiness를 막지 않게 별도 스레드에서 돈다. virtual thread가 아니라 daemon platform thread다. 기동 순간 클래스를 처음 읽는
+     * virtual thread가 carrier를 붙잡아 앱 전체가 멈췄다(#942, {@code docs/adr/0003-no-virtual-threads-on-jdk25.md}).
+     */
     @EventListener(ApplicationReadyEvent.class)
     void onReady() {
-        Thread.ofVirtual().name("chatbot-lecture-index-check").start(() -> run("startup"));
+        Thread.ofPlatform().name("chatbot-lecture-index-check").daemon(true).start(() -> run("startup"));
     }
 
     @Scheduled(cron = "${hapbang.chatbot.recommend.lecture.index-check-cron:0 50 * * * *}", zone = "Asia/Seoul")

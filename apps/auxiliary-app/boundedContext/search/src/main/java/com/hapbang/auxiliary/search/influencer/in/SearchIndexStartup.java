@@ -14,7 +14,7 @@ import com.hapbang.auxiliary.search.config.SearchConfig;
 /**
  * 앱이 뜬 뒤 검색 index를 맞춘다: 동의어 묶음, 필요하면 처음 적재·재색인(#771, #773).
  * <ul>
- *     <li>재색인 실행기({@link SearchConfig#REINDEX_EXECUTOR}, 가상 스레드)에서 돈다. ES·회원 앱이 느리거나 죽어도, 처음 적재가 오래 걸려도 기동과
+ *     <li>재색인 실행기({@link SearchConfig#REINDEX_EXECUTOR}, daemon platform thread)에서 돈다. ES·회원 앱이 느리거나 죽어도, 처음 적재가 오래 걸려도 기동과
  *     다른 모듈(챗봇·알림)을 막지 않는다.</li>
  *     <li>한 pod만 한다({@link InfluencerReindexer#run}, advisory lock). 실패하면 10분마다 하는 확인({@code SearchBatch})이 다시 한다.</li>
  * </ul>
