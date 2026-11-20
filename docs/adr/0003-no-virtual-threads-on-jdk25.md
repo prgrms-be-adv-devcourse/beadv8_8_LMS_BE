@@ -1,6 +1,6 @@
 # JDK 25에서는 virtual thread를 쓰지 않는다
 
-main 코드와 설정은 virtual thread를 만들지 않는다. 별도 스레드가 필요하면 platform thread를 쓴다(`Thread.ofPlatform().daemon(true)`, Boot builder `virtualThreads(false)`). `spring.threads.virtual.enabled`도 켜지 않는다. `.github/scripts/check-virtual-threads.sh`가 PR마다 검사한다. 결정 과정은 #942다.
+main 코드와 설정은 virtual thread를 만들지 않는다. 별도 스레드가 필요하면 platform thread를 쓴다. virtual thread를 platform thread로 바꿀 때는 virtual thread처럼 daemon으로 만들어 종료 동작을 같게 한다: `Thread.ofPlatform().daemon(true)`, Boot builder는 `virtualThreads(false)`와 `additionalCustomizers(executor -> executor.setDaemon(true))`. `virtualThreads(false)`만 두면 non-daemon 스레드가 되어 종료 때 JVM을 붙잡을 수 있다. `spring.threads.virtual.enabled`도 켜지 않는다. `.github/scripts/check-virtual-threads.sh`가 PR마다 검사한다. 결정 과정은 #942다.
 
 virtual thread는 carrier(virtual thread를 실행하는 OS 스레드, 기본 개수는 CPU 수)에 올라타 돌고, 기다릴 때 carrier에서 내려 다른 virtual thread에 자리를 내준다. 그런데 JDK 25에서는 JVM이 시작한 class loading처럼 스택에 native frame이 있으면 내려오지 못한다(pinning). 그래서 다음이 겹치면 앱 전체가 멈춘다.
 

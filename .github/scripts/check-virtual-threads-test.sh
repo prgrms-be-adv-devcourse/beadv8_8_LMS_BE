@@ -65,6 +65,7 @@ expect pass apps/x-app/k8s/base/kustomization.yaml $'configMapGenerator:\n  - li
 expect fail apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: SPRING_THREADS_VIRTUAL_ENABLED\n            value: "true"' "k8s env name·value"
 expect pass apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: SPRING_THREADS_VIRTUAL_ENABLED\n            value: "false"' "k8s env name·value false"
 expect pass apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: OTHER\n            value: "true"' "다른 환경 변수 true"
+expect fail apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: SPRING_THREADS_VIRTUAL_ENABLED  # 임시\n            value: "true"   # 켠다' "k8s env name·value 줄 끝 주석"
 
 # git 저장소 밖에서는 검사를 끝내지 못하므로 통과가 아니라 실패(종료 코드 2)여야 한다
 OUTSIDE=$(mktemp -d)

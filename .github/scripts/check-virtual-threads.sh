@@ -68,8 +68,10 @@ yaml_hits() {
       env_value_re = "value:[ \t]*[\"" q "]?true[\"" q "]?[ \t]*$"
     }
     FNR == 1 { depth = 0; env_line = 0 }
-    tolower($0) ~ env_name_re { env_line = FNR; next }
-    env_line && FNR - env_line <= 2 && tolower($0) ~ env_value_re { print FILENAME ":" FNR ":" $0; next }
+    # 줄 끝 주석(value: "true"  # 켠다)을 지운 줄로 비교한다
+    { bare = $0; sub(/[ \t]+#.*$/, "", bare); bare = tolower(bare) }
+    bare ~ env_name_re { env_line = FNR; next }
+    env_line && FNR - env_line <= 2 && bare ~ env_value_re { print FILENAME ":" FNR ":" $0; next }
     /^---/ { depth = 0; next }
     {
       line = $0
