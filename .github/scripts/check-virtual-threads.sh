@@ -11,7 +11,9 @@
 #   - Java: Thread.ofVirtual(), Thread.startVirtualThread(), Executors.newVirtualThreadPerTaskExecutor(),
 #     Spring VirtualThreadTaskExecutor, builder·executor의 virtualThreads(true)·setVirtualThreads(true). 주석 줄은 넘긴다.
 #   - 설정: spring.threads.virtual.enabled=true(properties, yaml 평면 키, JVM 인자), yaml 중첩 키, 환경 변수
-#     SPRING_THREADS_VIRTUAL_ENABLED. Boot가 이 값을 켜면 Tomcat·Kafka 리스너·Boot builder가 모두 virtual thread를 쓴다.
+#     SPRING_THREADS_VIRTUAL_ENABLED=true(k8s env의 name·value 형식 포함). false로 끄는 설정은 넘긴다.
+#     Boot가 이 값을 켜면 Tomcat·Kafka 리스너·Boot builder가 모두 virtual thread를 쓴다.
+# 종료 코드: 0 통과, 1 virtual thread를 만드는 곳이 있음, 2 검사를 끝내지 못함(git·awk 실패).
 # 인자를 변수로 넘기는 virtualThreads(flag)처럼 문자열로 보이지 않는 것은 잡지 못한다. 리뷰에서 본다.
 set -euo pipefail
 
@@ -33,7 +35,8 @@ EXCLUDES=(
 
 # git grep -E는 \s·\b를 모른다. POSIX 문자 class로 쓴다.
 JAVA_RE='(ofVirtual|startVirtualThread|newVirtualThreadPerTaskExecutor)[[:space:]]*\(|VirtualThreadTaskExecutor|[vV]irtualThreads[[:space:]]*\([[:space:]]*true'
-PROPERTY_RE="spring\.threads\.virtual\.enabled[[:space:]]*[=:][[:space:]]*[\"']?true|SPRING_THREADS_VIRTUAL_ENABLED"
+# 값이 true일 때만 본다(false로 끄는 설정은 넘긴다). k8s env의 name·value 두 줄 형식과 yaml 중첩 키는 yaml_hits가 본다
+PROPERTY_RE="(spring\.threads\.virtual\.enabled|SPRING_THREADS_VIRTUAL_ENABLED)[[:space:]]*[=:][[:space:]]*[\"']?true"
 
 allowed_issue() {
   local entry
@@ -45,12 +48,28 @@ allowed_issue() {
   done
 }
 
-hits() {
-  git grep -n -I -E "$JAVA_RE" -- '*.java' "${EXCLUDES[@]}" || true
-  git grep -n -I -E "$PROPERTY_RE" -- . "${EXCLUDES[@]}" || true
-  # yaml 중첩 키(spring: → threads: → virtual: → enabled: true). 들여쓰기로 키 경로를 따라간다. 목록 항목 안은 보지 않는다
+# 일치가 없으면 git grep은 1로 끝난다. 그 밖의 0이 아닌 값(128 등)은 검사가 돌지 못한 것이라 실패시킨다.
+# 실패를 "일치 없음"으로 넘기면 검사가 조용히 빠진 채 통과한다
+grep_hits() {
+  local rc=0
+  git grep -n -I -E "$@" || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    echo "git grep이 실패했다(종료 코드 ${rc}). 레포 루트에서 실행한다." >&2
+    return 1
+  fi
+}
+
+yaml_hits() {
+  # k8s env 목록의 name·value 두 줄 형식(name: SPRING_THREADS_VIRTUAL_ENABLED 다음 줄 value: "true")과
+  # yaml 중첩 키(spring: → threads: → virtual: → enabled: true)를 본다. 중첩 키는 들여쓰기로 경로를 따라가고 목록 항목 안은 보지 않는다
   git ls-files -z -- '*.yaml' '*.yml' "${EXCLUDES[@]}" | xargs -0 awk -v q="'" '
-    FNR == 1 { depth = 0 }
+    BEGIN {
+      env_name_re = "name:[ \t]*[\"" q "]?spring_threads_virtual_enabled[\"" q "]?[ \t]*$"
+      env_value_re = "value:[ \t]*[\"" q "]?true[\"" q "]?[ \t]*$"
+    }
+    FNR == 1 { depth = 0; env_line = 0 }
+    tolower($0) ~ env_name_re { env_line = FNR; next }
+    env_line && FNR - env_line <= 2 && tolower($0) ~ env_value_re { print FILENAME ":" FNR ":" $0; next }
     /^---/ { depth = 0; next }
     {
       line = $0
@@ -75,7 +94,24 @@ hits() {
         print FILENAME ":" FNR ":" $0
       }
     }'
+  local status=("${PIPESTATUS[@]}")
+  if [ "${status[0]}" -ne 0 ] || [ "${status[1]}" -ne 0 ]; then
+    echo "yaml 검사가 실패했다(git ls-files ${status[0]}, awk ${status[1]})." >&2
+    return 1
+  fi
 }
+
+hits() {
+  grep_hits "$JAVA_RE" -- '*.java' "${EXCLUDES[@]}" || return 1
+  grep_hits "$PROPERTY_RE" -- . "${EXCLUDES[@]}" || return 1
+  yaml_hits || return 1
+}
+
+# 프로세스 치환(< <(...))은 종료 코드를 넘기지 않으므로 결과를 먼저 받아 실패를 확인한다
+if ! found=$(hits); then
+  echo "virtual thread 검사를 끝내지 못했다." >&2
+  exit 2
+fi
 
 violations=0
 allowed=0
@@ -96,7 +132,7 @@ while IFS= read -r hit; do
     echo "::error file=${path},line=${rest%%:*}::virtual thread를 만들지 않는다(docs/adr/0003-no-virtual-threads-on-jdk25.md): $trimmed"
     violations=$((violations + 1))
   fi
-done < <(hits | sort -u)
+done < <(printf '%s\n' "$found" | sort -u)
 
 if [ "$violations" -gt 0 ]; then
   echo "virtual thread를 만드는 곳 ${violations}개. platform thread로 바꾼다(docs/adr/0003-no-virtual-threads-on-jdk25.md)." >&2

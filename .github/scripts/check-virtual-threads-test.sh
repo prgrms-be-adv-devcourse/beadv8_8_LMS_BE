@@ -61,5 +61,21 @@ expect pass "$YAML" $'spring:\n  threads:\n    # virtual:\n    #   enabled: true
 expect fail apps/x-app/src/main/resources/application.properties 'spring.threads.virtual.enabled = true' "properties"
 expect fail apps/x-app/k8s/base/kustomization.yaml $'configMapGenerator:\n  - literals:\n      - SPRING_THREADS_VIRTUAL_ENABLED=true' "환경 변수"
 expect fail apps/x-app/k8s/base/kustomization.yaml $'      - JAVA_TOOL_OPTIONS=-Dspring.threads.virtual.enabled=true' "JVM 인자"
+expect pass apps/x-app/k8s/base/kustomization.yaml $'configMapGenerator:\n  - literals:\n      - SPRING_THREADS_VIRTUAL_ENABLED=false' "환경 변수 false"
+expect fail apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: SPRING_THREADS_VIRTUAL_ENABLED\n            value: "true"' "k8s env name·value"
+expect pass apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: SPRING_THREADS_VIRTUAL_ENABLED\n            value: "false"' "k8s env name·value false"
+expect pass apps/x-app/k8s/base/deployment.yaml $'        env:\n          - name: OTHER\n            value: "true"' "다른 환경 변수 true"
+
+# git 저장소 밖에서는 검사를 끝내지 못하므로 통과가 아니라 실패(종료 코드 2)여야 한다
+OUTSIDE=$(mktemp -d)
+rc=0
+(cd "$OUTSIDE" && GIT_CEILING_DIRECTORIES="$OUTSIDE" "$SCRIPT" >/dev/null 2>&1) || rc=$?
+rm -rf "$OUTSIDE"
+if [ "$rc" -eq 2 ]; then
+  echo "ok   git 실패는 통과로 넘기지 않는다"
+else
+  echo "FAIL git 실패는 통과로 넘기지 않는다: 기대 종료 코드 2, 결과 $rc"
+  FAILED=1
+fi
 
 exit "$FAILED"

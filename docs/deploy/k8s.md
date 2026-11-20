@@ -461,8 +461,9 @@ printf '{"securityContext":{"runAsUser":10001,"runAsGroup":999,"runAsNonRoot":tr
 kk debug "$POD" --image=eclipse-temurin:25-jdk --target=app --container="$C" --profile=restricted --custom=uid.json -- sleep 1800
 # 임시 컨테이너가 Running이 된 뒤(이미지를 처음 받으면 수십 초)
 kk exec "$POD" -c "$C" -- jcmd -J-Xmx32m 1 Thread.vthread_scheduler
-kk exec "$POD" -c "$C" -- jcmd -J-Xmx32m 1 Thread.dump_to_file -format=json /tmp/threads.json
-kk exec "$POD" -c "$C" -- cat /proc/1/root/tmp/threads.json > threads.json
+# 같은 경로에 파일이 있으면 jcmd가 덮어쓰지 않고 실패하므로 회차마다 이름을 바꾼다
+kk exec "$POD" -c "$C" -- jcmd -J-Xmx32m 1 Thread.dump_to_file -format=json "/tmp/$C.json"
+kk exec "$POD" -c "$C" -- cat "/proc/1/root/tmp/$C.json" > "$C.json"
 ```
 
 - `Thread.dump_to_file`은 carrier에서 내려간 virtual thread까지 모두 적는다. 스레드마다 `blockedOn`(기다리는 monitor)·`monitorsOwned`(쥔 monitor)·`carrier`가 있어, 같은 monitor를 기다리는 스레드들과 그 monitor를 쥔 채 carrier 없이 멈춘 virtual thread를 찾을 수 있다. `Thread.vthread_scheduler`가 `active = 2, running = 0`처럼 carrier가 모두 묶여 있는지 보여 준다. 멈춘 JVM에도 `jcmd`가 붙는다(2026-11-20 k3d 재현, #942).

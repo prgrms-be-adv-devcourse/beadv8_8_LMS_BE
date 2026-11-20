@@ -41,7 +41,10 @@ import tools.jackson.core.JacksonException;
  *     <li>별도 스레드는 Boot builder로 만든 executor가 호출마다 만드는 daemon platform thread다. 앱의 trace decorator가 붙어 LLM
  *     호출·Tool 로그에 요청의 {@code traceId}가 찍힌다(docs/dev/logging.md "스레드 경계"). 동시 수는 허가가 제한한다.
  *     virtual thread는 쓰지 않는다. 첫 호출은 Spring AI·HTTP 클라이언트 클래스를 처음 읽는데, JDK 25에서는 그런 virtual thread가
- *     carrier를 붙잡아 앱 전체가 멈출 수 있다(#942, {@code docs/adr/0003-no-virtual-threads-on-jdk25.md}).</li>
+ *     carrier를 붙잡아 앱 전체가 멈출 수 있다(#942, {@code docs/adr/0003-no-virtual-threads-on-jdk25.md}).
+ *     시간 초과로 허가를 돌려준 뒤에도 interrupt에 반응하지 않는 호출의 스레드는 OpenAI 클라이언트 timeout(운영 50s, 재시도 0,
+ *     {@code application-prod.yaml})까지 남는다. 공급자가 계속 느리면 시간 초과가 회로에 실패로 쌓여 회로가 열리고 새 호출을 막으므로,
+ *     남는 스레드 수는 그 사이 들어온 호출 수로 묶인다.</li>
  * </ul>
  */
 @Component
