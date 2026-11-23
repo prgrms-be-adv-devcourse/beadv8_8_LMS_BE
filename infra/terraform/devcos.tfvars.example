@@ -9,6 +9,15 @@ cors_allowed_origins  = ["https://<prod 도메인>", "https://<dev 도메인>", 
 cors_allowed_methods  = ["PUT", "GET", "HEAD"]
 iam_role_description  = "[Devcos 8th] Hapbang Server S3 Access Role - Used by the backend server to securely upload, read, and manage application assets/files in S3 buckets."
 
+# GitHub OIDC provider는 다른 팀이 만든 계정 공용이라 만들지 않고 읽기만 한다.
+create_github_oidc_provider = false
+# BE·FE 레포의 Environment prod. 형식은 docs/deploy/k8s.md "운영 앱 배포"
+github_deploy_subjects = [
+  "repo:<org>@<org id>/<BE 레포>@<레포 id>:environment:prod",
+  "repo:<org>@<org id>/<FE 레포>@<레포 id>:environment:prod",
+]
+# kubectl 사용자 IP 규칙은 사람마다 콘솔로 넣고 지우므로 devcos에서는 코드로 관리하지 않는다(kubectl_ingress_cidrs 비움).
+
 import_ids = {
   vpc_id              = "vpc-<...>"
   subnet_id           = "subnet-<...>"
@@ -20,6 +29,12 @@ import_ids = {
     "ssh-0.0.0.0/0" = "sgr-<...>"
     http            = "sgr-<...>"
     https           = "sgr-<...>"
+  }
+  # 키는 security.tf의 local.node_ingress_rules 키(콘솔 규칙 설명과 같다)
+  node_ingress_rule_ids = {
+    k3s-api           = "sgr-<...>"
+    k3s-kubelet       = "sgr-<...>"
+    k3s-flannel-vxlan = "sgr-<...>"
   }
   security_group_egress_rule_id = "sgr-<...>"
   # 키는 ec2.tf의 local.nodes 키. server는 team08-hapbang-ec2, agent는 team08-hapbang-ec2-2다.

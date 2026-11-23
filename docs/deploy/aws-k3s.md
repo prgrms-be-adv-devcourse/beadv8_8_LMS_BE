@@ -1,7 +1,7 @@
 # AWS 2노드 k3s 배치
 
 상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. FE `web`과 업무 앱 7개가 k3s에 배포돼 있고(6개 2026-11-02, auxiliary-app 2026-11-06 #714), 업무 앱은 dev 병합 때 자동으로 배포된다([배포 개요](README.md)). 기존 Docker Compose(prod·dev·edge nginx)는 2026-10-30에 볼륨까지 지웠다(#440).
-현재 AWS 현황 기준일: 2026-10-30
+현재 AWS 현황 기준일: 2026-11-23
 
 배포 흐름 전체는 [배포 개요](README.md)를 따른다. 이 문서는 k3s에 적용하는 AWS 범위, node 역할과 workload 배치 규칙을 정의하고, 설치한 k3s cluster의 구성과 재설치 절차를 기록한다. workload를 옮기기 전에는 아래 workload 배치를 이미 배포된 상태로 표현하지 않는다.
 
@@ -89,10 +89,13 @@ Client
 
 Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포된 AWS 구성을 import-first로 코드화**한다.
 
-- EC2 2대와 각 EBS·ENI·EIP
+- EC2 2대와 각 EBS·ENI·EIP, k3s 설치 전 OS 준비(user data, 아래 [k3s 설치](#k3s-설치) 1단계)
 - VPC, subnet, Internet Gateway, route table
-- security group과 node 간 self-reference rule
-- S3 bucket과 EC2 instance role/profile
+- security group: 22·80·443, node 간 self-reference rule, kubectl 사용자 `/32`의 6443
+- S3 bucket과 EC2 instance role/profile(`AmazonSSMManagedInstanceCore` 포함)
+- GitHub Actions 배포 role과 OIDC provider
+
+k3s 설치와 agent join은 join token을 user data와 state에 남기지 않도록 Terraform 범위에 넣지 않는다(#1034).
 
 첫 완료 조건은 기존 자원을 다시 만들지 않는 `terraform plan` zero-change다. account ID, instance ID, public IP와 bucket 이름은 문서나 output에 직접 고정하지 않는다.
 
@@ -130,6 +133,8 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 | 시간대 | 두 node 모두 `Asia/Seoul` |
 
 ### 1. 두 node 공통: logind와 kubelet 설정
+
+`infra/terraform`으로 만든 EC2는 user data(`user_data.sh.tftpl`)가 이 단계와 large의 `vm.max_map_count`([전환 순서](#전환-순서) 4)를 이미 했다. 두 node에서 `cloud-init status --wait`가 `status: done`이면 2단계로 넘어간다. devcos의 EC2는 콘솔로 만들어 아래 명령을 직접 실행했다.
 
 kubelet graceful shutdown은 kubelet CLI 플래그가 없어서 `kubelet-arg`로 넘기면 kubelet이 시작하지 못한다. k3s가 읽는 kubelet drop-in 디렉터리에 설정 파일을 둔다([k3s 문서](https://docs.k3s.io/installation/configuration#kubelet-configuration-files), v1.32 이상).
 

@@ -52,9 +52,9 @@ resource "aws_instance" "node" {
   # 앱이 어느 node에서 돌든 S3에 접근하도록 두 node에 같은 역할을 붙인다.
   iam_instance_profile = aws_iam_instance_profile.server.name
 
-  # 기존 Compose 운영용 초기 설정(Compose는 2026-10-30 제거, #440). 지금 EC2와 같게 두려고 그대로 둔다.
-  # k3s 설치(docs/deploy/aws-k3s.md)는 사람이 한다.
-  user_data = each.key == "server" ? file("${path.module}/user_data.sh") : null
+  # k3s 설치 전 OS 준비(시간대, graceful shutdown, server의 sysctl). k3s 설치·join(docs/deploy/aws-k3s.md)은 사람이 한다.
+  # devcos의 EC2는 콘솔로 만들어 user data가 없다. 아래 ignore_changes 때문에 가져와도 차이로 나오지 않는다.
+  user_data = templatefile("${path.module}/user_data.sh.tftpl", { node = each.key })
 
   # 크레딧을 다 쓰면 기준 성능으로 떨어진다. unlimited의 추가 요금을 피한다.
   credit_specification {
