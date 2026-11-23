@@ -336,6 +336,15 @@ dev push → Publish and deploy(publish.yml)
 ```
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
+- **JDK 보안 업데이트**: 앱 Dockerfile 7개는 JRE base를 `eclipse-temurin:<버전>-jre`처럼 정확한 태그로 고정한다(#1004). 이 가운데 customer-support-app의 `Dockerfile`은 CI 이미지 확인과 로컬 k3d용이고, 운영 이미지는 `Dockerfile.native`(JVM 없음)로 만든다. 이미지는 바뀐 앱만 다시 빌드하므로, base 이미지가 새로 나와도 Dockerfile 태그가 바뀌기 전에는 운영 이미지가 그대로다. #1004 전에는 `25-jre`를 써서 앱이 바뀔 때만 새 JDK가 들어갔고, 앱마다 JDK 버전이 달랐다.
+  - Dependabot이 매일 새 Temurin 25 태그를 확인해, 7개 태그를 함께 바꾸는 PR 하나를 올린다(`.github/dependabot.yml`). 그 PR을 병합하면 앱 7개가 다시 빌드·배포된다. 운영 JDK가 바뀌는 것은 JVM 앱 6개이고, customer-support-app은 다시 배포만 된다.
+  - Dependabot을 기다릴 수 없으면 7개 `FROM`을 같은 태그로 직접 바꿔 PR을 올린다. 다음 LTS로 옮기는 메이저 업데이트는 PR이 오지 않으니 따로 한다.
+  - native 앱(customer-support-app)의 JDK는 `ci.yml`의 GraalVM 설정이 정하고, 이 Dependabot은 갱신하지 않는다.
+  - 반영 확인은 Prometheus `jvm_info`로 한다. 앱(`app_kubernetes_io_name`)마다 `vendor`가 `Eclipse Adoptium`이고 `version`이 새 버전(예: `25.0.5.1+2-LTS`)인지 본다. customer-support-app은 운영에서 native image라 `GraalVM Runtime Environment`와 빌드할 때의 JDK 버전이 나온다.
+
+    ```
+    kubectl --context hapbang-k3s -n hapbang-platform exec deploy/prometheus-server -c prometheus-server -- wget -qO- 'localhost:9090/api/v1/query?query=jvm_info'
+    ```
 - **발행할 앱**: 이번 push에서 바뀐 앱은 태그가 새 커밋이라 항상 발행한다. 앞 run이 실패했거나 아직 발행 중이라 이미지가 없는 앱도 다시 발행하므로, run이 성공하면 그 커밋의 모든 앱 이미지가 GHCR에 있다. 연달아 병합하면 두 run이 같은 태그를 함께 올릴 수 있지만, 같은 앱 내용을 테스트한 jar라 어느 쪽이 남아도 같다.
 - **dev 최신만 배포**: 배포 job은 자동·수동 모두 한 번에 하나씩 돈다(concurrency `deploy-k3s-prod`, `queue: max`). 기다리는 run은 취소되지 않고 들어온 순서대로 돈다. 기본값(`single`)이면 늦게 끝난 앞 커밋의 run이 기다리던 dev 최신 run이나 수동 롤백을 밀어내 취소한다. 자동 배포는 차례가 왔을 때 dev 최신 커밋이 아니면 건너뛴다. 늦게 끝난 앞 run이 뒤 커밋의 배포를 되돌리지 않게 하기 위해서다. 그래서 dev 최신 커밋의 테스트·발행이 실패하면 그 앞 커밋도 배포되지 않는다. 고친 커밋을 병합하거나, 앞 커밋을 `sha`에 넣어 Deploy를 수동으로 실행한다.
 - **흔들린 테스트로 실패했을 때**: dev 최신 커밋의 run이 코드와 무관한 이유(Maven Central 403, 가끔 실패하는 테스트)로 실패하면, 그 run에서 실패한 job만 다시 돌린다(`gh run rerun <run id> --failed`). 테스트가 통과하면 발행·배포까지 이어진다. 다시 돌리기 전에 그 run이 dev 최신 커밋의 run인지 본다. 앞 커밋의 run을 다시 돌리면 배포 단계에서 "dev 최신이 아니다"로 건너뛴다.

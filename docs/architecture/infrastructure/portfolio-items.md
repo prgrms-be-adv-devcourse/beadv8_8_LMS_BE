@@ -162,7 +162,7 @@ JVM 성능 증거의 표준은 **JFR recording 파일**로 정한다. k6 기준�
 - p95 변화와 JFR 원인을 연결한 짧은 performance report
 - pod 종료 직전 또는 오류율 급등 구간을 `jcmd <pid> JFR.dump`로 추출하는 runbook
 
-현재 runtime image는 `eclipse-temurin:25-jre`라서 `jcmd`를 전제로 하지 않는다. customer-support-app은 Native Image라 JFR을 일부 이벤트만 지원하므로, JFR·JMC 분석은 JVM 앱으로 한다([Native Image](native-image.md)). 기본 image는 그대로 유지하고, JFR demo profile에서만 JDK 기반 diagnostic image를 사용해 `jcmd` dump를 지원하거나 JVM 시작 option으로 duration·destination이 정해진 recording을 만든다. profile용 편의를 production image 크기 증가로 바꾸지 않는다.
+현재 runtime image는 Temurin 25 JRE(`eclipse-temurin:<버전>-jre`, 태그는 앱 Dockerfile에 고정)라서 `jcmd`를 전제로 하지 않는다. customer-support-app은 Native Image라 JFR을 일부 이벤트만 지원하므로, JFR·JMC 분석은 JVM 앱으로 한다([Native Image](native-image.md)). 기본 image는 그대로 유지하고, JFR demo profile에서만 JDK 기반 diagnostic image를 사용해 `jcmd` dump를 지원하거나 JVM 시작 option으로 duration·destination이 정해진 recording을 만든다. profile용 편의를 production image 크기 증가로 바꾸지 않는다.
 
 JConsole과 VisualVM은 채택 stack이 아니라 **로컬 수동 진단 대안**으로만 기록한다. JConsole은 JMX 기반 live monitoring·MBean 조작 도구이고 local monitoring도 관찰 대상에 부하를 줄 수 있다([Java 25 JConsole 문서](https://docs.oracle.com/en/java/javase/25/management/using-jconsole.html)). VisualVM은 live CPU·heap·thread 관찰과 sampler, thread/heap dump에 편리하지만 사람이 붙어 있어야 한다([VisualVM 공식 기능 문서](https://visualvm.github.io/features.html)). 둘은 CI artifact와 동일 시간 구간의 재분석이 가능한 JFR을 대체하지 않는다. 이를 위해 Kubernetes에 원격 JMX port를 별도로 공개하지 않는다.
 

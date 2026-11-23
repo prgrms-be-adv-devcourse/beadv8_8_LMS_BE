@@ -108,7 +108,7 @@ grep -c 'eyJ' docs/load-test/results/lecture-baseline-${STAMP}.json   # 0이어�
 
 ## JFR
 
-운영 이미지는 `eclipse-temurin:25-jre`라 `jcmd`가 없다. `loadtest/jfr.sh`가 `kubectl debug`로 JDK 이미지(`eclipse-temurin:25-jdk`)의 임시 컨테이너(ephemeral container)를 붙인다. 임시 컨테이너는 앱 컨테이너의 PID namespace를 같이 쓰고(`--target=app`), 앱과 같은 uid 10001·gid 999로 돈다. 그래서 jcmd가 앱 JVM(PID 1)에 붙고, JFR 파일은 `/proc/1/root/tmp`로 읽는다. 앱 컨테이너에는 exec하지 않는다.
+운영 이미지는 Temurin 25 JRE(`eclipse-temurin:<버전>-jre`, 태그는 앱 Dockerfile에 고정)라 `jcmd`가 없다. `loadtest/jfr.sh`가 `kubectl debug`로 JDK 이미지(`eclipse-temurin:25-jdk`)의 임시 컨테이너(ephemeral container)를 붙인다. 임시 컨테이너는 앱 컨테이너의 PID namespace를 같이 쓰고(`--target=app`), 앱과 같은 uid 10001·gid 999로 돈다. 그래서 jcmd가 앱 JVM(PID 1)에 붙고, JFR 파일은 `/proc/1/root/tmp`로 읽는다. 앱 컨테이너에는 exec하지 않는다.
 
 ```bash
 # k6 시작 전

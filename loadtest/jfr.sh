@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # JVM 앱 pod에 JDK 임시 컨테이너(ephemeral container)를 붙여 JFR을 기록한다 (#690).
-# 운영 이미지는 eclipse-temurin:25-jre라 jcmd가 없다. 임시 컨테이너는 앱 컨테이너의 PID namespace를 같이 쓰고,
+# 운영 이미지는 Temurin 25 JRE(eclipse-temurin:<버전>-jre, 태그는 앱 Dockerfile에 고정)라 jcmd가 없다. 임시 컨테이너는 앱 컨테이너의 PID namespace를 같이 쓰고,
 # 앱과 같은 uid·gid로 돌아야 jcmd가 붙는다(/proc/<pid>/root 접근 검사). 절차와 주의는 docs/load-test/README.md "JFR".
 #
 # 사용법:
