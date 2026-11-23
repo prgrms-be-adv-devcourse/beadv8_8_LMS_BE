@@ -60,7 +60,7 @@ terraform workspace new devcos           # 이미 있으면 select
 AWS_PROFILE=devcos terraform plan -var-file=devcos.tfvars
 ```
 
-결과가 `Plan: 35 to import, 0 to add, 0 to change, 0 to destroy.`이면 코드와 실제 구성이 같다. 콘솔에서 설정을 바꿨다면 이 plan에 차이로 나오니, 코드나 `devcos.tfvars.example`을 같이 고친다.
+결과가 `Plan: 35 to import, 0 to add, 0 to change, 0 to destroy.`이면 코드와 실제 구성이 같다. 이 숫자는 plan으로 확인한 값이 아니라 기대값이다. 2026-11-23에 읽기 전용 조회(`aws ec2 describe-*`, `aws iam get-*`, `aws s3api get-*`)로 리소스마다 코드의 값(이름·설명·태그·포트·정책 문장, role의 path `/`·최대 세션 3600초)과 대조했다(#1034). 콘솔에서 설정을 바꿨다면 이 plan에 차이로 나오니, 코드나 `devcos.tfvars.example`을 같이 고친다.
 
 ## 새 계정으로 옮기기
 

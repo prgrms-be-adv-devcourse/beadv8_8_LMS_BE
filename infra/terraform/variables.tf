@@ -125,6 +125,12 @@ variable "create_github_oidc_provider" {
 variable "github_deploy_subjects" {
   description = "배포 role을 받을 GitHub OIDC 토큰의 sub. 형식은 docs/deploy/k8s.md \"운영 앱 배포\"를 따른다(레포를 옮기면 바뀐다)"
   type        = list(string)
+
+  # 빈 리스트면 trust의 sub 조건이 비어 배포 role이 쓸모없어진다. EC2를 만들기 전인 plan에서 막는다.
+  validation {
+    condition     = length(var.github_deploy_subjects) > 0
+    error_message = "github_deploy_subjects에 BE·FE 레포의 environment:prod sub를 하나 이상 넣는다."
+  }
 }
 
 variable "import_ids" {
