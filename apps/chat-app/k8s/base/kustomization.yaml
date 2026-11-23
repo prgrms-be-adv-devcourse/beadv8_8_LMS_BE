@@ -22,6 +22,7 @@ configMapGenerator:
       # 이 limit에서 JVM은 Serial GC를 쓴다. Tenured를 상한까지 넓힌 뒤에야 full GC를 하고 넓힌 heap을 돌려주지 않아, 오래 돈 pod는 heap committed가 상한에 닿는다.
       # 처음 256m(#684)에서 90시간 돈 pod가 그렇게 working set 670Mi(95%)가 됐다. full GC 뒤 live는 61~70Mi다(2026-11-23, 14일 pod 6개).
       # 192m은 Tenured 상한 약 128Mi에 live가 55%라 full GC가 이어지지 않고, heap이 상한까지 차도 working set 약 606Mi(86%)다(#1032).
+      # 기동 1시간 Tenured 사용은 최대 83Mi였다. 부하 때 live는 잰 적이 없어, live가 약 90Mi(Tenured 상한의 70%)를 넘거나 OOM으로 다시 시작하면 224m으로 올린다.
       # JVM이 heap·metaspace 등을 할당하지 못해 OutOfMemoryError를 던지면 종료 코드 3으로 끝내 같은 pod에서 다시 시작한다.
       # 끝내지 않으면 오류만 내며 떠 있어 어떤 alert도 울리지 않는다. 다시 시작하면 Grafana "컨테이너 재시작" alert가 받는다(#854).
       # Java 코드가 직접 만들어 던지는 OutOfMemoryError(direct buffer 한도 초과 등)는 종료하지 않는다.
