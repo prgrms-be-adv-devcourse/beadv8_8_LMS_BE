@@ -61,6 +61,8 @@ spec:
           # 640Mi에서 7일 최대 598Mi(93%)였다. heap 사용은 최대 176Mi인데 상한(limit의 60%)이 371Mi라 상한까지 차면 limit을 넘는다.
           # heap 상한을 -Xmx256m으로 고정하고(kustomization.yaml) heap 256 + heap 외 JVM 영역 238 + native 약 130 ≈ 624Mi에 여유를 더해 704Mi로 올린다(#684, #610).
           # 704Mi에서 배포 뒤 약 40시간(pod 4개, 가장 오래 돈 pod 18시간) 최대 working set 592Mi(84%), heap committed 최대 210Mi, 재시작 0회였다(2026-11-06, #694).
+          # 2026-11-23 90시간 돈 pod에서 heap committed가 상한(247.5Mi)까지 차 working set 670Mi(95%)로 alert가 울렸다. heap 외 JVM 영역 265·native 약 149Mi로 #684 예상보다 컸다.
+          # node에 자리가 없어 limit은 두고 heap 상한을 -Xmx192m으로 낮춘다. heap이 상한까지 차도 약 606Mi(86%)다(#1032).
           resources:
             requests:
               cpu: 100m
