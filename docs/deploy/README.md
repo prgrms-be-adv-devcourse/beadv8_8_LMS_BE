@@ -56,7 +56,7 @@ gh workflow run deploy.yml --ref dev → 수동 Deploy(따라잡기·롤백)
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | 운영 반영 | `dev`에 PR 병합 → Publish and deploy run 성공 확인(`gh run list --workflow publish.yml --limit 1`, [운영 앱 배포](k8s.md#운영-앱-배포)) |
-| JDK 보안 업데이트 반영 | Dependabot의 `eclipse-temurin` PR(앱 Dockerfile 7개의 태그를 함께 바꿈)을 병합한다. 병합하면 JVM 앱 전체가 다시 빌드·배포되고, 반영은 Prometheus `jvm_info`의 `version`으로 확인한다. base 이미지만 새로 나와서는 운영에 들어가지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)의 "JDK 보안 업데이트") |
+| JDK 보안 업데이트 반영 | Dependabot의 `eclipse-temurin` PR(앱 Dockerfile 7개의 태그를 함께 바꿈)을 병합한다. 병합하면 앱 7개가 다시 빌드·배포되고 JVM 앱 6개의 JDK가 바뀐다(customer-support-app은 운영이 native image라 JDK는 그대로). 반영은 Prometheus `jvm_info`의 `version`으로 확인한다. base 이미지만 새로 나와서는 운영에 들어가지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)의 "JDK 보안 업데이트") |
 | 자동 배포 실패 | 코드와 무관한 실패(Maven Central 403, 가끔 실패하는 테스트)면 dev 최신 커밋의 run에서 `gh run rerun <run id> --failed`. 서버가 꺼진 시간의 실패는 서버가 켜진 뒤 `gh workflow run deploy.yml --ref dev`([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 롤백 | `gh workflow run deploy.yml --ref dev -f apps=<앱> -f sha=<되돌릴 dev 커밋>`. 다음 dev 병합이 다시 올리므로 revert 커밋 병합을 함께 한다. 그 커밋의 SealedSecret도 함께 돌아가므로 비밀값 교체·DB 마이그레이션 이전 커밋으로는 되돌리지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |

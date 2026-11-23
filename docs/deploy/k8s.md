@@ -336,9 +336,10 @@ dev push → Publish and deploy(publish.yml)
 ```
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
-- **JDK 보안 업데이트**: 앱 Dockerfile 7개는 JRE base를 `eclipse-temurin:<버전>-jre`처럼 정확한 태그로 고정한다(#1004). 이미지는 바뀐 앱만 다시 빌드하므로, base 이미지가 새로 나와도 Dockerfile 태그가 바뀌기 전에는 운영 이미지가 그대로다. #1004 전에는 `25-jre`를 써서 앱이 바뀔 때만 새 JDK가 들어갔고, 앱마다 JDK 버전이 달랐다.
-  - Dependabot이 매일 새 Temurin 25 태그를 확인해, 7개 태그를 함께 바꾸는 PR 하나를 올린다(`.github/dependabot.yml`). 그 PR을 병합하면 JVM 앱 전체가 다시 빌드·배포된다.
+- **JDK 보안 업데이트**: 앱 Dockerfile 7개는 JRE base를 `eclipse-temurin:<버전>-jre`처럼 정확한 태그로 고정한다(#1004). 이 가운데 customer-support-app의 `Dockerfile`은 CI 이미지 확인과 로컬 k3d용이고, 운영 이미지는 `Dockerfile.native`(JVM 없음)로 만든다. 이미지는 바뀐 앱만 다시 빌드하므로, base 이미지가 새로 나와도 Dockerfile 태그가 바뀌기 전에는 운영 이미지가 그대로다. #1004 전에는 `25-jre`를 써서 앱이 바뀔 때만 새 JDK가 들어갔고, 앱마다 JDK 버전이 달랐다.
+  - Dependabot이 매일 새 Temurin 25 태그를 확인해, 7개 태그를 함께 바꾸는 PR 하나를 올린다(`.github/dependabot.yml`). 그 PR을 병합하면 앱 7개가 다시 빌드·배포된다. 운영 JDK가 바뀌는 것은 JVM 앱 6개이고, customer-support-app은 다시 배포만 된다.
   - Dependabot을 기다릴 수 없으면 7개 `FROM`을 같은 태그로 직접 바꿔 PR을 올린다. 다음 LTS로 옮기는 메이저 업데이트는 PR이 오지 않으니 따로 한다.
+  - native 앱(customer-support-app)의 JDK는 `ci.yml`의 GraalVM 설정이 정하고, 이 Dependabot은 갱신하지 않는다.
   - 반영 확인은 Prometheus `jvm_info`로 한다. 앱(`app_kubernetes_io_name`)마다 `vendor`가 `Eclipse Adoptium`이고 `version`이 새 버전(예: `25.0.5.1+2-LTS`)인지 본다. customer-support-app은 운영에서 native image라 `GraalVM Runtime Environment`와 빌드할 때의 JDK 버전이 나온다.
 
     ```

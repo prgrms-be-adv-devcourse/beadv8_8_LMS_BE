@@ -2,7 +2,8 @@
 # - GitHub Actions의 action 버전(주 1회, #656). ci.yml·publish.yml·deploy.yml은 action을 커밋 SHA로 고정한다. 이 workflow들이 만든 jar·이미지가 운영에 자동 배포되기 때문이다.
 #   Dependabot은 SHA와 버전 주석(# v7.0.1)을 함께 고친다. 태그를 쓰는 claude-review.yml은 메이저 버전이 바뀔 때만 PR이 온다.
 # - 앱 이미지의 JRE base인 eclipse-temurin 태그(매일, #1004). 이미지는 앱 경로가 바뀐 앱만 다시 빌드한다(.github/scripts/apps.sh source).
-#   그래서 JDK 보안 업데이트는 Dockerfile 태그가 바뀌어야 운영에 들어간다. 이 PR을 병합하면 JVM 앱 전체가 다시 빌드·배포된다.
+#   그래서 JDK 보안 업데이트는 Dockerfile 태그가 바뀌어야 운영에 들어간다. 이 PR을 병합하면 앱 7개가 다시 빌드·배포되고, 운영 JDK가 바뀌는 것은 JVM 앱 6개다.
+#   customer-support-app은 운영 이미지가 Dockerfile.native(JVM 없음)라 다시 배포만 된다. native 앱의 JDK(GraalVM)는 ci.yml이 정하고 여기서 갱신하지 않는다.
 # 위험과 결정: docs/deploy/security.md
 version: 2
 updates:
@@ -30,9 +31,10 @@ updates:
   - package-ecosystem: docker
     # apps/<앱>/Dockerfile. 같은 폴더의 Dockerfile.native(ubuntu)는 아래 allow로 뺀다.
     directories: ["/apps/*"]
+    # daily는 평일(월~금)만 돈다. 주말에 나온 보안 태그도 다음 날 잡도록 cron으로 매일 돌린다.
     schedule:
-      interval: daily
-      time: "09:00"
+      interval: cron
+      cronjob: "0 9 * * *"
       timezone: Asia/Seoul
     allow:
       - dependency-name: eclipse-temurin
