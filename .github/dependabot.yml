@@ -1,7 +1,9 @@
-# GitHub Actions의 action 버전을 주 1회 확인해 dev로 PR을 올린다(#656).
-# ci.yml·publish.yml·deploy.yml은 action을 커밋 SHA로 고정한다. 이 workflow들이 만든 jar·이미지가 운영에 자동 배포되기 때문이다.
-# Dependabot은 SHA와 버전 주석(# v7.0.1)을 함께 고친다. 태그를 쓰는 claude-review.yml은 메이저 버전이 바뀔 때만 PR이 온다.
-# 위험과 결정: docs/deploy/security.md "알려진 위험"
+# 갱신 PR을 dev로 올린다. 대상은 두 가지다.
+# - GitHub Actions의 action 버전(주 1회, #656). ci.yml·publish.yml·deploy.yml은 action을 커밋 SHA로 고정한다. 이 workflow들이 만든 jar·이미지가 운영에 자동 배포되기 때문이다.
+#   Dependabot은 SHA와 버전 주석(# v7.0.1)을 함께 고친다. 태그를 쓰는 claude-review.yml은 메이저 버전이 바뀔 때만 PR이 온다.
+# - 앱 이미지의 JRE base인 eclipse-temurin 태그(매일, #1004). 이미지는 앱 경로가 바뀐 앱만 다시 빌드한다(.github/scripts/apps.sh source).
+#   그래서 JDK 보안 업데이트는 Dockerfile 태그가 바뀌어야 운영에 들어간다. 이 PR을 병합하면 JVM 앱 전체가 다시 빌드·배포된다.
+# 위험과 결정: docs/deploy/security.md
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -24,3 +26,28 @@ updates:
       # v6부터 캐시 기능이 Gradle 상용 약관을 따르므로 MIT인 v5에 머문다(ci.yml).
       - dependency-name: "gradle/actions*"
         update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker
+    # apps/<앱>/Dockerfile. 같은 폴더의 Dockerfile.native(ubuntu)는 아래 allow로 뺀다.
+    directories: ["/apps/*"]
+    schedule:
+      interval: daily
+      time: "09:00"
+      timezone: Asia/Seoul
+    allow:
+      - dependency-name: eclipse-temurin
+    ignore:
+      # 25 LTS에 머문다. 다음 LTS로 옮기는 것은 따로 정한다.
+      - dependency-name: eclipse-temurin
+        update-types: ["version-update:semver-major"]
+    # JDK 보안 수정은 나오면 바로 반영한다. cooldown을 두지 않으면 Dependabot 기본 3일을 기다리고, 일수는 1~90만 쓸 수 있어 exclude로 뺀다.
+    # Docker 공식 이미지라 action보다 탈취 위험이 낮다고 본다(docs/deploy/security.md).
+    cooldown:
+      exclude: ["eclipse-temurin"]
+    # 앱 7개의 태그 변경을 PR 하나로 묶는다. group-by가 없으면 폴더마다 PR이 따로 생긴다.
+    groups:
+      eclipse-temurin:
+        patterns: ["eclipse-temurin"]
+        group-by: dependency-name
+    commit-message:
+      prefix: Chore

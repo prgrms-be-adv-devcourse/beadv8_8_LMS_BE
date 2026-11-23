@@ -49,6 +49,7 @@
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
 | 운영으로 이어지는 workflow의 action을 커밋 SHA로 고정 | `ci.yml`·`publish.yml`·`deploy.yml`은 action을 40자리 SHA로 고정한다(#656). 이 workflow들은 운영에 나갈 jar를 만들고(`ci.yml`은 `publish.yml`이 호출한다), GHCR에 이미지를 올리고(`packages: write`), 배포 role을 받는다(`id-token: write`). 액션의 태그가 악성 커밋으로 옮겨져도 고정한 커밋만 실행된다. 갱신은 Dependabot이 주 1회 PR 하나로 올리고, 나온 지 7일이 지난 릴리스만 반영한다(`.github/dependabot.yml`). Dependabot PR은 바뀐 SHA가 그 버전 태그의 커밋인지 확인하고 병합한다 |
+| 앱 JRE base 이미지를 정확한 태그로 고정하고 Dependabot으로 갱신 | 앱 Dockerfile은 `eclipse-temurin:<버전>-jre`처럼 정확한 태그를 쓴다(#1004). 움직이는 태그(`25-jre`)를 쓰면 앱이 바뀔 때만 새 JDK가 들어가, JDK 보안 업데이트가 운영에 언제 들어갔는지 앱마다 달랐다. CVE-2026-114938 때는 그 사이 코드가 바뀐 chat-app만 먼저 반영됐다. Dependabot이 매일 확인해 PR 하나로 올린다. 이 PR은 cooldown을 두지 않는다. JDK 보안 수정은 바로 반영해야 하고, Docker 공식 이미지라 action보다 탈취 위험이 낮다고 본다. digest는 고정하지 않고 태그만 고정한다. digest까지 고정하면 같은 태그가 OS 패치로 다시 push될 때마다 PR이 오고 전체 앱이 다시 배포되기 때문이다. 그래서 같은 태그라도 빌드한 시점에 따라 OS 레이어는 다를 수 있다 |
 
 ## 알려진 위험
 
