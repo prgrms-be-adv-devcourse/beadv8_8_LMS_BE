@@ -131,3 +131,28 @@ import {
   to       = aws_iam_instance_profile.server
   id       = "${var.name_prefix}-ec2-role"
 }
+
+# k3s 전환(#374)과 배포 role(#374) 때 콘솔로 더한 리소스. kubectl 규칙(사람마다 넣고 지우는 /32)은 가져오지 않는다.
+import {
+  for_each = var.import_ids == null ? {} : var.import_ids.node_ingress_rule_ids
+  to       = aws_vpc_security_group_ingress_rule.node[each.key]
+  id       = each.value
+}
+
+import {
+  for_each = local.import
+  to       = aws_iam_role_policy_attachment.ssm
+  id       = "${var.name_prefix}-ec2-role/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+import {
+  for_each = local.import
+  to       = aws_iam_role.github_deploy
+  id       = "${var.name_prefix}-github-deploy"
+}
+
+import {
+  for_each = local.import
+  to       = aws_iam_role_policy.ssm_deploy
+  id       = "${var.name_prefix}-github-deploy:ssm-deploy-large"
+}

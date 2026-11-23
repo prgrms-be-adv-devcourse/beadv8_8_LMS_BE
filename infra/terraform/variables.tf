@@ -77,7 +77,7 @@ variable "public_key" {
 }
 
 variable "ssh_ingress_cidrs" {
-  description = "SSH(22) 허용 CIDR. GitHub 호스티드 러너가 SSH로 배포하므로 IP를 고정할 수 없다"
+  description = "SSH(22) 허용 CIDR. 기존 Compose 배포(GitHub 호스티드 러너 SSH) 때문에 전체로 열었고, 배포가 SSM으로 바뀐 뒤에도 그대로다(docs/deploy/security.md \"알려진 위험\")"
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
@@ -105,6 +105,34 @@ variable "iam_role_description" {
   default     = "Hapbang server role - reads and writes application files in S3"
 }
 
+variable "kubectl_ingress_cidrs" {
+  description = "k3s API(6443)를 열 kubectl 사용자 IP. 키는 사용자 이름(규칙 설명에 들어간다), 값은 /32"
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for cidr in values(var.kubectl_ingress_cidrs) : endswith(cidr, "/32")])
+    error_message = "kubectl_ingress_cidrs는 사람마다 /32 하나만 연다(docs/deploy/aws-k3s.md)."
+  }
+}
+
+variable "create_github_oidc_provider" {
+  description = "GitHub Actions OIDC provider를 만든다. 계정에 이미 있으면 false로 두고 있는 것을 쓴다 (devcos: false)"
+  type        = bool
+  default     = true
+}
+
+variable "github_deploy_subjects" {
+  description = "배포 role을 받을 GitHub OIDC 토큰의 sub. 형식은 docs/deploy/k8s.md \"운영 앱 배포\"를 따른다(레포를 옮기면 바뀐다)"
+  type        = list(string)
+
+  # 빈 리스트면 trust의 sub 조건이 비어 배포 role이 쓸모없어진다. EC2를 만들기 전인 plan에서 막는다.
+  validation {
+    condition     = length(var.github_deploy_subjects) > 0
+    error_message = "github_deploy_subjects에 BE·FE 레포의 environment:prod sub를 하나 이상 넣는다."
+  }
+}
+
 variable "import_ids" {
   description = "이미 있는 리소스를 가져올 때의 ID (imports.tf). 새로 만들 때는 null"
   type = object({
@@ -114,7 +142,9 @@ variable "import_ids" {
     route_table_id                  = string
     security_group_id               = string
     security_group_ingress_rule_ids = map(string)
-    security_group_egress_rule_id   = string
+    # 키는 security.tf의 local.node_ingress_rules 키
+    node_ingress_rule_ids         = map(string)
+    security_group_egress_rule_id = string
     # 키는 ec2.tf의 local.nodes 키(server, agent)
     nodes = map(object({
       instance_id          = string

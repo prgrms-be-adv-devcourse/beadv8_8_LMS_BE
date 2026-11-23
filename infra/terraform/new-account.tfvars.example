@@ -2,3 +2,13 @@
 account_id           = "<계정 ID>"
 public_key           = "<ssh-keygen -y -f <키>.pem 출력>"
 cors_allowed_origins = ["https://<prod 도메인>", "https://<dev 도메인>", "http://localhost:5173"]
+
+# 배포 role을 받을 BE·FE 레포의 Environment prod. 레포 설정에 따라 sub 형식이 다르다(docs/deploy/k8s.md "운영 앱 배포").
+# 기본 형식은 repo:<owner>/<repo>:environment:prod, immutable subject를 켠 조직은 repo:<org>@<org id>/<repo>@<repo id>:environment:prod다.
+github_deploy_subjects = [
+  "repo:<owner>/<BE 레포>:environment:prod",
+  "repo:<owner>/<FE 레포>:environment:prod",
+]
+
+# 로컬 kubectl을 쓸 사람의 공인 IP. 필요할 때만 넣는다.
+# kubectl_ingress_cidrs = { "<이름>" = "<공인 IP>/32" }
