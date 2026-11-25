@@ -5,7 +5,7 @@
 
 전제: 팀의 **AWS EC2 2대(t3.large·t3.medium)와 S3 버킷 1개**에 실제로 배포해 시연하는 포트폴리오 프로젝트다. 로컬 k3d는 같은 Kubernetes manifest(Kustomize·Helm)를 개발 PC와 CI에서 검증하는 보조 환경이다. 이 문서의 결정 기록은 #369다. AWS node 역할과 배치의 기준 문서는 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md)다.
 
-이 문서는 최종 목표 구조의 기준 문서다. Elasticsearch 통합의 근거와 대안 비교는 [Elasticsearch 통합 범위 조사](./elasticsearch-consolidation-research.md)에 남기고, 충돌할 때는 이 문서의 결론을 따른다. 별도의 Draw.io 파일은 현재 관리하지 않으며 아래 텍스트 구조와 각 절의 완료 증거를 아키텍처 기준으로 사용한다.
+이 문서는 최종 목표 구조의 기준 문서다. Elasticsearch 통합의 근거와 대안 비교는 [Elasticsearch 통합 범위 조사](./elasticsearch-consolidation-research.md)에 남기고, 충돌할 때는 이 문서의 결론을 따른다. README의 그림(`docs/images/readme/`의 PNG와 drawio 원본)은 설명용이고, 아키텍처 기준은 아래 텍스트 구조와 각 절의 완료 증거다.
 
 ### 배포 환경 제약
 

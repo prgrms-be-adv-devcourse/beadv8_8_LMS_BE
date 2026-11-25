@@ -1,0 +1,52 @@
+<mxfile host="drawio">
+  <diagram id="native-memory" name="고객센터 메모리 할당량 전후 비교">
+    <mxGraphModel dx="900" dy="330" grid="1" page="0" background="#F3F3F3">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="before-label" value="&lt;b&gt;JVM requests/limits&lt;/b&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;text;strokeColor=none;fillColor=none;verticalAlign=middle;align=left;fontSize=21;fontColor=#1E3A8A;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="0" y="0" width="213" height="60" />
+        </mxCell>
+        <mxCell id="before" value="&lt;b&gt;448MiB&lt;/b&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#DBEAFE;strokeColor=#3B82F6;strokeWidth=2;align=center;fontSize=25;fontColor=#1E3A8A;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="223" y="0" width="616" height="60" />
+        </mxCell>
+        <mxCell id="after-label" value="&lt;b&gt;Native requests/limits&lt;/b&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;text;strokeColor=none;fillColor=none;verticalAlign=middle;align=left;fontSize=19;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="0" y="100" width="213" height="60" />
+        </mxCell>
+        <mxCell id="after" value="&lt;b&gt;256MiB&lt;/b&gt;&lt;div style=&quot;font-size:15px;line-height:1.2;margin-top:4px;&quot;&gt;할당량 약 43% 절감&lt;/div&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#D1FAE5;strokeColor=#059669;strokeWidth=2;align=center;fontSize=25;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="223" y="100" width="352" height="60" />
+        </mxCell>
+        <mxCell id="freed" value="&lt;b&gt;192MiB 확보&lt;/b&gt;&lt;div style=&quot;font-size:15px;line-height:1.2;margin-top:4px;&quot;&gt;노드에서 다른 작업에 할당 가능&lt;/div&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=2;dashed=1;align=center;fontSize=23;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="575" y="100" width="264" height="60" />
+        </mxCell>
+        <mxCell id="zoom-left" value="" style="endArrow=none;html=1;dashed=1;strokeColor=#059669;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="223" y="160" as="sourcePoint" />
+            <mxPoint x="223" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="zoom-right" value="" style="endArrow=none;html=1;dashed=1;strokeColor=#059669;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="575" y="160" as="sourcePoint" />
+            <mxPoint x="839" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="budget-label" value="&lt;b&gt;256MiB 예산 구성&lt;/b&gt;" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;text;strokeColor=none;fillColor=none;verticalAlign=middle;align=left;fontSize=19;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="0" y="220" width="213" height="60" />
+        </mxCell>
+        <mxCell id="budget-heap" value="&lt;b&gt;max heap (-Xmx)&lt;/b&gt;&lt;br&gt;128MiB" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#A7F3D0;strokeColor=#059669;strokeWidth=2;align=center;fontSize=15;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="223" y="220" width="308" height="60" />
+        </mxCell>
+        <mxCell id="budget-offheap" value="&lt;b&gt;off-heap&lt;/b&gt;&lt;br&gt;약 30MiB" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#D1FAE5;strokeColor=#059669;strokeWidth=2;align=center;fontSize=15;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="531" y="220" width="72" height="60" />
+        </mxCell>
+        <mxCell id="budget-cache" value="&lt;b&gt;page cache&lt;/b&gt;&lt;br&gt;최대 69MiB" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#ECFDF5;strokeColor=#059669;strokeWidth=2;align=center;fontSize=15;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="603" y="220" width="166" height="60" />
+        </mxCell>
+        <mxCell id="budget-spare" value="&lt;b&gt;여유&lt;/b&gt;&lt;br&gt;약 29MiB" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;rounded=0;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=2;align=center;fontSize=15;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="769" y="220" width="70" height="60" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,113 @@
+<mxfile host="65bd71144e">
+    <diagram id="hapbang-lecture-lock" name="마지막 두 항목 동시 취소 전후">
+        <mxGraphModel dx="1425" dy="981" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" background="#F3F3F3" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="c7" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#CBD5E1;strokeWidth=1;endArrow=none;">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="500" y="136" as="sourcePoint"/>
+                        <mxPoint x="500" y="638" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c10" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#CBD5E1;strokeWidth=1.5;endArrow=none;dashed=1;dashPattern=6 4;">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="100" y="212" as="sourcePoint"/>
+                        <mxPoint x="100" y="566" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c12" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#CBD5E1;strokeWidth=1.5;endArrow=none;dashed=1;dashPattern=6 4;">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="360" y="212" as="sourcePoint"/>
+                        <mxPoint x="360" y="566" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c22" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#CBD5E1;strokeWidth=1.5;endArrow=none;dashed=1;dashPattern=6 4;">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="640" y="212" as="sourcePoint"/>
+                        <mxPoint x="640" y="566" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c24" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#CBD5E1;strokeWidth=1.5;endArrow=none;dashed=1;dashPattern=6 4;">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="900" y="212" as="sourcePoint"/>
+                        <mxPoint x="900" y="566" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c8" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=left;verticalAlign=middle;spacing=0;fontSize=20;fontColor=#1F2937;fontStyle=1;" value="Before: 항목에만 낙관적 락" vertex="1">
+                    <mxGeometry height="32" width="460" y="136" as="geometry"/>
+                </mxCell>
+                <mxCell id="c9" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=center;verticalAlign=middle;spacing=0;fontSize=17;fontColor=#1F2937;fontStyle=1;" value="강의 A 구매 취소" vertex="1">
+                    <mxGeometry height="26" width="200" y="182" as="geometry"/>
+                </mxCell>
+                <mxCell id="c11" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=center;verticalAlign=middle;spacing=0;fontSize=17;fontColor=#1F2937;fontStyle=1;" value="강의 B 구매 취소" vertex="1">
+                    <mxGeometry height="26" width="200" x="260" y="182" as="geometry"/>
+                </mxCell>
+                <mxCell id="c13" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="A를 취소" vertex="1">
+                    <mxGeometry height="50" width="200" y="224" as="geometry"/>
+                </mxCell>
+                <mxCell id="c14" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="B를 취소" vertex="1">
+                    <mxGeometry height="50" width="200" x="260" y="224" as="geometry"/>
+                </mxCell>
+                <mxCell id="c15" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FEF2F2;strokeColor=#DC2626;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="B 읽기: &lt;b&gt;구매됨&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="50" width="200" y="356" as="geometry"/>
+                </mxCell>
+                <mxCell id="c16" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FEF2F2;strokeColor=#DC2626;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="A 읽기: &lt;b&gt;구매됨&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="50" width="200" x="260" y="356" as="geometry"/>
+                </mxCell>
+                <mxCell id="c17" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="주문 유지, COMMIT" vertex="1">
+                    <mxGeometry height="50" width="200" y="488" as="geometry"/>
+                </mxCell>
+                <mxCell id="c18" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="주문 유지, COMMIT" vertex="1">
+                    <mxGeometry height="50" width="200" x="260" y="488" as="geometry"/>
+                </mxCell>
+                <mxCell id="c19" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FEF2F2;strokeColor=#DC2626;strokeWidth=2;fontSize=21;fontColor=#B91C1C;" value="&lt;b&gt;주문이 결제 완료로 남음&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="64" width="460" y="574" as="geometry"/>
+                </mxCell>
+                <mxCell id="c20" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=left;verticalAlign=middle;spacing=0;fontSize=20;fontColor=#1F2937;fontStyle=1;" value="After: 주문 행을 먼저 잠금" vertex="1">
+                    <mxGeometry height="32" width="460" x="540" y="136" as="geometry"/>
+                </mxCell>
+                <mxCell id="c21" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=center;verticalAlign=middle;spacing=0;fontSize=17;fontColor=#1F2937;fontStyle=1;" value="강의 A 구매 취소" vertex="1">
+                    <mxGeometry height="26" width="200" x="540" y="182" as="geometry"/>
+                </mxCell>
+                <mxCell id="c23" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;text;align=center;verticalAlign=middle;spacing=0;fontSize=17;fontColor=#1F2937;fontStyle=1;" value="강의 B 구매 취소" vertex="1">
+                    <mxGeometry height="26" width="200" x="800" y="182" as="geometry"/>
+                </mxCell>
+                <mxCell id="c25" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="&lt;b&gt;주문 행 잠금&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:14px&quot;&gt;SELECT … FOR UPDATE&lt;/span&gt;" vertex="1">
+                    <mxGeometry height="50" width="200" x="540" y="224" as="geometry"/>
+                </mxCell>
+                <mxCell id="c26" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="&lt;b&gt;주문 행 잠금 요청&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="50" width="200" x="800" y="224" as="geometry"/>
+                </mxCell>
+                <mxCell id="c27" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="A를 취소" vertex="1">
+                    <mxGeometry height="50" width="200" x="540" y="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="c28" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="COMMIT, 잠금 해제" vertex="1">
+                    <mxGeometry height="50" width="200" x="540" y="356" as="geometry"/>
+                </mxCell>
+                <mxCell id="c29" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#F1F5F9;strokeColor=#94A3B8;strokeWidth=1.5;fontSize=16;fontColor=#64748B;dashed=1;dashPattern=5 4;" value="대기" vertex="1">
+                    <mxGeometry height="116" width="200" x="800" y="290" as="geometry"/>
+                </mxCell>
+                <mxCell id="c30" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="잠금 획득, B를 취소" vertex="1">
+                    <mxGeometry height="50" width="200" x="800" y="422" as="geometry"/>
+                </mxCell>
+                <mxCell id="c31" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#ECFDF5;strokeColor=#059669;strokeWidth=1.5;fontSize=16;fontColor=#1F2937;" value="A 읽기: &lt;b&gt;취소됨&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="50" width="200" x="800" y="488" as="geometry"/>
+                </mxCell>
+                <mxCell id="c33" parent="1" style="html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontColor=#1F2937;rounded=1;arcSize=12;fillColor=#ECFDF5;strokeColor=#059669;strokeWidth=2;fontSize=21;fontColor=#065F46;" value="&lt;b&gt;주문 취소&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="64" width="460" x="540" y="574" as="geometry"/>
+                </mxCell>
+                <mxCell id="c32" edge="1" parent="1" style="html=1;rounded=0;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;endSize=7;dashed=1;dashPattern=6 4;">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="770" y="381"/>
+                            <mxPoint x="770" y="447"/>
+                        </Array>
+                        <mxPoint x="740" y="381" as="sourcePoint"/>
+                        <mxPoint x="800" y="447" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
