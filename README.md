@@ -4,36 +4,6 @@
 
 데브코스 백엔드 단기심화 8기 8팀 **남(은)자들 (Last Men Standing)** · 2026-10-07 시작
 
-![Java](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-6DB33F?logo=springboot&logoColor=white)
-![Spring Modulith](https://img.shields.io/badge/Spring%20Modulith-2.1.1-6DB33F?logo=spring&logoColor=white)
-![Spring Security](https://img.shields.io/badge/Spring%20Security-7.1-6DB33F?logo=springsecurity&logoColor=white)
-![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.1-6DB33F?logo=spring&logoColor=white)
-![QueryDSL](https://img.shields.io/badge/QueryDSL-7.7-0769AD)
-![Resilience4j](https://img.shields.io/badge/Resilience4j-2.4-2E7D32)
-![GraalVM](https://img.shields.io/badge/GraalVM-Native%20Image-F29111)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
-![Flyway](https://img.shields.io/badge/Flyway-12-CC0200?logo=flyway&logoColor=white)
-![Kafka](https://img.shields.io/badge/Apache%20Kafka-4.4-231F20?logo=apachekafka&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-8-FF4438?logo=redis&logoColor=white)
-![Elasticsearch](https://img.shields.io/badge/Elasticsearch-9.5-005571?logo=elasticsearch&logoColor=white)
-![k3s](https://img.shields.io/badge/k3s-1.36-FFC61C?logo=k3s&logoColor=black)
-![Envoy Gateway](https://img.shields.io/badge/Envoy%20Gateway-1.9-AC6199?logo=envoyproxy&logoColor=white)
-![Amazon EC2](https://img.shields.io/badge/Amazon%20EC2-FF9900?logo=amazonec2&logoColor=white)
-![Amazon S3](https://img.shields.io/badge/Amazon%20S3-569A31?logo=amazons3&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
-![GHCR](https://img.shields.io/badge/GHCR-181717?logo=github&logoColor=white)
-![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)
-![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white)
-![Loki](https://img.shields.io/badge/Loki-F46800?logo=grafana&logoColor=white)
-![Tempo](https://img.shields.io/badge/Tempo-F46800?logo=grafana&logoColor=white)
-![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-425CC7?logo=opentelemetry&logoColor=white)
-![Testcontainers](https://img.shields.io/badge/Testcontainers-2.0-291A3F?logo=testcontainers&logoColor=white)
-![JUnit](https://img.shields.io/badge/JUnit-6-25A162?logo=junit5&logoColor=white)
-![k6](https://img.shields.io/badge/k6-7D64FF?logo=k6&logoColor=white)
-![TossPayments](https://img.shields.io/badge/TossPayments-0064FF?logo=toss&logoColor=white)
-![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)
-
 [서비스](https://hapbang.duckdns.org) · [API 문서 (Swagger)](https://hapbang.duckdns.org/api/v1/members/swagger-ui/index.html) · [프론트엔드 레포](https://github.com/prgrms-be-adv-devcourse/beadv8_8_LMS_FE)
 
 규모 (2026-11-25 기준): 앱 7개 · 병합한 PR 499개 · 이슈 528개 · 테스트 클래스 1,033개 · 결정 기록 약 480건
@@ -46,9 +16,9 @@
 
 1. [서비스 소개](#서비스-소개)
 2. [주요 기능](#주요-기능)
-3. [아키텍처](#아키텍처)
-4. [앱 간 통신](#앱-간-통신)
-5. [기술 선택](#기술-선택)
+3. [기술 스택](#기술-스택)
+4. [아키텍처](#아키텍처)
+5. [앱 간 통신](#앱-간-통신)
 6. [핵심 기술 판단](#핵심-기술-판단)
 7. [성능·부하 테스트](#성능부하-테스트)
 8. [배포·운영](#배포운영)
@@ -101,6 +71,33 @@
 | 챗봇 (`auxiliary-app`의 `chatbot`) | FAQ 검색과 FAQ 대화(SSE 스트리밍)<br>자유 질문 대화(Tool Calling으로 FAQ 검색·강의 추천·인플루언서 추천)<br>강의·인플루언서 맞춤 추천과 추천 이유<br>대화 내용은 서버에 저장하지 않는다 |
 | 검색 (`auxiliary-app`의 `search`) | 인플루언서·강의 검색(비회원 포함)<br>자동완성, 초성 검색, 오타를 고친 검색어 제안<br>회원·IP별 호출 제한 |
 
+## 기술 스택
+
+| 분류 | 기술 |
+| --- | --- |
+| 언어·프레임워크 | ![Java](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-6DB33F?logo=springboot&logoColor=white) ![Spring Modulith](https://img.shields.io/badge/Spring%20Modulith-2.1.1-6DB33F?logo=spring&logoColor=white) ![Spring Security](https://img.shields.io/badge/Spring%20Security-7.1-6DB33F?logo=springsecurity&logoColor=white) ![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.1-6DB33F?logo=spring&logoColor=white) ![Hibernate](https://img.shields.io/badge/Hibernate-7.4-59666C?logo=hibernate&logoColor=white) ![QueryDSL](https://img.shields.io/badge/QueryDSL-7.7-0769AD) ![springdoc](https://img.shields.io/badge/springdoc%20OpenAPI-3.1-85EA2D?logo=swagger&logoColor=black) |
+| 회복성·성능 | ![Resilience4j](https://img.shields.io/badge/Resilience4j-2.4-2E7D32) ![Caffeine](https://img.shields.io/badge/Caffeine-3.2-6F4E37) ![GraalVM](https://img.shields.io/badge/GraalVM-Native%20Image-F29111) |
+| 데이터·메시징 | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white) ![Flyway](https://img.shields.io/badge/Flyway-12-CC0200?logo=flyway&logoColor=white) ![Kafka](https://img.shields.io/badge/Apache%20Kafka-4.4-231F20?logo=apachekafka&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-8-FF4438?logo=redis&logoColor=white) ![Elasticsearch](https://img.shields.io/badge/Elasticsearch-9.5-005571?logo=elasticsearch&logoColor=white) |
+| 인프라·배포 | ![k3s](https://img.shields.io/badge/k3s-1.36-FFC61C?logo=k3s&logoColor=black) ![Kustomize](https://img.shields.io/badge/Kustomize-326CE5?logo=kubernetes&logoColor=white) ![Helm](https://img.shields.io/badge/Helm-0F1689?logo=helm&logoColor=white) ![Envoy Gateway](https://img.shields.io/badge/Envoy%20Gateway-1.9-AC6199?logo=envoyproxy&logoColor=white) ![Amazon EC2](https://img.shields.io/badge/Amazon%20EC2-FF9900?logo=amazonec2&logoColor=white) ![Amazon S3](https://img.shields.io/badge/Amazon%20S3-569A31?logo=amazons3&logoColor=white) ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?logo=githubactions&logoColor=white) ![GHCR](https://img.shields.io/badge/GHCR-181717?logo=github&logoColor=white) |
+| 관측 | ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white) ![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white) ![Loki](https://img.shields.io/badge/Loki-F46800?logo=grafana&logoColor=white) ![Tempo](https://img.shields.io/badge/Tempo-F46800?logo=grafana&logoColor=white) ![Alloy](https://img.shields.io/badge/Alloy-F46800?logo=grafana&logoColor=white) ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-425CC7?logo=opentelemetry&logoColor=white) |
+| 테스트 | ![Testcontainers](https://img.shields.io/badge/Testcontainers-2.0-291A3F?logo=testcontainers&logoColor=white) ![JUnit](https://img.shields.io/badge/JUnit-6-25A162?logo=junit5&logoColor=white) ![k6](https://img.shields.io/badge/k6-7D64FF?logo=k6&logoColor=white) |
+| 외부 서비스 | ![TossPayments](https://img.shields.io/badge/TossPayments-0064FF?logo=toss&logoColor=white) ![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white) ![Google OAuth](https://img.shields.io/badge/Google%20OAuth-4285F4?logo=google&logoColor=white) ![CHZZK](https://img.shields.io/badge/CHZZK-00FFA3) |
+
+### 고른 이유
+
+AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것이다. 근거와 대안 비교는 [최종 프로젝트 인프라 설계](docs/architecture/final-project-infrastructure.md)에 있다.
+
+- **k3s (server 1 + agent 1) + Kustomize·Helm**: managed Kubernetes를 쓸 수 없어 EC2에 직접 올린다. rolling update, probe, node별 배치와 pod별 메모리 예산을 다룬다. 같은 manifest를 로컬 k3d와 CI에서 검증한다.
+- **Envoy Gateway**: TLS 종료, 앱별 라우팅, JWT 서명 검증, 내부 API 차단, trace 시작점을 한 곳에 둔다. edge nginx와 k3s 내장 Traefik은 쓰지 않는다.
+- **JWT (RS256, JWKS)**: 세션을 없앴다. member-app이 발급하고 Envoy가 검증하므로 앱은 인증 상태를 갖지 않는다.
+- **Spring Modulith + Kafka**: 업무 저장과 같은 트랜잭션에 이벤트를 기록(outbox)하고 커밋 뒤 Kafka로 내보낸다. 모듈 경계 검사도 Modulith로 한다.
+- **Redis**: 채팅 전달(Streams·Pub/Sub), 쿠폰 선착순 재고(Lua), refresh token, WebSocket 연결 티켓처럼 짧게 살거나 빨라야 하는 데이터에만 쓴다.
+- **Elasticsearch 하나로 검색과 벡터 검색**: nori 한국어 검색과 챗봇의 벡터 검색을 같은 클러스터에서 한다. 별도 Vector DB를 두지 않는다([조사](docs/architecture/elasticsearch-consolidation-research.md)).
+- **Prometheus·Loki·Tempo·Grafana·Alloy**: 지표·로그·trace를 한 화면에서 본다. Mimir와 Elastic Observability는 2노드 메모리를 더 쓰므로 뺐다.
+- **Resilience4j**: rate limit은 Gateway가 아니라 각 앱에서 하고, 앱 간 HTTP 호출에 timeout·circuit breaker·retry를 건다.
+- **Caffeine**: 앱 안 메모리 캐시다. 크기 상한을 두고 Spring Cache 추상화 없이 쓰는 앱(chat, auxiliary, 쿠폰)에만 의존을 둔다.
+- **GraalVM Native Image**: JVM 앱 하나가 heap과 상관없이 280~355 MiB를 고정으로 쓴다. 트래픽이 가장 적은 customer-support-app 하나만 native로 바꿨다. 다른 앱으로 넓히면 앱마다 CI가 native 컴파일 10~14분만큼 늘어 보류했다([Native Image](docs/architecture/infrastructure/native-image.md)).
+
 ## 아키텍처
 
 ![합방 전체 구조](docs/images/readme/hapbang-architecture.png)
@@ -146,20 +143,6 @@
 
 자세한 규칙은 [모듈 연동](docs/dev/module-integration.md), 토픽·재시도·DLT 재처리는 [Kafka](docs/architecture/infrastructure/kafka.md)에 있다.
 
-## 기술 선택
-
-AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것이다. 근거와 대안 비교는 [최종 프로젝트 인프라 설계](docs/architecture/final-project-infrastructure.md)에 있다.
-
-- **k3s (server 1 + agent 1) + Kustomize·Helm**: managed Kubernetes를 쓸 수 없어 EC2에 직접 올린다. rolling update, probe, node별 배치와 pod별 메모리 예산을 다룬다. 같은 manifest를 로컬 k3d와 CI에서 검증한다.
-- **Envoy Gateway**: TLS 종료, 앱별 라우팅, JWT 서명 검증, 내부 API 차단, trace 시작점을 한 곳에 둔다. edge nginx와 k3s 내장 Traefik은 쓰지 않는다.
-- **JWT (RS256, JWKS)**: 세션을 없앴다. member-app이 발급하고 Envoy가 검증하므로 앱은 인증 상태를 갖지 않는다.
-- **Spring Modulith + Kafka**: 업무 저장과 같은 트랜잭션에 이벤트를 기록(outbox)하고 커밋 뒤 Kafka로 내보낸다. 모듈 경계 검사도 Modulith로 한다.
-- **Redis**: 채팅 전달(Streams·Pub/Sub), 쿠폰 선착순 재고(Lua), refresh token, WebSocket 연결 티켓처럼 짧게 살거나 빨라야 하는 데이터에만 쓴다.
-- **Elasticsearch 하나로 검색과 벡터 검색**: nori 한국어 검색과 챗봇의 벡터 검색을 같은 클러스터에서 한다. 별도 Vector DB를 두지 않는다([조사](docs/architecture/elasticsearch-consolidation-research.md)).
-- **Prometheus·Loki·Tempo·Grafana·Alloy**: 지표·로그·trace를 한 화면에서 본다. Mimir와 Elastic Observability는 2노드 메모리를 더 쓰므로 뺐다.
-- **Resilience4j**: rate limit은 Gateway가 아니라 각 앱에서 하고, 앱 간 HTTP 호출에 timeout·circuit breaker·retry를 건다.
-- **GraalVM Native Image**: JVM 앱 하나가 heap과 상관없이 280~355 MiB를 고정으로 쓴다. 트래픽이 가장 적은 customer-support-app 하나만 native로 바꿨다. 다른 앱으로 넓히면 앱마다 CI가 native 컴파일 10~14분만큼 늘어 보류했다([Native Image](docs/architecture/infrastructure/native-image.md)).
-
 ## 핵심 기술 판단
 
 각 판단은 "문제 → 판단 → 결과"로 적고, 근거 문서를 단다.
@@ -176,8 +159,10 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 
 #### HP 작업은 기록하고, 끝까지 실패하면 격리한다 (출연)
 
+![HP 작업 기록과 격리](docs/images/readme/hapbang-appearance-hp-task.png)
+
 - **문제**: 지갑 호출은 순간 장애, 결과 불명, 커밋 직후 종료로 실패할 수 있다.
-- **판단**: 출연 상태를 바꾸는 트랜잭션에 HP 작업을 PENDING으로 기록하고 커밋 뒤 실행한다. 결과를 받지 못하면 지수 백오프(1분 → 최대 1시간)로 최대 10회 다시 하고, 그래도 안 되거나 지갑이 거절하면 DEAD로 격리한다. circuit breaker가 열려 보내지 못한 경우는 시도 횟수에 넣지 않는다.
+- **판단**: 출연 상태를 바꾸는 트랜잭션에 HP 작업(반환·지급·위약금)을 PENDING으로 기록하고 커밋 뒤 실행한다. 결과를 받지 못하면 지수 백오프(1분 → 최대 1시간)로 최대 10회 다시 하고, 그래도 안 되거나 지갑이 거절하면 DEAD로 격리한다. circuit breaker가 열려 보내지 못한 경우는 시도 횟수에 넣지 않는다.
 - **결과**: DEAD가 생기면 알림이 울리고 관리자가 다시 시도한다. 매일 대사가 규칙 11종으로 출연 상태 ↔ HP 작업 ↔ 지갑 보류·지급을 비교한다. ([출연 문서](docs/appearance/module.md) 4.3·8.4·25장)
 
 #### 이벤트를 잃지 않는 발행과 멱등 소비 (공통)
@@ -188,8 +173,10 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 
 #### 인증은 Gateway가, 인가는 앱이 (회원·Gateway)
 
+![인증은 Gateway가, 인가는 앱이](docs/images/readme/hapbang-auth-gateway.png)
+
 - **문제**: 앱 7개가 각자 세션이나 토큰을 검증하면 인증 코드와 상태가 앱마다 생긴다. 세션은 앱끼리 공유되지도 않는다.
-- **판단**: member-app이 RS256 JWT(15분)를 발급하고 JWKS로 공개 키를 연다. Envoy가 서명을 검증해 `sub`·`role`을 `X-User-Id`·`X-User-Role` 헤더로 넘기고, 앱은 `@PreAuthorize`로 인가만 한다. 외부에서 들어온 `x-user-*`·내부 API 키 헤더는 Gateway가 지우고, NetworkPolicy로 앱의 8080 포트에는 Envoy만 닿게 한다. refresh token(14일)은 Redis에 해시로 두고 Lua로 원자 회전하며, 유예 10초를 넘긴 재사용은 거절한다.
+- **판단**: member-app이 RS256 JWT(15분)를 발급하고 JWKS로 공개 키를 연다. Envoy가 서명을 검증해 `sub`·`role`을 `X-User-Id`·`X-User-Role` 헤더로 넘기고, 앱은 `@PreAuthorize`로 인가만 한다. 외부에서 들어온 `x-user-*`·내부 API 키 헤더는 Gateway가 지우고, NetworkPolicy로 앱의 8080 포트에는 Envoy만 닿게 한다. refresh token(14일)은 HttpOnly 쿠키로 주고 Redis에는 원문 대신 SHA-256 해시만 둔다. 재발급 때 Lua 스크립트 하나로 원자적으로 회전하고, 회전 뒤 10초가 지나 옛 토큰이 다시 오면 그 회원의 refresh token을 모두 폐기한다.
 - **결과**: 앱은 인증 상태를 갖지 않는다. 헤더 위조 경로는 Gateway 테스트(`k8s/gateway/tests`)로 검사한다. ([API Gateway](docs/architecture/infrastructure/api-gateway.md))
 
 ### 강의
@@ -214,19 +201,25 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 
 #### HP 원장은 쌓기만 하고, 같은 요청은 한 번만 반영한다
 
+![HP 원장과 멱등 키](docs/images/readme/hapbang-billing-ledger-idempotency.png)
+
 - **문제**: 잔액이 바뀐 근거를 잃거나 재전송으로 HP가 두 번 움직이면 정합성을 증명할 수 없다.
 - **판단**: 원장은 수정·삭제하지 않고 잔액 변경은 한 경로로만 한다. 작업마다 멱등 키(예: `HOLD:{유형}:{ID}`)를 만들고, 같은 키에 다른 내용이 오면 거절한다.
 - **결과**: DB 트리거가 원장의 UPDATE·DELETE를 막고, 아키텍처 테스트가 잔액 변경 경로를 강제한다. 멱등 키는 DB UNIQUE로 최종 보장하고, 같은 키를 다시 보내면 처음 결과를 돌려준다. ([지갑 문서](docs/billing/module.md) 4·5장)
 
 #### 교착 없는 잠금 순서와 매일 잔액 대사
 
+![지갑 잠금 순서와 잔액 대사](docs/images/readme/hapbang-billing-lock-order.png)
+
 - **문제**: 여러 지갑을 바꾸는 지급·위약금이 서로 다른 순서로 잠그면 교착이 생긴다. 캐시한 잔액과 원장 합이 어긋나도 알아챌 수단이 없었다.
 - **판단**: 지갑은 ID 오름차순으로 `PESSIMISTIC_WRITE` 잠금하고, 잠금 순서는 지갑 → 보류 → 충전 건으로 고정한다(lock timeout 3초). 매일 새벽 최근 72시간 안에 바뀐 지갑의 잔액을 원장과 대사하고, 불일치는 고치지 않고 알린다.
-- **결과**: 지갑 유형별 고정 순서로는 판매자 지급과 같은 판매자의 구매 보류가 겹칠 때 교착이 생겨 ID 순서를 골랐다(BD-155). 대사 실행 기록을 DB에 남기고 실패한 지갑은 다음 회차로 넘긴다. ([BD-10, BD-139](docs/billing/decisions.md))
+- **결과**: 계약 초안의 지갑 유형별 순서로는 플랫폼 쿠폰이 걸린 판매자 X 지급(프로모션 → X)과 X의 구매 보류(X → 프로모션)가 반대 순서로 잠가 교착이 생긴다. 그래서 어느 흐름이든 지갑 ID 순서로 잠근다(BD-155). 대사 실행 기록을 DB에 남기고 실패한 지갑은 다음 회차로 넘긴다. ([BD-10, BD-139](docs/billing/decisions.md))
 
 ### 쿠폰
 
 #### 선착순 발급: Redis Lua로 접수하고 Kafka로 확정한다
+
+![쿠폰 선착순 발급](docs/images/readme/hapbang-coupon-issue.png)
 
 - **문제**: 1,000명이 동시에 재고 100장을 노릴 때 과발급·중복 발급 없이 빠르게 접수해야 한다.
 - **판단**: 접수는 Redis Lua 스크립트로 재고 차감과 중복 검사를 원자적으로 한다. 접수 직후 Kafka로 보내고 소비자가 DB에 확정한다. DB에는 `(회원, 쿠폰)`과 `(쿠폰, 요청 ID)` UNIQUE를 최종 방어선으로 둔다. 전송 실패는 재발행 배치가, Redis 재시작은 `run_id` 변경 감지와 5단계 복구가 맡는다.
@@ -236,6 +229,8 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 
 #### PostgreSQL outbox → Redis Streams → Pub/Sub → STOMP
 
+![채팅 전달 파이프라인](docs/images/readme/hapbang-chat-delivery.png)
+
 - **문제**: Redis Pub/Sub은 받지 못한 메시지를 다시 보내지 않는다. DB 커밋과 Redis 적재 사이, 소비 중 종료 때 메시지를 잃는다.
 - **판단**: 메시지를 PostgreSQL outbox에 업무와 함께 저장하고, relay가 Redis Streams에 넣는다. consumer group이 꺼내 Pub/Sub으로 발행하고, DB 체크포인트를 커밋한 뒤 ACK한다. 연결은 30초짜리 1회용 티켓으로 연다.
 - **결과**: 커밋과 적재 사이 공백은 outbox가, 소비 실패는 PEL 회수가, Redis 데이터 유실은 DB 체크포인트 대조가 메운다. 전달이 멈추면 알림이 울린다. ([채팅 Redis](docs/architecture/infrastructure/redis-chat.md), [채팅 설계](apps/chat-app/docs/final-design.md))
@@ -244,21 +239,27 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 
 #### 여러 앱의 이벤트를 알림 53종으로, 실시간 전달은 저장을 막지 않게
 
+![알림 파이프라인](docs/images/readme/hapbang-notification-pipeline.png)
+
 - **문제**: 6개 토픽에서 오는 이벤트를 알림으로 만들어야 하고, 받는 사람마다 알림이 끝없이 쌓이며, Redis가 느려도 저장이 기다리면 안 된다.
 - **판단**: 리스너 6개가 토픽별로 받아 즉시·예약·하루 묶음 알림 53종을 만든다. 받는 사람 행을 잠가 저장을 직렬화하고 최신 20개만 남긴다. 실시간 전달은 커밋 뒤 큐(1,000건)에 넣고 한 스레드가 100건씩 묶어 Redis로 발행한다. 큐가 차면 버리고, 화면은 REST로 맞춘다.
-- **결과**: 격리 환경에서 저장 → 수신 p95 9.8 ms, 유실 0/6,000, 밀린 이벤트 10,000건을 46.7초에 따라잡았다. ([알림 설계](docs/architecture/infrastructure/notification.md), [알림 문서](docs/notification/module.md))
+- **결과**: 격리 환경에서 저장 → 수신 p95 11.5 ms, 유실 0/6,000이었다. 밀린 이벤트 10,000건을 40.1초에 따라잡는 동안 큐에서 버린 실시간 전달도 0건이었다. ([알림 설계](docs/architecture/infrastructure/notification.md), [알림 문서](docs/notification/module.md))
 
 ### 챗봇
 
 #### Elasticsearch 벡터 검색 + LLM 리랭킹 + Tool Calling, 장애에도 답한다
 
+![챗봇 검색·추천 구조](docs/images/readme/hapbang-chatbot-rag.png)
+
 - **문제**: FAQ와 추천을 자연어로 다뤄야 하지만, LLM이나 Elasticsearch가 죽으면 챗봇 전체가 멈춘다.
-- **판단**: FAQ 53건과 강의·인플루언서 취향을 임베딩해 Elasticsearch `dense_vector`(HNSW, cosine)에 넣고 kNN으로 후보 20개를 뽑는다. LLM이 5개를 골라 순서와 추천 이유를 붙인다. 자유 질문은 Tool Calling(`searchFaq`, `recommendLectures`, `recommendInfluencers`)으로 답하고 SSE로 흘려보낸다. 대화는 저장하지 않고 FE가 매 요청에 이력을 보낸다.
+- **판단**: FAQ 53건과 강의·인플루언서 취향을 임베딩해 Elasticsearch `dense_vector`(HNSW, cosine)에 넣고 추천받기는 코드가 kNN과 제외 규칙으로 후보 풀(최대 20개)을 만들고, LLM은 그 안에서만 5개를 골라 순서와 추천 이유를 붙인다. FAQ 대화와 자유 질문은 Tool Calling(`searchFaq`, `recommendLectures`, `recommendInfluencers`, 요청 하나에 최대 3번)으로 답하고 SSE로 흘려보낸다. 대화는 저장하지 않고 FE가 매 요청에 이력을 보낸다.
 - **결과**: LLM·ES가 죽어도 health는 UP이고, 검색 상위 1건이나 안내 문구, 인기순 추천으로 답한다. LLM 회로 하나와 동시 호출 상한 4개를 모든 챗봇 기능이 나눠 쓴다. 오프라인 평가에서 리랭킹으로 인플루언서 추천 hit@5가 0.188 → 0.225가 됐다. ([auxiliary-app](apps/auxiliary-app/README.md), [리랭킹 평가](docs/chatbot/recommend-rerank.md))
 
 ### 검색
 
 #### nori 한국어 검색과 alias 무중단 재색인
+
+![검색 재색인과 보정](docs/images/readme/hapbang-search-reindex.png)
 
 - **문제**: 사전이나 mapping을 바꾸면 index를 새로 만들어야 하고, ES가 잠시 멈추면 회원 이벤트가 DLT로 간다.
 - **판단**: nori 형태소 분석에 사용자 사전·동의어를 더한다. 설정 해시를 이름에 넣은 새 index를 채운 뒤 alias를 옮기고, 쓰기는 alias로만 한다. 10분마다 회원 변경분을 내부 API로 읽어 version 조건부로 다시 반영한다.
@@ -290,8 +291,8 @@ AWS 범위(EC2 2대, 메모리 8 GiB + 4 GiB)라는 제약 안에서 고른 것�
 | 쿠폰 선착순 발급 | 로컬, 1,000명 × 재고 100장, 3회 | 과발급·중복·미확정 0, 모든 접수 2.3초 안에 확정. 접수 p95 669 / 206 / 369 ms | [기록](docs/load-test/coupon-issue.md) |
 | 쿠폰 장애 주입 | 로컬 컨테이너 | Redis 재시작: 30초 뒤 감지해 발급을 막고 복구 5단계 8.6초. Kafka 60초 중단: 다시 띄운 뒤 44.6초 안에 20건 모두 확정. PostgreSQL 중단: 접수는 35~40 ms로 계속 받고 DB가 돌아온 직후 모두 확정 | [기록](docs/load-test/coupon-issue.md) |
 | 쿠폰 운영 측정과 개선 | 운영 3회 (2026-11-11) → 로컬, 앱 CPU 2개 제한 | 운영에서 정합성은 통과했지만 접수 p95 2,975 / 2,392 / 1,446 ms, 5xx 최대 1.36%로 불합격했다. 원인은 vCPU 2개 node에서 요청당 CPU 비용이었다. Tomcat 대기열(`accept-count` 1024), Kafka ACK 대기 제거, Spring Security 앞의 매진 빠른 경로로 로컬 접수 p95를 1,025 → 146 ms로 줄였다. 운영 재측정은 아직 하지 않았다 | [결정](apps/lecture-app/boundedContext/coupon/docs/decisions.md) |
-| 알림 실시간 전달 | 격리 k3d, 회원 100명 × 초당 20건 × 5분 | 저장 → 수신 p95 9.8 ms, 유실 0/6,000 | [기록](docs/load-test/notification-load.md) |
-| 알림 밀린 이벤트 회복 | 격리 k3d, 10,000건 | lag 0까지 46.7초(기준 300초) | [기록](docs/load-test/notification-load.md) |
+| 알림 실시간 전달 | 격리 k3d, 회원 100명 × 초당 20건 × 5분 | 저장 → 수신 p95 11.5 ms, 유실 0/6,000 (묶음 발행 적용 뒤 재측정) | [기록](docs/load-test/notification-load.md) |
+| 알림 밀린 이벤트 회복 | 격리 k3d, 10,000건 | lag 0까지 40.1초(기준 300초), 큐에서 버린 실시간 전달 0건 | [기록](docs/load-test/notification-load.md) |
 | Native Image | 운영, customer-support-app | 기동 22.9~27.8초 → 1.10~1.16초, working set 391 → 120~129 MiB, limit 448 → 256 MiB | [기록](docs/architecture/infrastructure/native-image.md) |
 | 챗봇 추천 리랭킹 | 오프라인, 더미 데이터 80명 × 3회 평균 | 인플루언서 hit@5 0.188 → 0.225, 강의 0.346 → 0.383 | [기록](docs/chatbot/recommend-rerank.md) |
 
