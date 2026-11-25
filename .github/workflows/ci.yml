@@ -1,5 +1,5 @@
 # main·dev로 가는 PR마다 바뀐 앱만 테스트하고, 테스트한 jar로 그 앱의 이미지가 빌드되는지까지 확인한다(push하지 않음, #488).
-# 앱은 apps/<앱>-app 여섯 개이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
+# 앱은 apps/<앱>-app 디렉터리마다 하나이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
 # dev push 때는 publish.yml이 이 워크플로를 호출해 발행할 앱만 테스트하고, 앱별 jar를 artifact(app-jar-<앱>)로 넘겨받는다(#374, #559).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 #
@@ -21,7 +21,7 @@ on:
         type: boolean
         default: false
       apps:
-        description: 테스트할 앱의 JSON 배열(예 ["member-app"]). 비우면 여섯 앱 모두
+        description: 테스트할 앱의 JSON 배열(예 ["member-app"]). 비우면 모든 앱
         type: string
         default: ''
 
@@ -56,7 +56,7 @@ jobs:
         run: .github/scripts/apps-test.sh
 
       # PR은 base와 merge 커밋(GITHUB_SHA)을 비교한다. base가 그 뒤로 움직였으면 다른 PR의 변경까지 더 테스트할 뿐 빠뜨리지는 않는다.
-      # dev 발행(workflow_call)은 호출한 쪽이 넘긴 앱(publish.yml이 고른 발행할 앱)을 테스트한다. 넘기지 않으면 여섯 앱 모두다.
+      # dev 발행(workflow_call)은 호출한 쪽이 넘긴 앱(publish.yml이 고른 발행할 앱)을 테스트한다. 넘기지 않으면 모든 앱이다.
       - name: 바뀐 앱 찾기
         id: detect
         env:

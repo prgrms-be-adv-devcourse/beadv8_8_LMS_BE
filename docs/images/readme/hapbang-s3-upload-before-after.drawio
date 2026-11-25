@@ -1,0 +1,72 @@
+<mxfile host="65bd71144e">
+    <diagram id="s3-before-after" name="직접 PUT과 서버 경유 스트리밍">
+        <mxGraphModel dx="1083" dy="1047" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" background="#F3F3F3" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="before-title" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=22;fontColor=#475569;fillColor=none;strokeColor=none;align=left;verticalAlign=middle;" value="&lt;b&gt;Before: S3 직접 업로드&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="30" width="700" as="geometry"/>
+                </mxCell>
+                <mxCell id="browser-before" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=17;fontColor=#334155;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;브라우저&lt;/b&gt;&lt;br&gt;외부 PC" vertex="1">
+                    <mxGeometry height="75" width="170" y="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="signer" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=17;fontColor=#334155;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;백엔드&lt;/b&gt;&lt;br&gt;EC2 인스턴스 역할로 서명" vertex="1">
+                    <mxGeometry height="75" width="300" x="390" y="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-before" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=21;fontColor=#9A3412;fillColor=#FFF7ED;strokeColor=#EA580C;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;S3&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="75" width="160" x="900" y="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="url" edge="1" parent="1" source="signer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2;fontFamily=Wanted Sans;fontSize=15;fontColor=#64748B;labelBackgroundColor=#F3F3F3;dashed=1;" target="browser-before" value="Presigned URL 발급">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="direct" edge="1" parent="1" source="browser-before" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#DC2626;strokeWidth=2;fontFamily=Wanted Sans;fontSize=15;fontColor=#DC2626;labelBackgroundColor=#F3F3F3;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" target="s3-before" value="PUT → 403">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="85" y="187"/>
+                            <mxPoint x="980" y="187"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="observation" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=16;fontColor=#64748B;fillColor=none;strokeColor=none;align=left;verticalAlign=middle;" value="같은 URL로 EC2에서 PUT하면 성공, 외부 PC에서는 작은 파일도 403" vertex="1">
+                    <mxGeometry height="30" width="1060" y="216" as="geometry"/>
+                </mxCell>
+                <mxCell id="after-title" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=22;fontColor=#475569;fillColor=none;strokeColor=none;align=left;verticalAlign=middle;" value="&lt;b&gt;After: 서버 경유 스트리밍&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="30" width="750" y="278" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=17;fontColor=#334155;fillColor=#EBF3FF;strokeColor=#CBD5E1;strokeWidth=1.5;spacing=10;" value="" vertex="1">
+                    <mxGeometry height="174" width="650" x="200" y="322" as="geometry"/>
+                </mxCell>
+                <mxCell id="browser-after" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=17;fontColor=#334155;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;브라우저&lt;/b&gt;&lt;br&gt;본문 PUT" vertex="1">
+                    <mxGeometry height="75" width="170" y="365" as="geometry"/>
+                </mxCell>
+                <mxCell id="gateway" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=16;fontColor=#1E3A8A;fillColor=#FFFFFF;strokeColor=#3B82F6;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;Envoy Gateway&lt;/b&gt;&lt;br&gt;업로드 경로만 버퍼링 끔" vertex="1">
+                    <mxGeometry height="75" width="240" x="235" y="365" as="geometry"/>
+                </mxCell>
+                <mxCell id="app" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=16;fontColor=#065F46;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;백엔드&lt;/b&gt;&lt;br&gt;본문 전체 적재 없이 전달" vertex="1">
+                    <mxGeometry height="75" width="250" x="565" y="365" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3-after" parent="1" style="rounded=1;arcSize=12;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=17;fontColor=#9A3412;fillColor=#FFF7ED;strokeColor=#EA580C;strokeWidth=1.5;spacing=10;" value="&lt;b&gt;S3&lt;/b&gt;&lt;br&gt;PutObject" vertex="1">
+                    <mxGeometry height="75" width="160" x="900" y="365" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime-label" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=14;fontColor=#64748B;fillColor=none;strokeColor=none;align=left;verticalAlign=middle;" value="EC2 / k3s" vertex="1">
+                    <mxGeometry height="25" width="250" x="220" y="330" as="geometry"/>
+                </mxCell>
+                <mxCell id="a1" edge="1" parent="1" source="browser-after" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2;fontFamily=Wanted Sans;fontSize=15;fontColor=#64748B;labelBackgroundColor=#F3F3F3;" target="gateway" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a2" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#059669;strokeWidth=2;fontFamily=Wanted Sans;fontSize=15;fontColor=#059669;labelBackgroundColor=#F3F3F3;" target="app" value="스트리밍">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a3" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeColor=#059669;strokeWidth=2;fontFamily=Wanted Sans;fontSize=15;fontColor=#059669;labelBackgroundColor=#F3F3F3;" target="s3-after" value="스트리밍">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="tx" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=15;fontColor=#065F46;fillColor=none;strokeColor=none;align=center;verticalAlign=middle;" value="DB 트랜잭션 밖 전송, pod별 동시 업로드 상한 20개" vertex="1">
+                    <mxGeometry height="30" width="580" x="235" y="453" as="geometry"/>
+                </mxCell>
+                <mxCell id="success" parent="1" style="text;html=1;whiteSpace=wrap;fontFamily=Wanted Sans;fontSize=20;fontColor=#065F46;fillColor=none;strokeColor=none;align=center;verticalAlign=middle;" value="&lt;b&gt;운영 단일 2GB 업로드 성공&lt;/b&gt;" vertex="1">
+                    <mxGeometry height="30" width="1060" y="520" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
