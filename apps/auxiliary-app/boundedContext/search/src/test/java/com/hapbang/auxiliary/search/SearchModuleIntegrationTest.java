@@ -77,7 +77,7 @@ class SearchModuleIntegrationTest {
     }
 
     @Test
-    @DisplayName("재색인 실행기는 search-reindex- 가상 스레드에서 돌고, 넘긴 쪽의 observation(trace)을 이어받는다(PR #845 리뷰)")
+    @DisplayName("재색인 실행기는 search-reindex- daemon platform thread에서 돌고(#942), 넘긴 쪽의 observation(trace)을 이어받는다(PR #845 리뷰)")
     void reindexExecutorPropagatesTrace() throws Exception {
         AtomicReference<Observation> seen = new AtomicReference<>();
         AtomicReference<Thread> thread = new AtomicReference<>();
@@ -96,6 +96,7 @@ class SearchModuleIntegrationTest {
         assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(seen.get()).isSameAs(parent);
         assertThat(thread.get().getName()).startsWith("search-reindex-");
-        assertThat(thread.get().isVirtual()).isTrue();
+        assertThat(thread.get().isVirtual()).isFalse();
+        assertThat(thread.get().isDaemon()).isTrue();
     }
 }

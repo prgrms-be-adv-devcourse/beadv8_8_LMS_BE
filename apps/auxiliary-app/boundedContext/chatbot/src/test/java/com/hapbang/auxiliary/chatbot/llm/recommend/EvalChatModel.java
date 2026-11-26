@@ -24,7 +24,7 @@ import com.hapbang.auxiliary.chatbot.app.RecommendEvalAccess;
  *     버튼 경로가 쓴 확장 결과를 다시 받아 같은 후보 풀(코드 순서)을 만들 때 쓴다. 운영 코드를 평가용으로 바꾸지 않으려는 것이다.</li>
  *     <li>실제로 보낸 호출의 걸린 시간·토큰과 리랭킹 답 원문을 남긴다(후보 밖 순번·이유 길이를 센다).</li>
  * </ul>
- * 운영 호출 장치({@code LlmCallGuard})는 호출마다 새 가상 스레드를 만든다. 회원 범위를 {@link InheritableThreadLocal}에 두어 그 스레드가
+ * 운영 호출 장치({@code LlmCallGuard})는 호출마다 새 스레드를 만든다. 회원 범위를 {@link InheritableThreadLocal}에 두어 그 스레드가
  * 물려받게 한다(스레드를 다시 쓰는 풀이면 이 방식이 맞지 않는다). 글·키·요청 헤더는 남기지 않는다.
  */
 final class EvalChatModel implements ChatModel {
